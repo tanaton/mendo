@@ -1,4 +1,4 @@
-#include "context_menu_impl.h"
+#include "context_menu.h"
 #include "i18n.h"
 #include "resource.h"
 #include <algorithm>
@@ -7,7 +7,7 @@
 
 using namespace context_menu_constants;
 
-void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
+void ContextMenu::BuildItems(const ContextMenuParams& params)
 {
     items.clear();
 
@@ -36,7 +36,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
     items.emplace_back(ItemType::Text, IDM_TOGGLE_TOC_PANE, ls.menu_toc_pane, true, params.toc_pane_checked);
 }
 
-void ContextMenu::Impl::ComputeLayout()
+void ContextMenu::ComputeLayout()
 {
     float max_text_w = 0.0f;
     float zoom_row_w = 0.0f;
@@ -44,7 +44,7 @@ void ContextMenu::Impl::ComputeLayout()
         if (item.type == ItemType::ZoomRow) {
             zoom_row_w = PAD_X + Measure(item.text, fmt_text.Get()) + ZOOM_LABEL_GAP + ZOOM_CONTROLS_WIDTH + ZOOM_PAD_RIGHT;
         }
-        if (item.type != ItemType::Text || item.text.empty()) {
+        if (item.type != ItemType::Text) {
             continue;
         }
         max_text_w = std::max(max_text_w, Measure(item.text, fmt_text.Get()));
@@ -96,10 +96,10 @@ void ContextMenu::Impl::ComputeLayout()
     height = y + PAD_Y;
 }
 
-int ContextMenu::Impl::HitTest(float x, float y) const noexcept
+int ContextMenu::HitTest(float x, float y) const noexcept
 {
     for (const auto& item : items) {
-        if (item.type != ItemType::Text || item.id == 0 || !item.enabled) {
+        if (item.type != ItemType::Text || !item.enabled) {
             continue;
         }
         if (PointInRect(x, y, item.rect)) {
@@ -109,7 +109,7 @@ int ContextMenu::Impl::HitTest(float x, float y) const noexcept
     return 0;
 }
 
-int ContextMenu::Impl::NavHitTest(float x, float y) const noexcept
+int ContextMenu::NavHitTest(float x, float y) const noexcept
 {
     if (nav_layout.back_enabled && PointInRect(x, y, nav_layout.back_rect)) {
         return IDM_NAV_BACK;
@@ -120,7 +120,7 @@ int ContextMenu::Impl::NavHitTest(float x, float y) const noexcept
     return 0;
 }
 
-std::optional<ZoomDirection> ContextMenu::Impl::ZoomHitTest(float x, float y) const noexcept
+std::optional<ZoomDirection> ContextMenu::ZoomHitTest(float x, float y) const noexcept
 {
     if (!zoom) {
         return std::nullopt;
@@ -138,7 +138,7 @@ std::optional<ZoomDirection> ContextMenu::Impl::ZoomHitTest(float x, float y) co
     return std::nullopt;
 }
 
-bool ContextMenu::Impl::UpdateHover(float x, float y)
+bool ContextMenu::UpdateHover(float x, float y)
 {
     const auto zoom_hit = ZoomHitTest(x, y);
     const int id = zoom_hit ? 0 : CommandAt(x, y);
@@ -150,16 +150,14 @@ bool ContextMenu::Impl::UpdateHover(float x, float y)
     return true;
 }
 
-void ContextMenu::Impl::OnPress(UINT msg, float x, float y)
+void ContextMenu::OnPress(UINT msg, float x, float y)
 {
     if (msg == WM_MBUTTONDOWN) {
         return;
     }
     // ズームは閉じずに倍率だけ変え、続けて押せるようにする。端に着いたボタンは押せなくなる。
     if (const auto zoom_hit = ZoomHitTest(x, y)) {
-        if (on_zoom) {
-            on_zoom(*zoom_hit);
-        }
+        on_zoom(*zoom_hit);
         return;
     }
     if (const int hit = CommandAt(x, y); hit != 0) {
@@ -170,7 +168,7 @@ void ContextMenu::Impl::OnPress(UINT msg, float x, float y)
 
 int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
-    Impl s;
+    ContextMenu s;
     if (!s.Setup(params.env)) {
         return 0;
     }
@@ -181,7 +179,7 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     return s.selected_id;
 }
 
-void ContextMenu::Impl::PaintContent()
+void ContextMenu::PaintContent()
 {
     for (const auto& item : items) {
         switch (item.type) {
@@ -203,7 +201,7 @@ void ContextMenu::Impl::PaintContent()
     }
 }
 
-void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered)
+void ContextMenu::DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered)
 {
     if (hovered) {
         FillHover(rect);
@@ -211,17 +209,14 @@ void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph
     DrawLabel(glyph, fmt_icon.Get(), rect, enabled ? brushes.text.Get() : brushes.gray.Get());
 }
 
-void ContextMenu::Impl::DrawNavRow()
+void ContextMenu::DrawNavRow()
 {
     DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_id == IDM_NAV_BACK);
     DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_id == IDM_NAV_FORWARD);
 }
 
-void ContextMenu::Impl::DrawZoomRow(const Item& item)
+void ContextMenu::DrawZoomRow(const Item& item)
 {
-    if (!zoom) {
-        return;
-    }
     DrawLabel(item.text, fmt_text.Get(), { item.rect.left + PAD_X, item.rect.top, zoom_layout.out_rect.left, item.rect.bottom }, brushes.text.Get());
 
     const auto draw_btn = [&](const DipRect& rect, const wchar_t* glyph, ZoomDirection direction) {
@@ -238,7 +233,7 @@ void ContextMenu::Impl::DrawZoomRow(const Item& item)
     DrawLabel({ percent, len }, fmt_text_center.Get(), zoom_layout.percent_rect, brushes.text.Get());
 }
 
-void ContextMenu::Impl::DrawSeparator(const Item& item)
+void ContextMenu::DrawSeparator(const Item& item)
 {
     const float cy = (item.rect.top + item.rect.bottom) / 2.0f;
     rt->DrawLine(
@@ -248,9 +243,9 @@ void ContextMenu::Impl::DrawSeparator(const Item& item)
         1.0f);
 }
 
-void ContextMenu::Impl::DrawTextItem(const Item& item)
+void ContextMenu::DrawTextItem(const Item& item)
 {
-    if (item.id != 0 && item.id == hovered_id) {
+    if (item.id == hovered_id) {
         FillHover({ item.rect.left + HOVER_MARGIN_X, item.rect.top + 1.0f, item.rect.right - HOVER_MARGIN_X, item.rect.bottom - 1.0f });
     }
     if (item.checked) {

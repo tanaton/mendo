@@ -26,13 +26,6 @@
 
 namespace {
 
-// DrawCommand の variant index を順に並べたものを返す。
-// 失敗時のメッセージで「コマンド型の並び」が読みやすくなることを目的とする。
-std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
-{
-    return cmds | std::views::transform([](const DrawCommand& c) static noexcept { return c.index(); }) | std::ranges::to<std::vector>();
-}
-
 std::vector<D2D1_RECT_F> CollectRectsByBrush(const DrawCommandList& cmds, std::initializer_list<BrushId> brushes)
 {
     std::vector<D2D1_RECT_F> rects;
@@ -85,7 +78,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0 }, 1.0f);
 
     // 検索色・選択色・本文 の各最小 index を見つける。
     std::optional<size_t> first_search;
@@ -112,7 +105,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     ASSERT_TRUE(first_selection.has_value()) << "選択ハイライトの FillRectCmd が見つからない";
     ASSERT_TRUE(first_text_layout.has_value()) << "本文 DrawTextLayoutCmd が見つからない";
     EXPECT_LT(*first_search, *first_selection)
-        << "検索ハイライトは選択ハイライトより先に発行されるべき。kinds=[..]";
+        << "検索ハイライトは選択ハイライトより先に発行されるべき";
     EXPECT_LT(*first_selection, *first_text_layout)
         << "選択ハイライトは本文 DrawTextLayoutCmd より先に発行されるべき";
 }
@@ -143,7 +136,7 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     // 2 番目を current にする
     DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 1, .search_generation = 1 }, 1.0f);
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 1 }, 1.0f);
 
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
@@ -164,20 +157,6 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
         << "空選択で BrushId::Selection の FillRectCmd は出ない";
 }
 
-// kinds 抽出ヘルパーが順序を正しく取り出すこと（ヘルパー自身のスモーク）。
-TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
-{
-    auto pl = ParseAndLayout("Hello");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
-    const auto kinds = ExtractCmdKinds(cmds);
-    ASSERT_EQ(kinds.size(), cmds.size());
-    for (size_t i = 0; i < cmds.size(); ++i) {
-        EXPECT_EQ(kinds[i], cmds[i].index());
-    }
-}
-
 // SearchMatch は UTF-16 code unit の位置を持つ。HitTestTextRange に UTF-8 byte 位置を渡す取り違えがあると、
 // 非 ASCII 後方の ASCII マッチで矩形位置が破綻する。
 // 「あいうabc」の "abc" を検索して、ASCII 単独 "abc" と同等幅の矩形が出ることで担保する。
@@ -189,7 +168,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     std::vector<SearchMatch> matches1;
     matches1.push_back({ 0, -1, -1, 0, 3 });
     DrawCommandList cmds1;
-    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0 }, 1.0f);
     const auto rect1 = FindFirstFillRectByBrush(cmds1,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect1.has_value());
@@ -199,7 +178,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     std::vector<SearchMatch> matches2;
     matches2.push_back({ 0, -1, -1, 3, 3 });
     DrawCommandList cmds2;
-    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0 }, 1.0f);
     const auto rect2 = FindFirstFillRectByBrush(cmds2,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
@@ -231,13 +210,6 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
 
 namespace {
 
-size_t ComputedMatchCount(const NodeLayoutEntry& entry)
-{
-    return static_cast<size_t>(std::ranges::count_if(entry.ensure_search_hl_cache().spans, [](const SearchHlCache::Span& s) static {
-        return s.count != SearchHlCache::Span::NOT_COMPUTED;
-    }));
-}
-
 class VisibleHighlightTest : public HighlightOrderTest {
 protected:
     static constexpr PaneRect PANE{ 0.0f, 0.0f, 800.0f, 200.0f };
@@ -254,7 +226,7 @@ protected:
     {
         cmds_.clear();
         gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = PANE, .scroll_y = scroll_y,
-                                     .search_matches = search_.GetMatches(), .current_match_index = current_match_, .search_generation = search_.GetGeneration() }, 1.0f);
+                                     .search_matches = search_.GetMatches(), .current_match_index = current_match_ }, 1.0f);
         return cmds_;
     }
 
@@ -292,25 +264,18 @@ protected:
 
 } // namespace
 
-// 巨大コードブロックで頻出語を検索しても、矩形を計算するのは可視範囲の前後のマッチだけ。
-TEST_F(VisibleHighlightTest, CodeBlockSearchComputesOnlyMatchesNearViewport)
+// 巨大コードブロックを可視範囲の行に絞って引いても、全マッチを引いた場合と同じ矩形を描く。
+TEST_F(VisibleHighlightTest, CodeBlockSearchMatchesAllMatchesRects)
 {
     auto pl = ParseAndLayout(MakeCodeBlockMd(1000));
     ASSERT_EQ(pl.nodes.size(), 1u);
     Search(pl, "line");
     ASSERT_EQ(search_.GetMatchCount(), 1000);
 
-    ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, 0.0f));
-    const size_t computed_top = ComputedMatchCount(pl.cache[0]);
-    EXPECT_GT(computed_top, 0u);
-    EXPECT_LT(computed_top, 100u);
-
-    // 下へスクロールしても、離れた位置へ飛んでも、全マッチを引いた場合と同じ矩形を描く。
     const float h = pl.cache[0].height;
-    for (const float y : { 150.0f, 300.0f, h * 0.5f, h * 0.5f - 120.0f, h - PANE.height }) {
+    for (const float y : { 0.0f, 150.0f, 300.0f, h * 0.5f, h * 0.5f - 120.0f, h - PANE.height }) {
         ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, y));
     }
-    EXPECT_LT(ComputedMatchCount(pl.cache[0]), 400u);
 }
 
 // 折り返しのある長い段落でも、可視範囲の上下の行にかかるマッチを取りこぼさない。
@@ -331,7 +296,22 @@ TEST_F(VisibleHighlightTest, WrappedParagraphSearchMatchesAllMatchesRects)
     for (const float y : { 0.0f, 37.0f, h * 0.5f, h * 0.5f + 13.0f, h - PANE.height }) {
         ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, y));
     }
-    EXPECT_LT(ComputedMatchCount(pl.cache[0]), static_cast<size_t>(search_.GetMatchCount()));
+}
+
+// 結合文字の途中までのマッチも、クラスタ全体を塗る (基底文字だけの検索で箱が幅 0 にならない)。
+TEST_F(VisibleHighlightTest, SearchHighlightCoversWholeCluster)
+{
+    auto pl = ParseAndLayout("xéy");
+    Search(pl, "e");
+    ASSERT_EQ(search_.GetMatchCount(), 1);
+    ASSERT_EQ(search_.GetMatches()[0].length_w, 1u);
+    std::vector<DWRITE_HIT_TEST_METRICS> buf;
+    ASSERT_EQ(FetchHitTestMetrics(pl.cache[0].text_layout(), 1, 2, buf), 1u);
+    const float cluster_width = buf[0].width;
+    ASSERT_GT(cluster_width, 0.0f);
+    const auto rect = FindFirstFillRectByBrush(Generate(pl, 0.0f), { BrushId::SearchHighlight });
+    ASSERT_TRUE(rect.has_value());
+    EXPECT_NEAR(rect->right - rect->left, cluster_width, 0.01f);
 }
 
 // 区切ったノードの継ぎ目をまたぐマッチは、続きのノードの先頭にもハイライトを描き、両方を現在のマッチの色にする。
@@ -363,8 +343,8 @@ TEST_F(VisibleHighlightTest, SearchMatchAcrossChunkSeamHighlightsBothNodes)
     EXPECT_TRUE(std::ranges::any_of(current, [&](const D2D1_RECT_F& r) { return r.top >= seam_y - 0.5f; })) << "続きのノードの先頭";
 }
 
-// 巨大テーブルでも、矩形を計算するのは描いたセルのマッチだけ。
-TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
+// 巨大テーブルでも、描いたセルのマッチのハイライトを描く。
+TEST_F(VisibleHighlightTest, TableSearchHighlightsVisibleCells)
 {
     std::string md = "| A | B | C |\n|---|---|---|\n";
     for (int r = 0; r < 300; ++r) {
@@ -377,16 +357,12 @@ TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
 
     const auto& cmds = Generate(pl, 0.0f);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
-    const size_t computed = ComputedMatchCount(pl.cache[0]);
-    EXPECT_GT(computed, 0u);
-    EXPECT_LT(computed, 100u);
 
     const auto& cmds2 = Generate(pl, pl.cache[0].height * 0.5f);
     EXPECT_FALSE(CollectRectsByBrush(cmds2, { BrushId::SearchHighlight }).empty());
-    EXPECT_LT(ComputedMatchCount(pl.cache[0]), 200u);
 }
 
-// evict 中のセルのマッチは未計算のまま残す。空として確定すると、行を復元してもハイライトが出ない。
+// evict 中のセルは描かず、行を復元したらハイライトを描く。
 TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
 {
     std::string md = "| A | B | C |\n|---|---|---|\n";
@@ -403,14 +379,11 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
 
     const auto& evicted = Generate(pl, 0.0f);
     EXPECT_TRUE(CollectRectsByBrush(evicted, { BrushId::SearchHighlight }).empty());
-    EXPECT_EQ(ComputedMatchCount(pl.cache[0]), 0u);
 
-    const auto restored = RestoreEntryTableRows(measurer_, pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
-                                                YRange{ 0.0f, PANE.height });
+    const auto restored = RestoreEntryTableRows(measurer_, pl.nodes[0], pl.cache[0], YRange{ 0.0f, PANE.height });
     ASSERT_TRUE(restored.restored);
     const auto& cmds = Generate(pl, 0.0f);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
-    EXPECT_GT(ComputedMatchCount(pl.cache[0]), 0u);
 }
 
 // 図のボタンは、その図の画像領域をホバーしている間だけ描く。

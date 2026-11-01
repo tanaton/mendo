@@ -137,15 +137,6 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpForOutOfRangeIndex)
     EXPECT_TRUE(toasts_.empty());
 }
 
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpWhenRendererNullptr)
-{
-    InitManager(nullptr);
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-    CopyDiagram(cb_idx);
-    EXPECT_TRUE(toasts_.empty());
-}
-
 // ---- CopyDiagramToClipboard 主要パス ----
 
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardRequestsRendererForMermaid)

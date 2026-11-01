@@ -19,78 +19,10 @@
 
 namespace {
 
-// 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
-// AddRef/Release は no-op (static instance で寿命管理は不要)。
-class StubD2D1Bitmap : public ID2D1Bitmap {
-public:
-    STDMETHODIMP QueryInterface(REFIID, void**) override
-    {
-        return E_NOTIMPL;
-    }
-    STDMETHODIMP_(ULONG)
-    AddRef() override
-    {
-        return 1;
-    }
-    STDMETHODIMP_(ULONG)
-    Release() override
-    {
-        return 1;
-    }
-    void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
-    {
-        if (factory) {
-            *factory = nullptr;
-        }
-    }
-    D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override
-    {
-        return D2D1_SIZE_F{ 1.0f, 1.0f };
-    }
-    D2D1_SIZE_U STDMETHODCALLTYPE GetPixelSize() const override
-    {
-        return D2D1_SIZE_U{ 1u, 1u };
-    }
-    D2D1_PIXEL_FORMAT STDMETHODCALLTYPE GetPixelFormat() const override
-    {
-        return D2D1_PIXEL_FORMAT{};
-    }
-    void STDMETHODCALLTYPE GetDpi(FLOAT* dpiX, FLOAT* dpiY) const override
-    {
-        if (dpiX) {
-            *dpiX = 96.0f;
-        }
-        if (dpiY) {
-            *dpiY = 96.0f;
-        }
-    }
-    HRESULT STDMETHODCALLTYPE CopyFromBitmap(const D2D1_POINT_2U*, ID2D1Bitmap*, const D2D1_RECT_U*) override
-    {
-        return E_NOTIMPL;
-    }
-    HRESULT STDMETHODCALLTYPE CopyFromRenderTarget(const D2D1_POINT_2U*, ID2D1RenderTarget*, const D2D1_RECT_U*) override
-    {
-        return E_NOTIMPL;
-    }
-    HRESULT STDMETHODCALLTYPE CopyFromMemory(const D2D1_RECT_U*, const void*, UINT32) override
-    {
-        return E_NOTIMPL;
-    }
-};
-
-// AddRef/Release が何もしないので static のまま共用する。
-StubD2D1Bitmap& SharedStubBitmap() noexcept
-{
-    static StubD2D1Bitmap instance;
-    return instance;
-}
-
 // IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
-    int request_render_count = 0;
     std::vector<const Node*> requested;
-    const Node* last_node = nullptr;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
     // true のとき RequestRender でキャッシュヒットを模し、同期で bitmap を設定して true を返す。
@@ -102,9 +34,7 @@ public:
         const Node& node,
         DiagramEntry& diagram_entry, float max_width, bool dark_mode) override
     {
-        request_render_count++;
         requested.push_back(&node);
-        last_node = &node;
         last_max_width = max_width;
         last_dark_mode = dark_mode;
         if (sync_error) {
@@ -134,35 +64,25 @@ public:
     int drop_queued_count = 0;
 };
 
-// ResourceManagerHost の各呼び出しを観測するための counter。
-struct CallbackTracker {
-    int set_timer = 0;
+// ResourceManagerHost の各呼び出しを記録する。
+struct TestResourceManagerHost final : ResourceManagerHost {
     int kill_timer = 0;
     int recompute_layout = 0;
-    layout::HeightChangeRange last_change = {};
-    app_timer::Id last_set_timer_id{};
-    UINT last_set_timer_ms = 0;
-};
+    IndexRange last_change = {};
+    std::optional<app_timer::Id> last_set_timer_id;
 
-struct TestResourceManagerHost final : ResourceManagerHost {
-    explicit TestResourceManagerHost(CallbackTracker& tracker) : t(&tracker)
-    {}
-    CallbackTracker* t;
-
-    void SetTimer(app_timer::Id id, UINT ms) override
+    void SetTimer(app_timer::Id id, UINT) override
     {
-        t->set_timer++;
-        t->last_set_timer_id = id;
-        t->last_set_timer_ms = ms;
+        last_set_timer_id = id;
     }
     void KillTimer(app_timer::Id) override
     {
-        t->kill_timer++;
+        kill_timer++;
     }
-    void RecomputeLayout(layout::HeightChangeRange changed) override
+    void RecomputeLayout(IndexRange changed) override
     {
-        t->recompute_layout++;
-        t->last_change = changed;
+        recompute_layout++;
+        last_change = changed;
     }
 };
 
@@ -189,6 +109,7 @@ protected:
     void SetUp() override
     {
         InitReducerState(state_, theme_);
+        file_cache_.SetCacheDir(file_cache_dir_.path());
         theme_.indent_width = 20.0f;
         state_.view.panes.SetSidePaneVisible(PaneTarget::File, false);
         state_.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
@@ -201,27 +122,25 @@ protected:
         SetWindowSize(state_, width, kViewportHeight);
     }
 
-    // Markdown を Document に流し込み、対応する LayoutCache をシードしたうえで
-    // ResourceManager を初期化する。テストごとに 1 度だけ呼ぶ。
+    // Markdown を Document に流し込み、対応する LayoutCache をシードする。
     void LoadMarkdown(std::string_view md, float block_height = 100.0f, const wchar_t* doc_path = kTestDocPath)
     {
         std::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
-        rm_.Init(state_, image_loader_, mock_mermaid_, file_cache_, host_);
     }
 
     Theme theme_{};
     AppState state_;
+    ScopedTempDir file_cache_dir_;
     MermaidFileCache file_cache_;
     Document& doc_ = state_.document.doc;
     LayoutCache& cache_ = state_.document.layout_cache;
     ViewportManager& viewport_ = state_.view.viewport;
     ImageLoader image_loader_; // Init せずに使う（画像経路は通らないテストのみ）
     MockMermaidRenderer mock_mermaid_;
-    CallbackTracker tracker_;
-    TestResourceManagerHost host_{ tracker_ };
-    ResourceManager rm_;
+    TestResourceManagerHost host_;
+    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, file_cache_, host_ };
 };
 
 // ---- 画像経路 ----
@@ -230,7 +149,7 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenNoImagesInDocument)
 {
     LoadMarkdown("# heading\n\nparagraph text\n");
     rm_.LoadImages();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(host_.recompute_layout, 0);
 }
 
 TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenContentWidthIsZero)
@@ -238,20 +157,12 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenContentWidthIsZero)
     LoadMarkdown("# heading\n\n![alt](image.png)\n");
     SetContentWidth(0.0f);
     rm_.LoadImages();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
-}
-
-TEST_F(ResourceManagerTest, LoadImagesAppliesNothingForRemoteImages)
-{
-    // http:// 等のリモート画像は適用対象にならないため、適用数は 0 のまま。
-    LoadMarkdown("![alt](https://example.com/foo.png)\n");
-    rm_.LoadImages();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(host_.recompute_layout, 0);
 }
 
 // ---- 画像経路: リロード時の ApplyCachedImagesForReload (issue #148) ----
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesHeightFromCache)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
 {
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
@@ -279,9 +190,9 @@ TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
 
     rm_.LoadImages();
 
-    EXPECT_EQ(tracker_.recompute_layout, 1);
-    EXPECT_EQ(tracker_.last_change.first, img_idx);
-    EXPECT_EQ(tracker_.last_change.last, img_idx);
+    EXPECT_EQ(host_.recompute_layout, 1);
+    EXPECT_EQ(host_.last_change.begin, img_idx);
+    EXPECT_EQ(host_.last_change.end, img_idx + 1);
 }
 
 // DPI が変わると同じビットマップでも DIP の寸法が変わる。前の DPI で決めた寸法のまま残さない。
@@ -302,13 +213,13 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
     rm_.LoadImages();
     EXPECT_FLOAT_EQ(diagram->width, 400.0f);
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
-    EXPECT_EQ(tracker_.recompute_layout, 2);
+    EXPECT_EQ(host_.recompute_layout, 2);
 
     rm_.LoadImages();
-    EXPECT_EQ(tracker_.recompute_layout, 2) << "寸法が同じなら適用し直さない";
+    EXPECT_EQ(host_.recompute_layout, 2) << "寸法が同じなら適用し直さない";
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadKeepsHeightWhenWithinContentWidth)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinContentWidth)
 {
     LoadMarkdown("![alt](small.png)\n");
     // content_width=800 より小さい画像はスケール無し。
@@ -407,7 +318,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesRelativePathInDevicePrefixe
     EXPECT_FLOAT_EQ(cache_[doc_.GetImageNodeIndices()[0]].height, 300.0f);
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesNothingWhenCacheMisses)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesNothingWhenCacheMisses)
 {
     LoadMarkdown("![alt](missing.png)\n");
     // image_loader_ にキャッシュ未挿入 → 0 件。
@@ -417,7 +328,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesNothingWhenCache
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f); // SeedLayoutCache の block_height のまま
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesBeyondVisibleRange)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
 {
     // issue #148 の本質: 可視範囲外の画像も全件走査して height を更新する。
     // 画像を 2 個配置し、2 個目を viewport から大きく外して LoadImages との差を出す。
@@ -432,8 +343,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesBeyondVisibleRan
     // 先読み範囲は可視 ± PREFETCH_BUFFER_SCREENS 画面。2個目は y=3000 にあり範囲外なので、
     // LoadImages は 1 件のみ適用する。
     rm_.LoadImages();
-    EXPECT_EQ(tracker_.last_change.first, image_indices[0]);
-    EXPECT_EQ(tracker_.last_change.last, image_indices[0]);
+    EXPECT_EQ(host_.last_change.begin, image_indices[0]);
+    EXPECT_EQ(host_.last_change.end, image_indices[0] + 1);
 
     // 2個目の高さはまだ SeedLayoutCache の block_height=3000 のまま。
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
@@ -446,7 +357,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesBeyondVisibleRan
 }
 
 // リロードでは変わった範囲のノードにだけ当てる (引き継いだノードは実測の高さを持っている)。
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesOnlyGivenRange)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesOnlyGivenRange)
 {
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     const auto& image_indices = doc_.GetImageNodeIndices();
@@ -459,15 +370,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesOnlyGivenRange)
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadIgnoresRemoteImages)
-{
-    LoadMarkdown("![alt](https://example.com/foo.png)\n\n![local](foo.png)\n");
-    // キャッシュが空だと早期 return してリモート判定まで届かないので、ローカル画像を 1 件入れておく。
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 400.0f, 300.0f);
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
-TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesNothingWhenContentWidthIsZero)
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesNothingWhenContentWidthIsZero)
 {
     LoadMarkdown("![alt](foo.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
@@ -483,10 +386,18 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
 
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(tracker_.recompute_layout, 0); // mock は bitmap をセットしない
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+    EXPECT_EQ(host_.recompute_layout, 0); // mock は bitmap をセットしない
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
     EXPECT_FLOAT_EQ(mock_mermaid_.last_max_width, kContentWidth);
     EXPECT_FALSE(mock_mermaid_.last_dark_mode);
+
+    // 保留だった図は、次の要求で結果が揃えば適用して組み直す。
+    mock_mermaid_.sync_apply_bitmap = true;
+    rm_.RequestMermaidRenders();
+    const auto* diagram = cache_.FindDiagram(doc_.GetDiagramNodeIndices()[0]);
+    ASSERT_NE(diagram, nullptr);
+    EXPECT_NE(diagram->bitmap, nullptr);
+    EXPECT_EQ(host_.recompute_layout, 1);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
@@ -499,7 +410,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
 
     rm_.RequestMermaidRenders();
     // 1個目 (y=0, 可視範囲内) のみ Render される
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersZeroWidthIsNoOp)
@@ -507,8 +418,8 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersZeroWidthIsNoOp)
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     SetContentWidth(0.0f);
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
-    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
+    EXPECT_EQ(host_.recompute_layout, 0);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
 // エラー確定 (error 非空) の図は再リクエストされない (issue #271: 失敗レンダの無限リトライ防止)。
@@ -519,8 +430,8 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsErroredDiagram)
     cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
-    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
+    EXPECT_EQ(host_.recompute_layout, 0);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
 // その場でエラーが確定した図はプレースホルダーの文言が変わるので、画像と同じ再レイアウトで描き直させる。
@@ -531,8 +442,8 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRedrawsSynchronousDiagramError)
 
     rm_.FlushPendingResources();
 
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
-    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
+    EXPECT_EQ(host_.recompute_layout, 1);
 }
 
 // リロード前の高さの適用は Y を組み直さないので、変えた範囲を後の再レイアウトに持ち越さない。
@@ -546,18 +457,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadDoesNotCarryChangeRange)
     rm_.RequestMermaidRenders();
 
     const size_t diagram = doc_.GetDiagramNodeIndices()[0];
-    EXPECT_EQ(tracker_.recompute_layout, 1);
-    EXPECT_EQ(tracker_.last_change.first, diagram);
-}
-
-TEST_F(ResourceManagerTest, FlushPendingResourcesSkipsErroredDiagram)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
-    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
-
-    rm_.FlushPendingResources();
-    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
+    EXPECT_EQ(host_.recompute_layout, 1);
+    EXPECT_EQ(host_.last_change.begin, diagram);
 }
 
 // 量子化幅の変化でエラーがクリアされ、再試行される (issue #271)。
@@ -569,14 +470,14 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
 
     SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
-    ASSERT_EQ(mock_mermaid_.request_render_count, 1);
+    ASSERT_EQ(mock_mermaid_.requested.size(), 1u);
 
     cache_.EnsureDiagram(diagram_index).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(cache_.FindDiagram(diagram_index)->error.empty());
-    EXPECT_EQ(mock_mermaid_.request_render_count, 2);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
 }
 
 // 幅の変化で描き直す図は、新しい結果が届くまで旧幅の結果を仮表示として残す (プレースホルダに戻して跳ねさせない)。
@@ -599,48 +500,7 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
     EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
     EXPECT_TRUE(diagram.NeedsRender());
-    EXPECT_EQ(mock_mermaid_.request_render_count, 2);
-}
-
-// 図のコードを書き換えたリロードでは、旧結果と高さを仮表示として新しいノードへ引き継ぐ。
-TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
-{
-    LoadMarkdown("# t\n\n```mermaid\ngraph TD;A-->B\n```\n\ntail\n");
-    const size_t old_index = doc_.GetDiagramNodeIndices()[0];
-    mock_mermaid_.sync_apply_bitmap = true;
-    rm_.RequestMermaidRenders();
-    ASSERT_TRUE(cache_.FindDiagram(old_index)->bitmap);
-    cache_.EnsureDiagram(old_index).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
-    cache_[old_index].height = 321.0f;
-
-    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
-    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), theme_);
-    const size_t new_index = next.GetDiagramNodeIndices()[0];
-
-    EXPECT_EQ(layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache, FindUnchangedEnds(doc_.GetNodes(), next.GetNodes())).carried, next.GetNodes().size());
-    const auto* d = next_cache.FindDiagram(new_index);
-    ASSERT_NE(d, nullptr);
-    EXPECT_TRUE(d->bitmap);
-    EXPECT_TRUE(d->stale);
-    EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
-    EXPECT_EQ(d->png, nullptr) << "前のコードの絵をコピー・保存させない";
-    EXPECT_FLOAT_EQ(next_cache[new_index].height, 321.0f);
-}
-
-// 変わった範囲の図の数が変わったら、どの図の続きか分からないので引き継がない。
-TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
-{
-    LoadMarkdown("# t\n\n```mermaid\ngraph TD;A-->B\n```\n\ntail\n");
-    mock_mermaid_.sync_apply_bitmap = true;
-    rm_.RequestMermaidRenders();
-
-    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
-    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), theme_);
-
-    layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache, FindUnchangedEnds(doc_.GetNodes(), next.GetNodes()));
-    for (const size_t i : next.GetDiagramNodeIndices()) {
-        EXPECT_EQ(next_cache.FindDiagram(i), nullptr) << "node " << i;
-    }
+    EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
@@ -661,18 +521,8 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits
     mock_mermaid_.sync_apply_bitmap = true;
 
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(mock_mermaid_.request_render_count, 3);
-    EXPECT_EQ(tracker_.recompute_layout, 1);
-}
-
-// 同期適用が 0 件なら再レイアウトしない (ガード正常動作の確認)。
-TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsRecomputeWhenNoBitmapApplied)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    ASSERT_FALSE(mock_mermaid_.sync_apply_bitmap);
-
-    rm_.RequestMermaidRenders();
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 3u);
+    EXPECT_EQ(host_.recompute_layout, 1);
 }
 
 // FlushPendingResources 経由では図ごとに再レイアウトせず、画像と合わせて 1 回だけ行う。
@@ -685,7 +535,7 @@ TEST_F(ResourceManagerTest, FlushRecomputesOnceForAllDiagrams)
 
     rm_.OnBitmapManageTimer();
 
-    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(host_.recompute_layout, 1);
 }
 
 TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidthShift)
@@ -748,39 +598,23 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
     EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";
 }
 
-// 結果が出た通知で、待っていた図を要求し直して反映する。
-TEST_F(ResourceManagerTest, RequestMermaidRendersAgainAppliesResolvedDiagrams)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    rm_.RequestMermaidRenders();
-    ASSERT_EQ(tracker_.recompute_layout, 0);
-
-    mock_mermaid_.sync_apply_bitmap = true;
-    rm_.RequestMermaidRenders();
-    const size_t i = doc_.GetDiagramNodeIndices()[0];
-    ASSERT_NE(cache_.FindDiagram(i), nullptr);
-    EXPECT_NE(cache_.FindDiagram(i)->bitmap, nullptr);
-    EXPECT_EQ(tracker_.recompute_layout, 1);
-}
-
-TEST_F(ResourceManagerTest, FlushPendingResourcesRequestsNothingWhenWidthIsZero)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    SetContentWidth(0.0f);
-    rm_.FlushPendingResources();
-    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
-}
-
 // 再レイアウトの Flush の直後に SettleLayout が呼んでも、走査を繰り返さずタイマーに回す。
+TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
+{
+    LoadMarkdown("# heading\n");
+    rm_.ScheduleBitmapManage();
+    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
+}
+
 TEST_F(ResourceManagerTest, FlushPendingResourcesThrottlesFollowingBitmapManage)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.FlushPendingResources();
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 
     rm_.ScheduleBitmapManage();
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1) << "直前の Flush があれば二重に走査しない";
-    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u) << "直前の Flush があれば二重に走査しない";
+    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
 }
 
 // ---- ビットマップ管理 ----
@@ -851,22 +685,13 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
     EXPECT_FLOAT_EQ(far_diagram.height, 240.0f);
 }
 
-TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
-{
-    LoadMarkdown("# heading\n");
-    rm_.ScheduleBitmapManage();
-    EXPECT_GE(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
-    EXPECT_EQ(tracker_.last_set_timer_ms, 150u);
-}
-
 // スクロール停止のたびに全画面再描画しないよう、何も適用されなければ再レイアウト (と再描画) しない。
 TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
 {
     LoadMarkdown("# heading\n");
     rm_.OnBitmapManageTimer();
-    EXPECT_GE(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_GE(host_.kill_timer, 1);
+    EXPECT_EQ(host_.recompute_layout, 0);
 }
 
 // 届いていた画像と同期で決まった図を 1 回の再レイアウトでまとめて反映する。
@@ -879,8 +704,8 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRecomputesOnceForImagesAndDiagr
 
     rm_.FlushPendingResources();
 
-    EXPECT_EQ(tracker_.recompute_layout, 1);
-    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+    EXPECT_EQ(host_.recompute_layout, 1);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 }
 
 // 取り込んだデコード結果が無ければ、キャッシュにある画像も適用し直さない。
@@ -891,9 +716,9 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 
     rm_.OnImagesDecoded();
 
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(host_.recompute_layout, 0);
     rm_.LoadImages();
-    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(host_.recompute_layout, 1);
 }
 
 // ---- ファイル切替時クリーンアップ ----

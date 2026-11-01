@@ -9,33 +9,27 @@
 // BlockHScrollGeometry::can_scroll / scroll_max（純粋な境界ロジック）
 // ─────────────────────────────────────────────
 
-TEST(BlockHScrollGeometry, ScrollableWhenBlockExceedsVisible)
+TEST(BlockHScrollGeometry, ScrollsOnlyWhenBlockExceedsVisible)
 {
-    constexpr BlockHScrollGeometry g{ .block_width = 200.0f, .visible_width = 100.0f };
-    EXPECT_TRUE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 100.0f);
-}
-
-TEST(BlockHScrollGeometry, NotScrollableWhenEqual)
-{
-    constexpr BlockHScrollGeometry g{ .block_width = 100.0f, .visible_width = 100.0f };
-    EXPECT_FALSE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
-}
-
-TEST(BlockHScrollGeometry, NotScrollableWhenBlockSmaller)
-{
-    constexpr BlockHScrollGeometry g{ .block_width = 50.0f, .visible_width = 100.0f };
-    EXPECT_FALSE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
-}
-
-// visible_width が 0（未レイアウト）のときはスクロールさせない。
-TEST(BlockHScrollGeometry, NotScrollableWhenVisibleZero)
-{
-    constexpr BlockHScrollGeometry g{ .block_width = 200.0f, .visible_width = 0.0f };
-    EXPECT_FALSE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
+    struct Case {
+        float block;
+        float visible;
+        float scroll_max;
+    };
+    constexpr Case kCases[] = {
+        { 200.0f, 100.0f, 100.0f },
+        { 100.0f, 100.0f, 0.0f },
+        { 50.0f, 100.0f, 0.0f },
+        // visible_width が 0（未レイアウト）のときはスクロールさせない。
+        { 200.0f, 0.0f, 0.0f },
+        { 101.0f, 100.0f, 1.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.block << " / " << c.visible);
+        const BlockHScrollGeometry g{ .block_width = c.block, .visible_width = c.visible };
+        EXPECT_EQ(g.can_scroll(), c.scroll_max > 0.0f);
+        EXPECT_FLOAT_EQ(g.scroll_max(), c.scroll_max);
+    }
 }
 
 // BLOCK_H_SCROLL_SLACK 以下のはみ出しではスクロールさせない。
@@ -45,13 +39,6 @@ TEST(BlockHScrollGeometry, OverflowWithinSlackIsNotScrollable)
     EXPECT_FALSE(g.can_scroll());
     EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
     EXPECT_FLOAT_EQ(g.ClampScrollX(0.3f), 0.0f);
-}
-
-TEST(BlockHScrollGeometry, OverflowBeyondSlackScrollsByFullOverflow)
-{
-    constexpr BlockHScrollGeometry g{ .block_width = 101.0f, .visible_width = 100.0f };
-    EXPECT_TRUE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 1.0f);
 }
 
 TEST(BlockHScrollGeometry, DefaultIsNotScrollable)

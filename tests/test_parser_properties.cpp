@@ -37,9 +37,7 @@ TEST(ParserProperty, ExampleFilesSatisfyStructuralInvariants)
     for (const std::string_view path : { "example/test.md", "example/nested.md" }) {
         SCOPED_TRACE(path);
         auto bytes = ReadExampleFileBytes(path);
-        if (bytes.empty()) {
-            GTEST_SKIP() << path << " not found";
-        }
+        ASSERT_FALSE(bytes.empty());
         const auto doc = Document::FromMarkdown(std::move(bytes), L"example.md");
         ASSERT_FALSE(doc.GetNodes().empty());
         EXPECT_TRUE(ParseInvariantsHold(doc.GetRawText(), doc.GetNodes()));

@@ -32,6 +32,7 @@ enum class PageRequest : uint8_t {
     Mermaid, // 表示用の図 (render-result で大きさを返す)
     Svg,     // クリップボード用の SVG (svg-result)
     View,    // 拡大表示用の SVG (svg-result)
+    Math,    // インライン数式のまとめ描き (math-result)。PageMathBatchMessage で作る
 };
 std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8);
 // インライン数式のまとめ描きは "math:<ID>:<ページの幅>:" に、数式ごとに AppendPageMathItem を続ける。

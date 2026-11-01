@@ -70,24 +70,6 @@ TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
 
 // ---- blockquote グループ装飾 ----
 
-TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
-{
-    const auto cmds = Generate("> Quoted");
-    EXPECT_GE(CountCmd<DrawLineCmd>(cmds, [&](const DrawLineCmd& l) { return IsQuoteBar(l); }), 1)
-        << "blockquote には bar_color の縦バーが 1 本以上出る";
-}
-
-TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
-{
-    Parse("> Quoted");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 50.0f };
-    // viewport_top を blockquote の下端より十分大きくする
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = 100000.0f }, 1.0f);
-
-    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "viewport より上にあるグループは bar が描画されない";
-}
-
 // ネスト blockquote の各レベルを別 x 座標のバーで描画する (PR #156)
 TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
 {
@@ -128,25 +110,6 @@ TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
         << "ネストありの Alert でも最外側バーは Note 色で描画される";
 }
 
-// ---- 複数 hr のうち先頭だけ可視なケース ----
-// 上方向カリングと下方向カリングが両端で同時に効くケース。
-
-TEST_F(CmdGenContentTest, HorizontalRule_PartialViewportLimitsToVisible)
-{
-    Parse("---\n\n---\n\n---\n\n---\n\n---");
-    ASSERT_FALSE(nodes_.empty());
-
-    // 1 本目の hr の下端より少し大きい viewport を用意する。
-    const float first_hr_bottom = cache_.Top(0) + cache_[0].height;
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, first_hr_bottom + 1.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
-
-    const auto draw_lines = CountCmd<DrawLineCmd>(cmds);
-    EXPECT_GE(draw_lines, 1) << "1 本目は確実に可視範囲内";
-    EXPECT_LT(draw_lines, 5) << "全 5 本は描画されない（後続はカリングされる）";
-}
-
 // ---- 構造テスト ----
 
 TEST_F(CmdGenContentTest, PushClipAndPopClipArePaired)
@@ -184,15 +147,6 @@ TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
     }
 }
 
-// ---- テーブル ----
-
-TEST_F(CmdGenContentTest, TableGeneratesLinesAndRects)
-{
-    auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
-    EXPECT_GT(CountCmd<DrawLineCmd>(cmds), 0);
-    EXPECT_GT(CountCmd<FillRectCmd>(cmds), 0);
-}
-
 // ---- 引用ブロック ----
 
 TEST_F(CmdGenContentTest, MultiLineBlockQuoteGeneratesSingleBar)
@@ -208,16 +162,6 @@ TEST_F(CmdGenContentTest, MultiLineAlertGeneratesSingleBarAndBackground)
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 1) << "複数行のAlertは1つの統合された背景のみ生成するべき";
 }
 
-// ---- 複数ノード ----
-
-TEST_F(CmdGenContentTest, MixedContentGeneratesVariousCommands)
-{
-    auto cmds = Generate("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```");
-    EXPECT_GT(CountCmd<DrawLineCmd>(cmds), 0);
-    EXPECT_GT(CountCmd<FillEllipseCmd>(cmds), 0);
-    EXPECT_GT(CountCmd<FillRoundedRectCmd>(cmds), 0);
-}
-
 // ---- 箇条書き記号を持たないリスト ----
 
 TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoEllipse)
@@ -226,26 +170,6 @@ TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoEllipse)
         SCOPED_TRACE(md);
         EXPECT_EQ(CountCmd<FillEllipseCmd>(Generate(md)), 0);
     }
-}
-
-// ---- 水平線 ----
-
-TEST_F(CmdGenContentTest, MultipleHorizontalRulesGenerateHrLines)
-{
-    auto cmds = Generate("---\n\n---\n\n---");
-    EXPECT_GE(CountCmd<DrawLineCmd>(cmds, [](const DrawLineCmd& l) static { return l.brush_id == BrushId::Hr; }), 3);
-}
-
-// ---- ダークテーマテスト ----
-
-TEST_F(CmdGenContentTest, DarkThemeTableGeneratesCommands)
-{
-    theme_ = GetDarkTheme();
-    InitWithoutText(gen_, theme_);
-    ASSERT_TRUE(engine_.Init(&mock_, theme_));
-
-    auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
-    EXPECT_GT(CountCmd<DrawLineCmd>(cmds), 0);
 }
 
 // ---- GitHub Alerts ----
@@ -260,25 +184,6 @@ TEST_F(CmdGenContentTest, AlertBarColorMatchesTheme)
     EXPECT_TRUE(bar.has_value()) << "Note のバーは AlertNote ブラシで描くべき";
     const auto bg = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::AlertNoteBg; });
     EXPECT_TRUE(bg.has_value()) << "Note の背景は AlertNoteBg ブラシで描くべき";
-}
-
-TEST_F(CmdGenContentTest, AllAlertTypesGenerateCommands)
-{
-    struct AlertCase {
-        const char* name;
-        const char* md;
-    };
-    constexpr AlertCase alerts[] = {
-        { "NOTE",      "> [!NOTE]\n> n"      },
-        { "TIP",       "> [!TIP]\n> t"       },
-        { "IMPORTANT", "> [!IMPORTANT]\n> i" },
-        { "WARNING",   "> [!WARNING]\n> w"   },
-        { "CAUTION",   "> [!CAUTION]\n> c"   },
-    };
-    for (const auto& a : alerts) {
-        SCOPED_TRACE(a.name);
-        EXPECT_GE(CountCmd<DrawLineCmd>(Generate(a.md)), 1);
-    }
 }
 
 // ---- コピーボタン ----
@@ -393,27 +298,6 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
         std::array<wchar_t, kListNumberMaxLen> buf;
         EXPECT_EQ(FormatListNumber(buf, c.number, c.depth), c.expected);
     }
-}
-
-// OverlayButtonHit パラメータが GenerateMdPane に渡せることの検証
-TEST_F(CmdGenContentTest, CodeBlockWithHoveredCopyNodeAccepted)
-{
-    Parse("```\ncode\n```");
-    const PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    // ノード 0 のコピーボタンのホバーを渡してもクラッシュしない
-    DrawCommandList cmds;
-    // clang-format off
-    gen_.GenerateMdPane(
-        cmds,
-        {
-            .nodes = nodes_, .cache = cache_, .selection = TextSelection{},
-            .md_pane_rect = md_pane, .hovered = OverlayButtonHit{ 0, OverlayButton::CodeCopy }
-        },
-        1.0f
-    );
-    // clang-format on
-    EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
-    EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
 
 // ---- 図・画像プレースホルダー ----

@@ -61,17 +61,15 @@ private:
     // 通知後は ResumeWatching まで paused_ で後続通知を pending_change_ に溜める。
     void FireChange();
 
-    std::wstring watch_filename_;
-    std::wstring watch_filename_short_;
+    FileWatchTarget target_;
     ChangeCallback on_change_;
 
-    UniqueHandle dir_handle_;
     UniqueEventHandle event_;
     OVERLAPPED overlapped_{};
     // ReadDirectoryChangesW はバッファ溢れで以降の通知を失うため余裕を持って 64KB 確保。
     static constexpr size_t CHANGE_BUF_SIZE = 64 * 1024;
     alignas(DWORD) char change_buf_[CHANGE_BUF_SIZE]{};
-    // true なら dir_handle_ も有効。
+    // true なら target_.dir も有効。
     bool read_pending_ = false;
     bool paused_ = false;
     bool pending_change_ = false;

@@ -22,14 +22,14 @@ struct FillRectCmd {
 
 struct FillRoundedRectCmd {
     D2D1_RECT_F rect;
-    float rx, ry;
+    float radius;
     BrushId brush_id;
     float opacity = 1.0f;
 };
 
 struct DrawRoundedRectCmd {
     D2D1_RECT_F rect;
-    float rx, ry;
+    float radius;
     float stroke_width;
     BrushId brush_id;
 };
@@ -48,6 +48,10 @@ struct DrawTextLayoutCmd {
     // 低いレイアウトでは範囲は既定の無限のままにする。
     float cull_top = -std::numeric_limits<float>::infinity();
     float cull_bottom = std::numeric_limits<float>::infinity();
+    // 折り返さない長い行は、横スクロールの clip に映らないグリフを [cull_left, cull_right] で飛ばす
+    // (1 行 12KB の JSON を 60 行描く 1 フレームが 127 → 4.5ms。BM_CodeBlockDraw)。
+    float cull_left = -std::numeric_limits<float>::infinity();
+    float cull_right = std::numeric_limits<float>::infinity();
     float opacity = 1.0f;
     // 非所有; layout と同じ NodeLayoutEntry が持つ。UTF-16 位置のトークンで、描画時にグリフランを色分けする。
     std::span<const SyntaxToken> syntax_tokens;
@@ -61,14 +65,14 @@ struct DrawBitmapCmd {
 
 struct FillEllipseCmd {
     D2D1_POINT_2F center;
-    float rx, ry;
+    float radius;
     BrushId brush_id;
     float opacity = 1.0f;
 };
 
 struct DrawEllipseCmd {
     D2D1_POINT_2F center;
-    float rx, ry;
+    float radius;
     float stroke_width;
     BrushId brush_id;
 };
@@ -151,7 +155,6 @@ struct InlineMathMasks {
     void EvictPages(size_t budget);
 };
 
-// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。math が無ければインライン数式は描かない。
+// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
 // math には描いたページの last_drawn と、型の無かった数式 (missing) を書く。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes,
-                         InlineMathMasks* math = nullptr);
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks& math);

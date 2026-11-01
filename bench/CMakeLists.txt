@@ -4,4 +4,6 @@ target_link_libraries(mendo_bench PRIVATE
     mendo_test_support
     benchmark::benchmark_main
     GTest::gtest
+    d3d11
+    dxgi
 )

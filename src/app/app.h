@@ -5,7 +5,6 @@
 #include "async_load_coordinator.h"
 #include "clipboard_manager.h"
 #include "config_service.h"
-#include "context_menu.h"
 #include "file_watcher.h"
 #include "image_loader.h"
 #include "layout.h"
@@ -17,12 +16,12 @@
 #include "render_params.h"
 #include "renderer.h"
 #include "resource_manager.h"
-#include "settings_dialog.h"
 #include "side_effect.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -32,34 +31,23 @@
 #include <string_view>
 #include <utility>
 
+namespace i18n {
+struct Strings;
+}
+
 class Win32Window;
 
 struct SystemCursors {
-    HCURSOR arrow = nullptr;
-    HCURSOR hand = nullptr;
-    HCURSOR ibeam = nullptr;
-    HCURSOR size_we = nullptr;
+    // PointerCursor の順。
+    std::array<HCURSOR, 4> cursors{};
 
     void Load() noexcept
     {
-        arrow = LoadCursorW(nullptr, IDC_ARROW);
-        hand = LoadCursorW(nullptr, IDC_HAND);
-        ibeam = LoadCursorW(nullptr, IDC_IBEAM);
-        size_we = LoadCursorW(nullptr, IDC_SIZEWE);
+        cursors = { LoadCursorW(nullptr, IDC_ARROW), LoadCursorW(nullptr, IDC_IBEAM), LoadCursorW(nullptr, IDC_HAND), LoadCursorW(nullptr, IDC_SIZEWE) };
     }
     HCURSOR Get(app_controller::PointerCursor cursor) const noexcept
     {
-        switch (cursor) {
-        case app_controller::PointerCursor::Arrow:
-            return arrow;
-        case app_controller::PointerCursor::IBeam:
-            return ibeam;
-        case app_controller::PointerCursor::Hand:
-            return hand;
-        case app_controller::PointerCursor::SizeWE:
-            return size_we;
-        }
-        std::unreachable();
+        return cursors[std::to_underlying(cursor)];
     }
 };
 
@@ -281,7 +269,7 @@ private:
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
     // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
-    void RecomputeLayout(layout::HeightChangeRange changed) override;
+    void RecomputeLayout(IndexRange changed) override;
     void EnsureNodeLayout(int node_index) override;
 
     // ---- ファイル読み込み ----
@@ -312,7 +300,7 @@ private:
     void HandleLoadFailureFallback(std::optional<FileLoadError> error);
     // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
-    bool ApplyCachedHeights(VisibleRange nodes);
+    bool ApplyCachedHeights(IndexRange nodes);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
@@ -328,6 +316,9 @@ private:
 
     // ---- 設定 ----
     void ShowSettingsDialog();
+    // Renderer の今の描画先を、図と画像のローダーへ渡す。
+    void ShareRenderTarget();
+    void OnRenderDeviceRecreated();
     PopupEnv MakePopupEnv() const noexcept;
     // 設定ダイアログで選んだ言語を、開いている画面にすぐ反映する。
     void ApplyLanguage(const i18n::Strings* chosen);
@@ -349,7 +340,7 @@ private:
     // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
     TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
-    ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
+    ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の Shutdown が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
     // インライン数式の型 (A8 のページと、数式ごとの切り出し)。描画が読み、描いたフレームと型の無い数式を書く。
@@ -371,11 +362,14 @@ private:
     ConfigService& config_;
     ThemeService theme_service_;
     // 起動時の読み込み (preload) も Init より前にここで始め、通知先は LoadInitialDocument の Attach で渡す。
-    AsyncLoadCoordinator load_coordinator_;
+    AsyncLoadCoordinator load_coordinator_{ scheduler_ };
     // スピナーは読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。
     bool spinner_shown_ = false;
     float spinner_angle_ = 0.0f;
-    PrefixShrinkRetry prefix_shrink_retry_;
+    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
+    // 超えたら縮んだ内容を確定版として受け入れる。
+    static constexpr int kMaxPrefixShrinkDefers = 10;
+    int prefix_shrink_defers_ = 0;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
@@ -389,5 +383,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    ResourceManager resource_manager_;
+    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, *this };
 };

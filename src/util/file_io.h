@@ -21,8 +21,7 @@ namespace path_util {
 // Markdown / 画像ファイルを扱う経路ではこれを指定する。
 inline constexpr DWORD kFileShareRWDelete = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
-// ReadAllBytes が許容する最大サイズ。ReadFile は DWORD (32bit unsigned) で
-// バイト数を扱うので、それを超えるサイズは 1 回の ReadFile で読み切れない。
+// ReadAllBytes の既定の上限。
 inline constexpr size_t MAX_READABLE_FILE_SIZE = std::numeric_limits<uint32_t>::max();
 
 // `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する

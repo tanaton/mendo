@@ -20,16 +20,8 @@ class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool RecreateFormats() override;
 
-    std::optional<float> MeasureNode(
-        const Node& node,
-        NodeLayoutEntry& entry,
-        float max_width,
-        YRange viewport) const override;
-    TableRestoreResult RestoreEvictedTableRows(
-        const Node& node,
-        NodeLayoutEntry& entry,
-        float max_width,
-        YRange viewport) const override;
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override;
+    TableRestoreResult RestoreEvictedTableRows(const Node& node, NodeLayoutEntry& entry, YRange viewport) const override;
 
     // 外部のIDWriteFactoryで初期化する（RecreateFormats の前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -59,7 +51,7 @@ private:
     const DWriteContext& Context() const;
     static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
     static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
-    std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, YRange viewport) const;
+    std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const;
     // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
     // fit_width > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
     // 戻り値: 寸法がまだ無く原文のまま組んだインライン数式がある。
@@ -71,10 +63,6 @@ private:
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅を tl.natural_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
     void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
-    // viewport (ローカル座標) 内の evict 行のセルを作り直して evict を解き、戻した行を昇順で返す。
-    // row_heights を渡せば、今の列幅での行高さを戻した行の順に書く。
-    std::vector<size_t> RestoreRowsInViewport(const NodeTableData& tbl, TableLayoutData& tl, YRange viewport,
-                                                   std::vector<float>* row_heights) const;
     // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
     void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     // 戻り値はテーブル全体の高さ。

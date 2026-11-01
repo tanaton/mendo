@@ -213,15 +213,19 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     ASSERT_GE(table_idx, 0);
     ASSERT_NE(pl.cache[table_idx].table_layout(), nullptr);
 
-    // テーブル中央あたりに hit する位置。
-    const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 30.0f, pl.cache.Top(table_idx) + pl.cache[table_idx].height * 0.5f }));
+    // 3 行目 2 列目のセルの中。
+    const auto& tl = *pl.cache[table_idx].table_layout();
+    const float x = theme_.margin_left + tl.col_cum_x[1] + TABLE_CELL_PADDING + 2.0f;
+    const float y = pl.cache.Top(table_idx) + tl.row_cum_y[2] + TABLE_CELL_PADDING + 4.0f;
+    const auto r = hit_test::HitTest(Ctx(pl, { x, y }));
 
-    EXPECT_EQ(r.node_index, table_idx)
-        << "テーブル領域内の click は table ノードを返すはず";
+    ASSERT_EQ(r.node_index, table_idx);
+    const uint32_t cell_start = pl.nodes[table_idx].table_data()->CellTextStart(2, 1);
+    EXPECT_GE(r.text_pos, cell_start);
+    EXPECT_LE(r.text_pos, cell_start + 2);
 }
 
-// OverlayButtonHitTest: Copy ボタンの上を click するとコードブロックの CodeCopy
-// インデックスが入ること。共有 cache の matches も正しく動くかを軽く確認する。
+// OverlayButtonHitTest: Copy ボタンの上を click するとコードブロックの CodeCopy が返ること。
 TEST_F(HitTestDWriteTest, OverlayButtonHitTest_CopyHitReturnsNode)
 {
     auto pl = ParseAndLayout("```\nint main() { return 0; }\n```");

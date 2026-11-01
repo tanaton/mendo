@@ -1,14 +1,12 @@
 #pragma once
 #include <windows.h>
 
-// Traits は type, invalid(), close(type) を定義する。
-template <typename Traits>
+// 無効値は関数で渡す (INVALID_HANDLE_VALUE は定数式でない)。
+template <typename T, T (*Invalid)() noexcept, auto Close>
 class UniqueResource {
-    using handle_t = typename Traits::type;
-
 public:
     UniqueResource() noexcept = default;
-    explicit UniqueResource(handle_t h) noexcept : handle_(h)
+    explicit UniqueResource(T h) noexcept : handle_(h)
     {}
     ~UniqueResource()
     {
@@ -29,123 +27,53 @@ public:
 
     explicit operator bool() const noexcept
     {
-        return handle_ != Traits::invalid();
+        return handle_ != Invalid();
     }
-    handle_t get() const noexcept
+    T get() const noexcept
     {
         return handle_;
     }
 
-    handle_t release() noexcept
+    T release() noexcept
     {
-        handle_t h = handle_;
-        handle_ = Traits::invalid();
+        T h = handle_;
+        handle_ = Invalid();
         return h;
     }
 
     // 出力引数で受け取る API 用。
-    handle_t* put() noexcept
+    T* put() noexcept
     {
         reset();
         return &handle_;
     }
 
-    void reset(handle_t h = Traits::invalid()) noexcept
+    void reset(T h = Invalid()) noexcept
     {
-        if (handle_ != Traits::invalid()) {
-            Traits::close(handle_);
+        if (handle_ != Invalid()) {
+            Close(handle_);
         }
         handle_ = h;
     }
 
 private:
-    handle_t handle_ = Traits::invalid();
+    T handle_ = Invalid();
 };
 
-struct HandleTraits {
-    using type = HANDLE;
-    static type invalid() noexcept
-    {
-        return INVALID_HANDLE_VALUE;
-    }
-    static void close(type h) noexcept
-    {
-        CloseHandle(h);
-    }
-};
-using UniqueHandle = UniqueResource<HandleTraits>;
-
-struct EventHandleTraits {
-    using type = HANDLE;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type h) noexcept
-    {
-        CloseHandle(h);
-    }
-};
-using UniqueEventHandle = UniqueResource<EventHandleTraits>;
-
-struct FindHandleTraits {
-    using type = HANDLE;
-    static type invalid() noexcept
-    {
-        return INVALID_HANDLE_VALUE;
-    }
-    static void close(type h) noexcept
-    {
-        FindClose(h);
-    }
-};
-using UniqueFindHandle = UniqueResource<FindHandleTraits>;
-
-struct CoTaskMemStrTraits {
-    using type = wchar_t*;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type p) noexcept
-    {
-        CoTaskMemFree(p);
-    }
-};
-using UniqueCoTaskMemStr = UniqueResource<CoTaskMemStrTraits>;
-
-// SetClipboardData / CreateStreamOnHGlobal への所有権移譲時は release() を使う。
-struct GlobalMemTraits {
-    using type = HGLOBAL;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type h) noexcept
-    {
-        GlobalFree(h);
-    }
-};
-using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
-
-// GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で直接書き込ませる。
-// 確保・ロック・fill のいずれかが失敗したら空を返す (確保済みメモリは解放される)。
-template <class Fill>
-UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill)
+inline HANDLE InvalidHandleValue() noexcept
 {
-    UniqueGlobalMem mem{ GlobalAlloc(GMEM_MOVEABLE, size) };
-    if (!mem) {
-        return {};
-    }
-    void* ptr = GlobalLock(mem.get());
-    if (!ptr) {
-        return {};
-    }
-    const bool ok = fill(ptr);
-    GlobalUnlock(mem.get());
-    if (!ok) {
-        return {};
-    }
-    return mem;
+    return INVALID_HANDLE_VALUE;
 }
 
+template <typename T>
+constexpr T NullHandle() noexcept
+{
+    return nullptr;
+}
+
+using UniqueHandle = UniqueResource<HANDLE, InvalidHandleValue, CloseHandle>;
+using UniqueEventHandle = UniqueResource<HANDLE, NullHandle<HANDLE>, CloseHandle>;
+using UniqueFindHandle = UniqueResource<HANDLE, InvalidHandleValue, FindClose>;
+using UniqueCoTaskMemStr = UniqueResource<wchar_t*, NullHandle<wchar_t*>, CoTaskMemFree>;
+// SetClipboardData / CreateStreamOnHGlobal への所有権移譲時は release() を使う。
+using UniqueGlobalMem = UniqueResource<HGLOBAL, NullHandle<HGLOBAL>, GlobalFree>;

@@ -7,7 +7,9 @@
 #include "i18n.h"
 #include "layout_computer.h"
 #include "layout.h"
+#include "context_menu.h"
 #include "pane_layout.h"
+#include "settings_dialog.h"
 #include "profiler.h"
 #include "reload_flow.h"
 #include "resource.h"
@@ -24,6 +26,10 @@
 #include <utility>
 
 namespace {
+
+// クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
+constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
+constexpr float SPINNER_ROTATION_INCREMENT = 0.15f;
 
 bool IsEditableTextFile(std::wstring_view path)
 {
@@ -71,30 +77,13 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    resource_manager_.Init(state_, image_loader_, mermaid_renderer_, file_cache_, *this);
-
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
 
-    if (!image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_)) {
-        MENDO_TRACE("ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.");
-    }
-
-    // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
-    renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
-        mermaid_renderer_.SetRenderTarget(new_rt);
-        image_loader_.SetRenderTarget(new_rt);
-        // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
-        // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
-        state_.document.layout_cache.InvalidateAllDiagramBitmaps();
-        resource_manager_.LoadImages();
-        // インライン数式の型は旧デバイスのビットマップなので捨てる。寸法は同じなのでレイアウトはそのまま。
-        // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。
-        math_masks_ = {};
-    });
+    image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
@@ -139,15 +128,34 @@ bool App::CreateRenderDevice()
         return false;
     }
     // 作成前に始めたデコードは WIC ビットマップなので、取り消さずに新しい RT で使う。
-    auto* const rt = renderer_.GetRenderTarget();
-    mermaid_renderer_.SetRenderTarget(rt);
-    image_loader_.SetRenderTarget(rt);
+    ShareRenderTarget();
     // デバイスを待つ間に終わった読み込みを、完了通知を待たずに最初のフレームへ入れる。
     // 届いた後で入ると高さが変わって表示が跳ねるので、時間予算で切らずに全部入れる。
     constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
     resource_manager_.OnImagesDecoded(kNoDeadline);
     mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
     return true;
+}
+
+void App::ShareRenderTarget()
+{
+    auto* const rt = renderer_.GetRenderTarget();
+    mermaid_renderer_.SetRenderTarget(rt);
+    image_loader_.SetRenderTarget(rt);
+}
+
+void App::OnRenderDeviceRecreated()
+{
+    ShareRenderTarget();
+    // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
+    // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
+    state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    resource_manager_.LoadImages();
+    // インライン数式の型は旧デバイスのビットマップなので捨てる。寸法は同じなのでレイアウトはそのまま。
+    // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。
+    math_masks_ = {};
+    // 待たせた読み込みの結果を受け取る。型を捨てた後でないと、受け取った型まで捨ててしまう。
+    mermaid_renderer_.ProcessDiskLoads();
 }
 
 void App::LoadInitialDocument()
@@ -193,7 +201,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
     const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
-            .scroll = panes.SidePaneScroll(t),
+            .scroll_y = panes.SidePaneScroll(t),
             .hovered_index = state_.view.hover.side_index[std::to_underlying(t)],
             .show = panes.IsSidePaneVisible(t),
             .hovered_button = state_.view.hover.side_button[std::to_underlying(t)],
@@ -276,9 +284,8 @@ void App::OnPaint()
             .block_h_scroll = h_scroll,
             .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
             .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
-            .search_generation = highlight ? ss.GetGeneration() : 0,
-            .inline_math = &math_masks_,
         },
+        .inline_math = math_masks_,
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
@@ -291,22 +298,28 @@ void App::OnPaint()
     });
 
     EndPaint(hwnd_, &ps);
-    ManageInlineMathPages();
-    // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
-    // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
-    // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
-    if (!show_loading) {
-        RefreshHoverAtCursor();
-    }
     switch (result) {
     case FrameResult::Done:
         break;
     case FrameResult::RedrawNow:
         Invalidate();
         break;
+    case FrameResult::DeviceRecreated:
+        OnRenderDeviceRecreated();
+        Invalidate();
+        break;
     case FrameResult::RetryLater:
+        // CreateDevice は作り直す前に RT を解放する。再試行までの入力で解放済みの RT を触らせない。
+        ShareRenderTarget();
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
         break;
+    }
+    ManageInlineMathPages();
+    // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
+    // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
+    // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
+    if (!show_loading) {
+        RefreshHoverAtCursor();
     }
     MENDO_FRAME_MARK();
 }
@@ -539,9 +552,6 @@ void App::OnFileWatchEvent()
 // AppState を更新するタイマーだけ reducer に渡し、サービスを進めるだけのものはここで直接呼ぶ。
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    if (timer_id < std::to_underlying(app_timer::kFirstTimer) || timer_id > std::to_underlying(app_timer::kLastTimer)) {
-        return;
-    }
     using enum app_timer::Id;
     const auto id = static_cast<app_timer::Id>(timer_id);
     switch (id) {
@@ -568,7 +578,7 @@ void App::HandleTimer(UINT_PTR timer_id)
             }
             return;
         }
-        spinner_angle_ += spinner::ROTATION_INCREMENT;
+        spinner_angle_ += SPINNER_ROTATION_INCREMENT;
         if (spinner_angle_ > TWO_PI) {
             spinner_angle_ -= TWO_PI;
         }
@@ -594,10 +604,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(id);
         ReloadCurrentFile();
         return;
-    case END:
-        break;
     }
-    std::unreachable();
 }
 
 void App::ShowToast(std::wstring_view message)
@@ -708,9 +715,9 @@ void App::BeginAsyncLoad(std::wstring path, bool show_animation)
     if (show_animation) {
         ScheduleLoadingAnimation();
     }
-    ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, prefix_shrink_retry_.Exhausted());
+    ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, prefix_shrink_defers_ >= kMaxPrefixShrinkDefers);
     // 進行中の読み込み (preload を含む) は置き換える。
-    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
+    load_coordinator_.Start(std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
 }
 
 void App::DeferReloadRetry()
@@ -727,7 +734,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
     // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
     file_watcher_.RequeueIfPaused();
-    prefix_shrink_retry_.Reset();
+    prefix_shrink_defers_ = 0;
     // 仮想パスはファイルとして読めないので、埋め込みリソースから開く。
     if (IsHelpPath(path)) {
         ShowHelpResource();
@@ -759,7 +766,7 @@ void App::CancelOtherFileLoad()
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::wstring path)
 {
-    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.CreateTheme(session::LoadZoomLevel(config_)));
+    load_coordinator_.Start(std::move(path), theme_service_.CreateTheme(session::LoadZoomLevel(config_)));
 }
 
 void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
@@ -783,9 +790,9 @@ void App::OnParseComplete()
     MENDO_PROFILE("OnParseComplete");
 
     auto outcome = load_coordinator_.Take();
-    const auto plan = PlanParseComplete(outcome, state_.document.doc);
+    const ParseCompleteStep step = PlanParseComplete(outcome, state_.document.doc);
 
-    if (plan.step == ParseCompleteStep::IgnoreStale) {
+    if (step == ParseCompleteStep::IgnoreStale) {
         MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
         return;
     }
@@ -797,16 +804,16 @@ void App::OnParseComplete()
 
     // 読み始めに捨てた画像・図の待ちを、文書を差し替えずに終わるなら要求し直す。ApplyReload は ReloadDocument が要求する
     // (ドラッグの後に回すときも、読み直しの結果でここか ReloadDocument を通る)。
-    if (plan.step != ParseCompleteStep::ReplaceWithResult && plan.step != ParseCompleteStep::ApplyReload) {
+    if (step != ParseCompleteStep::ReplaceWithResult && step != ParseCompleteStep::ApplyReload) {
         resource_manager_.ScheduleBitmapManage();
     }
 
-    switch (plan.step) {
+    switch (step) {
     case ParseCompleteStep::IgnoreStale:
         break;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        HandleLoadFailureFallback(plan.error);
+        HandleLoadFailureFallback(outcome->error());
         return;
     case ParseCompleteStep::Retry:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
@@ -814,19 +821,19 @@ void App::OnParseComplete()
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ReloadUnchanged:
-        prefix_shrink_retry_.Reset();
+        prefix_shrink_defers_ = 0;
         file_watcher_.ResumeWatching();
         return;
     case ParseCompleteStep::DeferPrefixShrink:
         // 正確な差分を取り直す。上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
-        prefix_shrink_retry_.CountDefer();
+        ++prefix_shrink_defers_;
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ApplyReload: {
         const ReloadCheck& reload = *result->reload;
         MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={}", result->doc.GetNodes().size(),
                      reload.decision.diff_pos, result->doc.GetRawText().size());
-        prefix_shrink_retry_.Reset();
+        prefix_shrink_defers_ = 0;
         // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの後に回す。
         if (DeferReloadWhileSelecting()) {
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
@@ -835,9 +842,11 @@ void App::OnParseComplete()
         ReloadDocument(std::move(result->doc), std::move(result->cache), reload.ends, reload.decision.diff_pos);
         return;
     }
-    case ParseCompleteStep::ReplaceWithResult:
-        OpenDocument(std::move(result->doc), std::move(result->cache), plan.follow_file_pane, std::move(result->watch));
+    case ParseCompleteStep::ReplaceWithResult: {
+        const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), result->doc.GetFilePath());
+        OpenDocument(std::move(result->doc), std::move(result->cache), follow_file_pane, std::move(result->watch));
         return;
+    }
     }
     std::unreachable();
 }
@@ -912,7 +921,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     MENDO_PROFILE("ReloadDocument");
 
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
-    const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
+    const size_t carried = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
     FollowViewerNode(next, ends);
     ReplaceDocument(std::move(next), std::move(estimated));
     // 描いた数式は残し、変わった数式を含む組だけが描き直しになる。
@@ -927,20 +936,20 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     // Mermaid の図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。引き継いだノードは実測の高さを持っているので、
     // 当てるのは変わった範囲だけでよい。引き継いだ高さと合わせて Y を 1 回で組み直す。
-    const bool applied = ApplyCachedHeights({ carry.ends.head, carry.ends.NewTailBegin() });
-    if (applied || carry.carried > 0) {
+    const bool applied = ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
+    if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
     }
 
     const float desired_scroll = layout::CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
-        std::string_view{ state_.document.doc.GetRawText() },
+        state_.document.doc.GetRawText().size(),
         diff_pos, md.height, state_.view.viewport.GetScrollY());
 
     MENDO_TRACEF("ReloadDocument: desired_scroll={:.1f} diff_pos={}", desired_scroll, diff_pos);
 
     // スクロール位置を先に設定してから RelayoutViewport を呼ぶことで、変更箇所周辺の可視ノードが優先的に計測される。
-    Dispatch(DocumentReloadedAction{ carry.ends, desired_scroll });
+    Dispatch(DocumentReloadedAction{ ends, desired_scroll });
 
     RelayoutViewport();
 
@@ -974,7 +983,7 @@ void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
     }
 }
 
-bool App::ApplyCachedHeights(VisibleRange nodes)
+bool App::ApplyCachedHeights(IndexRange nodes)
 {
     const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload(nodes);
     const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes);
@@ -1116,10 +1125,6 @@ void App::OnDestroy()
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
-
-    for (UINT_PTR id = std::to_underlying(app_timer::kFirstTimer); id <= std::to_underlying(app_timer::kLastTimer); ++id) {
-        ::KillTimer(hwnd_, id);
-    }
 }
 
 int App::SearchInputPosAt(float dip_x)
@@ -1313,12 +1318,9 @@ void App::HandleLinkClick(std::string_view url)
     case LinkClickResult::Type::Anchor:
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         return;
-    case LinkClickResult::Type::ExternalUrl: {
-        std::wstring url_wide;
-        string_convert::Utf8ToWide(result.target, url_wide);
-        ShellOpenAsync(std::move(url_wide));
+    case LinkClickResult::Type::ExternalUrl:
+        ShellOpenAsync(string_convert::Utf8ToWide(result.target));
         return;
-    }
     }
     std::unreachable();
 }
@@ -1593,7 +1595,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
         .can_edit_file = state_.document.doc.HasBackingFile() && IsEditableTextFile(state_.document.doc.GetFilePath()),
-        .has_selection = selection.active() && selection.start_node >= 0,
+        .has_selection = selection.active(),
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
@@ -1763,7 +1765,7 @@ void App::EnsureNodeLayout(int node_index)
     layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, ComputePaneLayout(state_).md_rect.width, node_index);
 }
 
-void App::RecomputeLayout(layout::HeightChangeRange changed)
+void App::RecomputeLayout(IndexRange changed)
 {
     layout_service_.RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, changed);
     ClampScrollToContent();

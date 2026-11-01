@@ -98,9 +98,7 @@ TEST(StartupPlanTest, FileArg_MaybeSameAsLastFile_ChecksByOpening)
 
 TEST(StartupPlanTest, FileArg_SameAsLastFile_RestoresScroll)
 {
-    auto ctx = MakeContext(StartupArgKind::File, kLastFile);
-    ctx.arg_is_last_file = true;
-    const auto plan = DecideStartupPlan(ctx);
+    const auto plan = DecideStartupPlan(MakeContext(StartupArgKind::File, kLastFile));
     EXPECT_EQ(plan.document_path, kLastFile);
     EXPECT_TRUE(plan.restore_scroll);
     EXPECT_FALSE(plan.restore_scroll_if_same_file);

@@ -8,27 +8,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # ---- MSVCビルド最適化 ----
-if(MSVC)
-    # /MP: マルチプロセッサコンパイル（各ターゲット内で並列コンパイル）
-    add_compile_options(/MP)
+# /MP: マルチプロセッサコンパイル（各ターゲット内で並列コンパイル）
+add_compile_options(/MP)
 
-    # /GL: プログラム全体の最適化（コンパイル時にLTCGを有効化）
-    # /Gy: 関数レベルリンク（リンカが未使用関数を除去可能にする）
-    # /Gw: グローバルデータも COMDAT 化し、/OPT:REF で未使用分を除去させる
-    add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/Gw>)
+# /GL: プログラム全体の最適化（コンパイル時にLTCGを有効化）
+# /Gy: 関数レベルリンク（リンカが未使用関数を除去可能にする）
+# /Gw: グローバルデータも COMDAT 化し、/OPT:REF で未使用分を除去させる
+add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/Gw>)
 
-    # /LTCG: リンク時コード生成
-    # /OPT:REF: 未参照の関数/データを除去
-    # /OPT:ICF: 同一COMDATの統合
-    add_link_options(
-        $<$<CONFIG:Release>:/LTCG>
-        $<$<CONFIG:Release>:/OPT:REF>
-        $<$<CONFIG:Release>:/OPT:ICF>
-    )
+# /LTCG: リンク時コード生成
+# /OPT:REF: 未参照の関数/データを除去
+# /OPT:ICF: 同一COMDATの統合
+add_link_options(
+    $<$<CONFIG:Release>:/LTCG>
+    $<$<CONFIG:Release>:/OPT:REF>
+    $<$<CONFIG:Release>:/OPT:ICF>
+)
 
-    # 静的ライブラリにもリンカが処理できるよう/LTCGが必要
-    set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
-endif()
+# 静的ライブラリにもリンカが処理できるよう/LTCGが必要
+set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 
 # ---- Tracy プロファイラ（オプション） ----
 # 開発時のフレーム/ゾーン計測用。Release 配布では OFF が前提。
@@ -52,7 +50,7 @@ if(MENDO_USE_TRACY)
     )
     FetchContent_MakeAvailable(tracy)
     # CRT 設定をプロジェクト全体と揃える（/MT[d]）。
-    if(MSVC AND TARGET TracyClient)
+    if(TARGET TracyClient)
         set_target_properties(TracyClient PROPERTIES
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
         target_compile_options(TracyClient PRIVATE /W0)
@@ -66,39 +64,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(webview2)
 
-# 展開されたWebView2のヘッダーとライブラリのパスを設定。
-# NuGet パッケージは build/native/x64 と build/native/arm64 のみ提供。
-# Visual Studio ジェネレータでは CMAKE_GENERATOR_PLATFORM、それ以外は
-# CMAKE_SYSTEM_PROCESSOR を見て切り替える。
+# 展開されたWebView2のヘッダーとライブラリのパスを設定。SSE2 を直接使うので x64 だけを組む。
 set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
 set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
-if(CMAKE_GENERATOR_PLATFORM)
-    set(_mendo_arch "${CMAKE_GENERATOR_PLATFORM}")
-else()
-    set(_mendo_arch "${CMAKE_SYSTEM_PROCESSOR}")
-endif()
-string(TOLOWER "${_mendo_arch}" _mendo_arch)
-if(_mendo_arch MATCHES "^(x64|amd64)$")
-    set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
-elseif(_mendo_arch MATCHES "^(arm64|aarch64)$")
-    set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/arm64")
-else()
-    message(FATAL_ERROR
-        "mendo: unsupported architecture '${_mendo_arch}'. "
-        "WebView2 NuGet provides only x64 / arm64 binaries "
-        "(accepted names: x64, AMD64, ARM64, AArch64). "
-        "Visual Studio generator users should pass '-A x64' or '-A ARM64' "
-        "(e.g. 'cmake -A x64 -B build').")
-endif()
-unset(_mendo_arch)
+set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
 
 # ---- md4c（サードパーティ） ----
 # Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
 add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
-if(MSVC)
-    target_compile_options(md4c PRIVATE /W0)
-endif()
+target_compile_options(md4c PRIVATE /W0)
 
 # ---- サブディレクトリ定義 ----
 set(MENDO_SRC_DIRS
@@ -136,7 +111,6 @@ add_library(mendo_core STATIC
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
     src/io/file_explorer.cpp
-    src/io/async_load_coordinator.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
     src/io/file_watcher.cpp
@@ -148,6 +122,7 @@ add_library(mendo_core STATIC
     # theme - テーマ管理
     src/theme/theme.cpp
     # app - アプリケーション制御
+    src/app/async_load_coordinator.cpp
     src/app/app_controller.cpp
     src/app/clipboard_manager.cpp
     src/app/reducer.cpp
@@ -174,12 +149,10 @@ if(MENDO_USE_TRACY)
     target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
-if(MSVC)
-    # /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
-    # profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
-    # PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
-    target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
-endif()
+# /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
+# profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
+# PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
+target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 
 # ---- プリコンパイル済みヘッダー ----
 # `<pch.h>` 形式で指定するのは、CMake が生成する wrapper に絶対パスを書かれると
@@ -228,7 +201,7 @@ add_executable(mendo WIN32
     res/mendo.rc
 )
 target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 dxgi imm32 shcore delayimp
+target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 shcore delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
@@ -252,7 +225,7 @@ target_precompile_headers(mendo REUSE_FROM mendo_core)
 # 埋め込まれるため、mendo_core をリンクする mendo_tests も同じファイルを上書きする。
 # mendo の結果だけ欲しいときは --target mendo でビルドする。
 option(MENDO_ASM_LISTING "Emit source-annotated assembly listings (/FAs)" OFF)
-if(MENDO_ASM_LISTING AND MSVC)
+if(MENDO_ASM_LISTING)
     foreach(_mendo_target mendo_core mendo)
         target_compile_options(${_mendo_target} PRIVATE
             /FAs "/Fa${CMAKE_BINARY_DIR}/asm/$<CONFIG>/")

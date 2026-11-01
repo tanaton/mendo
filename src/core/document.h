@@ -29,14 +29,8 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 
 class Document {
 public:
+    // ノードのテキストとテーブルは data_ の中を直接指す。共有で持つため、move しても relocate せず付け替えは不要。
     constexpr Document() noexcept = default;
-
-    // move-only: ノードのテキストとテーブルは data_ の中を直接指す。共有で持つため、move しても relocate せず付け替えは不要。
-    Document(const Document&) = delete;
-    Document& operator=(const Document&) = delete;
-    Document(Document&& other) noexcept = default;
-    Document& operator=(Document&& other) noexcept = default;
-    ~Document() = default;
 
     // text は LF 正規化済み (LoadFile の出力) であること。
     // 既定の stop_token ではキャンセルしない。
@@ -63,8 +57,7 @@ public:
     {
         return GetNodes().empty();
     }
-    // パース入力の原文。AnalyzeReloadDiff の比較用。ノードレベルでは検出できない編集
-    // (空行追加・末尾空白・改行種別変更等) も UTF-8 byte offset 精度で差分位置を求めるため、常時保持する。
+    // パース入力の原文。
     std::string_view GetRawText() const noexcept
     {
         return data_ ? std::string_view{ data_->raw } : std::string_view{};

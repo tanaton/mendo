@@ -304,8 +304,7 @@ void Renderer::TrimForMinimize() noexcept
 
 void Renderer::AcquireFrame() noexcept
 {
-    // ロスト中は描画側が作り直すので待たせない。
-    if (frame_acquired_ || device_lost_ || !frame_latency_waitable_) {
+    if (frame_acquired_ || !frame_latency_waitable_) {
         return;
     }
     // alertable=FALSE: UI スレッドは APC を使わないので、意図しない早期復帰を防ぐ。
@@ -314,9 +313,6 @@ void Renderer::AcquireFrame() noexcept
 
 void Renderer::Present() noexcept
 {
-    if (!swap_chain_) {
-        return;
-    }
     const HRESULT hr = swap_chain_->Present(1, 0);
     // 表示されなかったフレーム (隠れていた・失敗した) はシグナルを消費しないので、取れた扱いのまま次に回す。
     if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED) {
@@ -336,12 +332,25 @@ bool Renderer::CreateDevice()
     device_lost_ = true;
     frame_acquired_ = false;
     frame_latency_waitable_.reset();
+    // flip モデルのスワップチェーンは、前のものが解放されるまで同じ HWND に作れない。ブラシや図のビットマップが
+    // 古いデバイスを生かしていても手放せるよう描画先を外し、D3D の遅延解放をフラッシュで済ませる。
+    if (device_context_) {
+        device_context_->SetTarget(nullptr);
+    }
     device_context_.Reset();
     d2d_device_.Reset();
     swap_chain_.Reset();
+    if (d3d_device_) {
+        ComPtr<ID3D11DeviceContext> d3d_context;
+        d3d_device_->GetImmediateContext(&d3d_context);
+        d3d_context->ClearState();
+        d3d_context->Flush();
+    }
     d3d_device_.Reset();
 
     if (!CreateDeviceResources()) {
+        // 途中で失敗すると描画先の無い context が残る。GetRenderTarget の非 null は使えることを意味する。
+        device_context_.Reset();
         return false;
     }
     device_lost_ = false;

@@ -133,15 +133,14 @@ std::string ToLowerAnchorCopy(std::string_view text)
 
 std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node_index)
 {
-    ++heading_count_;
-    const std::string base = GenerateAnchorId(heading_text);
-    // キーは索引の arena に置く。衝突 (同じ見出しの繰り返し) では捨てた分も arena に残るが、まれなので構わない。
-    auto result = entries_.try_emplace(std::pmr::string(base, &arena_), Entry{ node_index });
+    std::string base = GenerateAnchorId(heading_text);
+    // 挿入しなければ base はムーブされない。
+    auto result = entries_.try_emplace(std::move(base), Entry{ node_index });
     if (!result.second) {
         // unordered_map は再ハッシュでも要素の参照が変わらない。
         int& counter = result.first->second.counter;
         do {
-            result = entries_.try_emplace(std::pmr::string(std::format("{}-{}", base, ++counter), &arena_), Entry{ node_index });
+            result = entries_.try_emplace(std::format("{}-{}", base, ++counter), Entry{ node_index });
         } while (!result.second);
     }
     return result.first->first;

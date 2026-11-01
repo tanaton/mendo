@@ -57,7 +57,7 @@ constexpr bool IsBlockMath(const Node& node) noexcept
 }
 
 // node の pos にある run の並びと、その中での位置。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の
-// offset。セル外 (区切り文字・padding) なら runs は空。
+// offset。セル外 (区切り文字) なら runs は空。
 struct NodeRunsAt {
     std::span<const TextRun> runs;
     uint32_t local_pos = 0;
@@ -108,3 +108,22 @@ void AnnotateCodeChunkLeads(std::span<Node> run);
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;
+
+struct LinkClickResult {
+    enum class Type : uint8_t {
+        None,
+        Anchor,
+        ExternalUrl
+    };
+    Type type = Type::None;
+    // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
+    // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
+    // ExternalUrl: URL (UTF-8)。App::ShellOpenAsync に渡す直前で wstring 化する。
+    std::string target;
+};
+
+LinkClickResult ClassifyLinkClick(std::string_view url);
+bool IsSafeUrlScheme(std::string_view url) noexcept;
+// md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
+// 16 進 2 桁が続かない % はそのまま残す。
+std::string PercentDecode(std::string_view s);

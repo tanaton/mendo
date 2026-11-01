@@ -108,6 +108,22 @@ TEST(SimdAsciiFindTest, StartBeyondLast)
     EXPECT_EQ(ascii_util::Find(t, "lo", 3), 3u);
 }
 
+// 1 バイトのクエリも 2 点一致の経路を通る。16 バイトのブロックと端数のどちらの位置でも見つかる。
+TEST(SimdAsciiFindTest, SingleByteAtEveryPosition)
+{
+    for (size_t len = 1; len <= 40; ++len) {
+        for (size_t at = 0; at < len; ++at) {
+            std::string t(len, '.');
+            t[at] = 'x';
+            EXPECT_EQ(ascii_util::Find(t, "x", 0), at) << len << " " << at;
+            t[at] = 'X';
+            EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(t, "x", 0), at) << len << " " << at;
+            EXPECT_EQ(ascii_util::Find(t, "x", 0), ascii_util::npos) << len << " " << at;
+            EXPECT_EQ(ascii_util::Find(t, "X", at + 1), ascii_util::npos) << len << " " << at;
+        }
+    }
+}
+
 // ── iequal / istarts_with ─────────────────────────────────────
 
 TEST(AsciiUtilIequal, CharAndWideLiterals)

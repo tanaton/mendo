@@ -48,7 +48,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, con
 
 UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
 {
-    if (!png || png->empty() || !wic_) {
+    if (!png || png->empty()) {
         return {};
     }
     // BI_RGB の DIB なので非プリマルチプライの 32bpp BGRA でデコードする。
@@ -94,7 +94,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), *hit));
         return;
     }
-    if (copy_in_flight_ || !mermaid_renderer_) {
+    if (copy_in_flight_) {
         return;
     }
 

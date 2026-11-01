@@ -1,21 +1,11 @@
 #pragma once
+#include "ui_types.h"
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-struct FileEntry {
-    std::wstring full_path;
-    bool is_current = false;
-    bool is_directory = false;
-    // ".." (親ディレクトリ) の項目。
-    bool is_parent = false;
-
-    // 戻り値は full_path の内部バッファを指す view。
-    std::wstring_view GetDisplayName() const noexcept;
-};
 
 // 列挙は SetDirectory / Refresh 後の最初の EnsureListed まで遅らせる。表示中のペインを描くときと
 // 一覧を見る操作だけが呼ぶので、ペインが非表示なら起動時やファイルを開くたびの I/O が起きない。

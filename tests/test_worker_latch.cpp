@@ -111,8 +111,8 @@ TEST(PostedInbox, PostsOnceAndKeepsOrderOfLeftovers)
 
     std::vector<int> seen;
     const auto expired = std::chrono::steady_clock::time_point::min();
-    const auto first = inbox.Drain(expired, [&](int v) { seen.push_back(v); });
-    EXPECT_EQ(first.size(), 1u);
+    inbox.Drain(expired, [&](int v) { seen.push_back(v); });
+    EXPECT_EQ(seen.size(), 1u);
     EXPECT_TRUE(inbox.HasLeftover());
     EXPECT_FALSE(inbox.Push(4)) << "未回収が残っている間は投函しない";
 

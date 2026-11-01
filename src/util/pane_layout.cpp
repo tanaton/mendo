@@ -14,7 +14,7 @@ constexpr float SidePanesAvailableWidth(float total_width, float splitter_w, int
 
 bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept
 {
-    auto& scroll_y = Inst(t).scroll.scroll_y;
+    auto& scroll_y = Inst(t).scroll_y;
     const float old = scroll_y;
     scroll_y = std::clamp(scroll_y + delta, 0.0f, max_scroll);
     return scroll_y != old;
@@ -22,7 +22,7 @@ bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scrol
 
 void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept
 {
-    const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
+    const auto layout = ComputeLayout(total_width, 0.0f, splitter_w, 0.0f);
     // ウィンドウが保存幅より狭く表示幅だけ縮小されている間は、見えている幅を論理幅として確定させる。
     // 論理幅のまま制約すると、触った瞬間に縮小が解けて反対側のペインが元の幅へジャンプする。
     const auto adopt_displayed = [this](PaneTarget t, float displayed) noexcept {

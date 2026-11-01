@@ -33,7 +33,6 @@ struct TableRowHit {
     float row_top = 0.0f;
 };
 
-// 行幾何が未確定ならヒットなし。
 inline TableRowHit FindTableRow(const TableLayoutData& tl, float local_y) noexcept
 {
     const int idx = tl.RowIndexAt(local_y);

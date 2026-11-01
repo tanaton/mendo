@@ -123,27 +123,3 @@ inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
     const size_t bytes_per_pixel = bitmap->GetPixelFormat().format == DXGI_FORMAT_A8_UNORM ? 1 : 4;
     return static_cast<size_t>(size.width) * size.height * bytes_per_pixel;
 }
-
-// null ブラシと不透明は no-op。
-class OpacityScope {
-public:
-    OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(alpha != 1.0f ? brush : nullptr)
-    {
-        if (brush_) {
-            brush_->SetOpacity(alpha);
-        }
-    }
-    ~OpacityScope() noexcept
-    {
-        if (brush_) {
-            brush_->SetOpacity(1.0f);
-        }
-    }
-    OpacityScope(const OpacityScope&) = delete;
-    OpacityScope& operator=(const OpacityScope&) = delete;
-    OpacityScope(OpacityScope&&) = delete;
-    OpacityScope& operator=(OpacityScope&&) = delete;
-
-private:
-    ID2D1SolidColorBrush* brush_;
-};

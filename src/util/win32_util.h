@@ -46,6 +46,18 @@ T* BindWindowInstance(HWND hwnd, UINT msg, LPARAM lParam) noexcept
     return reinterpret_cast<T*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
 
+inline bool RegisterWindowClass(const wchar_t* name, WNDPROC proc, HICON icon = nullptr, HCURSOR cursor = nullptr) noexcept
+{
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = proc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hIcon = icon;
+    wc.hCursor = cursor;
+    wc.lpszClassName = name;
+    return RegisterClassExW(&wc) != 0;
+}
+
 inline void LogHrFailure([[maybe_unused]] const char* what, HRESULT hr) noexcept
 {
     if (FAILED(hr)) {

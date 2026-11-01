@@ -4,6 +4,8 @@
 #include "test_helpers.h"
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include "pane_layout.h"
 
 class ConfigServiceTest : public TempDirTestBase {
 protected:
@@ -11,30 +13,25 @@ protected:
 
     void SetUp() override
     {
-        config_.SetConfigDirOverride(temp_dir_);
+        config_.SetConfigDir(temp_dir_);
     }
 
     // 同じ temp_dir_ を共有する別インスタンス。Flush 後に Load してラウンドトリップを検証する。
     ConfigService MakeFreshLoadedConfig()
     {
         ConfigService c;
-        c.SetConfigDirOverride(temp_dir_);
+        c.SetConfigDir(temp_dir_);
         c.Load();
         return c;
     }
 };
 
-// ---- GetConfigDir / GetConfigPath ----
+// ---- GetConfigPath ----
 
-TEST_F(ConfigServiceTest, GetConfigDirReturnsOverride)
+TEST_F(ConfigServiceTest, GetConfigPathDefaultsToMendoFolder)
 {
-    EXPECT_EQ(config_.GetConfigDir(), temp_dir_);
-}
-
-TEST_F(ConfigServiceTest, GetConfigDirReturnsDefaultWhenNoOverride)
-{
-    config_.SetConfigDirOverride({});
-    const auto& dir = config_.GetConfigDir();
+    const ConfigService config;
+    const auto dir = config.GetConfigPath(L"x").parent_path();
     EXPECT_FALSE(dir.empty());
     EXPECT_TRUE(dir.wstring().contains(L"mendo"));
 }
@@ -175,4 +172,350 @@ TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
     config_.Load();
     EXPECT_EQ(config_.LoadInt("Test", "Word", 7, 0, 100), 7);
     EXPECT_EQ(config_.LoadInt("Test", "Suffix", 7, 0, 100), 7);
+}
+
+// ---- Parse テスト ----
+
+TEST(IniParserTest, ParseEmpty)
+{
+    auto data = ini::Parse("");
+    EXPECT_TRUE(data.empty());
+}
+
+TEST(IniParserTest, ParseSingleSection)
+{
+    auto data = ini::Parse("[Window]\nX=100\nY=200\n");
+    ASSERT_EQ(data.size(), 1u);
+    EXPECT_EQ(data["Window"]["X"], "100");
+    EXPECT_EQ(data["Window"]["Y"], "200");
+}
+
+TEST(IniParserTest, ParseMultipleSections)
+{
+    auto data = ini::Parse(
+        "[Window]\nWidth=1280\n\n[View]\nDarkMode=1\n");
+    EXPECT_EQ(data["Window"]["Width"], "1280");
+    EXPECT_EQ(data["View"]["DarkMode"], "1");
+}
+
+TEST(IniParserTest, ParseCommentLines)
+{
+    auto data = ini::Parse(
+        "; comment\n# another comment\n[S]\nK=V\n");
+    ASSERT_EQ(data.size(), 1u);
+    EXPECT_EQ(data["S"]["K"], "V");
+}
+
+// セクション S のキー K の値。
+TEST(IniParserTest, ParseValue)
+{
+    struct Case {
+        const char* label;
+        std::string_view input;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "Empty", "[S]\nK=\n", "" },
+        // 最初の '=' だけで区切る
+        { "ContainsEquals", "[S]\nK=C:\\a=b\\file.txt\n", "C:\\a=b\\file.txt" },
+        { "TrimsBlanks", "[S]\n  K  =  Value  \n", "Value" },
+        { "NoTrailingNewline", "[S]\nK=V", "V" },
+        { "DuplicateKeyLastWins", "[S]\nK=first\nK=second\n", "second" },
+        { "Utf8", "[S]\nK=C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md\n",
+          "C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        auto data = ini::Parse(c.input);
+        // operator[] はキーが無くても空値を作るので、読めたことを先に確かめる。
+        ASSERT_TRUE(data["S"].contains("K"));
+        EXPECT_EQ(data["S"]["K"], c.expected);
+    }
+}
+
+TEST(IniParserTest, ParseCRLFLineEndings)
+{
+    auto data = ini::Parse("[S]\r\nA=1\r\nB=2\r\n");
+    EXPECT_EQ(data["S"]["A"], "1");
+    EXPECT_EQ(data["S"]["B"], "2");
+}
+
+TEST(IniParserTest, ParseEmptySection)
+{
+    auto data = ini::Parse("[Empty]\n[Full]\nK=V\n");
+    EXPECT_TRUE(!data.contains("Empty") || data["Empty"].empty());
+    EXPECT_EQ(data["Full"]["K"], "V");
+}
+
+TEST(IniParserTest, ParseMalformedLineIgnored)
+{
+    auto data = ini::Parse("[S]\nno_equals_here\nK=V\n");
+    ASSERT_EQ(data["S"].size(), 1u);
+    EXPECT_EQ(data["S"]["K"], "V");
+}
+
+TEST(IniParserTest, ParseKeyBeforeSection)
+{
+    auto data = ini::Parse("Orphan=1\n[S]\nK=2\n");
+    EXPECT_EQ(data[""]["Orphan"], "1");
+    EXPECT_EQ(data["S"]["K"], "2");
+}
+
+// ---- Serialize テスト ----
+
+TEST(IniParserTest, SerializeEmpty)
+{
+    ini::IniData data;
+    EXPECT_EQ(ini::Serialize(data), "");
+}
+
+TEST(IniParserTest, SerializeSingleSection)
+{
+    ini::IniData data;
+    data["Window"]["X"] = "100";
+    data["Window"]["Y"] = "200";
+    std::string result = ini::Serialize(data);
+    EXPECT_TRUE(result.contains("[Window]"));
+    EXPECT_TRUE(result.contains("X=100"));
+    EXPECT_TRUE(result.contains("Y=200"));
+}
+
+TEST(IniParserTest, SerializeSkipsEmptySections)
+{
+    ini::IniData data;
+    data["Empty"];  // 空のセクション
+    data["Full"]["K"] = "V";
+    std::string result = ini::Serialize(data);
+    EXPECT_FALSE(result.contains("Empty"));
+    EXPECT_TRUE(result.contains("[Full]"));
+}
+
+TEST(IniParserTest, SerializeMultipleSectionsSeparatedByBlankLine)
+{
+    ini::IniData data;
+    data["A"]["K1"] = "V1";
+    data["B"]["K2"] = "V2";
+    std::string result = ini::Serialize(data);
+    // セクション間に空行がある
+    EXPECT_TRUE(result.contains("\n\n[B]"));
+}
+
+TEST(IniParserTest, RoundTrip)
+{
+    ini::IniData original;
+    original["Window"]["X"] = "100";
+    original["Window"]["Y"] = "-50";
+    original["View"]["DarkMode"] = "1";
+    original["Session"]["LastFile"] = "C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\test.md";
+
+    std::string text = ini::Serialize(original);
+    auto parsed = ini::Parse(text);
+
+    EXPECT_EQ(parsed["Window"]["X"], "100");
+    EXPECT_EQ(parsed["Window"]["Y"], "-50");
+    EXPECT_EQ(parsed["View"]["DarkMode"], "1");
+    EXPECT_EQ(parsed["Session"]["LastFile"], original["Session"]["LastFile"]);
+}
+
+class SessionTest : public TempDirTestBase {
+protected:
+    ConfigService config_;
+
+    PaneController LoadPanes() const
+    {
+        PaneController panes;
+        session::LoadPanes(config_, panes);
+        return panes;
+    }
+};
+
+// ---- SavePanes / LoadPanes ----
+
+TEST_F(SessionTest, SaveAndLoadPanes)
+{
+    PaneController saved;
+    saved.SetSidePaneVisible(PaneTarget::File, false);
+    saved.SetSidePaneWidth(PaneTarget::File, 180.0f);
+    saved.SetSidePaneWidth(PaneTarget::Toc, 250.0f);
+    session::SavePanes(config_, saved);
+
+    const auto loaded = LoadPanes();
+
+    EXPECT_FALSE(loaded.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 180.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 250.0f);
+}
+
+// 読み込み先の今の状態は残さない。
+TEST_F(SessionTest, LoadPanesOverwritesCurrentState)
+{
+    PaneController saved;
+    saved.SetSidePaneVisible(PaneTarget::Toc, false);
+    session::SavePanes(config_, saved);
+
+    PaneController panes;
+    panes.SetSidePaneVisible(PaneTarget::File, false);
+    panes.SetSidePaneWidth(PaneTarget::File, 400.0f);
+    session::LoadPanes(config_, panes);
+
+    EXPECT_TRUE(panes.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_FALSE(panes.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(panes.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_DEFAULT_WIDTH);
+}
+
+TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
+{
+    // 過剰幅の制限はレイアウト側 (md_width = max(md_min_width, total_width - x) で MD ペイン
+    // 下限を保証) に委ねるため、LoadPanes はウィンドウ幅に基づく上限 clamp を行わず、
+    // 保存値をそのまま使う。これにより狭いウィンドウ起動時に保存値が min へ潰れて
+    // 終了時の再保存で恒久喪失するのを防ぐ。
+    config_.SaveInt("Pane", "FileWidth", 500);
+    config_.SaveInt("Pane", "TocWidth", 500);
+
+    const auto loaded = LoadPanes();
+
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 500.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 500.0f);
+}
+
+TEST_F(SessionTest, LoadPanesUsesDefaultWhenNothingSaved)
+{
+    const auto loaded = LoadPanes();
+
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_DEFAULT_WIDTH);
+}
+
+// 幅はズームを含まない DIP 値として往復する。読み側は倍率を掛けない。
+TEST_F(SessionTest, SavedWidthRoundTripsAsDip)
+{
+    PaneController saved;
+    saved.SetSidePaneWidth(PaneTarget::File, 300.0f);
+    saved.SetSidePaneWidth(PaneTarget::Toc, 260.0f);
+    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    session::SavePanes(config_, saved);
+
+    const auto loaded = LoadPanes();
+
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 300.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 260.0f);
+}
+
+// ペインの倍率はペインごとに往復する。
+TEST_F(SessionTest, PaneZoomRoundTrips)
+{
+    PaneController saved;
+    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    saved.SidePaneZoom(PaneTarget::Toc).SetIndex(ZOOM_DEFAULT_INDEX - 1);
+    session::SavePanes(config_, saved);
+
+    const auto loaded = LoadPanes();
+
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::File).Index(), ZOOM_DEFAULT_INDEX + 2);
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::Toc).Index(), ZOOM_DEFAULT_INDEX - 1);
+}
+
+// 保存が無ければ等倍。
+TEST_F(SessionTest, PaneZoomDefaultsToActualSize)
+{
+    const auto loaded = LoadPanes();
+
+    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::File).IsDefault());
+    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::Toc).IsDefault());
+}
+
+// ---- SaveScrollPosition / LoadScrollPosition ----
+
+TEST_F(SessionTest, SaveAndLoadScrollPosition)
+{
+    session::SaveScrollPosition(config_, 5, 49.6f);
+
+    const auto pos = session::LoadScrollPosition(config_);
+    EXPECT_EQ(pos.node, 5);
+    EXPECT_EQ(pos.offset, 50); // lround(49.6)
+}
+
+// ---- SaveLastFilePath / LoadLastFilePath ----
+
+TEST_F(SessionTest, SaveLastFilePathStoresPath)
+{
+    // LoadLastFilePath は実在しないパスを弾くため、実ファイルを作って往復させる。
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    session::SaveLastFilePath(config_, file);
+    EXPECT_EQ(session::LoadLastFilePath(config_), std::wstring_view{ file });
+}
+
+TEST_F(SessionTest, SaveLastFilePathSkipsEmpty)
+{
+    // 空パスで既存の保存値を上書きしない。
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    session::SaveLastFilePath(config_, file);
+    session::SaveLastFilePath(config_, L"");
+    EXPECT_EQ(session::LoadLastFilePath(config_), std::wstring_view{ file });
+}
+
+// UNC (\\host)・拡張パス (\\?\)・デバイスパス (\\.\) と、存在しないファイルは返さない。
+TEST_F(SessionTest, LoadLastFilePathRejectsRemoteDeviceAndMissingPaths)
+{
+    // 存在しないファイルは temp_dir_ 配下の作らない名前にし、絶対パスへのフレークを避ける。
+    const std::wstring kPaths[] = {
+        L"\\\\server\\share\\file.md",
+        L"\\\\?\\C:\\file.md",
+        L"\\\\.\\PhysicalDrive0",
+        (temp_dir_ / L"never_created.md").wstring(),
+    };
+    for (const auto& saved : kPaths) {
+        SCOPED_TRACE(::testing::PrintToString(saved));
+        config_.SaveWString("Session", "LastFile", saved);
+        EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
+    }
+}
+
+// 実在するファイルを指すデバイスパスも弾く。存在しないパスでは存在確認で空になり、判定を外しても通ってしまう。
+TEST_F(SessionTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
+{
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    for (const std::wstring& prefixed : { L"\\\\?\\" + file, L"\\\\.\\" + file, L"//./" + file, L"\\??\\" + file }) {
+        SCOPED_TRACE(::testing::PrintToString(prefixed));
+        ASSERT_NE(::GetFileAttributesW(prefixed.c_str()), INVALID_FILE_ATTRIBUTES) << "前提: このパスでファイルを開けること";
+        config_.SaveWString("Session", "LastFile", prefixed);
+        EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
+    }
+}
+
+TEST_F(SessionTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
+{
+    auto path = session::LoadLastFilePath(config_);
+    EXPECT_TRUE(path.empty());
+}
+
+// ---- SaveScrollPosition / LoadScrollPosition の境界 ----
+
+TEST_F(SessionTest, SaveScrollPosition_NegativeOffsetRoundtrips)
+{
+    // ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
+    session::SaveScrollPosition(config_, 3, -150.0f);
+    const auto pos = session::LoadScrollPosition(config_);
+    EXPECT_EQ(pos.node, 3);
+    EXPECT_EQ(pos.offset, -150);
+}
+
+TEST_F(SessionTest, LoadScrollPosition_DefaultsWhenNothingSaved)
+{
+    const auto pos = session::LoadScrollPosition(config_);
+    EXPECT_EQ(pos.node, -1);
+    EXPECT_EQ(pos.offset, 0);
+}
+
+// node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
+TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
+{
+    config_.SaveInt("Session", "ScrollNode", 10000000);
+    config_.SaveInt("Session", "ScrollOffset", 99999999);
+    const auto pos = session::LoadScrollPosition(config_);
+    EXPECT_EQ(pos.node, -1);
+    EXPECT_EQ(pos.offset, 0);
 }

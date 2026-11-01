@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -20,10 +21,10 @@ public:
         return items_.size() == 1;
     }
 
-    // UI スレッドから呼ぶ。先頭から deadline まで apply し、処理した分を返す。必ず進むよう 1 件目は期限を見ない。
+    // UI スレッドから呼ぶ。先頭から deadline まで apply する。必ず進むよう 1 件目は期限を見ない。
     // 残りは先頭へ戻し、HasLeftover が真になる。
     template <class Apply>
-    std::vector<T> Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
+    void Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
     {
         std::vector<T> items = TakeAll();
         size_t done = 0;
@@ -38,9 +39,7 @@ public:
             const auto rest = items.begin() + static_cast<std::ptrdiff_t>(done);
             const std::lock_guard lock(mutex_);
             items_.insert(items_.begin(), std::make_move_iterator(rest), std::make_move_iterator(items.end()));
-            items.erase(rest, items.end());
         }
-        return items;
     }
 
     // 未回収の結果を捨てる。解放は lock の外 (戻り値の破棄) で行う。UI スレッド専用。
@@ -78,36 +77,21 @@ private:
 // 持つと「Wait が抜けた直後に latch 破棄 → worker が破棄済み cv/mutex を触る」破棄レースに
 // なるため、判定は常に mutex 下で行う。
 class WorkerLatch {
-public:
-    class Guard {
-    public:
-        Guard() noexcept = default;
-        explicit Guard(WorkerLatch* latch) noexcept : latch_(latch)
-        {}
-        Guard(Guard&& other) noexcept : latch_(other.latch_)
+    struct Release {
+        void operator()(WorkerLatch* latch) const noexcept
         {
-            other.latch_ = nullptr;
-        }
-        Guard(const Guard&) = delete;
-        Guard& operator=(const Guard&) = delete;
-
-        ~Guard()
-        {
-            if (!latch_) {
-                return;
-            }
             // デクリメントと notify を同一 mutex 区間で完結させる。これにより Wait が
             // 抜けた時点で worker は cv/mutex へのアクセスを終えており、直後に latch が
             // 破棄されても use-after-free にならない。
-            const std::lock_guard lock(latch_->mutex_);
-            if (--latch_->in_flight_ == 0) {
-                latch_->cv_.notify_all();
+            const std::lock_guard lock(latch->mutex_);
+            if (--latch->in_flight_ == 0) {
+                latch->cv_.notify_all();
             }
         }
-
-    private:
-        WorkerLatch* latch_ = nullptr;
     };
+
+public:
+    using Guard = std::unique_ptr<WorkerLatch, Release>;
 
     WorkerLatch() = default;
     WorkerLatch(const WorkerLatch&) = delete;

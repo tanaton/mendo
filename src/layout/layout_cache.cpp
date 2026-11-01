@@ -2,10 +2,9 @@
 #include "doc_dwrite_bridge.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <cmath>
+#include <cassert>
 #include <optional>
 #include <ranges>
-#include <tuple>
 
 namespace {
 
@@ -30,21 +29,24 @@ std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
     return LineHit{ m.textPosition, line->top, line->top + line->height };
 }
 
-// ローカル Y 範囲にかかる行のテキスト位置を、隣の行の位置で挟んだ [first, second) で返す。
-// 行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても境界になる (RTL の行でも成り立つ)。
-std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const YRange& y) noexcept
+} // namespace
+
+// 行のテキスト位置を隣の行の位置で挟む。行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても
+// 境界になる (RTL の行でも成り立つ)。layout の端を越えた側は先に行が無いので引かない。
+std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& entry, YRange view)
 {
+    auto* const layout = entry.text_layout();
     uint32_t begin = 0;
     uint32_t end = UINT32_MAX;
-    if (std::isfinite(y.top)) {
-        if (const auto first = HitLineAt(layout, y.top); first && first->line_top > 0.0f) {
+    if (view.top > 0.0f) {
+        if (const auto first = HitLineAt(layout, view.top); first && first->line_top > 0.0f) {
             if (const auto prev = HitLineAt(layout, first->line_top - 0.5f); prev && prev->line_top < first->line_top) {
                 begin = prev->pos;
             }
         }
     }
-    if (std::isfinite(y.bottom)) {
-        if (const auto last = HitLineAt(layout, y.bottom)) {
+    if (view.bottom < entry.height) {
+        if (const auto last = HitLineAt(layout, view.bottom)) {
             if (const auto next = HitLineAt(layout, last->line_bottom + 0.5f); next && next->line_top > last->line_top) {
                 end = next->pos;
             }
@@ -53,43 +55,19 @@ std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const 
     return { begin, end };
 }
 
-} // namespace
-
-const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, YRange view)
-{
-    auto& window = entry.ensure_line_window();
-    if (!window.y.Contains(view)) {
-        // layout の端を越えた側は先に行が無いので、無限に伸ばしてその側の引き直しをなくす。
-        constexpr float INF = std::numeric_limits<float>::infinity();
-        const float margin = view.bottom - view.top;
-        window.y = { view.top - margin, view.bottom + margin };
-        if (window.y.top <= 0.0f) {
-            window.y.top = -INF;
-        }
-        if (window.y.bottom >= entry.height) {
-            window.y.bottom = INF;
-        }
-        std::tie(window.text_begin, window.text_end) = TextRangeOfLines(entry.text_layout(), window.y);
-    }
-    return window;
-}
+NodeLayoutEntry::Aux::~Aux() = default;
 
 // ---------- TableLayoutData ----------
 
 std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
 {
     size_t r_begin = 0;
-    size_t r_end = row_count;
     const auto upper = std::ranges::upper_bound(row_cum_y, local_top);
     if (upper != row_cum_y.begin()) {
         r_begin = static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), upper)) - 1;
     }
     const auto lower = std::ranges::lower_bound(row_cum_y, local_bottom);
-    if (lower != row_cum_y.end()) {
-        const auto idx = static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower));
-        r_end = std::min(row_count, idx);
-    }
-    return { r_begin, r_end };
+    return { r_begin, std::min(row_count, static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower))) };
 }
 
 std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, float local_right) const noexcept
@@ -104,10 +82,6 @@ std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, flo
 
 void TableLayoutData::RebuildRowCumY(size_t first_row)
 {
-    if (row_cum_y.empty()) {
-        first_row = 0;
-        row_cum_y.resize(row_count + 1);
-    }
     // row_cum_y[0] は常に 0。加算順は全行の積み直しと同じなので、途中から再開しても結果は一致する。
     float ry = row_cum_y[first_row];
     for (size_t r = first_row; r < row_count; r++) {
@@ -119,14 +93,12 @@ void TableLayoutData::RebuildRowCumY(size_t first_row)
 
 void TableLayoutData::RebuildColCumX()
 {
-    const size_t n = col_widths.size();
-    col_cum_x.resize(n + 1);
     float cx = TABLE_BORDER_WIDTH;
-    for (size_t c = 0; c < n; c++) {
+    for (size_t c = 0; c < col_count; c++) {
         col_cum_x[c] = cx;
         cx += ColumnStep(c);
     }
-    col_cum_x[n] = cx;
+    col_cum_x[col_count] = cx;
 }
 
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
@@ -194,13 +166,6 @@ void Bury(ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&&
     }
 }
 
-void BuryCells(TableLayoutData& tl, ReleasedLayouts& released) noexcept
-{
-    for (auto& cell : tl.cell_layouts) {
-        Bury(released, std::move(cell));
-    }
-}
-
 } // namespace
 
 void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
@@ -228,7 +193,7 @@ namespace {
 void ReleaseEntryLayouts(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 {
     if (auto* tl = e.table_layout()) {
-        BuryCells(*tl, released);
+        tl->EvictRowsOutside(0, 0, released);
     }
     Bury(released, e.take_text_layout());
     e.release_layout_state();
@@ -241,7 +206,6 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
     if (auto* tl = e.table_layout()) {
-        e.invalidate_per_frame_hl_caches();
         tl->EvictRowsOutside(0, 0, released);
         return;
     }
@@ -259,6 +223,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 
 void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
 {
+    assert(entries_.size() == nodes.size());
     for (size_t i = 0; i < entries_.size(); i++) {
         auto& e = entries_[i];
         // 表の幾何も旧倍率のものなので残さない (計測で全部作り直す)。
@@ -269,7 +234,7 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
         // ビットマップを描くノードの高さはビットマップ側で決まるので残す。
-        if (i < nodes.size() && !IsBitmapDrawNode(nodes[i])) {
+        if (!IsBitmapDrawNode(nodes[i])) {
             e.height = 0.0f;
         }
     }
@@ -333,9 +298,6 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
 void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices, YRange keep) noexcept
 {
     for (const size_t idx : table_indices) {
-        if (idx >= entries_.size()) {
-            continue;
-        }
         auto* tl = entries_[idx].table_layout();
         if (!tl) {
             continue;
@@ -349,12 +311,8 @@ void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices,
 
 void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count)
 {
-    if (count == 0) {
-        return;
-    }
     for (size_t k = 0; k < count; ++k) {
-        auto& entry = entries_[to + k] = std::move(src.entries_[from + k]);
-        entry.invalidate_per_frame_hl_caches();
+        entries_[to + k] = std::move(src.entries_[from + k]);
     }
     for (auto& [index, diagram] : src.diagrams_) {
         if (index >= from && index - from < count) {
@@ -367,7 +325,7 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
     const size_t lo = std::max(src.live_nodes_.begin, from);
     const size_t hi = std::min(src.live_nodes_.end, from + count);
     if (lo < hi) {
-        NoteMaterialized(lo - from + to, hi - 1 - from + to);
+        NoteMaterialized(lo - from + to, hi - from + to);
     }
 }
 

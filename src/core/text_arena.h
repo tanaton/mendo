@@ -8,30 +8,15 @@
 #include <span>
 #include <string_view>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 // パース後に書き換えないノードのテキスト・TextRun・リンク URL を置く領域。
 // 個別には解放せず、Document の差し替え・破棄のときにまとめて捨てる。
 // チャンクを積み足すだけのバンプアロケータ。チャンクは小さく始めて kMaxChunkSize まで倍々に広げ、
 // 小さな文書で大きく確保せず、大きな文書でも使わずに残る領域を末尾のチャンク 1 個分程度に抑える。
+// チャンクはヒープにあるので、移しても配ったポインタは有効なまま。移し元はもう使わないこと。
 class TextArena {
 public:
-    TextArena() = default;
-    // チャンクはヒープにあるので、移しても配ったポインタは有効なまま。移し元は空に戻し、移し先のチャンクに書かせない。
-    TextArena(TextArena&& other) noexcept
-    {
-        *this = std::move(other);
-    }
-    TextArena& operator=(TextArena&& other) noexcept
-    {
-        chunks_ = std::move(other.chunks_);
-        cur_ = std::exchange(other.cur_, nullptr);
-        end_ = std::exchange(other.end_, nullptr);
-        next_chunk_size_ = std::exchange(other.next_chunk_size_, kMinChunkSize);
-        return *this;
-    }
-
     std::string_view CopyText(std::string_view text)
     {
         if (text.empty()) {

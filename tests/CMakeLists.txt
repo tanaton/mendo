@@ -16,6 +16,8 @@ target_link_libraries(mendo_tests PRIVATE
     GTest::gtest_main
     shlwapi
 )
+# テストの変更のたびに全体の LTCG を待たない (1 ファイルの修正で 34 → 11 秒)。
+target_link_options(mendo_tests PRIVATE $<$<CONFIG:Release>:/LTCG:INCREMENTAL>)
 # test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
 

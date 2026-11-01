@@ -11,10 +11,7 @@ inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 // ローディングスピナーの定数
 namespace spinner {
 inline constexpr float RADIUS = 20.0f;
-inline constexpr float DOT_RADIUS = 3.0f;
 inline constexpr int DOT_COUNT = 8;
-inline constexpr float ROTATION_INCREMENT = 0.15f;
-inline constexpr float DOT_FADE_FACTOR = 0.85f;
 } // namespace spinner
 
 // Windowsの基準DPI（100%スケーリング時の値）
@@ -45,14 +42,6 @@ constexpr float ShrinkKeepingMinContent(float width, float inset) noexcept
 {
     return std::max(width - inset, std::min(width, MIN_NODE_CONTENT_WIDTH));
 }
-
-// テーブルストライプ（偶数行背景）のアルファ値
-inline constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
-inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
-
-// 横ホイール 1 ノッチあたりの DIP スクロール量。
-// Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
-inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
 // 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。
 // 描画 (command_generator) とヒットテスト (app_controller) で同じ式を共有する。
@@ -102,32 +91,17 @@ inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x, float visible_width, fl
 inline constexpr float NAV_BTN_SIZE = 32.0f;
 inline constexpr float NAV_BTN_MARGIN = 16.0f;
 inline constexpr float NAV_BTN_GAP = 2.0f;
-inline constexpr float NAV_BTN_CORNER = 6.0f;
 inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
 
 // コードブロック コピーボタンの定数（DIP単位）。
 // CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
-inline constexpr float COPY_BTN_CORNER = 4.0f;
 inline constexpr float COPY_BTN_GAP = 4.0f;
 
-// 背景を行の高さから上下に縮める量。行送り 24 DIP で背景の高さと隙間を GitHub と同じ 21 / 3 DIP にする。
-inline constexpr float INLINE_CODE_INSET_Y = 1.5f;
-// コード範囲の両端に足す字間で、背景の左右パディングになる。背景はこの字間までに留め、
-// GitHub と同じく前後の空白を背景の外にまるごと残す。
-inline constexpr float INLINE_CODE_SPACING = 5.0f;
-inline constexpr float INLINE_CODE_CORNER = 6.0f;
-inline constexpr float CODE_BLOCK_CORNER = 4.0f;
 // 本文の行送りをフォントサイズの何倍にするか (GitHub の line-height: 1.5)。
 // 行頭に重ねて描くリスト番号・チェックボックスも同じ行送りにしてベースラインを揃える。
 inline constexpr float BODY_LINE_HEIGHT_FACTOR = 1.5f;
-
-inline constexpr float LIST_BULLET_X_FACTOR = 0.6f;
-// 円と同じ直径の四角は面積が 4/π 倍あって重く見えるので、半辺を半径より少し小さくする。
-inline constexpr float LIST_SQUARE_HALF_FACTOR = 0.85f;
-inline constexpr float LIST_NUMBER_PAD_LEFT = 4.0f;
-inline constexpr float LIST_NUMBER_PAD_RIGHT = 8.0f;
 
 inline constexpr float TASK_CHECKBOX_HEIGHT_FACTOR = 1.5f;
 inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
@@ -135,40 +109,25 @@ inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 // DirectWriteメトリクス取得失敗時の代替値
 inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
 
-// クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
-inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
-
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
 // 無効状態の UI (ペインヘッダーボタン・メニュー項目) の不透明度
 inline constexpr float DISABLED_UI_ALPHA = 0.35f;
 
-// ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
-inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept
+// ペインヘッダーのボタン。右端から 閉じる・更新・「現在のファイルの場所へ移動」の順に並ぶ。
+enum class PaneHeaderSlot : uint8_t {
+    Close,
+    Refresh,
+    Reveal,
+};
+
+// ペインヘッダー内のボタン矩形を返す（ペインローカル座標）。
+inline D2D1_RECT_F PaneHeaderButtonRect(float pane_width, float header_height, PaneHeaderSlot slot) noexcept
 {
     const float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
-    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN;
+    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN - static_cast<float>(slot) * (btn_size + PANE_CLOSE_BTN_MARGIN);
     const float btn_y = (header_height - btn_size) / 2.0f;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
-}
-
-inline D2D1_RECT_F PaneButtonLeftOf(const D2D1_RECT_F& right) noexcept
-{
-    const float btn_size = right.right - right.left;
-    const float btn_x = right.left - btn_size - PANE_CLOSE_BTN_MARGIN;
-    return D2D1::RectF(btn_x, right.top, btn_x + btn_size, right.top + btn_size);
-}
-
-// ペインヘッダー内の更新ボタン矩形を返す（閉じるボタンの左隣、ペインローカル座標）。
-inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept
-{
-    return PaneButtonLeftOf(PaneCloseButtonRect(pane_width, header_height));
-}
-
-// ペインヘッダー内の「現在のファイルの場所へ移動」ボタン矩形を返す（更新ボタンの左隣、ペインローカル座標）。
-inline D2D1_RECT_F PaneRevealButtonRect(float pane_width, float header_height) noexcept
-{
-    return PaneButtonLeftOf(PaneRefreshButtonRect(pane_width, header_height));
 }
 
 // ペインヘッダーの見出し矩形（ペインローカル座標）。ウィンドウが狭くサイド幅が縮小されると
@@ -177,7 +136,7 @@ inline std::optional<D2D1_RECT_F> PaneHeaderTextRect(float pane_width, float hea
 {
     constexpr float TEXT_LEFT = 8.0f;
     constexpr float BUTTON_GAP = 4.0f;
-    const D2D1_RECT_F leftmost_button = with_file_buttons ? PaneRevealButtonRect(pane_width, header_height) : PaneCloseButtonRect(pane_width, header_height);
+    const D2D1_RECT_F leftmost_button = PaneHeaderButtonRect(pane_width, header_height, with_file_buttons ? PaneHeaderSlot::Reveal : PaneHeaderSlot::Close);
     const float right = leftmost_button.left - BUTTON_GAP;
     if (right <= TEXT_LEFT) {
         return std::nullopt;
@@ -217,19 +176,12 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
     return { PixelToDip(static_cast<float>(px), dpi_scale), PixelToDip(static_cast<float>(py), dpi_scale) };
 }
 
-// タイトルバーのテキストフォントサイズ（DIP）。
-// 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ。
-inline constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
-// タイトルバーと検索バーのアイコンのフォントサイズ（DIP）。
-inline constexpr float UI_ICON_FONT_SIZE = 14.0f;
-
 // 検索バーの定数（DIP単位）
 inline constexpr float SEARCH_BAR_HEIGHT = 36.0f;
 inline constexpr float SEARCH_BAR_PADDING = 6.0f;
 inline constexpr float SEARCH_INPUT_MAX_WIDTH = 400.0f;
 inline constexpr float SEARCH_BTN_SIZE = 28.0f;
 inline constexpr float SEARCH_BAR_GAP = 4.0f;
-inline constexpr float SEARCH_BAR_CORNER = 4.0f;
 inline constexpr float SEARCH_INPUT_HEIGHT = 24.0f;
 inline constexpr float SEARCH_INPUT_TEXT_PAD_LEFT = 6.0f;
 inline constexpr float SEARCH_INPUT_TEXT_PAD_RIGHT = 4.0f;
@@ -238,7 +190,6 @@ inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
 // 検索バーのフォントサイズ（DIP）。枠の寸法は本文ズームに追従しないので、
 // 文字も固定値にして枠からのはみ出しを防ぐ。
 inline constexpr float SEARCH_INPUT_FONT_SIZE = 13.0f;
-inline constexpr float SEARCH_COUNT_FONT_SIZE = SEARCH_INPUT_FONT_SIZE * 0.9f;
 
 // 検索バーの各要素の矩形を保持する構造体。
 // 描画・ヒットテスト・ホバー判定の3箇所で共有し、レイアウト計算の重複を防ぐ。
@@ -345,23 +296,11 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
 // PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
-// キーボードスクロール量（DIP）
-inline constexpr float SCROLL_LINE_AMOUNT = 40.0f;
-inline constexpr float SCROLL_PAGE_FACTOR = 0.9f;
-
-// ジェスチャーオーバーレイのサイズ（DIP）
+// ジェスチャーオーバーレイの幅（DIP）
 inline constexpr float GESTURE_OVERLAY_WIDTH = 280.0f;
-inline constexpr float GESTURE_OVERLAY_HEIGHT = 80.0f;
-inline constexpr float GESTURE_OVERLAY_CORNER = 12.0f;
 
-// トーストオーバーレイのサイズ（DIP）
-inline constexpr float TOAST_OVERLAY_WIDTH = 320.0f;
+// トーストオーバーレイの高さ（DIP）
 inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;
-inline constexpr float TOAST_OVERLAY_CORNER = 8.0f;
-inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
-
-// ジェスチャー軌跡のスタイル
-inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 COPY_BTN_GAP で並ぶ。

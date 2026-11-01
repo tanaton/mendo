@@ -1,4 +1,4 @@
-#include "settings_dialog_impl.h"
+#include "settings_dialog.h"
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -21,7 +21,7 @@ std::wstring FormatByteSize(uint64_t bytes)
     return value < 100.0 ? std::format(L"{:.1f} {}", value, kUnits[unit]) : std::format(L"{:.0f} {}", value, kUnits[unit]);
 }
 
-void SettingsDialog::Impl::CreateTextFormats()
+void SettingsDialog::CreateTextFormats()
 {
     const wchar_t* const family = theme->font_family.c_str();
     const float size = theme->pane_font_size;
@@ -36,7 +36,7 @@ void SettingsDialog::Impl::CreateTextFormats()
     CreateBaseTextFormats(ICON_FONT_SIZE);
 }
 
-void SettingsDialog::Impl::Rebuild()
+void SettingsDialog::Rebuild()
 {
     const auto& ls = i18n::S();
     system_language_text = std::format(L"{} ({})", ls.settings_language_system, i18n::SystemStrings().lang_name);
@@ -45,7 +45,7 @@ void SettingsDialog::Impl::Rebuild()
     ComputeLayout();
 }
 
-void SettingsDialog::Impl::ComputeLayout()
+void SettingsDialog::ComputeLayout()
 {
     const auto& ls = i18n::S();
     const float button_w = std::max(BUTTON_MIN_WIDTH, Measure(ls.settings_clear_cache, fmt_text.Get()) + 2 * BUTTON_PAD_X);
@@ -83,7 +83,7 @@ void SettingsDialog::Impl::ComputeLayout()
     layout = l;
 }
 
-SettingsDialog::Impl::Hit SettingsDialog::Impl::HitTest(float x, float y) const noexcept
+SettingsDialog::Hit SettingsDialog::HitTest(float x, float y) const noexcept
 {
     for (size_t row = 0; row < layout.languages.size(); ++row) {
         if (PointInRect(x, y, layout.languages[row])) {
@@ -96,14 +96,14 @@ SettingsDialog::Impl::Hit SettingsDialog::Impl::HitTest(float x, float y) const 
     return {};
 }
 
-void SettingsDialog::Impl::Activate(const Hit& hit)
+void SettingsDialog::Activate(const Hit& hit)
 {
     switch (hit.kind) {
     case HitKind::None:
         return;
     case HitKind::Language: {
         const i18n::Strings* const chosen = LanguageOfRow(hit.row);
-        if (chosen == i18n::ChosenLanguage() || !on_language) {
+        if (chosen == i18n::ChosenLanguage()) {
             return;
         }
         on_language(chosen);
@@ -124,7 +124,7 @@ void SettingsDialog::Impl::Activate(const Hit& hit)
     }
 }
 
-bool SettingsDialog::Impl::UpdateHover(float x, float y)
+bool SettingsDialog::UpdateHover(float x, float y)
 {
     const Hit hit = HitTest(x, y);
     if (hit == hovered) {
@@ -134,7 +134,7 @@ bool SettingsDialog::Impl::UpdateHover(float x, float y)
     return true;
 }
 
-void SettingsDialog::Impl::OnPress(UINT msg, float x, float y)
+void SettingsDialog::OnPress(UINT msg, float x, float y)
 {
     if (msg == WM_LBUTTONDOWN) {
         Activate(HitTest(x, y));
@@ -143,7 +143,7 @@ void SettingsDialog::Impl::OnPress(UINT msg, float x, float y)
 
 void SettingsDialog::Show(HWND owner_hwnd, const SettingsDialogParams& params)
 {
-    Impl s;
+    SettingsDialog s;
     if (!s.Setup(params.env)) {
         return;
     }
@@ -156,7 +156,7 @@ void SettingsDialog::Show(HWND owner_hwnd, const SettingsDialogParams& params)
     s.RunModal(owner_hwnd, i18n::S().settings_title, s.CenteredIn(owner_rc));
 }
 
-void SettingsDialog::Impl::PaintContent()
+void SettingsDialog::PaintContent()
 {
     const auto& ls = i18n::S();
     const float w = width;

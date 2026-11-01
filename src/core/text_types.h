@@ -110,10 +110,7 @@ struct TextSelection {
 
     constexpr void Clear() noexcept
     {
-        start_node = -1;
-        start_pos = 0;
-        end_node = -1;
-        end_pos = 0;
+        *this = {};
     }
 
     // アンカー/キャレットをドキュメント順で start <= end に正規化する

@@ -101,101 +101,48 @@ TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
 }
 
 // ═══════════════════════════════════════════════
-// PaneCloseButtonRect / PaneRefreshButtonRect / PaneRevealButtonRect
+// PaneHeaderButtonRect
 // ═══════════════════════════════════════════════
 
 namespace {
 
-struct PaneHeaderButton {
-    const char* name;
-    D2D1_RECT_F (*rect)(float pane_width, float header_height) noexcept;
-};
-
 // 右端から左へ並ぶ順
-constexpr PaneHeaderButton kPaneHeaderButtons[] = {
-    { "Close", PaneCloseButtonRect },
-    { "Refresh", PaneRefreshButtonRect },
-    { "Reveal", PaneRevealButtonRect },
-};
+constexpr PaneHeaderSlot kPaneHeaderSlots[] = { PaneHeaderSlot::Close, PaneHeaderSlot::Refresh, PaneHeaderSlot::Reveal };
 
 } // namespace
 
-TEST(PaneHeaderButtonRectTest, FitsInHeader)
+// 正方形でヘッダーの高さの中央に収まる。大きさはヘッダーの高さに従い、右寄せなのでペイン幅では位置だけが動く。
+TEST(PaneHeaderButtonRectTest, SquareCenteredInHeaderAndRightAligned)
 {
     constexpr float pane_width = 220.0f;
     constexpr float header_height = 32.0f;
-    for (const auto& b : kPaneHeaderButtons) {
-        SCOPED_TRACE(b.name);
-        const auto r = b.rect(pane_width, header_height);
+    for (const auto slot : kPaneHeaderSlots) {
+        SCOPED_TRACE(static_cast<int>(slot));
+        const auto r = PaneHeaderButtonRect(pane_width, header_height, slot);
         EXPECT_GE(r.left, 0.0f);
         EXPECT_LE(r.right, pane_width);
-        EXPECT_GE(r.top, 0.0f);
-        EXPECT_LE(r.bottom, header_height);
-    }
-}
-
-TEST(PaneHeaderButtonRectTest, IsSquare)
-{
-    for (const auto& b : kPaneHeaderButtons) {
-        SCOPED_TRACE(b.name);
-        const auto r = b.rect(220.0f, 32.0f);
         EXPECT_FLOAT_EQ(r.right - r.left, r.bottom - r.top);
-    }
-}
-
-TEST(PaneHeaderButtonRectTest, IsVerticallyCentered)
-{
-    constexpr float header_height = 32.0f;
-    for (const auto& b : kPaneHeaderButtons) {
-        SCOPED_TRACE(b.name);
-        const auto r = b.rect(220.0f, header_height);
         EXPECT_NEAR((r.top + r.bottom) / 2.0f, header_height / 2.0f, 0.01f);
-    }
-}
 
-TEST(PaneHeaderButtonRectTest, SizeScalesWithHeaderHeight)
-{
-    for (const auto& b : kPaneHeaderButtons) {
-        SCOPED_TRACE(b.name);
-        const auto r1 = b.rect(220.0f, 32.0f);
-        const auto r2 = b.rect(220.0f, 64.0f);
-        EXPECT_GT(r2.right - r2.left, r1.right - r1.left);
-    }
-}
+        const auto taller = PaneHeaderButtonRect(pane_width, 64.0f, slot);
+        EXPECT_GT(taller.right - taller.left, r.right - r.left);
 
-// 右寄せなのでサイズは同じまま位置だけが動く
-TEST(PaneHeaderButtonRectTest, PositionAdaptsToWidth)
-{
-    for (const auto& b : kPaneHeaderButtons) {
-        SCOPED_TRACE(b.name);
-        const auto r1 = b.rect(200.0f, 32.0f);
-        const auto r2 = b.rect(400.0f, 32.0f);
-        EXPECT_FLOAT_EQ(r1.right - r1.left, r2.right - r2.left);
-        EXPECT_GT(r2.left, r1.left);
+        const auto wider = PaneHeaderButtonRect(pane_width + 200.0f, header_height, slot);
+        EXPECT_FLOAT_EQ(wider.right - wider.left, r.right - r.left);
+        EXPECT_FLOAT_EQ(wider.left, r.left + 200.0f);
     }
 }
 
 TEST(PaneHeaderButtonRectTest, SitsLeftOfNeighborWithSameSize)
 {
-    for (size_t i = 1; i < std::size(kPaneHeaderButtons); ++i) {
-        const auto& left_btn = kPaneHeaderButtons[i];
-        const auto& right_btn = kPaneHeaderButtons[i - 1];
-        SCOPED_TRACE(std::string{ left_btn.name } + " vs " + right_btn.name);
-        const auto l = left_btn.rect(220.0f, 32.0f);
-        const auto r = right_btn.rect(220.0f, 32.0f);
+    for (size_t i = 1; i < std::size(kPaneHeaderSlots); ++i) {
+        SCOPED_TRACE(i);
+        const auto l = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderSlots[i]);
+        const auto r = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderSlots[i - 1]);
         EXPECT_FLOAT_EQ(l.right - l.left, r.right - r.left);
-        EXPECT_FLOAT_EQ(l.bottom - l.top, r.bottom - r.top);
         EXPECT_FLOAT_EQ(l.top, r.top);
         EXPECT_LT(l.right, r.left);
     }
-}
-
-TEST(PaneCloseButtonRectTest, ButtonIsOnRightSide)
-{
-    float pane_width = 220.0f;
-    auto r = PaneCloseButtonRect(pane_width, 32.0f);
-    float center_x = (r.left + r.right) / 2.0f;
-    EXPECT_GT(center_x, pane_width / 2.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -337,10 +284,10 @@ TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
                 }
                 ASSERT_LT(rect->left, rect->right);
                 ASSERT_GE(rect->left, 0.0f);
-                ASSERT_LE(rect->right, PaneCloseButtonRect(w, header_h).left);
+                ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Close).left);
                 if (file_buttons) {
-                    ASSERT_LE(rect->right, PaneRefreshButtonRect(w, header_h).left);
-                    ASSERT_LE(rect->right, PaneRevealButtonRect(w, header_h).left);
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Refresh).left);
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Reveal).left);
                 }
             }
             // 通常幅では見出しが出る (常に nullopt で上のループを素通りしないこと)。

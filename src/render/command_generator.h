@@ -213,11 +213,12 @@ namespace chrome {
 // app_icon が null ならアイコンを描かない。
 void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt,
                   ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb);
-// 一覧の書式はペインごとの倍率で作るので、PaneTarget で引く。
+// 一覧の書式はペインごとの倍率で作る。
 struct SidePaneFormats {
     IDWriteTextFormat* header = nullptr;
     IDWriteTextFormat* header_icon = nullptr;
-    IDWriteTextFormat* item[2]{};
+    IDWriteTextFormat* file_item = nullptr;
+    IDWriteTextFormat* toc_item = nullptr;
     // ファイル一覧のアイコン。
     IDWriteTextFormat* file_icon = nullptr;
 };
@@ -271,7 +272,9 @@ private:
     void GenerateNode(const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
-    void GenNodeTextDecorations(const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top);
+    // コードブロックは横スクロールの clip に映る [cull_left, cull_right] (text_x と同じ系) を渡す。
+    void GenNodeTextDecorations(const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top,
+                                float cull_left = -YRange::kInf, float cull_right = YRange::kInf);
     // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
     // early return を経由せず描画したいため独立メソッド化。
     void GenTaskListCheckbox(const Node& node, float x, float entry_text_top);
@@ -280,19 +283,8 @@ private:
     // 表は横スクロールの clip [offset_x, offset_x + clip_width] の中に描くので、列はその幅で間引く。
     void GenTable(const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float clip_width, float entry_text_top,
                   float h_scroll_x);
-    // テーブルセル 1 個分の描画コンテキスト。GenTable から GenTableCellContent へ橋渡しする。
-    // selection はテーブル全体の選択範囲で、セルの開始位置 flat_offset と同じく concat_text 上の UTF-8 byte。
-    struct CellDrawContext {
-        IDWriteTextLayout* layout = nullptr;
-        float text_x = 0.0f;
-        float text_y = 0.0f;
-        float height = 0.0f;
-        uint32_t flat_offset = 0;
-        std::span<const TextRun> runs;
-        TextSelection::NodeRange selection{ 0, 0 };
-        bool is_header = false;
-    };
-    void GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx);
+    // selection はテーブル全体の選択範囲 (concat_text 上の UTF-8 byte)。
+    void GenCellSelection(const NodeTableData& table, size_t row, size_t col, IDWriteTextLayout* layout, TextSelection::NodeRange selection, float text_x, float text_y);
     // box は padding 込みのコードブロック矩形 (ペインローカル)。
     // 区切ったコードブロックの継ぎ目の側は角を丸めず、隣の背景とつなげる。
     void GenCodeBlockBg(const D2D1_RECT_F& box, bool round_top, bool round_bottom);
@@ -313,29 +305,23 @@ private:
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
     // 数式の一部に当たった選択や検索ヒットも数式全体を塗れるよう、クラスタまで広げて引く (HitTestRange)。
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
+    void EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。doc_start / doc_length は UTF-8 byte 単位。
     void GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
     // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。
     void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
 
-    // ノードのマッチと、現在の検索世代に揃えたキャッシュ。マッチが無ければ matches は空。
-    // spill_length_w は前のノードのマッチ (first_global - 1 番) がこのノードの先頭へはみ出した長さで、
-    // キャッシュの最後の span を使う。
+    // ノードのマッチ。spill_length_w は前のノードのマッチ (first_global - 1 番) がこのノードの先頭へはみ出した長さ。
     struct NodeSearchMatches {
         std::span<const SearchMatch> matches;
         size_t first_global = 0;
-        SearchHlCache* cache = nullptr;
         uint32_t spill_length_w = 0;
     };
-    NodeSearchMatches PrepareNodeSearchMatches(const NodeLayoutEntry& entry, int node_index);
+    NodeSearchMatches FindNodeSearchMatches(int node_index) const;
     void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y);
-    // matches[begin, end) のうち未計算のものを layout で計算し、FillRectCmd を積む。layout が null なら計算を見送る。
+    // matches[begin, end) の矩形を layout で引き、FillRectCmd を積む。layout が null なら描かない。
     void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
-    void EmitSearchSpan(SearchHlCache& cache, size_t span_index, IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index,
-                        float origin_x, float origin_y);
-
-    // origin_y に置いた本文 layout の、可視範囲の上下に 1 画面ずつ足した行のテキスト範囲。
-    const LineWindow& LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const;
+    void EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index, float origin_x, float origin_y);
 
     // 書式の揃えに従って origin から box の範囲に text を描く。
     void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity = 1.0f);

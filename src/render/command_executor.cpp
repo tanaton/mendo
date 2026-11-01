@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <algorithm>
 #include <bit>
+#include <cmath>
 
 namespace {
 
@@ -29,6 +30,28 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
     return id != BrushId::None ? brushes[std::to_underlying(id)].Get() : nullptr;
 }
 
+// 半透明のコマンドの間だけブラシに不透明度を掛ける。
+class OpacityScope {
+public:
+    OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(alpha != 1.0f ? brush : nullptr)
+    {
+        if (brush_) {
+            brush_->SetOpacity(alpha);
+        }
+    }
+    ~OpacityScope() noexcept
+    {
+        if (brush_) {
+            brush_->SetOpacity(1.0f);
+        }
+    }
+    OpacityScope(const OpacityScope&) = delete;
+    OpacityScope& operator=(const OpacityScope&) = delete;
+
+private:
+    ID2D1SolidColorBrush* brush_;
+};
+
 // 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。
 // D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
 // 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
@@ -37,9 +60,8 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
 // スタック上でのみ使うので参照カウントは持たない。
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
-                       std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, InlineMathMasks* math) noexcept
-        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes), math_(math)
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, InlineMathMasks& math) noexcept
+        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), math_(math)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -79,14 +101,15 @@ public:
         const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc, IUnknown* effect) noexcept override
     {
         // ベースラインから上下 1em あれば行の字形は収まる。
-        if (y + run->fontEmSize < cull_top_ || y - run->fontEmSize > cull_bottom_) {
+        if (y + run->fontEmSize < cmd_.cull_top || y - run->fontEmSize > cmd_.cull_bottom) {
             return S_OK;
         }
-        if (tokens_.empty() || !desc || !desc->clusterMap || effect) {
+        const bool split = !cmd_.syntax_tokens.empty() || std::isfinite(cmd_.cull_left);
+        if (!split || !desc || !desc->clusterMap || effect) {
             rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushFor(effect), mode);
             return S_OK;
         }
-        DrawSyntaxGlyphRun(x, y, mode, *run, *desc);
+        DrawGlyphRunParts(x, y, mode, *run, *desc);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT x, FLOAT y, const DWRITE_UNDERLINE* u, IUnknown* effect) noexcept override
@@ -107,24 +130,21 @@ public:
         // 物理 px への丸め (1px 未満) の分だけ広く切り出してあるので、その分広く見る。
         constexpr float kInkPad = INLINE_MATH_INK_MARGIN + 1.0f;
         DWRITE_INLINE_OBJECT_METRICS m{};
-        if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cull_top_ || y - kInkPad > cull_bottom_) {
+        if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cmd_.cull_top || y - kInkPad > cmd_.cull_bottom) {
             return S_OK;
         }
         const auto math = InlineMathObjectOf(object);
         if (!math) {
             return object->Draw(context, this, x, y, sideways, rtl, effect);
         }
-        if (!math_) {
-            return S_OK;
-        }
-        const auto* mask = math_->Find(math->key);
+        const auto* mask = math_.Find(math->key);
         if (!mask) {
-            math_->missing.push_back(math->key);
+            math_.missing.push_back(math->key);
             return S_OK;
         }
         const float s = math->scale;
         const D2D1_RECT_F dest = D2D1::RectF(x + mask->dest.left * s, y + mask->dest.top * s, x + mask->dest.right * s, y + mask->dest.bottom * s);
-        mask->page->last_drawn = math_->frame;
+        mask->page->last_drawn = math_.frame;
         // FillOpacityMask は ALIASED のときしか描かない。
         const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();
         rt_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
@@ -145,9 +165,10 @@ private:
         return brush ? brush : default_brush_;
     }
 
+    // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばして描く。
     // 境界がクラスタ (合字等) の途中にあれば、そのクラスタは後ろのトークンの色になる。
     // グリフは右から左のランでも文字順に並び、原点が右端になってペンが左へ進むだけ。
-    void DrawSyntaxGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION& desc) const noexcept
+    void DrawGlyphRunParts(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION& desc) const noexcept
     {
         const float direction = (run.bidiLevel & 1) != 0 ? -1.0f : 1.0f;
         const uint32_t run_begin = desc.textPosition;
@@ -158,33 +179,52 @@ private:
         };
         uint32_t glyph = 0;
         float pen_x = x;
+        // 字形は送り幅の外へ 1em まではみ出すとみなす。
+        const float left = cmd_.cull_left - run.fontEmSize;
+        const float right = cmd_.cull_right + run.fontEmSize;
+        const auto past_end = [&] { return direction > 0.0f ? pen_x > right : pen_x < left; };
         const auto draw_until = [&](uint32_t glyph_end, ID2D1Brush* brush) {
-            if (glyph_end <= glyph) {
+            uint32_t first = glyph_end;
+            uint32_t last = glyph;
+            float first_x = pen_x;
+            for (; glyph < glyph_end && !past_end(); glyph++) {
+                const float next_x = pen_x + direction * run.glyphAdvances[glyph];
+                if (std::max(pen_x, next_x) >= left && std::min(pen_x, next_x) <= right) {
+                    if (first == glyph_end) {
+                        first = glyph;
+                        first_x = pen_x;
+                    }
+                    last = glyph + 1;
+                }
+                pen_x = next_x;
+            }
+            if (first >= last) {
                 return;
             }
             DWRITE_GLYPH_RUN part = run;
-            part.glyphCount = glyph_end - glyph;
-            part.glyphIndices += glyph;
-            part.glyphAdvances += glyph;
+            part.glyphCount = last - first;
+            part.glyphIndices += first;
+            part.glyphAdvances += first;
             if (part.glyphOffsets) {
-                part.glyphOffsets += glyph;
+                part.glyphOffsets += first;
             }
-            rt_->DrawGlyphRun(D2D1::Point2F(pen_x, y), &part, brush, mode);
-            for (; glyph < glyph_end; glyph++) {
-                pen_x += direction * run.glyphAdvances[glyph];
-            }
+            rt_->DrawGlyphRun(D2D1::Point2F(first_x, y), &part, brush, mode);
         };
         // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
-        auto it = std::ranges::partition_point(tokens_, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
-        for (; it != tokens_.end() && it->start < run_end; ++it) {
+        const auto tokens = cmd_.syntax_tokens;
+        auto it = std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
+        for (; it != tokens.end() && it->start < run_end; ++it) {
             draw_until(glyph_at(std::max(it->start, run_begin)), default_brush_);
             draw_until(glyph_at(std::min(it->start + it->length, run_end)), TokenBrush(it->type));
+            if (past_end()) {
+                return;
+            }
         }
         draw_until(run.glyphCount, default_brush_);
     }
     void FillLine(float x, float top, float width, float thickness, IUnknown* effect) const noexcept
     {
-        if (top + thickness < cull_top_ || top > cull_bottom_) {
+        if (top + thickness < cmd_.cull_top || top > cmd_.cull_bottom) {
             return;
         }
         rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushFor(effect));
@@ -192,13 +232,11 @@ private:
 
     ID2D1RenderTarget* rt_;
     ID2D1Brush* default_brush_;
-    float cull_top_;
-    float cull_bottom_;
+    const DrawTextLayoutCmd& cmd_;
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
-    std::span<const SyntaxToken> tokens_;
     const FixedBrushArray& brushes_;
-    InlineMathMasks* math_;
+    InlineMathMasks& math_;
 };
 
 } // namespace
@@ -251,7 +289,7 @@ void InlineMathMasks::EvictPages(size_t budget)
     std::erase_if(pages, [](const auto& p) static { return !p->bitmap; });
 }
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks* math)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks& math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
 
@@ -265,12 +303,12 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
         [&](const FillRoundedRectCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
-                rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
+                rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.radius, c.radius }, b);
             }
         },
         [&](const DrawRoundedRectCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                rt->DrawRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b, c.stroke_width);
+                rt->DrawRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.radius, c.radius }, b, c.stroke_width);
             }
         },
         [&](const DrawLineCmd& c) {
@@ -279,36 +317,28 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             }
         },
         [&](const DrawTextLayoutCmd& c) {
-            if (!c.layout) {
-                return;
-            }
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes, math };
+                VisibleRunRenderer renderer{ rt, b, c, brushes, math };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },
         [&](const DrawBitmapCmd& c) {
-            if (c.bitmap) {
-                rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
-            }
+            rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
         },
         [&](const FillEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
-                rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
+                rt->FillEllipse(D2D1::Ellipse(c.center, c.radius, c.radius), b);
             }
         },
         [&](const DrawEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                rt->DrawEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b, c.stroke_width);
+                rt->DrawEllipse(D2D1::Ellipse(c.center, c.radius, c.radius), b, c.stroke_width);
             }
         },
         [&](const DrawGeometryCmd& c) {
-            if (!c.geometry) {
-                return;
-            }
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 rt->DrawGeometry(c.geometry, b, c.stroke_width, c.stroke_style);

@@ -4,6 +4,7 @@
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <charconv>
 #include <cstring>
 #include <cstdint>
 #include <iterator>
@@ -136,7 +137,7 @@ NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept
     if (r >= tbl->row_count) {
         return {};
     }
-    // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
+    // 区切り文字の位置は前のセルに当たるので、セルの終端で外す。
     if (pos >= tbl->CellTextEnd(r, c)) {
         return {};
     }
@@ -265,7 +266,7 @@ int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) n
 std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
 {
     const std::string_view text = node.GetText();
-    const auto lead = static_cast<uint32_t>(std::min<size_t>(node.code_lead_length(), text.size()));
+    const uint32_t lead = node.code_lead_length();
     if (lead == 0) {
         return Tokenize(text, node.code_language);
     }
@@ -347,9 +348,6 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
                 const size_t token_end = restart + tokens[t].start + tokens[t].length;
                 run[next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, next)) - b), tokens[t].type);
             }
-            else {
-                run[next].set_code_lead(0, SyntaxTokenType::Plain);
-            }
         }
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
         window = limit == restart ? window * 2 : kWindowNodes;
@@ -357,53 +355,104 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     }
 }
 
-namespace {
-
-// CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
-// (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。memchr(_, _, 0) は規格上 nullptr を返す。
-char* FindCr(char* p, size_t len) noexcept
-{
-    return static_cast<char*>(std::memchr(p, '\r', len));
-}
-
-} // namespace
-
 void NormalizeNewlines(std::string& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
     const size_t n = s.size();
-    if (n == 0) {
-        return;
-    }
-
     char* const data = s.data();
     char* const end = data + n;
 
-    char* first_cr = FindCr(data, n);
-    if (!first_cr) {
+    // CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは衝突しない。
+    const auto find_cr = [end](char* p) noexcept {
+        return static_cast<char*>(std::memchr(p, '\r', static_cast<size_t>(end - p)));
+    };
+    char* src = find_cr(data);
+    if (!src) {
         MENDO_STATF("NormalizeNewlines: in={} out={} shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
-    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の FindCr 結果)。
-    char* dst = first_cr;
-    char* src = first_cr;
-    do {
+    // ループ進入時、src は必ず CR を指す。
+    char* dst = src;
+    while (src < end) {
         *dst++ = '\n';
         ++src;
         if (src < end && *src == '\n') {
             ++src; // CRLF を LF 1 つに縮約
         }
-
-        char* next_cr = FindCr(src, static_cast<size_t>(end - src));
-        const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
-        if (chunk > 0) {
-            std::memmove(dst, src, chunk * sizeof(char));
-            src += chunk;
-            dst += chunk;
-        }
-    } while (src < end);
+        char* const next_cr = find_cr(src);
+        const size_t chunk = static_cast<size_t>((next_cr ? next_cr : end) - src);
+        std::memmove(dst, src, chunk);
+        src += chunk;
+        dst += chunk;
+    }
 
     s.resize(static_cast<size_t>(dst - data));
     MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
+}
+
+// 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。
+bool IsSafeUrlScheme(std::string_view url) noexcept
+{
+    return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");
+}
+
+std::string PercentDecode(std::string_view s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        unsigned int byte = 0;
+        if (s[i] == '%' && i + 2 < s.size() && std::from_chars(s.data() + i + 1, s.data() + i + 3, byte, 16).ptr == s.data() + i + 3) {
+            out += static_cast<char>(byte);
+            i += 2;
+            continue;
+        }
+        out += s[i];
+    }
+    return out;
+}
+
+namespace {
+
+// ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
+// 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
+std::string EncodeShellUnsafeChars(std::string_view url)
+{
+    constexpr char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(url.size());
+    for (const char ch : url) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c <= 0x20 || c == 0x7F || c == '"') {
+            out += '%';
+            out += kHex[c >> 4];
+            out += kHex[c & 0x0F];
+        }
+        else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+LinkClickResult ClassifyLinkClick(std::string_view url)
+{
+    LinkClickResult result;
+    if (url.empty()) {
+        return result;
+    }
+    if (url[0] == '#') {
+        result.type = LinkClickResult::Type::Anchor;
+        result.target = PercentDecode(url.substr(1));
+        return result;
+    }
+    if (!IsSafeUrlScheme(url)) {
+        return result;
+    }
+    result.type = LinkClickResult::Type::ExternalUrl;
+    result.target = EncodeShellUnsafeChars(url);
+    return result;
 }

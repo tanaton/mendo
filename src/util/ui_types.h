@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <string>
+#include <string_view>
 #include <d2d1.h>
 #include <dwrite.h>
 
@@ -25,6 +27,17 @@ struct PopupEnv {
     const Theme* theme = nullptr;
     float dpi_scale = 1.0f;
     ModalLoop* modal_loop = nullptr;
+};
+
+struct FileEntry {
+    std::wstring full_path;
+    bool is_current = false;
+    bool is_directory = false;
+    // ".." (親ディレクトリ) の項目。
+    bool is_parent = false;
+
+    // 戻り値は full_path の内部バッファを指す view。
+    std::wstring_view GetDisplayName() const noexcept;
 };
 
 struct DipPoint {
@@ -53,10 +66,6 @@ struct PaneRect {
     float y = 0.0f;
     float width = 0.0f;
     float height = 0.0f;
-};
-
-struct ScrollState {
-    float scroll_y = 0.0f;
 };
 
 // サイドペイン (ファイル一覧・目次) の幅 (DIP、ズームを含まない)。

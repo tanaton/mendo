@@ -195,7 +195,7 @@ TEST_F(PointerHitTest, TocPaneHeaderButtonAndItem)
 {
     const auto toc = std::to_underlying(PaneTarget::Toc);
     const float header_h = h_.theme.pane_header_height;
-    const auto close = PaneCloseButtonRect(layout_.toc_rect.width, header_h);
+    const auto close = PaneHeaderButtonRect(layout_.toc_rect.width, header_h, PaneHeaderSlot::Close);
     const auto on_close = Hover(layout_.toc_rect.x + (close.left + close.right) / 2.0f, kTop + (close.top + close.bottom) / 2.0f);
     EXPECT_EQ(on_close.hover.side_button[toc], PaneHeaderButton::Close);
     EXPECT_EQ(on_close.cursor, app_controller::PointerCursor::Hand);

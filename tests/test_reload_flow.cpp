@@ -48,8 +48,6 @@ struct Case {
     ReloadOp reload_op = ReloadOp::NoChange;
     size_t reload_diff_pos = std::string_view::npos;
     BaseRef base = BaseRef::Current;
-    // worker が結果を出す直前に、ファイルがまだ伸びていた
-    bool still_growing = false;
 
     // 期待値
     ParseCompleteStep step;
@@ -97,8 +95,8 @@ Fixture Build(const Case& c)
             break;
         }
         f.outcome.emplace(AsyncLoadResult{
-            .reload = ReloadCheck{ .decision = { c.reload_op, c.reload_diff_pos }, .base = base, .still_growing = c.still_growing } });
-        // worker は NoChange / DeferPrefixShrink 以外ならパース済みの文書を同じパスで返す。
+            .reload = ReloadCheck{ .decision = { c.reload_op, c.reload_diff_pos }, .base = base } });
+        // worker は Replace ならパース済みの文書を同じパスで返す。
         if (c.reload_op == ReloadOp::Replace) {
             (*f.outcome)->doc = Document::FromMarkdown(std::string(c.result_text), c.current_path);
         }
@@ -118,16 +116,10 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
     Fixture f = Build(c);
     ASSERT_EQ(f.current.ShareData() != nullptr, !c.current_path.empty() || !c.current_text.empty());
 
-    const auto plan = PlanParseComplete(f.outcome, f.current);
-
-    EXPECT_EQ(plan.step, c.step);
-    if (c.step == ParseCompleteStep::Fail) {
-        EXPECT_EQ(plan.error, c.error);
+    EXPECT_EQ(PlanParseComplete(f.outcome, f.current), c.step);
+    if (c.step == ParseCompleteStep::ReplaceWithResult) {
+        EXPECT_EQ(FilePaneFollowsLoad(f.current.GetFilePath(), (*f.outcome)->doc.GetFilePath()), c.expect_follow);
     }
-    else {
-        EXPECT_FALSE(plan.error.has_value());
-    }
-    EXPECT_EQ(plan.follow_file_pane, c.expect_follow);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -146,10 +138,7 @@ INSTANTIATE_TEST_SUITE_P(
               .step = ParseCompleteStep::DeferPrefixShrink },
         Case{ .label = "ReloadReplace", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
               .step = ParseCompleteStep::ApplyReload },
-        Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
-              .still_growing = true, .step = ParseCompleteStep::Retry },
-        // worker が書き込み途中を検出したときは判定せずに返す (doc も空)。
-        Case{ .label = "ReloadPartialWriteWithoutDecisionRetries", .kind = ResultKind::Reload, .still_growing = true,
+        Case{ .label = "ReloadStillGrowingRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::StillGrowing,
               .step = ParseCompleteStep::Retry },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
               .step = ParseCompleteStep::Retry },

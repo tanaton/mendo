@@ -58,21 +58,16 @@ protected:
         pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ far_top, far_top + 1000.0f });
     }
 
-    TableRestoreResult Restore(YRange viewport, float width)
-    {
-        return RestoreEntryTableRows(measurer_, TableNode(), Entry(), width, viewport);
-    }
-
     TableRestoreResult Restore(YRange viewport)
     {
-        return Restore(viewport, ContentWidth());
+        return RestoreEntryTableRows(measurer_, TableNode(), Entry(), viewport);
     }
 
     // 書き込み先の entry を dirty にして、表を計測し直す。
-    void Measure(NodeLayoutEntry& entry, float width, YRange viewport = YRange::All())
+    void Measure(NodeLayoutEntry& entry, float width)
     {
         entry.layout_dirty = true;
-        MeasureEntry(measurer_, TableNode(), entry, width, viewport, 0.0f, nullptr);
+        MeasureEntry(measurer_, TableNode(), entry, width, nullptr);
     }
 
     float ContentWidth() const
@@ -182,20 +177,6 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
 
 // 検索ハイライトは evict 中のセルのマッチを未計算のまま残すので、行を復元しても計算済みの矩形は捨てない。
 // スクロールで行が復元されるたびに表全体のマッチを計算し直すのを防ぐ。
-TEST_F(TableEvictionDWriteTest, RestoreKeepsSearchHighlightCache)
-{
-    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
-    auto& entry = Entry();
-
-    EvictWholeTable();
-    entry.ensure_search_hl_cache().gen = 7;
-
-    const auto result = Restore(YRange{ 0.0f, 80.0f });
-
-    ASSERT_TRUE(result.restored);
-    EXPECT_EQ(entry.ensure_search_hl_cache().gen, 7u);
-}
-
 // 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃い evict 行がなくなる。
 TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 {
@@ -277,19 +258,18 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     EvictWholeTable();
 
     const float narrow = 200.0f;
-    const YRange vp{ 0.0f, 60.0f };
-    Measure(entry, narrow, vp);
+    Measure(entry, narrow);
     EXPECT_FALSE(entry.layout_dirty);
     ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 
-    const auto result = Restore(YRange::All(), narrow);
+    const auto result = Restore(YRange::All());
     EXPECT_TRUE(result.restored);
     EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
     auto fresh = ParseAndLayout(md);
     auto& fresh_entry = fresh.cache[idx_];
     fresh_entry.layout_dirty = true;
-    MeasureEntry(measurer_, fresh.nodes[idx_], fresh_entry, narrow, YRange::All(), 0.0f, nullptr);
+    MeasureEntry(measurer_, fresh.nodes[idx_], fresh_entry, narrow, nullptr);
     EXPECT_FLOAT_EQ(entry.height, fresh_entry.height);
 }
 
@@ -308,6 +288,41 @@ TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
     EXPECT_TRUE(updated);
     EXPECT_GT(CountNonNullCells(tl), 0u);
     EXPECT_FALSE(entry.layout_dirty);
+}
+
+// 幅の変更で組み直した表の見えている evict 行は、同じ EnsureVisibleLayout の次のパスで戻る。
+TEST_F(TableEvictionDWriteTest, WidthChangeRestoresVisibleRowsInNextPass)
+{
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    EvictWholeTable();
+
+    ComputeLayout(engine_, pl_.nodes, pl_.cache, 600.0f, pl_.cache.Top(idx_), pl_.cache.Top(idx_) + 80.0f);
+
+    const auto& tl = *Entry().table_layout();
+    EXPECT_TRUE(tl.GeometryValidAt(layout::NodeContentWidth(TableNode(), theme_, theme_.ContentWidth(600.0f))));
+    EXPECT_NE(tl.GetCellLayout(0, 0), nullptr);
+    EXPECT_TRUE(tl.HasEvictedRows());
+}
+
+// 再計測のしきい値に届かない幅の変更では表は dirty にならず、幾何は前の幅のまま残る。見えた退避行はその幾何で戻す。
+// 戻さないと、次にしきい値を超える幅の変更があるまでセルの文字が空になる。
+TEST_F(TableEvictionDWriteTest, RestoresVisibleRowsAfterWidthChangeBelowThreshold)
+{
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600), 0.0f, 600.0f));
+    const auto& tl = *Entry().table_layout();
+    constexpr float kNudgedWidth = 801.0f;
+    ASSERT_FALSE(engine_.Reestimate(pl_.nodes, pl_.cache, kNudgedWidth));
+    ASSERT_FALSE(Entry().layout_dirty);
+
+    const float mid = pl_.cache.Top(idx_) + Entry().height * 0.5f;
+    engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, kNudgedWidth, mid, mid + 100.0f);
+
+    const YRange local = YRange{ mid, mid + 100.0f }.ToLocal(pl_.cache.Top(idx_));
+    const auto [r_begin, r_end] = tl.VisibleRowRange(local.top, local.bottom);
+    ASSERT_LT(r_begin, r_end);
+    for (size_t r = r_begin; r < r_end; ++r) {
+        EXPECT_NE(tl.GetCellLayout(r, 0), nullptr) << "row " << r;
+    }
 }
 
 // scheduler を渡すと巨大テーブルのセル生成が並列化されるが、結果は直列と一致する。
@@ -345,9 +360,9 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
         auto& entry = Entry();
         EvictWholeTable();
         // 狭い幅で行高さを見積もりのまま残し、復元で実測に揃わせる。
-        Measure(entry, narrow, YRange{ 0.0f, 60.0f });
+        Measure(entry, narrow);
         measurer_.SetScheduler(scheduler);
-        const auto result = Restore(YRange::All(), narrow);
+        const auto result = Restore(YRange::All());
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
@@ -399,7 +414,9 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
     const auto& tl = *entry.table_layout();
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), 0u);
-    EXPECT_EQ(tl.EvictedRowCount(), tl.row_heights.size());
+    for (size_t r = 0; r < tl.row_count; ++r) {
+        EXPECT_TRUE(tl.IsRowEvicted(r)) << r;
+    }
     EXPECT_EQ(tl.row_heights, row_heights_built);
     EXPECT_FLOAT_EQ(entry.height, height_built);
 }

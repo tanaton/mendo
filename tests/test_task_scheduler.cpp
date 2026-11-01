@@ -54,28 +54,11 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     sch.Shutdown();
 }
 
-namespace {
-
-// worker を 1 本塞ぎ、以降に積んだタスクを待たせる。戻り値に set_value すると走り出す。
-std::promise<void> BlockWorker(TaskScheduler& sch)
-{
-    std::promise<void> gate;
-    std::atomic<bool> blocking{ false };
-    sch.Post([&blocking, released = gate.get_future().share()] {
-        blocking.store(true);
-        released.wait();
-    });
-    EXPECT_TRUE(PollUntil([&] { return blocking.load(); }));
-    return gate;
-}
-
-} // namespace
-
 // PostFront は待っているタスクより先に実行される。
 TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 {
     TaskScheduler sch{ 1 };
-    std::promise<void> gate = BlockWorker(sch);
+    WorkerGate gate(sch);
 
     std::mutex m;
     std::vector<int> order;
@@ -86,7 +69,7 @@ TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
     sch.Post([&] { record(1); });
     sch.Post([&] { record(2); });
     sch.PostFront([&] { record(0); });
-    gate.set_value();
+    gate.Open();
     EXPECT_TRUE(PollUntil([&] {
         const std::lock_guard lock(m);
         return order.size() == 3;
@@ -99,14 +82,14 @@ TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 TEST(TaskScheduler, PostNeverDropsTasksWhileBacklogged)
 {
     TaskScheduler sch{ 1 };
-    std::promise<void> gate = BlockWorker(sch);
+    WorkerGate gate(sch);
 
     constexpr int N = 5000;
     std::atomic<int> count{ 0 };
     for (int i = 0; i < N; ++i) {
         EXPECT_TRUE(sch.Post([&] { count.fetch_add(1); }));
     }
-    gate.set_value();
+    gate.Open();
     sch.Shutdown();
     EXPECT_EQ(count.load(), N);
 }

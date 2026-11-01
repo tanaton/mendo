@@ -26,6 +26,7 @@ enum class ReloadOp : uint8_t {
     NoChange,          // 差分なし。リロード不要。
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
     Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
+    StillGrowing,      // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。読み直す。
 };
 
 struct ReloadDecision {
@@ -34,33 +35,8 @@ struct ReloadDecision {
 };
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
-// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (PrefixShrinkRetry の上限後)。
+// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (defer の上限後)。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept;
-
-// 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
-// 超えたら縮んだ内容を確定版として受け入れる。
-class PrefixShrinkRetry {
-public:
-    static constexpr uint8_t kMaxDefers = 10;
-
-    void CountDefer() noexcept
-    {
-        if (!Exhausted()) {
-            ++count_;
-        }
-    }
-    bool Exhausted() const noexcept
-    {
-        return count_ >= kMaxDefers;
-    }
-    void Reset() noexcept
-    {
-        count_ = 0;
-    }
-
-private:
-    uint8_t count_ = 0;
-};
 
 struct Theme;
 class TaskScheduler;
@@ -82,18 +58,18 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
 // ノードはパース後に変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
 struct ReloadBase {
     std::shared_ptr<const DocumentData> data;
-    // prefix shrink も defer せずにパースする (PrefixShrinkRetry の上限後)。
+    // prefix shrink も defer せずにパースする (defer の上限後)。
     bool accept_prefix_shrink = false;
 };
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / DeferPrefixShrink と書き込み途中はパースせずに返す (doc は空)。
+// NoChange / DeferPrefixShrink / StillGrowing はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
 // 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
 // 表等の解放で UI を十数 ms 止めるため、これ以上のノード数なら worker で破棄する (DisposeOnWorkerIfLarge)。
 inline constexpr size_t kDisposeMinNodes = 4096;
 
 struct ReloadCheck {
-    // 書き込み途中 (still_growing) なら判定せず既定値のまま。
+    // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、書き込み途中かは結果を出す直前に worker で確かめる。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
     // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる (同一ならパスも同じ)。
     // 弱参照なので、判定後に UI が文書を差し替えれば旧文書はその時点で解放される。
@@ -101,9 +77,6 @@ struct ReloadCheck {
     // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (Replace のとき)。大きな文書で UI を止めないよう worker で数える。
     // 数えられないのはパース中に UI が旧文書を手放したときだけなので、base が UI の文書と同一なら必ず数えてある。
     UnchangedEnds ends;
-    // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。
-    // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、結果を出す直前に worker で確かめる。
-    bool still_growing = false;
 };
 
 // ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
@@ -126,9 +99,8 @@ class AsyncLoadCoordinator {
 public:
     using LoadFileFn = std::expected<LoadedFileDoc, FileLoadError> (*)(const std::wstring& path, const std::stop_token& stop_token);
 
-    AsyncLoadCoordinator() = default;
-    // テストが worker を読み込み中で止め、Cancel / 再 Start との競合を決定的に再現するための差し替え口。
-    explicit AsyncLoadCoordinator(LoadFileFn load_file) noexcept : load_file_(load_file)
+    // load_file はテストが worker を読み込み中で止め、Cancel / 再 Start との競合を決定的に再現するための差し替え口。
+    explicit AsyncLoadCoordinator(TaskScheduler& scheduler, LoadFileFn load_file = &LoadFile) noexcept : scheduler_(scheduler), load_file_(load_file)
     {}
     // dtor で走行中 worker の完了を待つ。OnDestroy を経ない経路でも UAF を起こさないため。
     ~AsyncLoadCoordinator();
@@ -151,7 +123,7 @@ public:
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
     // content_width は推定に使う本文幅 (0 は幅を知らない)。
-    void Start(TaskScheduler& scheduler, std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
+    void Start(std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
 
     // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
     bool Attach(HWND hwnd, UINT msg_id);
@@ -177,12 +149,12 @@ private:
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
     void NotifyLocked() const noexcept;
 
-    // sink を swap-out して mutex の外で破棄する。大きな文書は最後に Start した scheduler の worker に回す。
+    // sink を swap-out して mutex の外で破棄する。大きな文書は worker に回す。
     void ResetSinks() noexcept;
 
-    LoadFileFn load_file_ = &LoadFile;
-    // 最後に Start で渡された scheduler。worker の完了を待つ (latch_) ので coordinator より長く生きる。
-    TaskScheduler* scheduler_ = nullptr;
+    // worker の完了を待つ (latch_) ので coordinator より長く生きる。
+    TaskScheduler& scheduler_;
+    LoadFileFn load_file_;
     bool in_flight_ = false;
     std::wstring loading_path_;
     std::mutex mutex_;

@@ -1,5 +1,5 @@
 #pragma once
-// 自前描画のポップアップ (右クリックメニュー・設定ダイアログ) の土台。ポップアップの Impl だけがインクルードする。
+// 自前描画のポップアップ (右クリックメニュー・設定ダイアログ) の土台。
 #include "d2d_util.h"
 #include "i18n.h"
 #include "theme.h"
@@ -24,7 +24,7 @@ inline constexpr float POPUP_HOVER_CORNER = 4.0f;
 inline constexpr wchar_t POPUP_GLYPH_CHECKMARK[] = L"\xE73E";
 
 // ポップアップはどれも同じ振る舞いにし、新しいポップアップは中身だけを書けば済むようにする。
-// - Impl は開くたびに作り、閉じたら捨てる (ウィンドウ・描画先・ブラシ・書式を開いている間だけ持つ)。
+// - 開くたびに作り、閉じたら捨てる (ウィンドウ・描画先・ブラシ・書式を開いている間だけ持つ)。
 // - オーナーの上に出して前面・フォーカス・キャプチャを取り、閉じたら前面をオーナーへ返す。
 // - 開閉をオーナーへ WM_ENTERMENULOOP / WM_EXITMENULOOP で知らせる (本体はその間ホバーとツールチップを出さない)。
 // - 範囲外の押下 (左・右・中)、キャプチャを取られる、非アクティブになる、Esc / Enter / Alt+F4 で閉じる。
@@ -132,7 +132,7 @@ struct PopupWindow {
     // Dispatch は副作用の一覧を呼び出しごとに持つので、ポップアップを開いた Dispatch の途中で割り込まれても壊れない。
     void RunModal(HWND owner_hwnd, std::wstring_view title, POINT pos)
     {
-        static const bool registered = RegisterWindowClass();
+        static const bool registered = RegisterWindowClass(Derived::kClassName, WndProc, nullptr, LoadCursorW(nullptr, IDC_ARROW));
         if (!registered) {
             return;
         }
@@ -305,17 +305,6 @@ private:
     Derived& derived() noexcept
     {
         return static_cast<Derived&>(*this);
-    }
-
-    static bool RegisterWindowClass() noexcept
-    {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = WndProc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = Derived::kClassName;
-        return RegisterClassExW(&wc) != 0;
     }
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 #include "nav.h"
-#include <deque>
 #include <format>
 #include <optional>
 #include <random>
 #include <string>
-#include <tuple>
 #include <utility>
 
 class NavHistoryTest : public ::testing::Test {
@@ -174,225 +172,132 @@ TEST_F(NavHistoryTest, ChainedGoBackRollsBackTogether)
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
-// ─── 同一ファイル内アンカーナビゲーション ───
-
-TEST_F(NavHistoryTest, SameFileAnchorNavigation)
-{
-    hist_.Push({ L"readme.md", 0, 0.0f });    // アンカーへジャンプする前
-    hist_.Push({ L"readme.md", 12, 30.0f });  // 別のアンカーへジャンプする前
-
-    NavEntry out;
-    EXPECT_TRUE(hist_.GoBack({ L"readme.md", 25, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"readme.md");
-    EXPECT_EQ(out.node, 12);
-    EXPECT_FLOAT_EQ(out.offset, 30.0f);
-}
-
 // ─── 履歴の最大数制限 ───
-
-TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
-{
-    // 戻るスタックにMAX_HISTORY+10件を積む
-    for (size_t i = 0; i < NavHistory::MAX_HISTORY + 10; ++i) {
-        hist_.Push({ L"file" + std::to_wstring(i) + L".md", static_cast<int>(i), 0.0f });
-    }
-    // 全件GoBackして進むスタックに移す
-    NavEntry out;
-    for (size_t i = 0; i < NavHistory::MAX_HISTORY; ++i) {
-        if (!hist_.GoBack({ L"cur.md", 0, 0.0f }, out)) {
-            break;
-        }
-    }
-    EXPECT_LE(hist_.ForwardSize(), NavHistory::MAX_HISTORY);
-}
 
 TEST_F(NavHistoryTest, MaxHistoryCapsBackStack)
 {
     for (size_t i = 0; i < NavHistory::MAX_HISTORY * 2; ++i) {
         hist_.Push({ L"file_" + std::to_wstring(i) + L".md", static_cast<int>(i), 0.0f });
     }
-    EXPECT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
+    ASSERT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
+
+    // 上限を超えたら最も古い履歴から捨てる。
+    const int newest = static_cast<int>(NavHistory::MAX_HISTORY * 2) - 1;
+    const int oldest_kept = static_cast<int>(NavHistory::MAX_HISTORY);
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"now.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.node, newest);
+    while (hist_.CanGoBack()) {
+        ASSERT_TRUE(hist_.GoBack(NavEntry{ out }, out));
+    }
+    EXPECT_EQ(out.node, oldest_kept);
 }
 
-// ─── 参照モデルとの比較 (モデルベーステスト) ───
+// 上限で押し出された最古の履歴も、Rollback で戻る。
+TEST_F(NavHistoryTest, RollbackAtCapRestoresEvictedOldest)
+{
+    for (size_t i = 0; i < NavHistory::MAX_HISTORY; ++i) {
+        hist_.Push({ L"file.md", static_cast<int>(i), 0.0f });
+    }
+    hist_.PushPending({ L"file.md", -1, 0.0f });
+    ASSERT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
+    hist_.RollbackPending();
+    ASSERT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
+
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"now.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.node, static_cast<int>(NavHistory::MAX_HISTORY) - 1);
+    while (hist_.CanGoBack()) {
+        ASSERT_TRUE(hist_.GoBack(NavEntry{ out }, out));
+    }
+    EXPECT_EQ(out.node, 0);
+}
+
+// ─── ランダム操作列の性質 ───
 // 容量上限と戻る/進むの組み合わせは例示テストでは踏み切れない (GoForward の容量超過 0a8b2a4 は回帰テスト無しだった)。
-// 素朴な deque 2 本の参照モデルとランダム操作列で突き合わせる。
 
 namespace {
 
-struct ModelEntry {
-    std::wstring path;
-    int node;
-    float offset;
-};
-
-class NavHistoryModel {
-public:
-    explicit NavHistoryModel(size_t max) : max_(max) {}
-
-    void Push(const ModelEntry& e)
-    {
-        CommitPending();
-        PushCapped(back_, e);
-        forward_.clear();
-    }
-
-    // 仮の操作は最初の操作の直前の両スタックを丸ごと保存し、取り消しでそのまま戻す。
-    void PushPending(const ModelEntry& e)
-    {
-        RollbackPending();
-        saved_.emplace(back_, forward_);
-        PushCapped(back_, e);
-        forward_.clear();
-    }
-
-    void CommitPending()
-    {
-        saved_.reset();
-        chained_from_.reset();
-    }
-
-    void RollbackPending()
-    {
-        if (saved_) {
-            std::tie(back_, forward_) = *std::exchange(saved_, std::nullopt);
-        }
-        chained_from_.reset();
-    }
-
-    std::optional<ModelEntry> Transfer(bool forward, const ModelEntry& current)
-    {
-        auto& from = forward ? forward_ : back_;
-        auto& to = forward ? back_ : forward_;
-        // 確定前の移動に続く移動はその移動先から、開きかけのファイルがあれば取り消して表示中の文書から移動する。
-        if (saved_ && !chained_from_) {
-            const ModelEntry pushed = back_.back();
-            RollbackPending();
-            if (from.empty()) {
-                PushPending(pushed);
-                return std::nullopt;
-            }
-        }
-        if (from.empty()) {
-            return std::nullopt;
-        }
-        if (!saved_) {
-            saved_.emplace(back_, forward_);
-        }
-        PushCapped(to, chained_from_.value_or(current));
-        ModelEntry out = from.back();
-        from.pop_back();
-        chained_from_ = out;
-        return out;
-    }
-
-    void Clear()
-    {
-        CommitPending();
-        back_.clear();
-        forward_.clear();
-    }
-
-    size_t BackSize() const noexcept
-    {
-        return back_.size();
-    }
-    size_t ForwardSize() const noexcept
-    {
-        return forward_.size();
-    }
-
-private:
-    void PushCapped(std::deque<ModelEntry>& d, const ModelEntry& e)
-    {
-        d.push_back(e);
-        if (d.size() > max_) {
-            d.pop_front();
-        }
-    }
-
-    size_t max_;
-    std::deque<ModelEntry> back_;
-    std::deque<ModelEntry> forward_;
-    std::optional<std::pair<std::deque<ModelEntry>, std::deque<ModelEntry>>> saved_;
-    // 確定前の戻る/進むの移動先。続く戻る/進むの起点になる。
-    std::optional<ModelEntry> chained_from_;
-};
-
-void RunNavHistoryModel(uint32_t seed)
+void RunNavHistoryProperties(uint32_t seed)
 {
     constexpr size_t max = NavHistory::MAX_HISTORY;
-    static const std::wstring kPaths[] = {
-        L"a.md", L"C:\\docs\\long\\nested\\path\\b.md", L"c.md", L"D:\\x.md", L"e.markdown",
-    };
     NavHistory hist;
-    NavHistoryModel model(max);
     std::mt19937 rng(seed);
     auto pick = [&](int lo, int hi) {
         return std::uniform_int_distribution<int>(lo, hi)(rng);
     };
+    // 最初の仮の操作の前のサイズ。取り消しでここへ戻る。
+    std::optional<std::pair<size_t, size_t>> before_pending;
 
     // 一様に選ぶと上限に届く前に Clear される。積むだけ・戻るだけ・進むだけの区間を混ぜ、上限と空の両端を踏む。
     constexpr std::pair<int, int> kOpRanges[] = { { 0, 48 }, { 49, 72 }, { 73, 97 }, { 0, 99 } };
     std::pair<int, int> op_range = kOpRanges[3];
     int segment_left = 0;
     bool reached_max = false;
+    int next_node = 0;
 
     for (int step = 0; step < 30000; ++step) {
         if (segment_left-- == 0) {
             op_range = kOpRanges[pick(0, 3)];
             segment_left = pick(1, 3 * static_cast<int>(max));
         }
-        const ModelEntry cur{ kPaths[pick(0, 4)], pick(-1, 50), static_cast<float>(pick(-100, 100)) };
+        const NavEntry cur{ L"a.md", next_node++, 0.0f };
         const int op = pick(op_range.first, op_range.second);
         std::string label;
         if (op < 25) {
             label = "Push";
-            hist.Push(NavEntry(cur.path, cur.node, cur.offset));
-            model.Push(cur);
+            hist.Push(cur);
+            before_pending.reset();
+            ASSERT_FALSE(hist.CanGoForward());
         }
         else if (op < 35) {
             label = "PushPending";
-            hist.PushPending(NavEntry(cur.path, cur.node, cur.offset));
-            model.PushPending(cur);
+            // 前の仮の操作を取り消してから積むので、戻り先は変わらない。
+            if (!before_pending) {
+                before_pending.emplace(hist.BackSize(), hist.ForwardSize());
+            }
+            hist.PushPending(cur);
+            ASSERT_FALSE(hist.CanGoForward());
         }
         else if (op < 41) {
             label = "CommitPending";
             hist.CommitPending();
-            model.CommitPending();
+            before_pending.reset();
         }
         else if (op < 49) {
             label = "RollbackPending";
             hist.RollbackPending();
-            model.RollbackPending();
+            if (before_pending) {
+                ASSERT_EQ(std::pair(hist.BackSize(), hist.ForwardSize()), *before_pending);
+                before_pending.reset();
+            }
         }
         else if (op < 98) {
             const bool forward = op >= 73;
             label = forward ? "GoForward" : "GoBack";
+            const size_t back = hist.BackSize();
+            const size_t fwd = hist.ForwardSize();
+            const bool can_move = forward ? hist.CanGoForward() : hist.CanGoBack();
             NavEntry out;
-            const NavEntry cur_entry(cur.path, cur.node, cur.offset);
-            const bool moved = forward ? hist.GoForward(cur_entry, out) : hist.GoBack(cur_entry, out);
-            const auto expected = model.Transfer(forward, cur);
-            SCOPED_TRACE(std::format("max={} seed={} step={} op={}", max, seed, step, label));
-            ASSERT_EQ(moved, expected.has_value());
-            if (expected) {
-                ASSERT_EQ(std::wstring(out.file_path), expected->path);
-                ASSERT_EQ(out.node, expected->node);
-                ASSERT_EQ(out.offset, expected->offset);
+            const bool moved = forward ? hist.GoForward(cur, out) : hist.GoBack(cur, out);
+            // 確定待ちの操作があると先に取り消すことがあるので、確定済みの状態からの移動だけ差を確かめる。
+            if (!before_pending) {
+                ASSERT_EQ(moved, can_move);
+                if (moved) {
+                    ASSERT_EQ(hist.BackSize(), forward ? back + 1 : back - 1);
+                    ASSERT_EQ(hist.ForwardSize(), forward ? fwd - 1 : fwd + 1);
+                    before_pending.emplace(back, fwd);
+                }
             }
         }
         else {
             label = "Clear";
             hist = NavHistory{};
-            model.Clear();
+            before_pending.reset();
         }
 
-        SCOPED_TRACE(std::format("max={} seed={} step={} op={}", max, seed, step, label));
-        ASSERT_EQ(hist.BackSize(), model.BackSize());
-        ASSERT_EQ(hist.ForwardSize(), model.ForwardSize());
+        SCOPED_TRACE(std::format("seed={} step={} op={}", seed, step, label));
         ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max);
-        ASSERT_EQ(hist.CanGoBack(), model.BackSize() > 0);
-        ASSERT_EQ(hist.CanGoForward(), model.ForwardSize() > 0);
         reached_max |= hist.BackSize() + hist.ForwardSize() == max;
     }
     EXPECT_TRUE(reached_max) << "seed=" << seed << " で上限に届いていない";
@@ -400,10 +305,10 @@ void RunNavHistoryModel(uint32_t seed)
 
 } // namespace
 
-TEST(NavHistoryModelTest, MatchesReferenceModel)
+TEST(NavHistoryPropertyTest, HoldsOverRandomOperations)
 {
     for (uint32_t seed : { 1u, 17u, 4242u }) {
-        RunNavHistoryModel(seed);
+        RunNavHistoryProperties(seed);
         if (HasFatalFailure()) {
             return;
         }

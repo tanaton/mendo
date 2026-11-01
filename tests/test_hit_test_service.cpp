@@ -6,6 +6,8 @@
 #include "ui_constants.h"
 #include "ui_types.h"
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 // MockTextMeasurer 前提のため、DirectWrite 依存経路 (text_layout
 // 非 null、row_cum_y/col_cum_x による二分探索、cell_layout) は対象外。
@@ -71,13 +73,7 @@ TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
 
 TEST_F(HitTestTest, HitTest_EmptyDocumentReturnsSentinel)
 {
-    auto pr = ParseAndLayout("");
-    if (!pr.nodes.empty()) {
-        // 空入力でも他のノード（例: 空段落）が生成される実装の場合は以下を適用。
-        // このテストは ctx.nodes.empty() 分岐の検証なので、nodes が空の場合のみ
-        // 期待値をチェックする。
-        GTEST_SKIP() << "ParseMarkdown(\"\") が空でないため empty 分岐を検証できない";
-    }
+    const ParsedLayout pr;
     const auto ctx = Ctx(pr, 0.0f, 100, 100);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, -1);
@@ -265,25 +261,11 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
     EXPECT_EQ(r.text_pos, 0u);
 }
 
-// ---- SaveButtonHitTest ----
-
-TEST_F(HitTestTest, SaveButton_NoDiagramReturnsNegative)
-{
-    auto pr = ParseAndLayout("Just text.");
-    const auto ctx = OverlayCtx(pr, 400, 100);
-    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
-}
-
-TEST_F(HitTestTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
-{
-    auto pr = ParseAndLayout("```\nplain code\n```");
-    const auto ctx = OverlayCtx(pr, 400, 100);
-    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
-}
+// ---- OverlayButtonHitTest ----
 
 TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
-    // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）→ -1
+    // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）なのでボタンは無い
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
     const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
@@ -299,7 +281,164 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 
 TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
 {
-    auto pr = ParseAndLayout("");
+    const ParsedLayout pr;
     const auto ctx = OverlayCtx(pr, 400, 100);
-    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
+    EXPECT_FALSE(hit_test::OverlayButtonHitTest(ctx).Any());
+}
+
+using layout::NodeBoxPadTop;
+using layout::NodeIndent;
+
+// OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
+// MockTextMeasurer を使用するため DirectWrite / COM は不要。
+
+class CopyButtonTest : public MockLayoutTestBase {
+protected:
+
+    float ContentWidth() const
+    {
+        return theme_.ContentWidth(800.0f);
+    }
+
+    // コードブロックのコピーボタン中心をスクリーン座標で返す (dpi_scale=1, md_pane_left=0 前提)。
+    // HitTest は dip_y = screen_y + scroll_y で逆変換する。
+    std::pair<int, int> CopyBtnCenter(const ParsedLayout& pr, int node_index, float scroll_y = 0.0f) const
+    {
+        const float indent = NodeIndent(pr.nodes[node_index], theme_);
+        const float x = theme_.margin_left + indent;
+        const float w = ContentWidth() - indent;
+        const float block_top = pr.cache.Top(node_index) - NodeBoxPadTop(pr.nodes[node_index], theme_);
+        const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top, OverlayButton::CodeCopy);
+        return { static_cast<int>((btn.left + btn.right) * 0.5f),
+                 static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y) };
+    }
+
+    int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f)
+    {
+        const auto hit = hit_test::OverlayButtonHitTest(
+            { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() });
+        return hit.kind == OverlayButton::CodeCopy ? hit.node : -1;
+    }
+};
+
+// ---- OverlayButtonRect ----
+
+TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize)
+{
+    D2D1_RECT_F r = OverlayButtonRect(100.0f, 10.0f, OverlayButton::CodeCopy);
+    float w = r.right - r.left;
+    float h = r.bottom - r.top;
+    EXPECT_FLOAT_EQ(w, COPY_BTN_SIZE);
+    EXPECT_FLOAT_EQ(h, COPY_BTN_SIZE);
+}
+
+TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
+{
+    float block_right = 500.0f;
+    float block_top = 100.0f;
+    D2D1_RECT_F r = OverlayButtonRect(block_right, block_top, OverlayButton::CodeCopy);
+    // ボタンの右端はブロック右端から COPY_BTN_MARGIN 内側
+    EXPECT_FLOAT_EQ(r.right, block_right - COPY_BTN_MARGIN);
+    // ボタンの上端はブロック上端から COPY_BTN_MARGIN 下
+    EXPECT_FLOAT_EQ(r.top, block_top + COPY_BTN_MARGIN);
+}
+
+// 図のボタンは右から 保存・コピー・拡大表示 の順に、重ならず並ぶ。
+TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
+{
+    const D2D1_RECT_F save = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramSave);
+    const D2D1_RECT_F copy = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramCopy);
+    const D2D1_RECT_F view = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramView);
+    EXPECT_FLOAT_EQ(save.right, 500.0f - COPY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(copy.right, save.left - COPY_BTN_GAP);
+    EXPECT_FLOAT_EQ(view.right, copy.left - COPY_BTN_GAP);
+    EXPECT_FLOAT_EQ(view.top, save.top);
+}
+
+// ---- CopyButtonHitTest ----
+
+TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
+{
+    auto pr = ParseAndLayout("```\nsome code\n```");
+    const int code_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0) << "コードブロックノードが見つからない";
+
+    auto [cx, cy] = CopyBtnCenter(pr, code_idx);
+    EXPECT_EQ(CopyNodeAt(pr, cx, cy), code_idx);
+}
+
+TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
+{
+    auto pr = ParseAndLayout("```\nsome code\n```");
+    // 明らかにボタン外の座標（左上端）
+    EXPECT_EQ(CopyNodeAt(pr, 5, 5), -1);
+}
+
+TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
+{
+    auto pr = ParseAndLayout("Just a paragraph");
+    // ドキュメント中央をクリック
+    EXPECT_EQ(CopyNodeAt(pr, 400, 20), -1);
+}
+
+TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
+{
+    // ダイアグラムにはテキスト用コピーボタン(CodeCopy)は付かない (専用のダイアグラムコピーボタンは別)
+    auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
+    const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
+    ASSERT_GE(mermaid_idx, 0);
+    auto [cx, cy] = CopyBtnCenter(pr, mermaid_idx);
+    EXPECT_EQ(CopyNodeAt(pr, cx, cy), -1);
+}
+
+TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
+{
+    auto pr = ParseAndLayout("```\nfirst\n```\n\n```\nsecond\n```");
+
+    std::vector<int> code_indices;
+    for (size_t i = 0; i < pr.nodes.size(); i++) {
+        if (pr.nodes[i].type == NodeType::CodeBlock) {
+            code_indices.emplace_back(static_cast<int>(i));
+        }
+    }
+    ASSERT_GE(code_indices.size(), 2u) << "2つ以上のコードブロックが必要";
+
+    auto [cx1, cy1] = CopyBtnCenter(pr, code_indices[0]);
+    EXPECT_EQ(CopyNodeAt(pr, cx1, cy1), code_indices[0]);
+
+    auto [cx2, cy2] = CopyBtnCenter(pr, code_indices[1]);
+    EXPECT_EQ(CopyNodeAt(pr, cx2, cy2), code_indices[1]);
+}
+
+TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
+{
+    auto pr = ParseAndLayout("");
+    EXPECT_EQ(CopyNodeAt(pr, 400, 400), -1);
+}
+
+TEST_F(CopyButtonTest, ScrolledViewportHitTest)
+{
+    auto pr = ParseAndLayout(MakeParagraphs(30) + "```\nscrolled code\n```");
+    const int code_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0);
+
+    // コードブロックが見えるようにスクロール
+    const float scroll_y = std::max(0.0f, pr.cache.Top(code_idx) - 50.0f);
+    auto [sx, sy] = CopyBtnCenter(pr, code_idx, scroll_y);
+    EXPECT_EQ(CopyNodeAt(pr, sx, sy, scroll_y, 600.0f), code_idx);
+}
+
+// 区切ったコードブロックのコピーボタンは先頭にだけ置く。
+TEST_F(CopyButtonTest, SplitCodeBlockHasCopyButtonOnlyOnFirstChunk)
+{
+    const std::string md = MakeCodeBlockMd(5000);
+    auto pr = ParseAndLayout(md);
+    ASSERT_GT(pr.nodes.size(), 1u);
+    ASSERT_TRUE(pr.nodes[1].continues_prev());
+
+    const auto [x0, y0] = CopyBtnCenter(pr, 0);
+    EXPECT_EQ(CopyNodeAt(pr, x0, y0), 0);
+    const float scroll_y = pr.cache.Top(1) - 100.0f;
+    const auto [x1, y1] = CopyBtnCenter(pr, 1, scroll_y);
+    EXPECT_EQ(CopyNodeAt(pr, x1, y1, scroll_y), -1);
 }

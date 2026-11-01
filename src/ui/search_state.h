@@ -51,14 +51,6 @@ public:
         std::vector<int>().swap(candidate_nodes_);
     }
 
-    // マッチ列が変わるたびに進む世代カウンタ。
-    // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。キャッシュの世代の初期値 0 と
-    // 常に不一致になるよう 1 からカウントし始める。
-    constexpr uint32_t GetGeneration() const noexcept
-    {
-        return generation_;
-    }
-
     constexpr const std::vector<SearchMatch>& GetMatches() const noexcept
     {
         return matches_;
@@ -132,22 +124,12 @@ private:
     // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
     void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
 
-    // 見せている結果と世代カウンタを同時にリセットする。
     void ClearMatches() noexcept
     {
         matches_.clear();
         current_match_ = -1;
         completed_ = false;
         has_result_ = false;
-        BumpGeneration();
-    }
-    // 0 はキャッシュの未初期化センチネルなので、32bit ラップアラウンドで 0 に
-    // 戻るケースだけはスキップして必ず非ゼロを維持する。
-    constexpr void BumpGeneration() noexcept
-    {
-        if (++generation_ == 0) {
-            generation_ = 1;
-        }
     }
 
     static constexpr size_t MAX_MATCHES = 10000;
@@ -175,7 +157,6 @@ private:
     std::vector<SearchMatch> matches_;
     std::vector<SearchMatch> pending_;
     int current_match_ = -1;
-    uint32_t generation_ = 1;
     bool visible_ = false;
     bool case_sensitive_ = false;
     bool highlight_enabled_ = true;

@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include "dirty_node_fixture.h"
 #include "document_test_helpers.h"
 #include "layout.h"
 #include "layout_invariants.h"
@@ -14,23 +14,48 @@
 #include "test_helpers.h"
 #include "theme.h"
 #include "test_nodes.h"
+#include <numeric>
+#include "document_types.h"
+#include "layout_cache.h"
+#include "layout_computer.h"
+#include "image_loader.h"
+#include <algorithm>
+#include <ranges>
 
 using layout::EstimateNodeHeights;
 
 namespace {
 
+// ProcessDirtyBatch のテスト用。ノード i は Paragraph で text_top = i * 100、height = 80。
+struct DirtyNodeFixture {
+    std::vector<Node> nodes;
+    LayoutCache cache;
+
+    void Build(size_t n, bool all_dirty)
+    {
+        for (size_t i = 0; i < n; ++i) {
+            nodes.push_back(MakeTextNode("x"));
+        }
+        cache = LayoutCache(n);
+        for (size_t i = 0; i < n; ++i) {
+            cache.SetTop(i, static_cast<float>(i) * 100.0f);
+            cache[i].height = 80.0f;
+            cache[i].layout_dirty = all_dirty;
+        }
+    }
+
+    void Build(size_t n, std::initializer_list<size_t> dirty_indices)
+    {
+        Build(n, false);
+        for (size_t idx : dirty_indices) {
+            cache[idx].layout_dirty = true;
+        }
+    }
+};
+
 class ParallelMeasureTest : public MockLayoutTestBase {
 protected:
     TaskScheduler task_scheduler_{ 2 };
-
-    void SetUp() override
-    {
-        MockLayoutTestBase::SetUp();
-    }
-    void TearDown() override
-    {
-        task_scheduler_.Shutdown();
-    }
 };
 
 // scheduler なし (呼び出しスレッドで直列計測) の ProcessDirtyBatch 用。
@@ -44,8 +69,7 @@ public:
     bool fail_with_nullopt = false;
     mutable std::atomic<int> attempts{ 0 };
 
-    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     YRange viewport = YRange::All()) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         if (&node == throw_on) {
             attempts.fetch_add(1);
@@ -54,7 +78,7 @@ public:
             }
             throw std::runtime_error("measure failed");
         }
-        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width);
     }
 };
 
@@ -107,13 +131,57 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::vector<Node>& nodes, Layo
 
 } // namespace
 
-TEST_F(ParallelMeasureTest, EmptyDirtyReturnsNoneDirty)
+// 以下の 3 件は直列 (scheduler なし) と並列の両方で確かめる。
+TEST_F(ParallelMeasureTest, NoDirtyMeasuresNothing)
 {
-    DirtyNodeFixture f;
-    f.Build(10, false);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, &task_scheduler_);
-    EXPECT_EQ(r.processed, 0);
-    EXPECT_FALSE(r.more);
+    for (TaskScheduler* scheduler : { static_cast<TaskScheduler*>(nullptr), &task_scheduler_ }) {
+        DirtyNodeFixture f;
+        f.Build(10, false);
+        const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, scheduler);
+        EXPECT_EQ(r.processed, 0);
+        EXPECT_FALSE(r.more);
+    }
+}
+
+// 期限を過ぎていても先頭の 1 ノードは計測し、残りは次の呼び出しに回す。
+TEST_F(ParallelMeasureTest, ExpiredDeadlineMeasuresFirstNode)
+{
+    for (TaskScheduler* scheduler : { static_cast<TaskScheduler*>(nullptr), &task_scheduler_ }) {
+        DirtyNodeFixture f;
+        f.Build(100, true);
+        const auto r = RunBatch(f, theme_, mock_, YRange::All(), LayoutDeadline{}, scheduler);
+        EXPECT_EQ(r.processed, 1);
+        EXPECT_TRUE(r.more);
+        EXPECT_FALSE(f.cache[0].layout_dirty);
+    }
+}
+
+// 範囲に重なる dirty だけを計測する。ノード i は [i * 100, i * 100 + 80]。上端がちょうど範囲の下端のノードは含む。
+TEST_F(ParallelMeasureTest, ViewportClipMeasuresOnlyOverlappingNodes)
+{
+    struct Case {
+        YRange range;
+        size_t first;
+        size_t last_plus_1;
+    };
+    const Case cases[] = {
+        { layout::BufferedRange(150.0f, 200.0f, 0.0f), 1, 4 },
+        { layout::BufferedRange(300.0f, 100.0f, 1.0f), 2, 6 },
+        { layout::BufferedRange(200.0f, 400.0f, 1.0f), 0, 11 },
+    };
+    for (TaskScheduler* scheduler : { static_cast<TaskScheduler*>(nullptr), &task_scheduler_ }) {
+        for (const auto& c : cases) {
+            SCOPED_TRACE(c.first);
+            DirtyNodeFixture f;
+            f.Build(20, true);
+            const auto r = RunBatch(f, theme_, mock_, c.range, kNoLayoutDeadline, scheduler);
+            EXPECT_EQ(r.processed, static_cast<int>(c.last_plus_1 - c.first));
+            EXPECT_FALSE(r.more);
+            for (size_t i = 0; i < f.cache.size(); ++i) {
+                EXPECT_EQ(f.cache[i].layout_dirty, i < c.first || i >= c.last_plus_1) << i;
+            }
+        }
+    }
 }
 
 TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
@@ -136,31 +204,6 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
         EXPECT_FLOAT_EQ(f_serial.cache[i].height, f_parallel.cache[i].height) << "i=" << i;
         EXPECT_EQ(f_serial.cache[i].layout_dirty, f_parallel.cache[i].layout_dirty) << "i=" << i;
     }
-}
-
-TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
-{
-    // 0..99 のうち、viewport [200, 600] に重なる buffer 圏内の dirty だけ処理される。
-    // buffer_screens=1 なので clip [200-400, 600+400] = [-200, 1000] → y_pos が
-    // この区間に含まれるノード (0..9) が対象になる。
-    DirtyNodeFixture f;
-    f.Build(100, true);
-    const auto r = RunBatch(f, theme_, mock_, layout::BufferedRange(200.0f, 400.0f, 1.0f), kNoLayoutDeadline, &task_scheduler_);
-    // y_position[i] = i*100, height=80。clip [-200, 1000] に重なるのは i=0..10
-    EXPECT_GT(r.processed, 0);
-    EXPECT_LE(r.processed, 11);
-    // 範囲外の i=50 は dirty のまま残るはず
-    EXPECT_TRUE(f.cache[50].layout_dirty);
-}
-
-// 期限を過ぎていても 1 ノードは計測し、残りは次の呼び出しに回す。
-TEST_F(ParallelMeasureTest, ExpiredDeadlineMeasuresOneNode)
-{
-    DirtyNodeFixture f;
-    f.Build(100, true);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), LayoutDeadline{}, &task_scheduler_);
-    EXPECT_EQ(r.processed, 1);
-    EXPECT_TRUE(r.more);
 }
 
 TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
@@ -314,7 +357,7 @@ TEST_F(ThrowingMeasureTest, UnmeasurableNodeIsNotRetried)
 TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
 {
     struct FailingMeasurer : MockTextMeasurer {
-        std::optional<float> MeasureNode(const Node&, NodeLayoutEntry&, float, YRange) const override
+        std::optional<float> MeasureNode(const Node&, NodeLayoutEntry&, float) const override
         {
             return std::nullopt;
         }
@@ -323,99 +366,11 @@ TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
     NodeLayoutEntry entry;
     entry.height = 42.0f;
 
-    MeasureEntry(measurer, nodes[0], entry, 300.0f, YRange::All(), 0.0f, nullptr);
+    MeasureEntry(measurer, nodes[0], entry, 300.0f, nullptr);
 
     EXPECT_TRUE(entry.layout_dirty);
     EXPECT_FALSE(entry.is_measured());
     EXPECT_FLOAT_EQ(entry.height, 42.0f);
-}
-
-TEST_F(DirtyBatchSerialTest, NoneDirtyReturnsNoneDirty)
-{
-    DirtyNodeFixture f;
-    f.Build(5, false);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, nullptr);
-    EXPECT_EQ(r.processed, 0);
-    EXPECT_FALSE(r.more);
-}
-
-TEST_F(DirtyBatchSerialTest, AllDirtyProcessedReturnsDone)
-{
-    DirtyNodeFixture f;
-    f.Build(5, true);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, nullptr);
-    EXPECT_EQ(r.processed, 5);
-    EXPECT_FALSE(r.more);
-    EXPECT_FALSE(f.cache[0].layout_dirty);
-    EXPECT_FALSE(f.cache[4].layout_dirty);
-}
-
-TEST_F(DirtyBatchSerialTest, ExpiredDeadlineMeasuresFirstNode)
-{
-    DirtyNodeFixture f;
-    f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), LayoutDeadline{}, nullptr);
-    EXPECT_EQ(r.processed, 1);
-    EXPECT_TRUE(r.more);
-    EXPECT_FALSE(f.cache[0].layout_dirty);
-    EXPECT_TRUE(f.cache[1].layout_dirty);
-}
-
-TEST_F(DirtyBatchSerialTest, ViewportClipSkipsOffscreenDirty)
-{
-    // 10 ノード (y=0,100,200,...,900)、buffer_screens=0、viewport=[150, 350)
-    // Skip されないのは y_position が [150, 350) または overlap するノード。
-    // ノード i の rect = [i*100, i*100+80]。viewport=[150,350]。
-    // i=1: rect=[100,180], overlap with [150,350] → 含まれる
-    // i=2: rect=[200,280], 含まれる
-    // i=3: rect=[300,380], overlap → 含まれる
-    // i=0,4..9: 含まれない
-    DirtyNodeFixture f;
-    f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, layout::BufferedRange(150.0f, 200.0f, 0.0f), kNoLayoutDeadline, nullptr);
-    EXPECT_EQ(r.processed, 3);
-    EXPECT_FALSE(r.more);
-    EXPECT_FALSE(f.cache[1].layout_dirty);
-    EXPECT_FALSE(f.cache[3].layout_dirty);
-}
-
-TEST_F(DirtyBatchSerialTest, ViewportClipWithBufferIncludesNearbyDirty)
-{
-    // viewport=[300, 400), buffer_screens=1.0 (height=100) → 範囲 = [200, 500)
-    // i=2: rect=[200,280] → overlap → 含む
-    // i=3,4: 含む
-    // i=5: rect=[500,580] → IsOffscreen 判定 (y >= range_bottom か y+h <= range_top)。
-    //      range_bottom=500、5の y=500 → !(y < range_bottom) なので IsOffscreen=true → 含まない
-    DirtyNodeFixture f;
-    f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, layout::BufferedRange(300.0f, 100.0f, 1.0f), kNoLayoutDeadline, nullptr);
-    EXPECT_GE(r.processed, 3);
-    EXPECT_LE(r.processed, 4);
-    EXPECT_FALSE(r.more);
-}
-
-TEST_F(DirtyBatchSerialTest, FirstLastProcessedTracking)
-{
-    DirtyNodeFixture f;
-    f.Build(7, { 3, 4, 5 });
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, nullptr);
-    EXPECT_EQ(r.processed, 3);
-    EXPECT_FALSE(f.cache[3].layout_dirty);
-    EXPECT_FALSE(f.cache[5].layout_dirty);
-    EXPECT_FALSE(r.more);
-}
-
-TEST_F(DirtyBatchSerialTest, MeasureNodeIsCalledOnEachProcessed)
-{
-    // Mock の MeasureNode は entry.layout_dirty=false を書く。処理後 dirty=false になることで
-    // 計測 callback がインスタンスごとに 1 回ずつ呼ばれたことを検証する。
-    DirtyNodeFixture f;
-    f.Build(5, true);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, nullptr);
-    EXPECT_EQ(r.processed, 5);
-    for (int i = 0; i < 5; ++i) {
-        EXPECT_FALSE(f.cache[i].layout_dirty) << "node " << i << " should be cleaned";
-    }
 }
 
 TEST_F(DirtyBatchSerialTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
@@ -430,4 +385,268 @@ TEST_F(DirtyBatchSerialTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
     EXPECT_FALSE(f.cache[0].layout_dirty);
     EXPECT_FALSE(f.cache[4].layout_dirty);
     EXPECT_FALSE(r.more);
+}
+
+namespace {
+
+// 全ノードを MeasureIndicesParallel で計測し、計測できなかったノード数を返す。scheduler が null なら直列に計測する。
+int MeasureAll(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, ITextMeasurer& measurer, TaskScheduler* scheduler)
+{
+    std::vector<size_t> indices(nodes.size());
+    std::ranges::iota(indices, size_t{ 0 });
+    measurer.SetTheme(theme);
+    measurer.SetScheduler(scheduler);
+    const int left = layout::MeasureIndicesParallel(nodes, cache, 800.0f, measurer, indices, kNoLayoutDeadline);
+    measurer.SetScheduler(nullptr);
+    return left;
+}
+
+// CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から entry へ直接書かれる。
+class MockTextMeasurerWithTokens : public MockTextMeasurer {
+public:
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
+    {
+        const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width);
+
+        if (node.type != NodeType::CodeBlock) {
+            return height;
+        }
+        const size_t seed = node.SourceOffset();
+        const auto seed32 = static_cast<uint32_t>(seed);
+        const auto MakeTok = [seed32](uint32_t k) {
+            return SyntaxToken{
+                .start = seed32 + k * 10u,
+                .length = (seed32 % 7u) + 1u + k,
+                .type = static_cast<SyntaxTokenType>((seed32 + k) % 4u),
+            };
+        };
+        entry.set_syntax_tokens({ MakeTok(0), MakeTok(1), MakeTok(2) });
+        return height;
+    }
+};
+
+// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / syntax_tokens を観測する。
+// IDWriteTextLayout (entry.text_layout) は mock では nullptr 固定 / 実装では identity 不一致で
+// equality が無意味なため除外。total_height_ は LayoutEngine 経由でないと
+// 計算されないためスコープ外。
+void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p)
+{
+    ASSERT_EQ(s.nodes.size(), p.nodes.size());
+    const size_t n = s.nodes.size();
+    for (size_t i = 0; i < n; ++i) {
+        EXPECT_FLOAT_EQ(s.cache[i].height, p.cache[i].height) << "i=" << i;
+        EXPECT_EQ(s.cache[i].layout_dirty, p.cache[i].layout_dirty) << "i=" << i;
+
+        const auto ts = s.cache[i].syntax_tokens();
+        const auto tp = p.cache[i].syntax_tokens();
+        ASSERT_EQ(ts.size(), tp.size()) << "syntax_tokens size mismatch i=" << i;
+        for (size_t k = 0; k < ts.size(); ++k) {
+            EXPECT_EQ(ts[k].start, tp[k].start) << "i=" << i << " k=" << k;
+            EXPECT_EQ(ts[k].length, tp[k].length) << "i=" << i << " k=" << k;
+            EXPECT_EQ(ts[k].type, tp[k].type) << "i=" << i << " k=" << k;
+        }
+    }
+}
+
+class ParallelMeasureStressTest : public ::testing::Test {
+protected:
+    MockTextMeasurerWithTokens mock_;
+    Theme theme_;
+    TaskScheduler task_scheduler_{ 2 };
+
+    void SetUp() override
+    {
+        theme_ = GetLightTheme();
+    }
+};
+
+} // namespace
+
+// ===== 22000 ノード stress + bit-exact 検証 =====
+
+TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
+{
+    constexpr size_t N = 22000;
+    StressFixture s;
+    s.Build(N, /*include_code_block=*/false);
+    StressFixture p;
+    p.Build(N, /*include_code_block=*/false);
+
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
+
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
+}
+
+// ===== CodeBlock の syntax_tokens 書き込み検証 =====
+
+TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
+{
+    constexpr size_t N = 2000;
+    StressFixture s;
+    s.Build(N, /*include_code_block=*/true);
+    StressFixture p;
+    p.Build(N, /*include_code_block=*/true);
+
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
+
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
+
+    // 全 CodeBlock ノードが 3 トークンを持ち、token.start = source_offset + k*10 で並ぶこと。
+    size_t code_block_count = 0;
+    for (size_t i = 0; i < N; ++i) {
+        if (p.nodes[i].type != NodeType::CodeBlock) {
+            continue;
+        }
+        ++code_block_count;
+        const auto tokens = p.cache[i].syntax_tokens();
+        ASSERT_EQ(tokens.size(), 3u) << "i=" << i;
+        const uint32_t seed = static_cast<uint32_t>(i);
+        for (uint32_t k = 0; k < 3; ++k) {
+            EXPECT_EQ(tokens[k].start, seed + k * 10u) << "i=" << i << " k=" << k;
+        }
+    }
+    // 含有率 10% (bucket 0,1 = N/10) を確認。fixture 構成変更時の sentinel。
+    EXPECT_EQ(code_block_count, N / 10);
+}
+
+// ===== worker 数変動テスト =====
+
+class ParallelWorkerCountTest : public ::testing::TestWithParam<int> {
+protected:
+    MockTextMeasurerWithTokens mock_;
+    Theme theme_;
+
+    void SetUp() override
+    {
+        theme_ = GetLightTheme();
+    }
+};
+
+TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
+{
+    const int worker_count = GetParam();
+    TaskScheduler ts{ worker_count };
+
+    constexpr size_t N = 2000;
+    StressFixture s;
+    s.Build(N, /*include_code_block=*/true);
+    StressFixture p;
+    p.Build(N, /*include_code_block=*/true);
+
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
+
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
+
+    ts.Shutdown();
+}
+
+INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(1, 2, 8, 16));
+
+// ===== worker の無い scheduler =====
+
+TEST(ParallelMeasureNoWorkers, AllChunksRunOnCaller)
+{
+    TaskScheduler ts{ 0 };
+    EXPECT_EQ(ts.WorkerCount(), 0u);
+
+    constexpr size_t N = 128;
+    StressFixture f;
+    f.Build(N, /*include_code_block=*/false);
+
+    MockTextMeasurerWithTokens mock;
+    const Theme& theme = GetLightTheme();
+    const int r = MeasureAll(f.nodes, f.cache, theme, mock, &ts);
+
+    EXPECT_EQ(r, 0);
+    for (size_t i = 0; i < N; ++i) {
+        EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
+        EXPECT_GT(f.cache[i].height, 0.0f) << "i=" << i;
+    }
+
+    ts.Shutdown();
+}
+
+// ============================================================
+// ProcessDirtyBatch ビューポート制限テスト
+// ============================================================
+
+class ProcessDirtyBatchViewportTest : public MockLayoutTestBase {};
+
+TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
+{
+    // 初回レイアウトで Y 位置を確定
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
+    ASSERT_GT(nodes.size(), 50u);
+
+    // 全ノードの layout_dirty を true に設定（eviction をシミュレート）
+    for (size_t i = 0; i < nodes.size(); i++) {
+        cache[i].layout_dirty = true;
+        cache[i].release_layout_state();
+    }
+
+    // ビューポートを先頭に設定（top=0, height=200）
+    // バッファ: ±5画面 = ±1000px → [−1000, 1200] が処理範囲
+    const float viewport_top = 0.0f;
+    const float viewport_height = 200.0f;
+
+    // ビューポート制限付きで ProcessDirtyBatch を実行
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(viewport_top, viewport_height, 5.0f));
+
+    // ビューポート付近のノードはダーティでなくなっているはず
+    EXPECT_FALSE(cache[0].layout_dirty) << "ビューポート内のノードは処理されるべき";
+
+    // ビューポートから遠いノード（y > 1200）はダーティのまま
+    const bool found_far_dirty = std::ranges::any_of(std::views::iota(size_t{ 0 }, nodes.size()), [&](size_t i) {
+        return cache.Top(i) > 1200.0f && cache[i].layout_dirty;
+    });
+    EXPECT_TRUE(found_far_dirty) << "ビューポート遠方のノードは未処理のままであるべき";
+}
+
+TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
+{
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50));
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        cache[i].layout_dirty = true;
+        cache[i].release_layout_state();
+    }
+
+    // ビューポート制限なし (clip 省略)
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
+
+    // 全ノードが処理されるべき
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i << " は処理されるべき";
+    }
+}
+
+TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
+{
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        cache[i].layout_dirty = true;
+        cache[i].release_layout_state();
+    }
+
+    // ビューポート制限付きで全バッチ処理
+    bool more = true;
+    int iterations = 0;
+    while (more && iterations < 100) {
+        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 200.0f, 5.0f));
+        iterations++;
+    }
+
+    // 付近のダーティノードが処理され、has_dirty_nodes が false になるべき
+    EXPECT_FALSE(cache.HasDirtyNodes())
+        << "ビューポート付近の全ダーティノードが処理されたら false であるべき";
 }

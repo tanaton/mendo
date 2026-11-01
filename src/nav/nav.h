@@ -3,7 +3,6 @@
 #include <deque>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <utility>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
@@ -11,12 +10,6 @@ struct NavEntry {
     std::wstring file_path;
     int node = -1;
     float offset = 0.0f;
-
-    NavEntry() = default;
-    NavEntry(std::wstring_view fp, int n, float off)
-        : file_path(fp), node(n), offset(off)
-    {
-    }
 };
 
 class NavHistory {
@@ -67,22 +60,3 @@ private:
     // 確定待ちの戻る/進むの移動先。続く戻る/進むの起点になる。
     std::optional<NavEntry> chained_from_;
 };
-
-struct LinkClickResult {
-    enum class Type : uint8_t {
-        None,
-        Anchor,
-        ExternalUrl
-    };
-    Type type = Type::None;
-    // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
-    // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
-    // ExternalUrl: URL (UTF-8)。App::ShellOpenAsync に渡す直前で wstring 化する。
-    std::string target;
-};
-
-LinkClickResult ClassifyLinkClick(std::string_view url);
-bool IsSafeUrlScheme(std::string_view url) noexcept;
-// md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
-// 16 進 2 桁が続かない % はそのまま残す。
-std::string PercentDecode(std::string_view s);

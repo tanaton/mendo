@@ -5,7 +5,6 @@
 #include "task_scheduler.h"
 #include "utf8_codec.h"
 #include <algorithm>
-#include <cstring>
 #include <limits>
 #include <new>
 #include <string_view>
@@ -53,7 +52,7 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
         return LoadedFileDoc{};
     }
 
-    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ string 先頭へ転記する。
+    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ先頭へ戻す。
     // 一括読み + erase(0,3) と違い BOM ありファイルでも全体スケールの memmove を発生させない。
     char prefix[3];
     const size_t prefix_read = std::min<size_t>(r.size, sizeof(prefix));
@@ -62,24 +61,16 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
     }
 
     const bool has_bom = std::string_view{ prefix, prefix_read } == utf8_codec::kBom;
-    const size_t carry = has_bom ? 0u : prefix_read;
-    const size_t remaining = r.size - prefix_read;
-    const size_t out_size = carry + remaining;
+    if (!has_bom && !SetFilePointerEx(r.handle.get(), LARGE_INTEGER{}, nullptr, FILE_BEGIN)) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+    const size_t out_size = has_bom ? r.size - prefix_read : r.size;
 
     LoadedFileDoc result;
     result.byte_size = r.size;
     try {
         result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
-            if (carry > 0) {
-                std::memcpy(buf, prefix, carry);
-            }
-            if (remaining == 0) {
-                return carry;
-            }
-            if (!ReadExact(r.handle.get(), buf + carry, remaining)) {
-                return 0;
-            }
-            return carry + remaining;
+            return ReadExact(r.handle.get(), buf, out_size) ? out_size : 0;
         });
     } catch (const std::bad_alloc&) {
         return std::unexpected(FileLoadError::TooLarge);
@@ -105,25 +96,23 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         stale.swap(outcome_);
     }
     // 推定済みの LayoutCache は D2D の参照を持たない。
-    if (stale && *stale && scheduler_) {
+    if (stale && *stale) {
         const size_t nodes = (*stale)->doc.GetNodes().size();
-        DisposeOnWorkerIfLarge(*scheduler_, nodes, kDisposeMinNodes, std::move(stale));
+        DisposeOnWorkerIfLarge(scheduler_, nodes, kDisposeMinNodes, std::move(stale));
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Theme theme, float content_width, ReloadBase reload_base)
+void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_width, ReloadBase reload_base)
 {
-    // Cancel() と同じく旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
+    // 旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
     // request_stop 後の source は再使用できないので作り直す。
-    stop_source_.request_stop();
+    Cancel();
     stop_source_ = std::stop_source{};
-    scheduler_ = &scheduler;
-    ResetSinks();
     in_flight_ = true;
     loading_path_ = path;
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
-    scheduler.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    scheduler_.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
             RunWorker(path, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
@@ -170,7 +159,9 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data, .still_growing = true } });
+            Publish(stop_token, AsyncLoadResult{
+                                    .reload = ReloadCheck{ .decision = { ReloadOp::StillGrowing, std::string_view::npos }, .base = reload_base.data }
+            });
             return;
         }
         reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text, reload_base.accept_prefix_shrink), reload_base.data });
@@ -201,7 +192,9 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
     FileWatchTarget watch;
     if (reload) {
         // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
-        reload->still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+        if (IsFileLargerThan(path.c_str(), file->byte_size)) {
+            reload->decision.op = ReloadOp::StillGrowing;
+        }
     }
     else if (!stop_token.stop_requested()) {
         watch = OpenWatchTarget(path);

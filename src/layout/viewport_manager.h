@@ -98,11 +98,8 @@ public:
     // 「見ている位置を保つ」挙動を target ベースで表現する。
     constexpr void EnsureScrollTarget(const LayoutCache& cache) noexcept
     {
-        if (scroll_target_.IsValid()) {
-            return;
-        }
-        if (const auto t = CurrentTarget(cache); t.IsValid()) {
-            scroll_target_ = t;
+        if (!scroll_target_.IsValid()) {
+            scroll_target_ = CurrentTarget(cache);
         }
     }
 
@@ -124,15 +121,14 @@ public:
 
     // ---- 選択 ----
 
-    constexpr auto& GetSelection(this auto& self) noexcept
+    constexpr const TextSelection& GetSelection() const noexcept
     {
-        return self.selection_;
+        return selection_;
     }
-    constexpr void SetSelection(const TextSelection& sel) noexcept
+    constexpr void SetSelection(const TextSelection& selection) noexcept
     {
-        selection_ = sel;
+        selection_ = selection;
     }
-
     constexpr void ClearSelection() noexcept
     {
         selection_.Clear();
@@ -151,21 +147,14 @@ public:
 
     // ---- ズーム ----
 
-    constexpr ZoomLevel& Zoom() noexcept
+    constexpr auto& Zoom(this auto& self) noexcept
     {
-        return zoom_;
-    }
-    constexpr const ZoomLevel& Zoom() const noexcept
-    {
-        return zoom_;
+        return self.zoom_;
     }
 
 private:
-    // --- 4 バイトアライメント ---
     float scroll_y_ = 0.0f;
-    ScrollTarget scroll_target_{}; // int(4) + float(4)
-    TextSelection selection_; // 20B
-
-    // --- 1 バイトアライメント ---
+    ScrollTarget scroll_target_{};
+    TextSelection selection_;
     ZoomLevel zoom_;
 };
