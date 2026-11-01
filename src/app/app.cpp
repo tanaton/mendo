@@ -957,8 +957,8 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
 void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
 {
-    const std::string_view shown = mermaid_renderer_.ViewerCode();
-    if (shown.empty()) {
+    const std::optional<std::string_view> shown = mermaid_renderer_.ViewerCode();
+    if (!shown) {
         viewer_node_ = -1;
         return;
     }
@@ -969,7 +969,7 @@ void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
     if (viewer_node_ < 0) {
         const auto& nodes = next.GetNodes();
         const auto& diagrams = next.GetDiagramNodeIndices();
-        const auto it = std::ranges::find(diagrams, shown, [&](size_t i) { return std::string_view{ nodes[i].GetText() }; });
+        const auto it = std::ranges::find(diagrams, *shown, [&](size_t i) { return std::string_view{ nodes[i].GetText() }; });
         viewer_node_ = it != diagrams.end() ? static_cast<int>(*it) : -1;
     }
 }

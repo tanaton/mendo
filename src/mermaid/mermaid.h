@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <deque>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -107,12 +108,12 @@ public:
     void CloseViewer();
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
     void SetViewerDarkMode(bool dark_mode);
-    // 開いている図のコード。閉じていれば空。
-    std::string_view ViewerCode() const noexcept
+    // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
+    std::optional<std::string_view> ViewerCode() const noexcept
     {
-        return viewer_.hwnd ? std::string_view{ viewer_.code } : std::string_view{};
+        return viewer_.hwnd ? std::optional<std::string_view>{ viewer_.code } : std::nullopt;
     }
-    // 保存で図が変わったら、倍率と位置を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
+    // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
     void UpdateViewerCode(std::string_view code);
     void ApplyViewerLanguage();
 

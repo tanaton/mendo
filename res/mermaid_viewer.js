@@ -79,7 +79,8 @@ function step(dir) {
 // ワーカーが描いた SVG をそのまま置く。ここで mermaid を読むと増えるメモリが 115〜172MB (SVG だけなら 65〜89MB) で、
 // 開くまでが 450〜1160ms (同 100〜130ms) かかるので、このページは mermaid を持たない。
 function showSvg(text) {
-  // 図が出ている間に届くのはテーマの切り替えと保存で描き直した図で、倍率と位置を保つ。別の図は loading で先に消えている。
+  // 図が出ている間に届くのはテーマの切り替えと保存で描き直した図で、ボタンで変えた倍率と位置を保つ。全体表示のままなら、
+  // 図全体が見えるよう新しい大きさに合わせ直す (layout)。別の図は loading で先に消えている。
   const keep = svg !== null;
   const left = stage.scrollLeft;
   const top = stage.scrollTop;
