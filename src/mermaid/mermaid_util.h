@@ -41,13 +41,13 @@ void AppendPageMathItem(std::wstring& msg, std::string_view tex_utf8, float font
 // 新しい大きさで描き直したら capture-ready を返させる。
 std::wstring PageCaptureMessage(unsigned id);
 
-// mermaid_viewer.html の message の受け口に送る要求。
+// mermaid_viewer.js の message の受け口に送る要求。
 // "init:<ダーク 0/1>:" に続けて、文言を改行で区切って並べる (i18n の決まった文言なので改行を含まない)。
 std::wstring ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels);
 // "loading:<ダーク 0/1>:"。図を消して読み込み中の表示に戻す。
 std::wstring ViewerLoadingMessage(bool dark);
-// "svg:<ダーク 0/1>:<SVG>"。SVG を末尾に置き、エスケープしない。svg は大きいので写さずに使う。
-std::wstring ViewerSvgMessage(bool dark, std::wstring svg);
+// "svg:<ダーク 0/1>:<SVG>"。SVG を末尾に置き、エスケープしない。
+std::wstring ViewerSvgMessage(bool dark, std::wstring_view svg);
 
 int QuantizeWidth(float max_width) noexcept;
 

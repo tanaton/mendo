@@ -358,7 +358,6 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
     }
 
     const int node_index = hit_test::HitNode(hit_ctx);
-    // ボタンは画像の右上の内側にあるので、ボタンの上でも画像の上と判定される。
     if (hit_test::DiagramImageHitTest(hit_ctx, node_index)) {
         hover.diagram = node_index;
     }
@@ -370,6 +369,10 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
     hover.overlay_button = target.overlay_button;
     if (hover.overlay_button.Any()) {
         const auto kind = hover.overlay_button.kind;
+        // 小さな図ではボタンが画像の外へはみ出す。ボタンの上でも図のボタンを出したままにする。
+        if (kind != OverlayButton::CodeCopy) {
+            hover.diagram = hover.overlay_button.node;
+        }
         hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::OverlayButton, std::to_underlying(kind), OverlayButtonTooltipText(kind));
         result.cursor = PointerCursor::Hand;
         return;

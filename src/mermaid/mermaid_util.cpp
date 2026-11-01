@@ -54,10 +54,14 @@ std::wstring mermaid_util::ViewerLoadingMessage(bool dark)
     return std::format(L"loading:{}:", dark ? 1 : 0);
 }
 
-std::wstring mermaid_util::ViewerSvgMessage(bool dark, std::wstring svg)
+std::wstring mermaid_util::ViewerSvgMessage(bool dark, std::wstring_view svg)
 {
-    svg.insert(0, std::format(L"svg:{}:", dark ? 1 : 0));
-    return svg;
+    const std::wstring_view prefix = dark ? L"svg:1:"sv : L"svg:0:"sv;
+    std::wstring msg;
+    msg.reserve(prefix.size() + svg.size());
+    msg += prefix;
+    msg += svg;
+    return msg;
 }
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept

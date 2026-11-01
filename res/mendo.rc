@@ -44,6 +44,7 @@ IDR_MERMAID_HTML RCDATA "mermaid.html"
 
 // Embedded HTML page of the diagram viewer window
 IDR_MERMAID_VIEWER_HTML RCDATA "mermaid_viewer.html"
+IDR_MERMAID_VIEWER_JS RCDATA "mermaid_viewer.js"
 
 // Embedded help documents (UTF-8 Markdown)
 IDR_HELP_MD    RCDATA "help_ja.md"

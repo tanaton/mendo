@@ -216,6 +216,42 @@ UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const
     return ends;
 }
 
+std::vector<std::pair<size_t, size_t>> PairChangedDiagrams(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const UnchangedEnds& ends)
+{
+    const auto diagrams_in = [](std::span<const Node> nodes, size_t begin, size_t end) static {
+        std::vector<size_t> indices;
+        for (size_t i = begin; i < end; ++i) {
+            if (nodes[i].type == NodeType::Diagram) {
+                indices.push_back(i);
+            }
+        }
+        return indices;
+    };
+    const auto old_diagrams = diagrams_in(old_nodes, ends.head, ends.OldTailBegin());
+    const auto new_diagrams = diagrams_in(new_nodes, ends.head, ends.NewTailBegin());
+    std::vector<std::pair<size_t, size_t>> pairs;
+    if (old_diagrams.size() == new_diagrams.size()) {
+        pairs.reserve(old_diagrams.size());
+        for (size_t k = 0; k < old_diagrams.size(); ++k) {
+            pairs.emplace_back(old_diagrams[k], new_diagrams[k]);
+        }
+    }
+    return pairs;
+}
+
+int MapDiagramAcrossReload(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const UnchangedEnds& ends, size_t old_index)
+{
+    if (old_index < ends.head) {
+        return static_cast<int>(old_index);
+    }
+    if (old_index >= ends.OldTailBegin()) {
+        return static_cast<int>(old_index - ends.OldTailBegin() + ends.NewTailBegin());
+    }
+    const auto pairs = PairChangedDiagrams(old_nodes, new_nodes, ends);
+    const auto it = std::ranges::find(pairs, old_index, &std::pair<size_t, size_t>::first);
+    return it != pairs.end() ? static_cast<int>(it->second) : -1;
+}
+
 int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept
 {
     // 本文の位置を持たないノードは前のノードの位置を受け継いでいるので、同じ位置の先頭のノードを返す。

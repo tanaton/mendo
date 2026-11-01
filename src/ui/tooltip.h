@@ -59,10 +59,6 @@ inline TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zon
     return MakeTooltip(current, zone, key, [text](std::wstring& out) { out = text; });
 }
 
-// メインウィンドウ・図の拡大表示・ツールチップに使う。<dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は tooltip.cpp。
-void ApplyDarkModeToWindow(HWND hwnd, bool dark);
-void SetCloaked(HWND hwnd, BOOL cloaked);
-
 class Tooltip {
 public:
     Tooltip() = default;

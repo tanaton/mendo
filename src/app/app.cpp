@@ -848,7 +848,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     ReplaceDocument(std::move(next), std::move(estimated));
     CancelPendingResources();
-    // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では開いたときの図のまま残す。
+    // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
     mermaid_renderer_.CloseViewer();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
@@ -913,6 +913,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
     const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
+    FollowViewerNode(next, ends);
     ReplaceDocument(std::move(next), std::move(estimated));
     // 描いた数式は残し、変わった数式を含む組だけが描き直しになる。
     RebuildInlineMathPlan();
@@ -948,7 +949,29 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     Dispatch(ReloadSettledAction{});
 
     mermaid_renderer_.SetEditingDiagrams(!state_.document.doc.GetDiagramNodeIndices().empty());
+    if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), viewer_node_, NodeType::Diagram)) {
+        mermaid_renderer_.UpdateViewerCode(node->GetText());
+    }
     file_watcher_.ResumeWatching();
+}
+
+void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
+{
+    const std::optional<std::string_view> shown = mermaid_renderer_.ViewerCode();
+    if (!shown) {
+        viewer_node_ = -1;
+        return;
+    }
+    if (viewer_node_ >= 0) {
+        viewer_node_ = MapDiagramAcrossReload(state_.document.doc.GetNodes(), next.GetNodes(), ends, static_cast<size_t>(viewer_node_));
+    }
+    // 図を見失っている間は最後の絵を残す。フェンスを壊した保存や切り取りの後で、同じコードの図が戻れば追い直す。
+    if (viewer_node_ < 0) {
+        const auto& nodes = next.GetNodes();
+        const auto& diagrams = next.GetDiagramNodeIndices();
+        const auto it = std::ranges::find(diagrams, *shown, [&](size_t i) { return std::string_view{ nodes[i].GetText() }; });
+        viewer_node_ = it != diagrams.end() ? static_cast<int>(*it) : -1;
+    }
 }
 
 bool App::ApplyCachedHeights(VisibleRange nodes)
@@ -1394,6 +1417,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramView:
         if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), hit.node, NodeType::Diagram)) {
+            viewer_node_ = hit.node;
             mermaid_renderer_.OpenViewer(node->GetText(), MdContentWidth(state_), dark);
         }
         return;
@@ -1638,6 +1662,7 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
         return;
     }
     renderer_.OnLanguageChanged();
+    mermaid_renderer_.ApplyViewerLanguage();
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
         ShowHelpResource();
     }

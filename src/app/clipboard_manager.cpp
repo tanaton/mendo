@@ -110,7 +110,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         node.GetText(),
         md_width,
         dark,
-        [this, key, gen, dib = std::move(dib)](std::wstring svg, bool cancelled) mutable {
+        [this, key, gen, dib = std::move(dib)](std::wstring_view svg, bool cancelled) mutable {
             copy_in_flight_ = false;
             if (gen != copy_generation_) {
                 return;
@@ -122,7 +122,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
             }
             const bool ok = WriteClipboardDiagram(hwnd_, std::move(dib), svg);
             if (ok && !svg.empty()) {
-                svg_cache_.Insert(key, std::move(svg));
+                svg_cache_.Insert(key, std::wstring{ svg });
             }
             EmitCopyResult(ok);
         }

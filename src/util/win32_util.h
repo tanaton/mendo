@@ -52,3 +52,7 @@ inline void LogHrFailure([[maybe_unused]] const char* what, HRESULT hr) noexcept
         MENDO_TRACEF("{} failed (hr=0x{:08X})", what, static_cast<unsigned long>(hr));
     }
 }
+
+// <dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は win32_util.cpp。
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
+void SetCloaked(HWND hwnd, BOOL cloaked);

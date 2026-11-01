@@ -281,6 +281,39 @@ TEST_F(PointerHitTest, OverlayButtonWinsOverScrollbarHitPadding)
     EXPECT_EQ(Hover(*x, NodeMidY(code + 1)).cursor, app_controller::PointerCursor::Arrow);
 }
 
+// 細い図ではボタンが画像の左へはみ出す。画像の外のボタンの上でも図のボタンを出したままにしないと、
+// 消えたボタンの場所で手のカーソルとツールチップが出る。
+TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
+{
+    ReducerHarness h({ .markdown = "```mermaid\ngraph TD; A\n```\n" });
+    const PaneLayout layout = ComputePaneLayout(h.state);
+    const int index = FindFirstNodeIndexByType(h.state.document.doc.GetNodes(), NodeType::Diagram);
+    ASSERT_GE(index, 0);
+    auto& cache = h.state.document.layout_cache;
+    auto& diagram = cache.EnsureDiagram(static_cast<size_t>(index));
+    diagram.width = 40.0f;
+    diagram.height = 40.0f;
+    diagram.png = std::make_shared<const ByteBuffer>(size_t{ 1 });
+
+    const auto& node = h.state.document.doc.GetNodes()[static_cast<size_t>(index)];
+    const auto& theme = h.theme;
+    const float x = layout::NodeBlockX(node, theme);
+    const float w = layout::NodeContentWidth(node, theme, theme.ContentWidth(layout.md_rect.width));
+    const float top = cache.Top(static_cast<size_t>(index));
+    D2D1_RECT_F button{};
+    layout::ForEachOverlayButton(node, &diagram, x, w, top, theme, [&](const D2D1_RECT_F& r, OverlayButton kind) {
+        if (kind == OverlayButton::DiagramView) {
+            button = r;
+        }
+    });
+    ASSERT_LT(button.left, MermaidBitmapRect(diagram.width, diagram.height, x, w, top).left);
+
+    const auto hover = app_controller::ResolvePointerHover(h.state, layout, static_cast<int>(layout.md_rect.x + button.left + 1.0f),
+                                                           static_cast<int>(layout.md_rect.y + button.top + 1.0f), false);
+    EXPECT_EQ(hover.hover.overlay_button.kind, OverlayButton::DiagramView);
+    EXPECT_EQ(hover.hover.diagram, index);
+}
+
 TEST_F(PointerHitTest, NavButtonsComeBeforeContent)
 {
     const auto back = NavBackButtonRect(layout_.md_rect);

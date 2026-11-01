@@ -8,7 +8,6 @@
 #include "resource.h"
 #include "string_convert.h"
 #include "task_scheduler.h"
-#include "tooltip.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include "wic_util.h"
@@ -69,12 +68,20 @@ constexpr wchar_t HTML_RESPONSE_HEADERS[] =
 
 constexpr std::wstring_view MERMAID_VIEWER_CLASS = L"mendo_MermaidViewer";
 constexpr wchar_t APP_LOCAL_VIEWER_URL[] = L"https://app.local/viewer.html";
-// 図の SVG を DOM に入れて利用者が触るページなので、動くスクリプトを nonce の付いたページ自身のものに限り、SVG の中の
-// イベントハンドラと javascript: を止める。mermaid を読まないので eval も外部のスクリプトも要らない。
+constexpr std::wstring_view VIEWER_SCRIPT_PATH = L"viewer.js";
+// 図の SVG を DOM に入れて利用者が触るページなので、動くスクリプトを viewer.js だけに限り、SVG の中の
+// イベントハンドラと javascript: を止める。mermaid を読まないので eval も他のスクリプトも要らない。
+// nonce は固定値だと SVG 側からも付けられ、ハッシュはページを直すたびに書き直すことになるので、パスで指定する。
 constexpr wchar_t VIEWER_RESPONSE_HEADERS[] =
     L"Content-Type: text/html; charset=utf-8\r\n"
-    L"Content-Security-Policy: default-src 'none'; script-src 'nonce-viewer'; "
+    L"Content-Security-Policy: default-src 'none'; script-src https://app.local/viewer.js; "
     L"style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'";
+// ビューのイベントの中では閉じられないので、ウィンドウのメッセージに回して閉じる。
+constexpr UINT WM_VIEWER_FAILED = WM_APP + 1;
+// このウィンドウの唯一のタイマー。
+constexpr UINT_PTR VIEWER_READY_TIMER = 1;
+// 遷移は成功したのにスクリプトが動かないときの備え。メモリから配信するので普通は 1 秒もかからない。
+constexpr UINT VIEWER_READY_TIMEOUT_MS = 10000;
 // ページの背景 (mermaid_viewer.html) と同じ。ページが出るまでの間に色が変わらないように合わせる。
 constexpr COLORREF ViewerBackground(bool dark) noexcept
 {
@@ -729,6 +736,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
     const auto body = is_index                           ? LoadRcData(IDR_MERMAID_HTML)
                       : is_viewer                        ? LoadRcData(IDR_MERMAID_VIEWER_HTML)
+                      : path == VIEWER_SCRIPT_PATH       ? LoadRcData(IDR_MERMAID_VIEWER_JS)
                       : path == KATEX_ALIAS_PATH         ? LoadRcData(KATEX_CHUNK_RESOURCE)
                       : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
                                                          : std::span<const std::byte>{};
@@ -782,10 +790,10 @@ void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Ki
     });
 }
 
-void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled)
+void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled)
 {
     if (auto cb = std::move(req.svg_callback)) {
-        cb(std::move(svg), cancelled);
+        cb(svg, cancelled);
     }
 }
 
@@ -1193,6 +1201,7 @@ void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool da
     viewer_.code.assign(code);
     viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
+    viewer_.has_image = false;
     if (viewer_.hwnd) {
         PostToViewer(mermaid_util::ViewerLoadingMessage(dark_mode));
     }
@@ -1231,9 +1240,30 @@ void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
     RequestViewerSvg();
 }
 
+void MermaidRenderer::UpdateViewerCode(std::string_view code)
+{
+    if (!viewer_.hwnd || viewer_.code == code) {
+        return;
+    }
+    viewer_.code.assign(code);
+    RequestViewerSvg();
+}
+
+void MermaidRenderer::ApplyViewerLanguage()
+{
+    if (!viewer_.hwnd) {
+        return;
+    }
+    SetWindowTextW(viewer_.hwnd, i18n::S().viewer_title.data());
+    // 準備前なら viewer-ready で新しい文言を送る。
+    if (viewer_.page_ready) {
+        PostViewerInit();
+    }
+}
+
 void MermaidRenderer::DestroyViewer()
 {
-    ++viewer_render_;
+    InvalidateViewerSvg();
     Viewer viewer = std::exchange(viewer_, {});
     if (viewer.controller) {
         viewer.controller->Close();
@@ -1251,6 +1281,13 @@ void MermaidRenderer::FailViewer()
     }
 }
 
+void MermaidRenderer::PostViewerFailed()
+{
+    if (viewer_.hwnd) {
+        PostMessageW(viewer_.hwnd, WM_VIEWER_FAILED, 0, 0);
+    }
+}
+
 LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     auto* const self = BindWindowInstance<MermaidRenderer>(hwnd, msg, lParam);
@@ -1261,6 +1298,17 @@ LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wPar
     switch (msg) {
     case WM_CLOSE:
         self->CloseViewer();
+        return 0;
+
+    case WM_VIEWER_FAILED:
+        self->FailViewer();
+        return 0;
+
+    case WM_TIMER:
+        KillTimer(hwnd, wParam);
+        if (!viewer.page_ready) {
+            self->FailViewer();
+        }
         return 0;
 
     case WM_NCDESTROY:
@@ -1346,7 +1394,9 @@ bool MermaidRenderer::CreateViewerWindow()
     const int w = MulDiv(owner_w, VIEWER_SIZE_PERCENT, 100);
     const int h = MulDiv(owner_h, VIEWER_SIZE_PERCENT, 100);
     viewer_.hwnd = CreateWindowExW(
-        0,
+        // 所有ウィンドウは既定でタスクバーにボタンが無く、最小化すると戻す手段が無い。図を見ながら編集するときにどかせるよう、
+        // 最小化ボタンを消さずにタスクバーのボタンを出す。
+        WS_EX_APPWINDOW,
         MERMAID_VIEWER_CLASS.data(),
         i18n::S().viewer_title.data(),
         WS_OVERLAPPEDWINDOW,
@@ -1409,29 +1459,59 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
     RestrictViewerInput(webview);
 
     AddWebMessageHandler(webview, [this](const wchar_t* msg) { OnViewerMessage(msg); });
+    // 大きな図で無応答になっても回復を待てて、GPU やユーティリティのプロセスはページを巻き込まずに作り直される。
+    // ページが失われたときだけ閉じる。
     // clang-format off
     AddWebViewHandler(
         webview,
         "add_ProcessFailed",
         &ICoreWebView2::add_ProcessFailed,
-        [this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
-            FailViewer();
+        [this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+            COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
+            if (SUCCEEDED(args->get_ProcessFailedKind(&kind)) &&
+                (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED)) {
+                PostViewerFailed();
+            }
+            return S_OK;
+        }
+    );
+    // 開けなかったページからは viewer-ready が来ない。準備の後の遷移は RestrictWebView が取り消したもの (図のリンク) なので見ない。
+    AddWebViewHandler(
+        webview,
+        "add_NavigationCompleted",
+        &ICoreWebView2::add_NavigationCompleted,
+        [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+            BOOL succeeded = FALSE;
+            if (!viewer_.page_ready && SUCCEEDED(args->get_IsSuccess(&succeeded)) && !succeeded) {
+                PostViewerFailed();
+            }
             return S_OK;
         }
     );
     // clang-format on
     RegisterResourceHandler(webview);
-    LogHrFailure("Navigate(viewer)", webview->Navigate(APP_LOCAL_VIEWER_URL));
+    const HRESULT hr = webview->Navigate(APP_LOCAL_VIEWER_URL);
+    LogHrFailure("Navigate(viewer)", hr);
+    if (FAILED(hr)) {
+        FailViewer();
+        return;
+    }
+    SetTimer(viewer_.hwnd, VIEWER_READY_TIMER, VIEWER_READY_TIMEOUT_MS, nullptr);
+}
+
+void MermaidRenderer::PostViewerInit()
+{
+    const auto& s = i18n::S();
+    // 並びは mermaid_viewer.js の init の受け口と同じ。
+    const std::wstring_view labels[]{ s.viewer_zoom_in, s.viewer_zoom_out, s.viewer_fit, s.loading };
+    PostToViewer(mermaid_util::ViewerInitMessage(viewer_.dark_mode, labels));
 }
 
 void MermaidRenderer::OnViewerMessage(std::wstring_view msg)
 {
     if (msg == L"viewer-ready") {
         viewer_.page_ready = true;
-        const auto& s = i18n::S();
-        // 並びは mermaid_viewer.html の init の受け口と同じ。
-        const std::wstring_view labels[]{ s.viewer_zoom_in, s.viewer_zoom_out, s.viewer_fit, s.loading };
-        PostToViewer(mermaid_util::ViewerInitMessage(viewer_.dark_mode, labels));
+        PostViewerInit();
         if (!viewer_.pending_msg.empty()) {
             PostToViewer(std::exchange(viewer_.pending_msg, {}));
         }
@@ -1453,22 +1533,24 @@ void MermaidRenderer::ApplyViewerBounds()
 
 void MermaidRenderer::RequestViewerSvg()
 {
-    const unsigned int render = ++viewer_render_;
+    const unsigned int render = InvalidateViewerSvg();
     // clang-format off
     EnqueueSvg(
         mermaid_util::PageRequest::View,
         viewer_.code,
         viewer_.max_width,
         viewer_.dark_mode,
-        [this, render](std::wstring svg, bool cancelled) {
+        [this, render](std::wstring_view svg, bool cancelled) {
             if (render != viewer_render_) {
                 return;
             }
             if (!svg.empty()) {
-                PostToViewer(mermaid_util::ViewerSvgMessage(viewer_.dark_mode, std::move(svg)));
+                viewer_.has_image = true;
+                PostToViewer(mermaid_util::ViewerSvgMessage(viewer_.dark_mode, svg));
             }
             // 取り消されるのは Shutdown の中だけで、この後ウィンドウごと閉じる。
-            else if (!cancelled) {
+            // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+            else if (!cancelled && !viewer_.has_image) {
                 FailViewer();
             }
         }
@@ -1678,7 +1760,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::SvgResult:
         if (req_id_match && w.current_request.is_svg()) {
-            InvokeSvgCallbackIfAny(w.current_request, std::wstring{ payload }, false);
+            InvokeSvgCallbackIfAny(w.current_request, payload, false);
             FinishWorkerRequest(w);
         }
         return;
