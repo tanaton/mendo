@@ -507,7 +507,8 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     }
 
     if (!tb.title_text.empty()) {
-        text_layouts.EmitCentered(out, tb.title_text, title_fmt, bar.GetTitleTextRect(), BrushId::TitleBarText, text_alpha);
+        const auto& rect = bar.GetTitleTextRect();
+        text_layouts.Emit(out, tb.title_text, title_fmt, D2D1::Point2F(rect.left, rect.top), D2D1::SizeF(rect.right - rect.left, rect.bottom - rect.top), BrushId::TitleBarText, text_alpha);
     }
 }
 

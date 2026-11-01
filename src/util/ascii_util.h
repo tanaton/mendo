@@ -155,6 +155,7 @@ inline bool EqualBytes(const char* t, const char* q, size_t n) noexcept
 // 候補は先頭バイトと末尾バイトの 2 点一致で絞る。UTF-8 の日本語は先頭バイトが 0xE3〜0xE9 に
 // 集中するため、先頭 1 点だけだと約 3 バイトに 1 回候補が立ち memcmp が支配的になる。
 // multi-byte シーケンスの中間バイトとの偶然一致は後続の比較で正確に弾ける。
+// 1 バイトのクエリもここを通る。専用のループより 64MB で約 2ms 遅いが、検索は MAX_MATCHES で止まる。
 template <bool kFold>
 inline size_t FindImpl(std::string_view text, std::string_view query, size_t start) noexcept
 {
@@ -175,25 +176,6 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
 
     size_t i = start;
 
-    if (qlen == 1) {
-        while (i + kSimdStep <= tlen) {
-            const __m128i eq = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i), v_first);
-            const unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
-            if (mask != 0) {
-                unsigned long bit_idx;
-                _BitScanForward(&bit_idx, mask);
-                return i + bit_idx;
-            }
-            i += kSimdStep;
-        }
-        for (; i <= last; ++i) {
-            if (FoldByte<kFold>(tp[i]) == first) {
-                return i;
-            }
-        }
-        return npos;
-    }
-
     const size_t tail = qlen - 1;
     const __m128i v_last = _mm_set1_epi8(qp[tail]);
     // kSimdStep 個の開始候補を 1 ブロックで判定する。末尾側のロードが text 内に収まる範囲。
@@ -206,7 +188,7 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
             _BitScanForward(&bit_idx, mask);
             mask &= mask - 1;
             const size_t pos = i + bit_idx;
-            if (EqualBytes<kFold>(tp + pos + 1, qp + 1, qlen - 2)) {
+            if (EqualBytes<kFold>(tp + pos + 1, qp + 1, tail)) {
                 return pos;
             }
         }
@@ -214,7 +196,7 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
     }
     for (; i <= last; ++i) {
         if (FoldByte<kFold>(tp[i]) == first && FoldByte<kFold>(tp[i + tail]) == qp[tail] &&
-            EqualBytes<kFold>(tp + i + 1, qp + 1, qlen - 2)) {
+            EqualBytes<kFold>(tp + i + 1, qp + 1, tail)) {
             return i;
         }
     }

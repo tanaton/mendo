@@ -96,6 +96,12 @@ constexpr int HOST_OFFSCREEN_POS = -32000;
 // ダイアグラムの寸法は CSS 幅だけで決まり、ビューポートの高さには依存しない。
 constexpr int HOST_SIZE = 256;
 
+// GPU やユーティリティのプロセスは WebView2 が立て直し、ページは生きている。
+constexpr bool IsPageLost(COREWEBVIEW2_PROCESS_FAILED_KIND kind) noexcept
+{
+    return kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED;
+}
+
 void DisableWebViewChrome(ICoreWebView2* webview)
 {
     Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
@@ -701,8 +707,12 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
         webview,
         "add_ProcessFailed",
         &ICoreWebView2::add_ProcessFailed,
-        [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
-            RecoverWorker(index);
+        [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+            COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
+            // 無応答も作り直す。無限ループする図から戻る手段はこれだけ。
+            if (FAILED(args->get_ProcessFailedKind(&kind)) || IsPageLost(kind) || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE) {
+                RecoverWorker(index);
+            }
             return S_OK;
         }
     );
@@ -1448,8 +1458,7 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
         &ICoreWebView2::add_ProcessFailed,
         [this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
             COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
-            if (SUCCEEDED(args->get_ProcessFailedKind(&kind)) &&
-                (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED)) {
+            if (SUCCEEDED(args->get_ProcessFailedKind(&kind)) && IsPageLost(kind)) {
                 PostViewerFailed();
             }
             return S_OK;

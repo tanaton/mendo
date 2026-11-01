@@ -79,3 +79,28 @@ TEST_F(TextLayoutCacheTest, KeepsEverythingBelowLimit)
 
     EXPECT_EQ(cache_.TextOf(first), Item(0));
 }
+
+// 長いファイル名でも、タイトルは左右のボタンの間に収める。
+TEST_F(TextLayoutCacheTest, LongTitleStaysBetweenTheButtons)
+{
+    TitleBar bar;
+    bar.UpdateLayout(800.0f);
+    const auto title_fmt = CreateTextFormat(dwrite_factory_.Get(), { .family = theme_.font_family.c_str(), .size = 14.0f, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true, .ellipsis = true });
+    ASSERT_NE(title_fmt, nullptr);
+    const std::wstring title(300, L'長');
+    DrawCommandList cmds;
+    chrome::EmitTitleBar(cmds, cache_, nullptr, title_fmt.Get(), nullptr, false, { .bar = bar, .title_text = title, .window_width = 800.0f });
+
+    const DrawTextLayoutCmd* text = nullptr;
+    for (const auto& cmd : cmds) {
+        if (const auto* t = std::get_if<DrawTextLayoutCmd>(&cmd)) {
+            text = t;
+        }
+    }
+    ASSERT_NE(text, nullptr);
+    DWRITE_TEXT_METRICS metrics{};
+    ASSERT_HRESULT_SUCCEEDED(text->layout->GetMetrics(&metrics));
+    const auto& rect = bar.GetTitleTextRect();
+    EXPECT_GE(text->origin.x + metrics.left, rect.left - 0.5f);
+    EXPECT_LE(text->origin.x + metrics.left + metrics.width, rect.right + 0.5f);
+}

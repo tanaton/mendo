@@ -308,7 +308,7 @@ void Renderer::CreateTextFormats(bool zoomed_only)
         { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, true  }, true },
         { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, true,  BODY_LINE_HEIGHT_FACTOR }, true },
         { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false, 0.0f, true }, true },
-        { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true, 0.0f, true } },
         { fmt_.ui_icon,              Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,             nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_icon,            Loc::En,   { icon_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_header,          Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
