@@ -304,7 +304,6 @@ private:
     // 可視 Y 範囲と重なる矩形だけ FillRectCmd を積む。
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
     // 数式の一部に当たった選択や検索ヒットも数式全体を塗れるよう、クラスタまで広げて引く (HitTestRange)。
-    std::span<const DWRITE_HIT_TEST_METRICS> HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
     void EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。doc_start / doc_length は UTF-8 byte 単位。
     void GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
@@ -319,12 +318,12 @@ private:
     };
     NodeSearchMatches FindNodeSearchMatches(int node_index) const;
     void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y);
-    // matches[begin, end) の矩形を layout で引き、FillRectCmd を積む。layout が null なら描かない。
+    // matches[begin, end) の矩形を layout で引き、FillRectCmd を積む。
     void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
     void EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index, float origin_x, float origin_y);
 
     // 書式の揃えに従って origin から box の範囲に text を描く。
-    void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity = 1.0f);
+    void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id);
 
     const Theme* theme_ = nullptr;
     const MdPaneFormats* formats_ = nullptr;

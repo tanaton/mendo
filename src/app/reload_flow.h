@@ -10,13 +10,6 @@
 #include <string_view>
 #include <utility>
 
-// 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
-// 同じ文書の再読み込みも、ユーザーがペインで移動した先を保つため追従しない。
-inline bool FilePaneFollowsLoad(std::wstring_view prev_path, std::wstring_view next_path) noexcept
-{
-    return !prev_path.empty() && !path_util::iequal(prev_path, next_path);
-}
-
 // path を読むときに worker に渡す旧文書。表示中のファイルなら開き直しも含めてリロードとして扱い、
 // 差分判定を worker に任せる (UI スレッドで取ると 100MB で約 20ms 止まる)。
 [[nodiscard]] inline ReloadBase ReloadBaseFor(const Document& current, std::wstring_view path, bool accept_prefix_shrink)

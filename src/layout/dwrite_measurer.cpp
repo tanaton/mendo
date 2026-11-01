@@ -469,11 +469,9 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
     if (block_math) {
         layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
-    if (node.alert_label_length() > 0) {
-        if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
-            Utf16OffsetCursor cursor{ text };
-            layout->SetDrawingEffect(BrushEffect::For(AlertBrushIdFromIndex(idx)), cursor.WideRange(0, node.alert_label_length()));
-        }
+    if (const uint32_t label_length = node.alert_label_length(); label_length > 0) {
+        Utf16OffsetCursor cursor{ text };
+        layout->SetDrawingEffect(BrushEffect::For(AlertBrushIdFromIndex(AlertColorIndex(node.alert_type))), cursor.WideRange(0, label_length));
     }
 
     DWRITE_TEXT_METRICS metrics{};

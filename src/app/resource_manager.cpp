@@ -63,7 +63,7 @@ std::wstring ResolveLocalImagePath(std::string_view src, const std::wstring& doc
 void ResourceManager::ApplyCachedImages(IndexRange& changed)
 {
     DropQueuesIfJumped();
-    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices(), PREFETCH_BUFFER_SCREENS), true, changed);
+    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, changed);
 }
 
 bool ResourceManager::ApplyCachedImagesForReload(IndexRange range)
@@ -256,7 +256,7 @@ void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
 
     InvalidateMermaidForWidthChange(content_width);
     DropQueuesIfJumped();
-    const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
+    const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
     const bool dark_mode = state_.theme->dark;
     for (const size_t i : slices | std::views::join) {
         RequestDiagramRender(i, content_width, dark_mode, changed);
@@ -324,9 +324,9 @@ std::optional<ResourceManager::BufferedRange> ResourceManager::ComputeBufferedRa
     return BufferedRange{ viewport_top, viewport_top + viewport_height, keep, vr };
 }
 
-std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::span<const size_t> indices, float screens)
+std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::span<const size_t> indices)
 {
-    const auto r = ComputeBufferedRange(screens);
+    const auto r = ComputeBufferedRange(PREFETCH_BUFFER_SCREENS);
     if (!r) {
         return { indices, {}, {} };
     }

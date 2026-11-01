@@ -55,10 +55,7 @@ std::wstring mermaid_util::ViewerLoadingMessage(bool dark)
 
 std::wstring mermaid_util::ViewerSvgMessage(bool dark, std::wstring_view svg)
 {
-    const std::wstring_view prefix = dark ? L"svg:1:"sv : L"svg:0:"sv;
-    std::wstring msg;
-    msg.reserve(prefix.size() + svg.size());
-    msg += prefix;
+    std::wstring msg = std::format(L"svg:{}:", dark ? 1 : 0);
     msg += svg;
     return msg;
 }

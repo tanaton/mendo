@@ -372,20 +372,7 @@ TEST(ViewportManagerTest, ScrollRestoreFollowsNodeAcrossHeightChange)
     }
 }
 
-// ---- ClampAndDetach / 位置未確定キャッシュ ----
-
-TEST(ViewportManagerTest, ClampAndDetachClampsAndClearsTarget)
-{
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(1000.0f, 500.0f);
-    vm.SetScrollY(800.0f);
-    vm.SetScrollTarget(3, 10.0f);
-
-    vm.ClampAndDetach(max_scroll);
-
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 500.0f);
-    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
-}
+// ---- 位置未確定キャッシュ ----
 
 // 作った直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
 TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)

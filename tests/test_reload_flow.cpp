@@ -51,7 +51,6 @@ struct Case {
 
     // 期待値
     ParseCompleteStep step;
-    bool expect_follow = false;
 };
 
 void PrintTo(const Case& c, std::ostream* os)
@@ -117,9 +116,6 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
     ASSERT_EQ(f.current.ShareData() != nullptr, !c.current_path.empty() || !c.current_text.empty());
 
     EXPECT_EQ(PlanParseComplete(f.outcome, f.current), c.step);
-    if (c.step == ParseCompleteStep::ReplaceWithResult) {
-        EXPECT_EQ(FilePaneFollowsLoad(f.current.GetFilePath(), (*f.outcome)->doc.GetFilePath()), c.expect_follow);
-    }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -149,10 +145,10 @@ INSTANTIATE_TEST_SUITE_P(
               .reload_op = ReloadOp::NoChange, .base = BaseRef::Expired, .step = ParseCompleteStep::Retry },
 
         // ---- 別ファイル ----
-        Case{ .label = "OtherPathOpensNewDocumentAndFollowsPane", .kind = ResultKind::Doc, .result_path = kOtherPath,
-              .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = true },
-        Case{ .label = "FirstDocumentDoesNotFollowPane", .current_path = L"", .current_text = "", .kind = ResultKind::Doc,
-              .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = false }),
+        Case{ .label = "OtherPathOpensNewDocument", .kind = ResultKind::Doc, .result_path = kOtherPath,
+              .step = ParseCompleteStep::ReplaceWithResult },
+        Case{ .label = "FirstDocumentOpensNewDocument", .current_path = L"", .current_text = "", .kind = ResultKind::Doc,
+              .step = ParseCompleteStep::ReplaceWithResult }),
     [](const ::testing::TestParamInfo<Case>& info) static { return std::string(info.param.label); });
 
 // 表示中のファイルは、ReloadCurrentFile でもダイアログや D&D での開き直しでも worker に差分を判定させる。
@@ -167,12 +163,4 @@ TEST(ReloadBaseFor, OnlyForTheShownFile)
     EXPECT_EQ(ReloadBaseFor(current, kPathOtherCase, false).data, current.ShareData()) << "パスの大小は区別しない";
     EXPECT_EQ(ReloadBaseFor(current, kOtherPath, false).data, nullptr);
     EXPECT_EQ(ReloadBaseFor(Document{}, kPath, false).data, nullptr) << "文書が無い (起動直後)";
-}
-
-TEST(FilePaneFollowsLoad, OnlyWhenSwitchingFromAnExistingDocumentToAnotherFile)
-{
-    EXPECT_FALSE(FilePaneFollowsLoad(L"", L"C:\\a.md"));
-    EXPECT_FALSE(FilePaneFollowsLoad(L"C:\\a.md", L"C:\\a.md"));
-    EXPECT_FALSE(FilePaneFollowsLoad(L"C:\\a.md", L"c:\\A.MD"));
-    EXPECT_TRUE(FilePaneFollowsLoad(L"C:\\a.md", L"C:\\b.md"));
 }

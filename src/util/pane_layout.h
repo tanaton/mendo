@@ -159,22 +159,14 @@ public:
         Inst(t).width = std::max(w, SIDE_PANE_MIN_WIDTH);
     }
 
-    constexpr float& SidePaneScroll(PaneTarget t) noexcept
+    constexpr auto& SidePaneScroll(this auto& self, PaneTarget t) noexcept
     {
-        return Inst(t).scroll_y;
-    }
-    constexpr float SidePaneScroll(PaneTarget t) const noexcept
-    {
-        return Inst(t).scroll_y;
+        return self.Inst(t).scroll_y;
     }
     // 一覧の項目 (文字・行の高さ) だけに掛かる倍率。ヘッダーとペイン幅は変えない。
-    constexpr ZoomLevel& SidePaneZoom(PaneTarget t) noexcept
+    constexpr auto& SidePaneZoom(this auto& self, PaneTarget t) noexcept
     {
-        return Inst(t).zoom;
-    }
-    constexpr const ZoomLevel& SidePaneZoom(PaneTarget t) const noexcept
-    {
-        return Inst(t).zoom;
+        return self.Inst(t).zoom;
     }
 
     constexpr void ResetScrollStates() noexcept
@@ -202,13 +194,9 @@ private:
     };
     Instance instances_[2];
 
-    constexpr Instance& Inst(PaneTarget t) noexcept
+    constexpr auto& Inst(this auto& self, PaneTarget t) noexcept
     {
-        return instances_[static_cast<size_t>(t)];
-    }
-    constexpr const Instance& Inst(PaneTarget t) const noexcept
-    {
-        return instances_[static_cast<size_t>(t)];
+        return self.instances_[static_cast<size_t>(t)];
     }
 };
 

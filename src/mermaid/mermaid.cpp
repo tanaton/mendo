@@ -146,9 +146,7 @@ void RestrictWebView(ICoreWebView2* webview)
             return S_OK;
         }
     );
-    // clang-format on
 
-    // clang-format off
     AddWebViewHandler(
         webview,
         "add_NewWindowRequested",
@@ -158,10 +156,8 @@ void RestrictWebView(ICoreWebView2* webview)
             return S_OK;
         }
     );
-    // clang-format on
 
     // カメラ・位置情報・クリップボード等の権限要求は、図の描画に要らないのですべて拒否する。
-    // clang-format off
     AddWebViewHandler(
         webview,
         "add_PermissionRequested",
@@ -171,11 +167,9 @@ void RestrictWebView(ICoreWebView2* webview)
             return S_OK;
         }
     );
-    // clang-format on
 
     // blob: などからのダウンロードでファイルを保存させない。
     if (Microsoft::WRL::ComPtr<ICoreWebView2_4> webview4; SUCCEEDED(webview->QueryInterface(IID_PPV_ARGS(&webview4)))) {
-        // clang-format off
         AddWebViewHandler(
             webview4.Get(),
             "add_DownloadStarting",
@@ -185,8 +179,8 @@ void RestrictWebView(ICoreWebView2* webview)
                 return S_OK;
             }
         );
-        // clang-format on
     }
+    // clang-format on
 }
 
 // 倍率はページのボタンで変えるので、ブラウザのズームを重ねない。F5 の読み直しや Ctrl+P の印刷などのブラウザの操作も止める。
@@ -929,11 +923,7 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    if (node.type != NodeType::Diagram) {
-        return false;
-    }
-
-    const uint64_t code_hash = mermaid_util::EnsureDiagramCodeHash(diagram_entry.code_hash, node);
+    const uint64_t code_hash =mermaid_util::EnsureDiagramCodeHash(diagram_entry.code_hash, node);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
     if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
@@ -972,11 +962,11 @@ bool MermaidRenderer::RequestRender(
 void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream)
 {
     const bool captured = captured_stream != nullptr;
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured, .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
+    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
-    bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
+    bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed), guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
-        job.dropped = !job.captured && job.req.is_display() && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        job.dropped = !job.captured && job.req.is_display() && drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
             LoadDiskJob(job, path);
         }

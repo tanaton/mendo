@@ -114,18 +114,7 @@ Win32Window::~Win32Window() = default;
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
     MENDO_PROFILE("Win32Window::Create");
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
-    wc.hIconSm = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.lpszClassName = WINDOW_CLASS;
-    wc.hbrBackground = nullptr;
-
-    if (!RegisterClassExW(&wc)) {
+    if (!RegisterWindowClass(WINDOW_CLASS, WndProc, LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW), CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS)) {
         return false;
     }
 

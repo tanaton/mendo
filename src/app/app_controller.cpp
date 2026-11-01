@@ -130,22 +130,11 @@ std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event)
 
 namespace {
 
-// button はペイン左上を原点とする矩形。
-constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, const D2D1_RECT_F& button)
-{
-    const float local_x = dip_x - rect.x;
-    const float local_y = dip_y - rect.y;
-    if (local_y >= header_height) {
-        return false;
-    }
-    return PointInRect(local_x, local_y, button);
-}
-
-PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, SidePaneHeaderButtons buttons)
+PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, bool is_file_pane, bool reveal_enabled)
 {
     PaneHeaderButton hit = PaneHeaderButton::None;
-    ForEachPaneHeaderButton(rect.width, header_h, buttons.has_file_buttons, buttons.reveal_enabled, [&](const D2D1_RECT_F& local, PaneHeaderButton button, bool enabled) {
-        if (enabled && HitPaneHeaderButton(dip_x, dip_y, rect, header_h, local)) {
+    ForEachPaneHeaderButton(rect.width, header_h, is_file_pane, reveal_enabled, [&](const D2D1_RECT_F& local, PaneHeaderButton button, bool enabled) {
+        if (enabled && PointInRect(dip_x - rect.x, dip_y - rect.y, local)) {
             hit = button;
         }
     });
@@ -441,7 +430,7 @@ SidePaneHit ResolveSidePaneHit(const AppState& state, PaneTarget target, const P
     const PaneRect& rect = layout.Get(target);
     SidePaneHit hit{
         .in_header = dip_y - rect.y < header_h,
-        .button = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, SidePaneHeaderButtonsFor(state, target)),
+        .button = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, target == PaneTarget::File, SidePaneRevealEnabled(state, target)),
         .item = SidePaneItemAt(state, target, rect, dip_y),
     };
     if (!hit.in_header) {
