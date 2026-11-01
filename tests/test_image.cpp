@@ -16,7 +16,8 @@
 #include <shlwapi.h>
 #include <atomic>
 #include <deque>
-#include <latch>
+#include <future>
+#include <memory>
 
 namespace {
 
@@ -380,17 +381,22 @@ protected:
         loader_.ClearCache();
     }
 
-    // worker (2 つ) を塞ぎ、release を count_down するまで以降のタスクを待たせる。
-    void BlockWorkers(std::latch& release)
+    // worker (2 つ) を塞ぎ、以降のタスクを待たせる。戻り値に set_value すると走り出す。
+    // タスクが待ちから抜けるのは set_value より後になりうるので、待ちの状態はスタックに置かずタスクに持たせる。
+    // スタックの latch だと、続けて塞いだときに同じ番地の次の latch を見て待ち続け、worker が 1 つ塞がったままになる。
+    std::promise<void> BlockWorkers()
     {
-        std::atomic<int> blocked{ 0 };
+        std::promise<void> release;
+        std::shared_future<void> released = release.get_future().share();
+        auto blocked = std::make_shared<std::atomic<int>>(0);
         for (int i = 0; i < 2; ++i) {
-            scheduler_.Post([&] {
-                ++blocked;
-                release.wait();
+            scheduler_.Post([released, blocked] {
+                ++*blocked;
+                released.wait();
             });
         }
-        ASSERT_TRUE(PollUntil([&] { return blocked.load() == 2; }));
+        EXPECT_TRUE(PollUntil([&] { return blocked->load() == 2; }));
+        return release;
     }
 
     // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。
@@ -582,12 +588,11 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
 
     for (int attempt = 0; attempt < 4; ++attempt) {
         // 要求をキュー待ちのまま捨てる。
-        std::latch release{ 1 };
-        BlockWorkers(release);
+        auto release = BlockWorkers();
         loader_.RequestLoadAsync(path, 0.0f);
         loader_.DropQueued();
         loader_.RequestLoadAsync(path, 0.0f);
-        release.count_down();
+        release.set_value();
         ASSERT_TRUE(PollUntil([&] { return loader_.ProcessCompletedDecodes(); }));
         EXPECT_EQ(loader_.CacheSize(), 0u);
     }
@@ -601,11 +606,10 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
 {
     ASSERT_TRUE(CreateTestImage(L"drop.png", GUID_ContainerFormatPng, 40, 40));
 
-    std::latch release{ 1 };
-    BlockWorkers(release);
+    auto release = BlockWorkers();
     loader_.RequestLoadAsync(GetTestImagePath(L"drop.png"), 0.0f);
     loader_.DropQueued();
-    release.count_down();
+    release.set_value();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、捨てた要求の結果が届いている。
     scheduler_.Shutdown();
@@ -992,11 +996,10 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     auto path = GetTestImagePath(L"cancel.png");
 
     // 要求をキュー待ちのまま取り消す。
-    std::latch release{ 1 };
-    BlockWorkers(release);
+    auto release = BlockWorkers();
     loader_.RequestLoadAsync(path, 0.0f);
     loader_.CancelPending();
-    release.count_down();
+    release.set_value();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
     scheduler_.Shutdown();
