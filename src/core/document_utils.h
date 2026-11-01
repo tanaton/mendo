@@ -5,6 +5,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 struct WordBoundary {
@@ -90,6 +91,11 @@ struct UnchangedEnds {
     }
 };
 UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept;
+// 変わった範囲の図の (リロード前, リロード後) の添字の組。図の数が新旧で同じなら出現順に対応させ、数が違うとどれが同じ図か
+// 分からないので空。
+std::vector<std::pair<size_t, size_t>> PairChangedDiagrams(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const UnchangedEnds& ends);
+// リロード前の図 (old_index) がリロード後のどのノードかを返す。無ければ -1。
+int MapDiagramAcrossReload(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const UnchangedEnds& ends, size_t old_index);
 
 // コードブロックのトークン。区切ったコードの続きは、前のノードから続くトークン (code_lead_length) を先頭に置き、
 // その後ろからトークン化する (ブロックコメントや複数行の文字列の途中から始まっても色が崩れないように)。

@@ -158,6 +158,7 @@ add_library(mendo_core STATIC
     src/util/file_io.cpp
     src/util/pane_layout.cpp
     src/util/task_scheduler.cpp
+    src/util/win32_util.cpp
 )
 target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS})
 target_compile_definitions(mendo_core PUBLIC

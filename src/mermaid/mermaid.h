@@ -68,7 +68,7 @@ public:
     // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     // on_update は準備完了・結果が出たとき・WebView2 を諦めたときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
-    // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
+    // on_viewer_failed は拡大表示を開けなかった・続けられなくなったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
               TaskScheduler& bg_scheduler,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update,
@@ -107,6 +107,14 @@ public:
     void CloseViewer();
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
     void SetViewerDarkMode(bool dark_mode);
+    // 開いている図のコード。閉じていれば空。
+    std::string_view ViewerCode() const noexcept
+    {
+        return viewer_.hwnd ? std::string_view{ viewer_.code } : std::string_view{};
+    }
+    // 保存で図が変わったら、倍率と位置を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
+    void UpdateViewerCode(std::string_view code);
+    void ApplyViewerLanguage();
 
 private:
     struct RenderRequest {
@@ -163,6 +171,10 @@ private:
         {
             return page != mermaid_util::PageRequest::Mermaid;
         }
+        bool is_view() const noexcept
+        {
+            return page == mermaid_util::PageRequest::View;
+        }
         // 図の結果をキャッシュに持つ要求か。
         bool is_display() const noexcept
         {
@@ -197,12 +209,14 @@ private:
         HWND hwnd = nullptr;
         Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
         Microsoft::WRL::ComPtr<ICoreWebView2> webview;
-        // 開いたときの図のまま。文書を読み直しても追従せず、テーマの切り替えだけはこのコードで描き直す。
+        // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
         // ページが viewer-ready を返した。
         bool page_ready = false;
+        // この図の SVG をページへ渡した。以後は描き直しに失敗しても窓を閉じない。
+        bool has_image = false;
         // ページの準備より先に送ろうとした要求のうち最後のもの。読み込み中の表示も図も前の要求を打ち消すので 1 つで足りる。
         std::wstring pending_msg;
     };
@@ -250,7 +264,7 @@ private:
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
-    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled);
+    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled);
     // インライン数式の要求なら、描けなかったことを知らせて math_callback をクリアする。
     static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
     // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を失敗か取り消しで呼ぶ。成功した要求は呼び済みで何もしない。
@@ -325,11 +339,20 @@ private:
     void OnViewerMessage(std::wstring_view msg);
     void ApplyViewerBounds();
     void RequestViewerSvg();
+    // 今までの要求の結果を要らなくする。描画中の分は世代で捨て、待ちの分は描かせない (結果を待つ人がいないのでコールバックは
+    // 呼ばない)。新しい世代を返す。
+    unsigned int InvalidateViewerSvg()
+    {
+        TakePending(&RenderRequest::is_view);
+        return ++viewer_render_;
+    }
     // ページの準備ができていなければ pending_msg に残し、準備ができたら送る。
     void PostToViewer(std::wstring msg);
-    // 前の図の結果が届いても捨てるよう、viewer_render_ も進める。
+    void PostViewerInit();
     void DestroyViewer();
     void FailViewer();
+    // FailViewer をウィンドウのメッセージに回す。ビュー自身のイベントの中で呼ぶ。
+    void PostViewerFailed();
 
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);

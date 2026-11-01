@@ -996,7 +996,7 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(int node_index, float block_x
 
 void CommandGenerator::GenOverlayButtons(const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index)
 {
-    // 図のボタンは普段は隠し、マウスが図の画像領域へ入ったときだけ出す。
+    // 図のボタンは普段は隠し、マウスが図の画像領域かボタンの上にあるときだけ出す。
     if (node.type == NodeType::Diagram && frame_.params->hovered_diagram != node_index) {
         return;
     }

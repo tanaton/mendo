@@ -1916,6 +1916,59 @@ TEST(FindUnchangedEnds, TableCellTextChangeIsChanged)
     EXPECT_EQ(ends.tail, 1u);
 }
 
+namespace {
+
+std::string MermaidFence(std::string_view code)
+{
+    return std::format("```mermaid\n{}\n```\n\n", code);
+}
+
+// reload 後のノードのテキスト。対応する図が無ければ空。
+std::string MapDiagram(const std::string& old_md, const std::string& new_md, size_t old_diagram)
+{
+    const auto old_nodes = ParseNodes(old_md);
+    const auto new_nodes = ParseNodes(new_md);
+    std::vector<size_t> diagrams;
+    for (size_t i = 0; i < old_nodes.size(); ++i) {
+        if (old_nodes[i].type == NodeType::Diagram) {
+            diagrams.push_back(i);
+        }
+    }
+    const int mapped = MapDiagramAcrossReload(old_nodes, new_nodes, FindUnchangedEnds(old_nodes, new_nodes), diagrams.at(old_diagram));
+    if (mapped < 0) {
+        return {};
+    }
+    EXPECT_EQ(new_nodes[static_cast<size_t>(mapped)].type, NodeType::Diagram);
+    return std::string{ new_nodes[static_cast<size_t>(mapped)].GetText() };
+}
+
+} // namespace
+
+TEST(MapDiagramAcrossReload, UnchangedDiagramShiftsWithInsertedText)
+{
+    const std::string diagrams = MermaidFence("graph TD; A") + "text\n\n" + MermaidFence("graph TD; B");
+    EXPECT_EQ(MapDiagram(diagrams, "# added\n\nmore\n\n" + diagrams, 1), "graph TD; B");
+    EXPECT_EQ(MapDiagram(diagrams, diagrams + "tail\n", 0), "graph TD; A");
+}
+
+TEST(MapDiagramAcrossReload, EditedDiagramIsFollowedInOrder)
+{
+    const std::string a = MermaidFence("graph TD; A");
+    const std::string b = MermaidFence("graph TD; B");
+    const std::string c = MermaidFence("graph TD; C");
+    EXPECT_EQ(MapDiagram(a + b + c, a + MermaidFence("graph TD; B2") + c, 1), "graph TD; B2");
+    // 変わった範囲に図が 2 つあっても、数が同じなら出現順に対応させる。
+    EXPECT_EQ(MapDiagram(a + b + c, MermaidFence("graph TD; A2") + MermaidFence("graph TD; B2") + c, 1), "graph TD; B2");
+}
+
+TEST(MapDiagramAcrossReload, CountChangeInChangedRangeLosesDiagram)
+{
+    const std::string a = MermaidFence("graph TD; A");
+    const std::string b = MermaidFence("graph TD; B");
+    EXPECT_EQ(MapDiagram("x\n\n" + a + "y\n", "x\n\ny\n", 0), "");
+    EXPECT_EQ(MapDiagram(a + b, MermaidFence("graph TD; A2") + MermaidFence("graph TD; A3") + MermaidFence("graph TD; B2"), 0), "");
+}
+
 // 改行を挟まない継ぎ目で切れた語は、どちらのノードから選んでも隣のノードへ伸ばす。
 TEST(FindNodeWordBoundaries, ExtendsAcrossChunkSeam)
 {

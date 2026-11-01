@@ -13,7 +13,8 @@ public:
     //   svg が非空      : 成功
     //   svg が空, cancelled=false : mermaid のレンダリング失敗
     //   svg が空, cancelled=true  : 終了時に破棄された
-    using SvgCallback = std::move_only_function<void(std::wstring svg, bool cancelled)>;
+    // svg は MB 級になるので写さずに渡す。呼び出しの間だけ有効。
+    using SvgCallback = std::move_only_function<void(std::wstring_view svg, bool cancelled)>;
     virtual ~IMermaidRenderer() = default;
 
     // 結果 (ビットマップかエラー) が出ていれば diagram_entry に書いて true を返す。まだなら描画を始めて false

@@ -297,6 +297,8 @@ private:
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
     // ends は worker が数えた変わらなかったノード数。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
     void ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos);
+    // 差し替える前の文書と比べるので、ReplaceDocument より先に呼ぶ。
+    void FollowViewerNode(const Document& next, const UnchangedEnds& ends);
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
     void ReloadCurrentFile();
@@ -362,6 +364,8 @@ private:
     size_t reserved_math_page_bytes_ = 0;
     std::chrono::steady_clock::time_point last_math_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
+    // 拡大表示で開いている図のノード。見失ったら -1 で、閉じた後は次の読み直しまで前の値が残る (FollowViewerNode が見直す)。
+    int viewer_node_ = -1;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
     ConfigService& config_;

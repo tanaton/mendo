@@ -248,23 +248,10 @@ CarryOverResult CarryOverUnchanged(
     new_cache.TakeEntries(old_cache, ends.OldTailBegin(), ends.NewTailBegin(), ends.tail);
 
     // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
-    // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
-    const auto diagrams_in = [](const std::vector<Node>& nodes, size_t begin, size_t end) static {
-        std::vector<size_t> indices;
-        for (size_t i = begin; i < end; ++i) {
-            if (nodes[i].type == NodeType::Diagram) {
-                indices.push_back(i);
-            }
-        }
-        return indices;
-    };
-    const auto old_diagrams = diagrams_in(old_nodes, ends.head, ends.OldTailBegin());
-    const auto new_diagrams = diagrams_in(new_nodes, ends.head, ends.NewTailBegin());
+    // 対応が付く図は旧結果を仮表示として引き継ぐ。
     size_t stale = 0;
-    if (old_diagrams.size() == new_diagrams.size()) {
-        for (size_t k = 0; k < old_diagrams.size(); ++k) {
-            stale += new_cache.TakeDiagramAsStale(old_cache, old_diagrams[k], new_diagrams[k]) ? 1 : 0;
-        }
+    for (const auto [old_index, new_index] : PairChangedDiagrams(old_nodes, new_nodes, ends)) {
+        stale += new_cache.TakeDiagramAsStale(old_cache, old_index, new_index) ? 1 : 0;
     }
     return { .ends = ends, .carried = ends.head + ends.tail + stale };
 }
