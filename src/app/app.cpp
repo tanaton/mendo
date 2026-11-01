@@ -154,6 +154,8 @@ void App::OnRenderDeviceRecreated()
     // インライン数式の型は旧デバイスのビットマップなので捨てる。寸法は同じなのでレイアウトはそのまま。
     // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。
     math_masks_ = {};
+    // 待たせた読み込みの結果を受け取る。型を捨てた後でないと、受け取った型まで捨ててしまう。
+    mermaid_renderer_.ProcessDiskLoads();
 }
 
 void App::LoadInitialDocument()

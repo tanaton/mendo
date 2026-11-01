@@ -87,12 +87,12 @@ public:
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
     static float EstimateWorkerDpr() noexcept;
-    // deadline を過ぎた分は残し、HasLeftoverDiskLoads が真になる。
+    // deadline を過ぎた分は残し、HasLeftoverDiskLoads が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
     void ProcessDiskLoads(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverDiskLoads() const noexcept
     {
-        return disk_results_.HasLeftover();
+        return render_target_ && disk_results_.HasLeftover();
     }
     void Shutdown();
     void DropQueued() override;

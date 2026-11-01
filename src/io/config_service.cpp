@@ -149,9 +149,15 @@ std::filesystem::path DefaultConfigDir()
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
         return std::filesystem::path(appdata.get()) / L"mendo";
     }
-    // 必ず空でないパスを返し、設定と図のキャッシュに「置き場所が無い」場合を持ち込まない。
-    std::error_code ec;
-    return std::filesystem::temp_directory_path(ec) / L"mendo";
+    // 必ず絶対パスを返し、設定と図のキャッシュに「置き場所が無い」場合を持ち込まない。相対パスだとカレントディレクトリの
+    // 下を読み書きしてしまう。temp_directory_path は一時フォルダが無いと空を返すが、GetTempPathW は存在を確かめない。
+    wchar_t dir[MAX_PATH + 1]{};
+    GetTempPathW(MAX_PATH + 1, dir);
+    // TMP / TEMP / USERPROFILE がすべて空だと GetTempPathW も絶対パスを返さない。書けなくても保存されないだけ。
+    if (!std::filesystem::path(dir).is_absolute()) {
+        GetWindowsDirectoryW(dir, MAX_PATH + 1);
+    }
+    return std::filesystem::path(dir) / L"mendo";
 }
 } // namespace
 

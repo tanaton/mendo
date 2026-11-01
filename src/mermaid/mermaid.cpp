@@ -1159,6 +1159,11 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 
 void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point deadline)
 {
+    // デバイスの再作成を待つ間に受け取ると、ビットマップを作れないだけの結果が失敗として確定する。
+    // 数式の組は描き直しても同じと見なされ、計画を作り直すまで頼み直されない。描画先が戻ってから受け取る。
+    if (!render_target_) {
+        return;
+    }
     bool resolved = false;
     disk_results_.Drain(deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
     // まとめて 1 回だけ要求し直させる。
