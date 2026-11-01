@@ -237,11 +237,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         return;
     }
 
-    // cache 未同期の過渡状態では範囲外マッチを末尾扱いにし、current_match を誤らせない。
-    const auto in_cache = [&cache](const SearchMatch& m) noexcept {
-        return m.node_index < static_cast<int>(cache.size());
-    };
-    const auto match_y = [&cache](const SearchMatch& m) noexcept {
+    const auto match_y =[&cache](const SearchMatch& m) noexcept {
         const auto node = static_cast<size_t>(m.node_index);
         return cache[node].GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(node)).first;
     };
@@ -249,9 +245,6 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
     // 右列の先頭行より下に来るため match_y は単調でない。行下端は単調なので、表のマッチは
     // 「行ごと scroll_y より上か」で二分探索し、境界の行の中だけ線形に見る。
     const auto above = [&](const SearchMatch& m) noexcept {
-        if (!in_cache(m)) {
-            return false;
-        }
         if (m.table_row >= 0) {
             const auto* tl = cache[m.node_index].table_layout();
             const auto row = static_cast<size_t>(m.table_row);
@@ -264,7 +257,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
     // 境界の行より後のマッチは次の行以降 (行下端 > scroll_y) にあるので、走査はその行内で止まる。
     const auto boundary = std::ranges::partition_point(matches_, above);
     const auto it = std::ranges::find_if_not(boundary, matches_.end(), [&](const SearchMatch& m) noexcept {
-        return in_cache(m) && match_y(m) < scroll_y;
+        return match_y(m) < scroll_y;
     });
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;
 }

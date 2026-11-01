@@ -164,11 +164,10 @@ void EmitScrollChangedSideEffects(ReduceContext& c)
 
 void ApplyScrollTarget(AppState& state, int node, float offset)
 {
-    state.view.viewport.SetScrollTarget(node, offset);
-    state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
+    auto& viewport = state.view.viewport;
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
-    // 位置が一気に飛ぶ。事前クランプ + target 無効化で範囲外への復帰を抑える。
-    state.view.viewport.ClampAndDetach(MdMaxScroll(state));
+    // 位置が一気に飛ぶ。target を残さず範囲内で確定し、範囲外への復帰を抑える。
+    viewport.ScrollTo(node >= 0 ? NodeOffsetToScrollY(state.document.layout_cache, node, offset) : viewport.GetScrollY(), MdMaxScroll(state));
 }
 
 // new_value は差分ではなく絶対値。
@@ -503,22 +502,12 @@ void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
     PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-// 選択の無いクリックなど、見た目が変わらないなら再描画しない。
-void EndTextSelectionDrag(ReduceContext& c, const LeftDragEndedAction& a)
-{
-    MoveTextSelectionDrag(c, a.node_index, a.text_pos);
-    c.state.view.drag = {};
-}
-
 void On(ReduceContext& c, const LeftDragEndedAction& a)
 {
     const LeftDrag drag = c.state.view.drag.kind;
-    if (drag == LeftDrag::None) {
-        return;
-    }
+    // 選択の無いクリックなど、見た目が変わらないなら再描画しない。
     if (drag == LeftDrag::TextSelect) {
-        EndTextSelectionDrag(c, a);
-        return;
+        MoveTextSelectionDrag(c, a.node_index, a.text_pos);
     }
     c.state.view.drag = {};
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {

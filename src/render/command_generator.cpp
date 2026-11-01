@@ -473,11 +473,8 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
         EmitButton(out, text_layouts, icon_fmt, rect, { &icon, 1 }, { bg_id }, text_id, alpha);
     };
 
-    const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
-        gen_button(bar.GetButton(zone), icon, is_hovered(zone) ? BrushId::TitleBarButtonHover : BrushId::None, BrushId::TitleBarText, text_alpha);
-    };
     // active > hover の優先度
-    const auto gen_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
+    const auto gen_zone = [&](TitleBarHitZone zone, wchar_t icon, bool active = false) {
         gen_button(
             bar.GetButton(zone),
             icon,
@@ -486,20 +483,20 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
             text_alpha);
     };
 
-    gen_plain(TitleBarHitZone::OpenFile, L'');
-    gen_plain(TitleBarHitZone::Help, L'');
-    gen_plain(TitleBarHitZone::Settings, L'');
-    gen_plain(TitleBarHitZone::ThemeToggle, dark ? L'' : L'');
-    gen_toggle(TitleBarHitZone::Search, L'', tb.search_active);
-    gen_toggle(TitleBarHitZone::FileToggle, L'', tb.file_pane_visible);
-    gen_toggle(TitleBarHitZone::TocToggle, L'', tb.toc_pane_visible);
-    gen_plain(TitleBarHitZone::Minimize, L'');
-    gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'' : L'');
+    gen_zone(TitleBarHitZone::OpenFile, L'');
+    gen_zone(TitleBarHitZone::Help, L'');
+    gen_zone(TitleBarHitZone::Settings, L'');
+    gen_zone(TitleBarHitZone::ThemeToggle, dark ? L'' : L'');
+    gen_zone(TitleBarHitZone::Search, L'', tb.search_active);
+    gen_zone(TitleBarHitZone::FileToggle, L'', tb.file_pane_visible);
+    gen_zone(TitleBarHitZone::TocToggle, L'', tb.toc_pane_visible);
+    gen_zone(TitleBarHitZone::Minimize, L'');
+    gen_zone(TitleBarHitZone::Maximize, tb.is_maximized ? L'' : L'');
     if (is_hovered(TitleBarHitZone::Close)) {
         gen_button(bar.GetButton(TitleBarHitZone::Close), L'', BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
     }
     else {
-        gen_plain(TitleBarHitZone::Close, L'');
+        gen_zone(TitleBarHitZone::Close, L'');
     }
 
     if (app_icon) {
@@ -682,9 +679,9 @@ void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const Si
 
 } // namespace chrome
 
-void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
+void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id)
 {
-    text_layouts_->Emit(*cmds_, text, fmt, origin, box, brush_id, opacity);
+    text_layouts_->Emit(*cmds_, text, fmt, origin, box, brush_id, 1.0f);
 }
 
 void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& p, float dpi_scale)
@@ -849,9 +846,6 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
     case NodeType::Paragraph:
         // 引用のバーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
         break;
-
-    default:
-        std::unreachable();
     }
 
     GenNodeTextDecorations(node, entry, node_index, text_x, entry_text_top);
@@ -1217,10 +1211,9 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
 
             GenCellInlineCodeBgs(*cmds_, row_bgs, c, text_x, text_y);
 
-            IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
-            GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);
-
-            if (cell_layout) {
+            // evict 中のセルは layout が復元されてから描く。
+            if (IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c)) {
+                GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);
                 if (selection.end > selection.start) {
                     GenCellSelection(*tbl, r, c, cell_layout, selection, text_x, text_y);
                 }
@@ -1258,15 +1251,10 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
     }
 }
 
-std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
-{
-    const auto range = ExpandToClusters(layout, start, length);
-    return HitTestRange(layout, range.startPosition, range.length);
-}
-
 void CommandGenerator::EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush)
 {
-    for (const auto& m : HitTestClusters(layout, start, length)) {
+    const auto range = ExpandToClusters(layout, start, length);
+    for (const auto& m : HitTestRange(layout, range.startPosition, range.length)) {
         EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), brush);
     }
 }
@@ -1309,10 +1297,6 @@ void CommandGenerator::EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTex
 
 void CommandGenerator::EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index, float origin_x, float origin_y)
 {
-    // evict 中のセルは layout が復元されてから描く。
-    if (!layout) {
-        return;
-    }
     const bool is_current = (static_cast<int>(global_index) == frame_.params->current_match_index);
     const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
     // 結果は持たない。英文の e が画面に 1000 個見えるスクロールで 1 フレーム 13 → 310µs (BM_SearchFrame)。

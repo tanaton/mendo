@@ -198,17 +198,10 @@ inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect
     return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }
 
-// サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。
-struct SidePaneHeaderButtons {
-    bool has_file_buttons = false;
-    // 無効時は描画のみ行い、ヒットしない。
-    bool reveal_enabled = false;
-};
-
-inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, PaneTarget target) noexcept
+// Reveal ボタンを押せるか。無効時は描画のみ行い、ヒットしない。
+inline bool SidePaneRevealEnabled(const AppState& state, PaneTarget target) noexcept
 {
-    const bool is_file = target == PaneTarget::File;
-    return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
+    return target == PaneTarget::File && state.document.doc.HasBackingFile();
 }
 
 // window の寸法・ペイン・テーマから組む。数十回の浮動小数演算なので持たずに毎回求める。

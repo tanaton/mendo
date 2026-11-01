@@ -93,8 +93,6 @@ public:
     {
         phase_ = GesturePhase::Idle;
         direction_ = NavDirection::None;
-        start_x_ = 0.0f;
-        start_y_ = 0.0f;
         trail_points_.clear();
     }
 

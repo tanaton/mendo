@@ -3,7 +3,6 @@
 #include "resource.h"
 #include <algorithm>
 #include <format>
-#include <iterator>
 
 using namespace context_menu_constants;
 
@@ -227,10 +226,7 @@ void ContextMenu::DrawZoomRow(const Item& item)
     draw_btn(zoom_layout.in_rect, GLYPH_ZOOM_IN, ZoomDirection::In);
     draw_btn(zoom_layout.reset_rect, GLYPH_ZOOM_RESET, ZoomDirection::Reset);
 
-    wchar_t percent[16];
-    const auto r = std::format_to_n(percent, std::size(percent), L"{}%", zoom->Percent());
-    const size_t len = std::min(static_cast<size_t>(r.size), std::size(percent));
-    DrawLabel({ percent, len }, fmt_text_center.Get(), zoom_layout.percent_rect, brushes.text.Get());
+    DrawLabel(std::format(L"{}%", zoom->Percent()), fmt_text_center.Get(), zoom_layout.percent_rect, brushes.text.Get());
 }
 
 void ContextMenu::DrawSeparator(const Item& item)

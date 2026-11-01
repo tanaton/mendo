@@ -239,8 +239,7 @@ private:
         // WebView2 で描画した直後の PNG。成功時はディスクキャッシュへ書き出す。
         bool captured = false;
         DWORD read_error = 0;
-        // 投入時の disk_drop_gen_。worker で変わっていたら読まずに dropped で返す。
-        uint32_t drop_gen = 0;
+        // 投入後に disk_drop_gen_ が進んだので読まずに返した。
         bool dropped = false;
     };
 

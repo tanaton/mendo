@@ -193,11 +193,9 @@ PaneZone App::PaneAtPoint(float dip_x)
 SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
 {
     const auto& panes = state_.view.panes;
-    const bool file_visible = panes.IsSidePaneVisible(PaneTarget::File);
-    if (file_visible) {
+    if (panes.IsSidePaneVisible(PaneTarget::File)) {
         state_.file_explorer.EnsureListed();
     }
-    static const std::vector<FileEntry> kNoEntries;
     const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
@@ -205,7 +203,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
             .hovered_index = state_.view.hover.side_index[std::to_underlying(t)],
             .show = panes.IsSidePaneVisible(t),
             .hovered_button = state_.view.hover.side_button[std::to_underlying(t)],
-            .reveal_enabled = SidePaneHeaderButtonsFor(state_, t).reveal_enabled,
+            .reveal_enabled = SidePaneRevealEnabled(state_, t),
             .zoom = panes.SidePaneZoom(t).Value(),
             .item_height = SidePaneItemHeight(state_, t),
         };
@@ -215,7 +213,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
                   make_side_pane(PaneTarget::File, layout.file_rect),
                   make_side_pane(PaneTarget::Toc, layout.toc_rect),
                   },
-        .file_entries = file_visible ? state_.file_explorer.GetEntries() : kNoEntries,
+        .file_entries = state_.file_explorer.GetEntries(),
         .toc_entries = state_.document.doc.GetToc(),
         .nodes = state_.document.doc.GetNodes(),
         .active_toc_index = state_.view.active_toc_index,
@@ -843,7 +841,9 @@ void App::OnParseComplete()
         return;
     }
     case ParseCompleteStep::ReplaceWithResult: {
-        const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), result->doc.GetFilePath());
+        // 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
+        // 同じ文書の開き直しはリロードになるのでここへ来ず (ReloadBaseFor)、ユーザーがペインで移動した先は保たれる。
+        const bool follow_file_pane = !state_.document.doc.GetFilePath().empty();
         OpenDocument(std::move(result->doc), std::move(result->cache), follow_file_pane, std::move(result->watch));
         return;
     }

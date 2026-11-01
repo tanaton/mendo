@@ -238,9 +238,6 @@ void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cach
 {
     // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
     KeepingAnchor(cache, [&] {
-        if (changed.empty()) {
-            return false;
-        }
         RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
         return true;
     });

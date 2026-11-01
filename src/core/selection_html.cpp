@@ -1,6 +1,7 @@
 #include "selection_html.h"
 #include "ascii_util.h"
 #include "document_utils.h"
+#include "file_io.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <algorithm>
@@ -128,8 +129,7 @@ bool IsSafeImageSrc(std::string_view src)
     if (ascii_util::istarts_with(s, "http://") || ascii_util::istarts_with(s, "https://")) {
         return true;
     }
-    const auto is_slash = [](char c) static { return c == '/' || c == '\\'; };
-    if (s.empty() || (s.size() >= 2 && is_slash(s[0]) && is_slash(s[1]))) {
+    if (s.empty() || (s.size() >= 2 && path_util::IsPathSlash(s[0]) && path_util::IsPathSlash(s[1]))) {
         return false;
     }
     // スキームの ':' はパス・クエリ・フラグメントより前にしか現れない。
