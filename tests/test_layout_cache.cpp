@@ -170,8 +170,7 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsSize)
     }
 }
 
-// 早期終了経路 (safe_exit_after で abs(text_top - y) < EPSILON ならスキップ) を通った後でも、
-// 残りノードの text_top がフル計算と一致することを検証する。
+// 後続を一定量ずらす経路 (safe_exit_after) でずれが無いときも、残りノードの text_top がフル計算と一致する。
 TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
 {
     LayoutCache cache(8);
@@ -191,8 +190,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
         expected.push_back(cache.Top(i));
     }
 
-    // safe_exit_after=2 で、index >= 3 のノードについて text_top と y が一致なら早期終了。
-    // EstimateNodeHeights 直後なので一致するはず → 早期終了経路を通る。
+    // EstimateNodeHeights 直後なので、index >= 3 のノードのずれは無い。
     layout::RecomputeYPositions(nodes, cache, theme, 0, 2);
 
     for (size_t i = 0; i < cache.size(); ++i) {

@@ -75,9 +75,7 @@ void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
         return;
     }
     on_change_ = std::move(callback);
-    watch_filename_ = std::move(target.filename);
-    watch_filename_short_ = std::move(target.short_filename);
-    dir_handle_ = std::move(target.dir);
+    target_ = std::move(target);
 
     overlapped_ = {};
     overlapped_.hEvent = event_.get();
@@ -87,13 +85,9 @@ void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
 
 void FileWatcher::BeginRead()
 {
-    if (!dir_handle_) {
-        return;
-    }
-
     ResetEvent(overlapped_.hEvent);
     read_pending_ = ReadDirectoryChangesW(
-        dir_handle_.get(),
+        target_.dir.get(),
         change_buf_,
         sizeof(change_buf_),
         FALSE,
@@ -109,19 +103,19 @@ void FileWatcher::BeginRead()
 
 void FileWatcher::StopWatching() noexcept
 {
-    if (read_pending_ && dir_handle_) {
+    if (read_pending_) {
         // CancelIo はキャンセル要求のみで IO の終了を保証しない。CancelIoEx + GetOverlappedResult(..., TRUE)
         // でカーネルの completion routine が change_buf_ / overlapped_ への書き込みを終えるまで待つ。
         // 待たずに event_.reset() / overlapped_={} すると次回 StartWatching の change_buf_ 再利用と race し
         // ヒープ破壊や謎のシグナルを招く。
-        CancelIoEx(dir_handle_.get(), &overlapped_);
+        CancelIoEx(target_.dir.get(), &overlapped_);
         DWORD bytes_returned = 0;
-        GetOverlappedResult(dir_handle_.get(), &overlapped_, &bytes_returned, TRUE);
+        GetOverlappedResult(target_.dir.get(), &overlapped_, &bytes_returned, TRUE);
         read_pending_ = false;
     }
     event_.reset();
     overlapped_ = {};
-    dir_handle_.reset();
+    target_.dir.reset();
     paused_ = false;
     pending_change_ = false;
     on_change_ = nullptr;
@@ -134,7 +128,7 @@ void FileWatcher::CheckForChanges()
     }
 
     DWORD bytes_returned = 0;
-    if (!GetOverlappedResult(dir_handle_.get(), &overlapped_, &bytes_returned, FALSE)) {
+    if (!GetOverlappedResult(target_.dir.get(), &overlapped_, &bytes_returned, FALSE)) {
         if (GetLastError() != ERROR_IO_INCOMPLETE) {
             read_pending_ = false;
             StopWatching();
@@ -145,7 +139,7 @@ void FileWatcher::CheckForChanges()
     read_pending_ = false;
 
     const bool target_changed = NotifyBufferHasTargetChange(
-        std::as_bytes(std::span{ change_buf_, bytes_returned }), watch_filename_, watch_filename_short_);
+        std::as_bytes(std::span{ change_buf_, bytes_returned }), target_.filename, target_.short_filename);
     if (target_changed) {
         if (paused_) {
             pending_change_ = true;
@@ -160,16 +154,11 @@ void FileWatcher::CheckForChanges()
 void FileWatcher::FireChange()
 {
     paused_ = true;
-    if (on_change_) {
-        on_change_();
-    }
+    on_change_();
 }
 
 void FileWatcher::ResumeWatching()
 {
-    if (!dir_handle_) {
-        return;
-    }
     paused_ = false;
     if (pending_change_) {
         pending_change_ = false;

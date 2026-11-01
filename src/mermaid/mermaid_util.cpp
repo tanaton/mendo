@@ -1,7 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
 #include "utility.h"
-#include "syntax.h"
 #include "ascii_util.h"
 #include "string_convert.h"
 #include <algorithm>
@@ -16,7 +15,7 @@ using namespace std::literals;
 
 std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8)
 {
-    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"view" };
+    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"view", L"math" };
     std::wstring msg = std::format(L"{}:{}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0);
     msg += string_convert::Utf8ToWide(code_utf8);
     return msg;

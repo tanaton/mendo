@@ -4,7 +4,6 @@
 #include "text_arena.h"
 #include <concepts>
 #include <memory>
-#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -52,7 +51,7 @@ template <class S>
              std::same_as<std::remove_cv_t<S>, std::string>)
 NodeStorage ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = delete;
 
-// HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
-// view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
-// buffer のスコープ内でのみ valid。UTF-8 では U+10FFFF までを最大 4 byte で表現できる。
-[[nodiscard]] std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char (&buffer)[4]);
+// HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。解決できなければ entity をそのまま返す。
+// view が指す領域は (a) static なリテラル、(b) 呼び出し側が渡した buffer、(c) entity のいずれか。
+// buffer と entity のスコープ内でのみ valid。UTF-8 では U+10FFFF までを最大 4 byte で表現できる。
+[[nodiscard]] std::string_view ResolveHtmlEntity(std::string_view entity, char (&buffer)[4]);

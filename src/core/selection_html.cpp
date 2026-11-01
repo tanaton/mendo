@@ -1,7 +1,6 @@
 #include "selection_html.h"
 #include "ascii_util.h"
 #include "document_utils.h"
-#include "nav.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <algorithm>
@@ -63,7 +62,7 @@ constexpr std::string_view HtmlEscapeOf(char c) noexcept
 }
 
 // エスケープ不要な区間をまとめて append する。数文字の find_first_of は STL がベクトル化している。
-constexpr void AppendHtmlEscaped(std::string& out, std::string_view text)
+void AppendHtmlEscaped(std::string& out, std::string_view text)
 {
     for (size_t p; (p = text.find_first_of(kHtmlEscapeChars)) != std::string_view::npos; text.remove_prefix(p + 1)) {
         out.append(text.substr(0, p));
@@ -92,7 +91,7 @@ constexpr InlineTag kInlineTags[]{
 
 // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
 // s.link_url_index は InlineStateOf が link_urls の範囲に収めたもの。
-constexpr void OpenInline(std::string& out, const InlineState& s, std::span<const std::string_view> link_urls)
+void OpenInline(std::string& out, const InlineState& s, std::span<const std::string_view> link_urls)
 {
     if (s.link_url_index >= 0) {
         out.append("<a href=\"");
@@ -106,7 +105,7 @@ constexpr void OpenInline(std::string& out, const InlineState& s, std::span<cons
     }
 }
 
-constexpr void CloseInline(std::string& out, const InlineState& s)
+void CloseInline(std::string& out, const InlineState& s)
 {
     for (const auto& tag : kInlineTags | std::views::reverse) {
         if (s.flags & tag.flag) {
@@ -151,7 +150,7 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> li
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較を run あたり 1 回に抑える。
-constexpr void AppendInlineHtml(
+void AppendInlineHtml(
     std::string& out,
     std::string_view text,
     std::span<const TextRun> runs,
@@ -240,7 +239,7 @@ void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, ui
     AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
 }
 
-constexpr void AppendHexColor(std::string& out, uint32_t rgb)
+void AppendHexColor(std::string& out, uint32_t rgb)
 {
     constexpr char kDigits[] = "0123456789abcdef";
     out.push_back('#');
@@ -277,7 +276,7 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
 }
 
 // Plain は span を付けずにエスケープのみ行う。
-constexpr void AppendSyntaxHighlightedSpan(
+void AppendSyntaxHighlightedSpan(
     std::string& out, std::string_view chunk, SyntaxTokenType type, const theme_palette::SharedColors& palette)
 {
     const auto color = SyntaxTokenColor(type, palette);
@@ -365,7 +364,7 @@ void AppendCodeBlockOpen(std::string& out, bool dark_mode)
     out.append(kCodeBlockStyleTail);
 }
 
-constexpr void AppendTableCellStyle(std::string& out, TableAlign align, bool dark_mode)
+void AppendTableCellStyle(std::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
     AppendHexColor(out, PaletteFor(dark_mode).rule);
@@ -622,17 +621,17 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
         ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
             const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
             if (start < end) {
-                ForEachCopiedSlice(node, start, end, [&](std::string_view s) { fn(s, false); });
+                ForEachCopiedSlice(node, start, end, fn);
             }
             if (i < selection.end_node && LineBreakAfter(nodes, i)) {
-                fn({}, true);
+                fn("\n");
             }
         });
     };
     // 数えるだけなら行に分けず、LF 1 個につき CR 1 個増えるとして足す (count はベクトル化される)。
     size_t total = 0;
-    for_each_selected([&total](std::string_view s, bool separated) {
-        total += s.size() + static_cast<size_t>(std::ranges::count(s, '\n')) + (separated ? kCrlf.size() : 0);
+    for_each_selected([&total](std::string_view s) {
+        total += s.size() + static_cast<size_t>(std::ranges::count(s, '\n'));
     });
     std::string result;
     // 短い行が数百万続くと append ごとの容量確認が効くので、確保済みの領域へ直接書く。
@@ -641,16 +640,13 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
         const auto put = [&p](std::string_view s) {
             p = std::ranges::copy(s, p).out;
         };
-        for_each_selected([&](std::string_view s, bool separated) {
+        for_each_selected([&](std::string_view s) {
             for (size_t lf = s.find('\n'); lf != std::string_view::npos; lf = s.find('\n')) {
                 put(s.substr(0, lf));
                 put(kCrlf);
                 s.remove_prefix(lf + 1);
             }
             put(s);
-            if (separated) {
-                put(kCrlf);
-            }
         });
         assert(static_cast<size_t>(p - out) == total);
         return static_cast<size_t>(p - out);
@@ -700,7 +696,7 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
         };
         switch (node.type) {
         case NodeType::Heading: {
-            const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6);
+            const int level = node.heading_level;
             std::format_to(std::back_inserter(out), "<h{}>", level);
             AppendNodeInlineHtml(out, node, start, end);
             std::format_to(std::back_inserter(out), "</h{}>", level);

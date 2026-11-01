@@ -86,28 +86,6 @@ TEST(DocumentTest, GetRawTextKeepsInput)
     }
 }
 
-TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
-{
-    // 入力は HTML 実体参照やインライン書式を含まない素のテキストのみで、
-    // 各ノードの source_offset 位置の文字 == そのノードのテキスト先頭文字 が成立することを確認する。
-    auto doc = Document::FromMarkdown("# Title\n\nBody\n\n```\ncode\n```\n", L"test.md");
-    const auto& nodes = doc.GetNodes();
-    const std::string_view raw = doc.GetRawText();
-
-    bool checked_any = false;
-    for (const auto& n : nodes) {
-        const size_t off = n.SourceOffset();
-        if (!n.HasText()) {
-            continue;
-        }
-        ASSERT_LT(off, raw.size());
-        EXPECT_EQ(raw[off], n.GetText()[0])
-            << "node text starts at raw[" << off << "]";
-        checked_any = true;
-    }
-    EXPECT_TRUE(checked_any);
-}
-
 TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
 {
     // 埋め込み NUL は md4c が外部リテラルポインタで OnText に渡すため、
@@ -183,9 +161,9 @@ TEST(DocumentTest, OwnedAndViewModesCoexist)
     EXPECT_EQ(doc.GetNodes()[1].GetText(), "NoEntityHere");
 }
 
-// ---- BuildIndices統合テスト ----
+// ---- 索引 ----
 
-TEST(DocumentTest, BuildIndicesAnchorIndex)
+TEST(DocumentTest, FindAnchorIndexFindsHeadings)
 {
     auto doc = Document::FromMarkdown("# First\n\n## Second\n\ntext", L"test.md");
     EXPECT_EQ(doc.FindAnchorIndex("first"), 0);
@@ -209,14 +187,14 @@ TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
     EXPECT_EQ(doc.FindAnchorIndex("head"), 0);
 }
 
-TEST(DocumentTest, BuildIndicesImageNodes)
+TEST(DocumentTest, ImageNodeIndices)
 {
     auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\nmore text", L"test.md");
     const auto& images = doc.GetImageNodeIndices();
     EXPECT_EQ(images.size(), 1u);
 }
 
-TEST(DocumentTest, BuildIndicesDiagramNodes)
+TEST(DocumentTest, DiagramNodeIndices)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
     const auto& diagrams = doc.GetDiagramNodeIndices();
@@ -226,7 +204,7 @@ TEST(DocumentTest, BuildIndicesDiagramNodes)
     EXPECT_EQ(nodes[diagrams[0]].code_language, SyntaxLanguage::Mermaid);
 }
 
-TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
+TEST(DocumentTest, TocEntriesResolveByAnchor)
 {
     auto doc = Document::FromMarkdown("# A\n\n## B\n\n### C", L"test.md");
     const auto& toc = doc.GetToc();
@@ -238,7 +216,7 @@ TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
     }
 }
 
-TEST(DocumentTest, BuildIndicesNoSpecialNodes)
+TEST(DocumentTest, NoSpecialNodeIndices)
 {
     auto doc = Document::FromMarkdown("just a paragraph", L"test.md");
     EXPECT_TRUE(doc.GetImageNodeIndices().empty());

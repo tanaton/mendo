@@ -1,5 +1,4 @@
 #pragma once
-#include "brush_id.h"
 #include "render_params.h"
 #include "theme.h"
 #include "command_generator.h"
@@ -9,7 +8,6 @@
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
-#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -49,8 +47,10 @@ public:
     // 1 フレームの結果。再描画をいつ予約するかは呼び出し側が決める。
     enum class FrameResult : uint8_t {
         Done,
-        // デバイスを作り直した・失ったため、このフレームは表示されていない。すぐ描き直す。
+        // デバイスを失ったため、このフレームは表示されていない。すぐ描き直す。
         RedrawNow,
+        // デバイスを作り直した。旧デバイスで作ったビットマップ (インライン数式の型を含む) を呼び出し側が捨ててから描き直す。
+        DeviceRecreated,
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
     };
@@ -92,12 +92,6 @@ public:
     void OnLanguageChanged()
     {
         RecreateAllTextFormats();
-    }
-
-    // デバイスを作り直したときに呼ぶ。旧デバイスで作ったビットマップ (インライン数式の型を含む) は呼び出し側が捨てる。
-    void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
-    {
-        on_device_lost_ = std::move(cb);
     }
 
     // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
@@ -223,5 +217,4 @@ private:
 
     const Theme* theme_ = nullptr;
     CommandGenerator cmd_generator_;
-    std::move_only_function<void(ID2D1RenderTarget*)> on_device_lost_;
 };

@@ -14,6 +14,17 @@
 
 using Microsoft::WRL::ComPtr;
 
+namespace {
+
+// 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ (DIP)。
+constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
+// タイトルバーと検索バーのアイコン。
+constexpr float UI_ICON_FONT_SIZE = 14.0f;
+constexpr float SEARCH_COUNT_FONT_SIZE = SEARCH_INPUT_FONT_SIZE * 0.9f;
+constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
+
+} // namespace
+
 ID2D1RenderTarget* Renderer::GetRenderTarget() const noexcept
 {
     return device_context_.Get();
@@ -46,7 +57,8 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
     const chrome::SidePaneFormats fmts{
         .header = fmt_.pane_header.Get(),
         .header_icon = fmt_.pane_icon.Get(),
-        .item = { file_fmt.item.Get(), toc_fmt.item.Get() },
+        .file_item = file_fmt.item.Get(),
+        .toc_item = toc_fmt.item.Get(),
         .file_icon = file_fmt.icon.Get(),
     };
     chrome::EmitSidePanes(frame_cmds_, text_layouts_, fmts, *theme_, sp);
@@ -58,10 +70,7 @@ std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderSt
         if (!CreateDevice()) {
             return FrameResult::RetryLater;
         }
-        if (on_device_lost_) {
-            on_device_lost_(rt());
-        }
-        return FrameResult::RedrawNow;
+        return FrameResult::DeviceRecreated;
     }
     if (!rt()) {
         return FrameResult::Done;
@@ -82,9 +91,7 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
 
     if (!p.loading_angle) {
         cmd_generator_.GenerateMdPane(frame_cmds_, p.md, DpiScaleFrom(dpi_));
-        if (p.md.inline_math) {
-            ++p.md.inline_math->frame;
-        }
+        ++p.inline_math.frame;
     }
     GenOverlays(p);
     MENDO_PLOT("draw.command_count", static_cast<int64_t>(frame_cmds_.size()));
@@ -93,7 +100,7 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
     AcquireFrame();
     rt()->BeginDraw();
     rt()->Clear(theme_->Color(BrushId::Background));
-    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.md.inline_math);
+    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_math);
 
     return EndFrame();
 }
@@ -145,10 +152,10 @@ Renderer::FrameResult Renderer::EndFrame()
 
 void Renderer::GenGestureTrail(const std::vector<DipPoint>& points)
 {
-    auto* const factory = GetD2DFactory();
-    if (points.size() < 2 || !factory) {
+    if (points.size() < 2) {
         return;
     }
+    auto* const factory = GetD2DFactory();
     // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
     ComPtr<ID2D1GeometrySink> sink;
     if (FAILED(factory->CreatePathGeometry(&gesture_trail_)) || FAILED(gesture_trail_->Open(&sink))) {

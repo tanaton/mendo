@@ -1,7 +1,5 @@
 #include "nav.h"
-#include "ascii_util.h"
 #include <cassert>
-#include <charconv>
 #include <tuple>
 #include <utility>
 
@@ -78,70 +76,4 @@ bool NavHistory::GoBack(NavEntry current, NavEntry& out)
 bool NavHistory::GoForward(NavEntry current, NavEntry& out)
 {
     return Transfer(forward_stack_, back_stack_, std::move(current), out);
-}
-
-// 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。
-bool IsSafeUrlScheme(std::string_view url) noexcept
-{
-    return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");
-}
-
-std::string PercentDecode(std::string_view s)
-{
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        unsigned int byte = 0;
-        if (s[i] == '%' && i + 2 < s.size() && std::from_chars(s.data() + i + 1, s.data() + i + 3, byte, 16).ptr == s.data() + i + 3) {
-            out += static_cast<char>(byte);
-            i += 2;
-            continue;
-        }
-        out += s[i];
-    }
-    return out;
-}
-
-namespace {
-
-// ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
-// 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
-std::string EncodeShellUnsafeChars(std::string_view url)
-{
-    constexpr char kHex[] = "0123456789ABCDEF";
-    std::string out;
-    out.reserve(url.size());
-    for (const char ch : url) {
-        const auto c = static_cast<unsigned char>(ch);
-        if (c <= 0x20 || c == 0x7F || c == '"') {
-            out += '%';
-            out += kHex[c >> 4];
-            out += kHex[c & 0x0F];
-        }
-        else {
-            out += ch;
-        }
-    }
-    return out;
-}
-
-} // namespace
-
-LinkClickResult ClassifyLinkClick(std::string_view url)
-{
-    LinkClickResult result;
-    if (url.empty()) {
-        return result;
-    }
-    if (url[0] == '#') {
-        result.type = LinkClickResult::Type::Anchor;
-        result.target = PercentDecode(url.substr(1));
-        return result;
-    }
-    if (!IsSafeUrlScheme(url)) {
-        return result;
-    }
-    result.type = LinkClickResult::Type::ExternalUrl;
-    result.target = EncodeShellUnsafeChars(url);
-    return result;
 }

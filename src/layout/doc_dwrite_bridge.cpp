@@ -3,13 +3,12 @@
 #include <algorithm>
 #include <bit>
 #include <emmintrin.h>
-#include <limits>
 
 // MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
 void DecodeForDWrite(std::string_view text, std::wstring& out)
 {
     out.clear();
-    if (text.empty() || text.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    if (text.empty()) {
         return;
     }
     const size_t n = text.size();

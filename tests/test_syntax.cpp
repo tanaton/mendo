@@ -203,48 +203,6 @@ TEST(Syntax, TokenizeReturnsEmpty)
     }
 }
 
-TEST(Syntax, TokensAreWellFormed)
-{
-    using enum SyntaxLanguage;
-    static constexpr CodeCase kCases[] = {
-        { "TokensCoverEntireTextCpp", "int main() { return 0; }", Cpp },
-        { "TokensCoverEntireTextPython", "def hello():\n    print('world')", Python },
-        { "TokensCoverEntireTextJs", "const f = () => { return 42; };", JavaScript },
-        { "TokensCoverEntireTextTs", "type Props = { value: number; onChange: (v: number) => void; };", TypeScript },
-        { "TokensCoverEntireTextGo", "func hello(name string) error {\n    return nil\n}", Go },
-        { "TokensCoverEntireTextRust", "struct Point { x: f64, y: f64 }", Rust },
-        { "TokensCoverEntireTextBash", "if [ -f \"$1\" ]; then\n    echo \"exists\"\nfi", Bash },
-        { "TokensCoverEntireTextPwsh", "if ($x -eq 1) { Write-Host \"hello\" }", PowerShell },
-        { "TokensCoverEntireTextCmd", "if exist \"file.txt\" (\n    del \"file.txt\"\n)", Cmd },
-        { "TokensCoverEntireTextJson", "{\"a\": [1, 2, null], \"b\": {\"c\": false}}", Json },
-        { "TokensCoverEntireTextJava", "public static void main(String[] args) { System.out.println(\"hi\"); }", Java },
-        { "TokensCoverEntireTextCSharp", "#region R\nvar p = @\"C:\\dir\\\";\n#endregion", CSharp },
-        { "TokensCoverEntireTextKotlin", "fun main() { val s = \"\"\"raw\"\"\" }", Kotlin },
-        { "TokensCoverEntireTextSwift", "let x: Int = 1 // c\n#if DEBUG\n#endif", Swift },
-        { "TokensCoverEntireTextPhp", "<?php\n#[Attr]\nfunction f($x) { return $x; } # c", Php },
-        { "TokensCoverEntireTextRuby", "=begin\nc\n=end\ndef f(x) = x * 2 # c", Ruby },
-        { "TokensCoverEntireTextSql", "SELECT id FROM t WHERE x = 'a' -- c\n/* b */", Sql },
-        { "TokensCoverEntireTextYaml", "a: 1\nb: |\n  text\nc: [1, {d: e}] # c", Yaml },
-        { "TokensCoverEntireTextToml", "[t]\na = \"\"\"\nx\n\"\"\"\nb = { c = 1 } # c", Toml },
-        { "TokensCoverEntireTextIni", "[s]\nk = v\n; c", Ini },
-        { "TokensCoverEntireTextHtml", "<p a=\"b\">&amp;<script>let x = 1;</script><style>a{b:c}</style>", Html },
-        { "TokensCoverEntireTextXml", "<?xml version=\"1.0\"?><a b='c'><![CDATA[x]]></a>", Xml },
-        { "TokensCoverEntireTextCss", "@media (x: 1px) { a.b:hover { c: url(d) !important; } }", Css },
-        { "TokensCoverEntireTextScss", "$a: 1;\n.b { &:c { d: $a; } } // e", Scss },
-        { "TokensCoverEntireTextDiff", "@@ -1 +1 @@\n-a\n+b\n c", Diff },
-        { "TokensCoverEntireTextDockerfile", "FROM a AS b\nRUN c \\\n  && d \"e\"", Dockerfile },
-        { "TokensCoverEntireTextMakefile", "A := 1\nall: $(A)\n\techo \"$(A)\" # c", Makefile },
-        { "OnlyOperators", "+ - * / = == != < > <= >=", Cpp },
-        // 閉じられていない文字列が無限ループを引き起こさないこと
-        { "UnterminatedString", "x = \"unterminated\ny = 1", Cpp },
-        { "CppRawStringTokensAreOrderedAndNonOverlapping", "R\"(one)\" + R\"delim(two)delim\" + normalCall()", Cpp },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        AssertTokensWellFormed(Tokenize(c.code, c.lang), c.code.size());
-    }
-}
-
 TEST(Syntax, TokenCount)
 {
     using enum SyntaxLanguage;
@@ -287,6 +245,9 @@ TEST(Syntax, TokenCount)
         { "CppCastKeywords", "static_cast dynamic_cast reinterpret_cast const_cast", Cpp, Keyword, 4 },
         { "CppStlTypes", "vector map optional variant span unique_ptr shared_ptr", Cpp, Type, 7 },
         { "CppWin32Types", "HRESULT BOOL DWORD HWND LRESULT", Cpp, Type, 5 },
+        // 閉じられていない文字列が行末で終わり、無限ループしないこと
+        { "UnterminatedString", "x = \"unterminated\ny = 1", Cpp, String, 1 },
+        { "CppRawStringsInSequence", "R\"(one)\" + R\"delim(two)delim\" + normalCall()", Cpp, String, 2 },
         // コードの後の # はプリプロセッサではない
         { "CppPreprocessorNotAtLineStart", "x = a #", Cpp, Preprocessor, 0 },
         // ( が続いてもキーワードは関数ではなくキーワードのまま
@@ -338,6 +299,7 @@ TEST(Syntax, TokenCount)
         { "JsonObject/String", kJsonObject, Json, String, 4 },
         { "JsonObject/Number", kJsonObject, Json, Number, 1 },
         { "JsonObject/Keyword", kJsonObject, Json, Keyword, 1 },
+        { "JsonNestedStructure", "{\"items\": [{\"id\": 1}, {\"id\": 2}], \"count\": 2}", Json, Number, 3 },
         // JSONC のコメントを許容する
         { "JsoncLineComment", "{\n  // comment\n  \"key\": 1\n}", Json, Comment, 1 },
         { "JsoncBlockComment", "{\n  /* block\n     comment */\n  \"key\": 1\n}", Json, Comment, 1 },
@@ -697,14 +659,12 @@ TEST(Syntax, WholeInputIsSingleToken)
         { "CppMultiLineComment", "/* multi\nline\ncomment */", Cpp, Comment },
         // バグ #22: 閉じられていないブロックコメントは最後の文字まで含む
         { "UnterminatedBlockComment", "/* never closed", Cpp, Comment },
-        { "UnterminatedBlockCommentCoversAllText", "/* unterminated comment", Cpp, Comment },
         { "UnterminatedBlockCommentEndsWithStar", "/* test *", Cpp, Comment },
         { "CppPreprocessorInclude", "#include <stdio.h>", Cpp, Preprocessor },
         { "CppPreprocessorDefine", "#define MAX 100", Cpp, Preprocessor },
         { "CppPreprocessorContinuation", "#define FOO \\\n    bar", Cpp, Preprocessor },
         // バグ修正: R"(...)" は R を含めて単一の String にする (Plain と String の重複禁止)
         { "CppRawStringStandaloneR", "R\"(hello)\"", Cpp, String },
-        { "CppRawStringRPrefixMergedIntoSingleToken", "R\"(abc)\"", Cpp, String },
         { "JsMultiLineComment", "/* block\ncomment */", JavaScript, Comment },
         { "JsTemplateLiteralMultiLine", "`line1\nline2\nline3`", JavaScript, String },
         { "GoBlockComment", "/* multi\nline */", Go, Comment },
@@ -749,22 +709,9 @@ TEST(Syntax, WholeInputIsSingleToken)
 // トークン化 (個別ケース)
 // ============================================================
 
-TEST(Syntax, CppKeywords)
-{
-    std::string code = "if else while for return";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensWellFormed(tokens, code.size());
-    for (const auto& t : tokens) {
-        if (t.type != SyntaxTokenType::Plain) {
-            EXPECT_EQ(t.type, SyntaxTokenType::Keyword) << "offset=" << t.start;
-        }
-    }
-    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 5);
-}
-
 TEST(Syntax, PlainOnlyTextHasNoTokens)
 {
-    for (const std::string_view code : { "   \n\t  \n  ", "foo bar_baz + - * /" }) {
+    for (const std::string_view code : { "   \n\t  \n  ", "foo bar_baz + - * /", "+ - * / = == != < > <= >=" }) {
         SCOPED_TRACE(code);
         EXPECT_TRUE(Tokenize(code, SyntaxLanguage::Cpp).empty());
     }
@@ -829,170 +776,6 @@ TEST(Syntax, CppRawStringNotTriggeredWhenRIsPartOfLongerIdentifier)
     if (str != nullptr) {
         EXPECT_EQ(str->type, SyntaxTokenType::String);
     }
-}
-
-TEST(Syntax, PythonDecorator)
-{
-    // "@" は特別に処理されないが、"def" と "pass" はキーワードであるべき
-    std::string code = "@staticmethod\ndef foo():\n    pass";
-    auto tokens = Tokenize(code, SyntaxLanguage::Python);
-    AssertTokensWellFormed(tokens, code.size());
-    for (const std::string_view word : { "def", "pass" }) {
-        SCOPED_TRACE(word);
-        const auto* token = FindTokenByText(code, tokens, word);
-        EXPECT_NE(token, nullptr);
-        if (token != nullptr) {
-            EXPECT_EQ(token->type, SyntaxTokenType::Keyword);
-        }
-    }
-}
-
-TEST(Syntax, RustSingleQuoteNotString)
-{
-    // Rustではシングルクォートはライフタイム('a)と文字リテラル('x')に使用される。
-    // ライフタイムの問題を避けるためシングルクォート文字列はスキップする。
-    std::string code = "fn foo<'a>(x: &'a str) {}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Rust);
-    AssertTokensWellFormed(tokens, code.size());
-    // 'aは行の残りを飲み込む文字列トークンを生成してはならない
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 1); // fn
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);    // str
-}
-
-TEST(Syntax, JsonNestedStructure)
-{
-    std::string code = "{\"items\": [{\"id\": 1}, {\"id\": 2}], \"count\": 2}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Json);
-    AssertTokensWellFormed(tokens, code.size());
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 3);
-}
-
-// ============================================================
-// 複合コード
-// ============================================================
-
-TEST(Syntax, CppComplexCode)
-{
-    std::string code = "#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Preprocessor), 1);
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);     // int
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Function), 1); // main
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // // Hello
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);   // "Hello"
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 1);   // 42
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 1);  // return
-}
-
-TEST(Syntax, MultipleLinesOfCode)
-{
-    std::string code =
-        "int x = 10;\n"
-        "float y = 3.14f;\n"
-        "// comment\n"
-        "if (x > 0) {\n"
-        "    return y;\n"
-        "}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);   // int, float
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 2); // 10, 3.14f
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2); // if, return
-}
-
-TEST(Syntax, PythonComplexCode)
-{
-    std::string code = "def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))";
-    auto tokens = Tokenize(code, SyntaxLanguage::Python);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2);  // def, return
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);     // str, str
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // # Greeting
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Function), 2); // greet, print
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);
-}
-
-TEST(Syntax, JsComplexCode)
-{
-    std::string code = "async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}";
-    auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 4);  // async, function, const, await, return
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // // Fetch data
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Function), 2); // fetchData, fetch
-}
-
-TEST(Syntax, TsComplexCode)
-{
-    std::string code = "interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};";
-    auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // interface, const, return
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 3);    // string, number, string
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);  // template literal
-}
-
-TEST(Syntax, GoComplexCode)
-{
-    std::string code = "package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Go);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3);  // package, import, func
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // // Hello
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 2);   // "fmt", "Hello"
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Function), 1); // main
-}
-
-TEST(Syntax, RustComplexCode)
-{
-    std::string code = "use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}";
-    auto tokens = Tokenize(code, SyntaxLanguage::Rust);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // use, fn, let
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);    // Result, i32
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1); // // comment
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);  // "Hello {}"
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 1);  // 42
-}
-
-TEST(Syntax, BashComplexCode)
-{
-    std::string code = "#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone";
-    auto tokens = Tokenize(code, SyntaxLanguage::Bash);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // for, in, do, done
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::String), 1);
-}
-
-TEST(Syntax, PwshComplexCode)
-{
-    std::string code = "<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}";
-    auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 2); // <# #> and # comment
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2); // function, param, return
-}
-
-TEST(Syntax, CmdComplexCode)
-{
-    std::string code = "@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1); // REM
-    EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // echo, for, do, echo, pause
 }
 
 // ============================================================
@@ -1083,6 +866,66 @@ void ExpectTokenSequence(std::string_view code, SyntaxLanguage lang, std::initia
 }
 
 } // namespace
+
+TEST(SyntaxSequence, CppKeywordsOnly)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("if else while for return", SyntaxLanguage::Cpp,
+                        { { "if", Keyword }, { "else", Keyword }, { "while", Keyword }, { "for", Keyword }, { "return", Keyword } });
+}
+
+// @ は特別に処理しないので、続く行のキーワードに影響しない
+TEST(SyntaxSequence, PythonDecorator)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("@staticmethod\ndef foo():\n    pass", SyntaxLanguage::Python,
+                        { { "staticmethod", Type }, { "def", Keyword }, { "foo", Function }, { "pass", Keyword } });
+}
+
+// Rust の ' はライフタイムにも使うので文字列にしない ('a が行の残りを飲み込まない)
+TEST(SyntaxSequence, RustSingleQuoteNotString)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("fn foo<'a>(x: &'a str) {}", SyntaxLanguage::Rust, { { "fn", Keyword }, { "str", Type } });
+}
+
+// 言語ごとに、コメント・文字列・数値・語が 1 つの文書に混ざったときの列全体
+TEST(SyntaxSequence, MixedCode)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}", Cpp,
+                        { { "#include <iostream>", Preprocessor }, { "int", Type }, { "main", Function }, { "// Hello", Comment },
+                          { "\"Hello\"", String }, { "42", Number }, { "return", Keyword }, { "0", Number } });
+    ExpectTokenSequence("int x = 10;\nfloat y = 3.14f;\n// comment\nif (x > 0) {\n    return y;\n}", Cpp,
+                        { { "int", Type }, { "10", Number }, { "float", Type }, { "3.14f", Number }, { "// comment", Comment },
+                          { "if", Keyword }, { "0", Number }, { "return", Keyword } });
+    ExpectTokenSequence("def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))", Python,
+                        { { "def", Keyword }, { "greet", Function }, { "str", Type }, { "str", Type }, { "# Greeting", Comment },
+                          { "return", Keyword }, { "\"Hello, {name}!\"", String }, { "print", Function }, { "greet", Function },
+                          { "\"World\"", String } });
+    ExpectTokenSequence("async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}", JavaScript,
+                        { { "async", Keyword }, { "function", Keyword }, { "fetchData", Function }, { "// Fetch data", Comment },
+                          { "const", Keyword }, { "await", Keyword }, { "fetch", Function }, { "return", Keyword }, { "json", Function } });
+    ExpectTokenSequence("interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};", TypeScript,
+                        { { "interface", Keyword }, { "string", Type }, { "number", Type }, { "const", Keyword }, { "string", Type },
+                          { "return", Keyword }, { "`Hello, ${user.name}`", String } });
+    ExpectTokenSequence("package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}", Go,
+                        { { "package", Keyword }, { "import", Keyword }, { "\"fmt\"", String }, { "func", Keyword }, { "main", Function },
+                          { "// Hello", Comment }, { "Println", Function }, { "\"Hello\"", String } });
+    ExpectTokenSequence("use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}", Rust,
+                        { { "use", Keyword }, { "fn", Keyword }, { "main", Function }, { "Result", Type }, { "Box", Type }, { "dyn", Keyword },
+                          { "let", Keyword }, { "i32", Type }, { "42", Number }, { "// comment", Comment }, { "\"Hello {}\"", String }, { "Ok", Type } });
+    ExpectTokenSequence("#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone", Bash,
+                        { { "#!/bin/bash", Comment }, { "# Script", Comment }, { "for", Keyword }, { "in", Keyword }, { "do", Keyword },
+                          { "echo", Type }, { "\"$f\"", String }, { "done", Keyword } });
+    ExpectTokenSequence("<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}", PowerShell,
+                        { { "<# Script #>", Comment }, { "function", Keyword }, { "param", Keyword }, { "string", Type }, { "# Do work", Comment },
+                          { "return", Keyword } });
+    ExpectTokenSequence("@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause", Cmd,
+                        { { "echo", Keyword }, { "off", Keyword }, { "REM Build script", Comment }, { "for", Keyword }, { "in", Keyword }, { "do", Keyword },
+                          { "echo", Keyword }, { "pause", Keyword } });
+}
 
 TEST(SyntaxSequence, YamlBlockScalarEndsAtParentIndent)
 {

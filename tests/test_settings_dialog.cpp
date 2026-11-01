@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "settings_dialog_impl.h"
+#include "settings_dialog.h"
 #include "theme.h"
 #include <dwrite.h>
 #include <string>
@@ -7,8 +7,8 @@
 
 using Microsoft::WRL::ComPtr;
 using namespace settings_dialog_constants;
-using Hit = SettingsDialog::Impl::Hit;
-using HitKind = SettingsDialog::Impl::HitKind;
+using Hit = SettingsDialog::Hit;
+using HitKind = SettingsDialog::HitKind;
 
 namespace {
 
@@ -32,9 +32,9 @@ TEST(FormatByteSizeTest, PicksUnitAndDigits)
 
 TEST(SettingsDialogRowsTest, FirstRowFollowsOsThenAllLanguages)
 {
-    EXPECT_EQ(SettingsDialog::Impl::LanguageOfRow(0), nullptr);
+    EXPECT_EQ(SettingsDialog::LanguageOfRow(0), nullptr);
     for (size_t i = 0; i < std::size(i18n::kAllStrings); ++i) {
-        EXPECT_EQ(SettingsDialog::Impl::LanguageOfRow(i + 1), i18n::kAllStrings[i]);
+        EXPECT_EQ(SettingsDialog::LanguageOfRow(i + 1), i18n::kAllStrings[i]);
     }
 }
 
@@ -80,7 +80,7 @@ protected:
     }
 
     Theme theme_ = GetLightTheme();
-    SettingsDialog::Impl dialog_;
+    SettingsDialog dialog_;
     int language_calls_ = 0;
     int clear_calls_ = 0;
 };
@@ -136,7 +136,7 @@ TEST_F(SettingsDialogLayoutTest, EmptyCacheCannotBeCleared)
 TEST_F(SettingsDialogLayoutTest, ChoosingLanguageSwitchesAndRelayouts)
 {
     const size_t ko_row = std::size(i18n::kAllStrings);
-    ASSERT_EQ(SettingsDialog::Impl::LanguageOfRow(ko_row), &i18n::kKo);
+    ASSERT_EQ(SettingsDialog::LanguageOfRow(ko_row), &i18n::kKo);
 
     dialog_.Activate({ HitKind::Language, ko_row });
     EXPECT_EQ(language_calls_, 1);

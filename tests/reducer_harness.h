@@ -7,8 +7,34 @@
 #include <string>
 #include <string_view>
 
+// SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。
+template <typename T>
+inline const T* FindEffect(const SideEffectList& effects) noexcept
+{
+    for (const auto& se : effects) {
+        if (const T* p = std::get_if<T>(&se)) {
+            return p;
+        }
+    }
+    return nullptr;
+}
+
+template <typename T>
+bool HasEffect(const SideEffectList& effects) noexcept
+{
+    return FindEffect<T>(effects) != nullptr;
+}
+
+// effects 内で A が存在し、かつ B が存在し、A が B より先に現れる場合のみ true。
+template <typename A, typename B>
+inline bool HasEffectInOrder(const SideEffectList& effects) noexcept
+{
+    const auto* a = FindEffect<A>(effects);
+    const auto* b = FindEffect<B>(effects);
+    return a && b && static_cast<const void*>(a) < static_cast<const void*>(b);
+}
+
 // reducer が読む Theme の非ゼロ値を設定する。
-// theme は value-init ({}) 済みであること: Theme は zoom 以外に default member initializer を持たない集約。
 inline void InitReducerState(AppState& state, Theme& theme)
 {
     theme.pane_item_height = 28.0f;
@@ -106,7 +132,7 @@ public:
         return static_cast<int>(state.document.doc.GetNodes().size());
     }
 
-    Theme theme{};
+    Theme theme;
     AppState state;
 };
 

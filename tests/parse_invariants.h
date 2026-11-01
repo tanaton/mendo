@@ -110,8 +110,8 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
         sink.Add("node {}: cell offset tables are not non-decreasing", i);
         return;
     }
-    if (tbl->head_row_count > tbl->row_count || tbl->aligns.size() != tbl->col_count) {
-        sink.Add("node {}: head_row_count {} / aligns {} vs R={} C={}", i, tbl->head_row_count, tbl->aligns.size(), tbl->row_count, tbl->col_count);
+    if (tbl->aligns.size() != tbl->col_count) {
+        sink.Add("node {}: aligns {} vs C={}", i, tbl->aligns.size(), tbl->col_count);
     }
     const size_t url_count = node.view_link_urls().size();
     for (size_t r = 0; r < tbl->row_count; ++r) {

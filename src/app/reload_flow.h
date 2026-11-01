@@ -46,45 +46,36 @@ enum class ParseCompleteStep : uint8_t {
     ReplaceWithResult,
 };
 
-struct ParseCompletePlan {
-    ParseCompleteStep step = ParseCompleteStep::IgnoreStale;
-    // Fail のときのトースト表示用。キャンセル由来なら空。
-    std::optional<FileLoadError> error;
-    // ReplaceWithResult のときのみ意味を持つ。
-    bool follow_file_pane = false;
-};
-
 // outcome は AsyncLoadCoordinator::Take の戻り値。
 // 表示中のファイルの読み直しには必ず ReloadBase を付ける (ReloadBaseFor) ので、同じファイルかは worker の判定結果の有無で分かる。
-[[nodiscard]] inline ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome, const Document& current)
+[[nodiscard]] inline ParseCompleteStep PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome, const Document& current)
 {
     if (!outcome) {
-        return { .step = ParseCompleteStep::IgnoreStale };
+        return ParseCompleteStep::IgnoreStale;
     }
     if (!*outcome) {
-        return { .step = ParseCompleteStep::Fail, .error = outcome->error() };
+        return ParseCompleteStep::Fail;
     }
-    const AsyncLoadResult* const result = &**outcome;
-
-    if (result->reload) {
-        // worker がパース前に差分判定を済ませている (NoChange 等と書き込み途中は doc が空)。
-        const auto& rc = *result->reload;
+    if ((*outcome)->reload) {
+        // worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
+        const auto& rc = *(*outcome)->reload;
         // ポインタでなく所有者で比べる。解放済みの base も制御ブロックを持つので、文書が無い (ShareData が空) ときに一致しない。
         const auto& data = current.ShareData();
         const bool same_doc = !rc.base.owner_before(data) && !data.owner_before(rc.base);
-        if (rc.still_growing || !same_doc) {
-            return { .step = ParseCompleteStep::Retry };
+        if (!same_doc) {
+            return ParseCompleteStep::Retry;
         }
         switch (rc.decision.op) {
         case ReloadOp::NoChange:
-            return { .step = ParseCompleteStep::ReloadUnchanged };
+            return ParseCompleteStep::ReloadUnchanged;
         case ReloadOp::DeferPrefixShrink:
-            return { .step = ParseCompleteStep::DeferPrefixShrink };
+            return ParseCompleteStep::DeferPrefixShrink;
         case ReloadOp::Replace:
-            return { .step = ParseCompleteStep::ApplyReload };
+            return ParseCompleteStep::ApplyReload;
+        case ReloadOp::StillGrowing:
+            return ParseCompleteStep::Retry;
         }
         std::unreachable();
     }
-    return { .step = ParseCompleteStep::ReplaceWithResult,
-             .follow_file_pane = FilePaneFollowsLoad(current.GetFilePath(), result->doc.GetFilePath()) };
+    return ParseCompleteStep::ReplaceWithResult;
 }

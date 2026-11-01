@@ -1,9 +1,10 @@
 #pragma once
-#include "document_types.h"
-#include "layout_cache.h"
 #include <functional>
 #include <string>
 #include <string_view>
+
+struct DiagramEntry;
+struct Node;
 
 // mermaid.h は <WebView2.h> を transitively 引き込むため、mendo_core 入りの
 // モジュールは WebView2 依存を避けるべく本 interface を介する。

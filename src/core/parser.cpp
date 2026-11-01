@@ -116,9 +116,8 @@ struct ParseContext : NodeStorage {
 
     // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
     // 47-94 万回呼ばれる hot path で毎回テーブルセル内かを判定しないよう、
-    // 状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で更新したポインタを直接使う。
+    // 状態遷移点 (BeginNode / TD/TH 進入 / current_node clear) で更新したポインタを直接使う。
     // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
-    // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::string* active_text_buffer = nullptr;
 
     // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
@@ -254,7 +253,7 @@ struct ParseContext : NodeStorage {
         ResolveLinkUrlIndex(link_url);
     }
 
-    constexpr bool HasPendingSplit() const noexcept
+    bool HasPendingSplit() const noexcept
     {
         return pending_newlines > 0 || pending_joined;
     }
@@ -439,20 +438,16 @@ struct ParseContext : NodeStorage {
 
     // md4c は tight list の LI 直下の段落を MD_BLOCK_P で囲まないため、LI 内で見出し / HR /
     // フェンス等の後に続く本文は current_node 無しで届く。loose list と同じ段落ノードを補って受け止める。
-    bool EnsureNodeForListItemText()
+    void EnsureNodeForListItemText()
     {
-        if (current_node) {
-            return true;
+        if (!current_node) {
+            // 本文と span はリーフブロックの中でしか届かず、脚注定義の中身は行内要素だけなので、ここは必ず tight な LI の中。
+            assert(!list_counter.empty());
+            BeginNode(NodeType::Paragraph);
         }
-        // md4c は UL/OL 直下に LI しか置かないため、list_counter が空でなければ LI 内にいる。
-        if (list_counter.empty()) {
-            return false;
-        }
-        BeginNode(NodeType::Paragraph);
-        return true;
     }
 
-    constexpr TextRun MakeRun(uint32_t start, uint32_t length)
+    TextRun MakeRun(uint32_t start, uint32_t length)
     {
         TextRun run;
         run.start = start;
@@ -471,7 +466,8 @@ struct ParseContext : NodeStorage {
     // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
     void ResolveLinkUrlIndex(std::string_view url)
     {
-        current_link_url_index = (current_node && !url.empty()) ? FindOrAddLinkUrl(url) : int16_t{ -1 };
+        assert(current_node);
+        current_link_url_index = !url.empty() ? FindOrAddLinkUrl(url) : int16_t{ -1 };
     }
 
     // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではハッシュ計算を伴う
@@ -528,7 +524,7 @@ struct ParseContext : NodeStorage {
             char entity_buf[4];
             switch (attr.substr_types[k]) {
             case MD_TEXT_ENTITY:
-                attr_scratch.append(ResolveHtmlEntity(sub, entity_buf).value_or(sub));
+                attr_scratch.append(ResolveHtmlEntity(sub, entity_buf));
                 break;
             case MD_TEXT_NULLCHAR:
                 break;
@@ -545,12 +541,10 @@ struct ParseContext : NodeStorage {
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
     // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は
     // バッファサイズベースで、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
-    constexpr void AppendDoc(std::string_view text)
+    void AppendDoc(std::string_view text)
     {
         std::string* const target = active_text_buffer;
-        if (!target) {
-            return;
-        }
+        assert(target);
         // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
             pending_run_start = static_cast<uint32_t>(target->size());
@@ -572,13 +566,13 @@ struct ParseContext : NodeStorage {
 
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
-    // active_text_buffer が非 null なら current_node も非 null (両者は対で更新される)。
     // 装飾もリンクも無い run は出さない。runs の隙間は既定スタイルとして扱われる。
-    constexpr void FlushPendingRun()
+    void FlushPendingRun()
     {
         if (has_pending_run) {
             std::string* const buf = active_text_buffer;
-            if (buf && buf->size() > pending_run_start) {
+            assert(buf);
+            if (buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 const bool plain = current_run_flags == 0 && current_link_url_index < 0;
                 if (buf == &current_text) {
@@ -612,19 +606,13 @@ struct ParseContext : NodeStorage {
     }
 };
 
-// 画像 src を受け取り Image ノードへ昇格できる種別。
-// 他の種別は payload を別の用途に使うため、昇格すると壊れる (issue#298)。
-constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
-{
-    return node.type == NodeType::Paragraph;
-}
-
 // MD_BLOCK_P 終了時、画像 span を含む段落を Image ノードへ昇格させる。
 void TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
+    assert(cn && cn->type == NodeType::Paragraph);
     // 区切った段落の続きを画像にすると、前の部分だけが本文として残る。
-    if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty() || cn->continues_prev()) {
+    if (ctx->image_src.empty() || cn->continues_prev()) {
         return;
     }
     cn->set_image_src(ctx->arena.Copy(std::span{ &ctx->image_src, 1 }).data());
@@ -656,7 +644,6 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
-    tbl->head_row_count = detail->head_row_count;
     // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
     tbl->col_count = static_cast<uint16_t>(detail->col_count);
     const size_t total_cells = total_rows * tbl->col_count;
@@ -706,9 +693,7 @@ void FinalizeTableOffsets(NodeTableData& tbl)
 // md4c は参照の中身をテキストで渡さないので、GitHub と同じく脚注番号を定義へのリンクとして補う。
 void AppendFootnoteRef(ParseContext* ctx, const MD_SPAN_FOOTNOTE_REF_DETAIL* ref)
 {
-    if (!ctx->current_node) {
-        return;
-    }
+    assert(ctx->current_node);
     if (ref->id > ctx->footnote_ref_counts.size()) {
         ctx->footnote_ref_counts.resize(ref->id, 0);
     }
@@ -795,30 +780,12 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
 }
 
-struct AlertInfo {
-    ascii_util::DocLowercaseLiteral name; // [!TYPE] マーカー名 (GitHub 仕様で ASCII 固定)
-    AlertType type;
-};
-
-// AlertColorIndex 順。
-inline constexpr AlertInfo kAlerts[]{
-    { "note",      AlertType::Note      },
-    { "tip",       AlertType::Tip       },
-    { "important", AlertType::Important },
-    { "warning",   AlertType::Warning   },
-    { "caution",   AlertType::Caution   },
-};
-static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
-static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) static {
-    return AlertColorIndex(kAlerts[i].type) == i;
-}));
-
 // "[!" + 最長の名前 + "]"。マーカー判定はソフト改行ごとに走るので、']' を段落全体から探さない。
-constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlerts | std::views::transform([](const AlertInfo& e) static { return e.name.value.size(); }));
+constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlertLabels | std::views::transform([](const AlertLabel& e) static { return e.label.size(); }));
 
 struct AlertMarker {
-    const AlertInfo* info = nullptr; // マーカーでなければ null
-    size_t end = 0;                  // マーカー直後の改行を含む終端位置
+    AlertType type = AlertType::None; // マーカーでなければ None
+    size_t end = 0;                   // マーカー直後の改行を含む終端位置
 };
 
 // テキスト先頭の [!TYPE] パターンを検出する。
@@ -834,35 +801,37 @@ AlertMarker DetectAlertMarker(std::string_view text)
     }
 
     const auto type_str = text.substr(2, close - 2);
-    const auto it = std::ranges::find_if(kAlerts, [type_str](const AlertInfo& e) noexcept {
-        return ascii_util::iequal(type_str, e.name);
+    const auto it = std::ranges::find_if(kAlertLabels, [type_str](const AlertLabel& e) noexcept {
+        return std::ranges::equal(type_str, e.label, {}, ascii_util::ToLowerAscii, ascii_util::ToLowerAscii);
     });
-    if (it == std::end(kAlerts)) {
+    if (it == std::end(kAlertLabels)) {
         return {};
     }
+    // kAlertLabels は AlertColorIndex 順。
+    const auto type = static_cast<AlertType>(it - std::begin(kAlertLabels) + 1);
 
     // GitHub に合わせ、マーカーと本文や画像が同じ行にある "[!NOTE] 本文" は Alert にしない
     // (fe1ae552 で同じ行の画像を Alert にし、db6320d7 で戻した)。表示を GitHub と食い違わせない。
     // 行末の空白は md4c が落とすので、マーカー直後は改行か終端だけを見ればよい。
     const size_t end = close + 1;
     if (end == text.size()) {
-        return { &*it, end };
+        return { type, end };
     }
     if (text[end] == '\n') {
-        return { &*it, end + 1 };
+        return { type, end + 1 };
     }
     return {};
 }
 
 // マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
-void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, size_t marker_end)
+void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t marker_end)
 {
-    const auto [icon, label] = kAlertLabels[AlertColorIndex(info.type)];
+    const auto [icon, label] = kAlertLabels[AlertColorIndex(type)];
     const std::string_view current_text = node.GetText();
     const bool has_content = (marker_end < current_text.size());
 
-    const size_t full_label_len = AlertLabelLength(info.type); // "icon Label"
+    const size_t full_label_len = AlertLabelLength(type); // "icon Label"
     std::string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
@@ -904,7 +873,7 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
     node.SetText(arena.CopyText(new_text));
     node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
     node.SetRuns(arena.Copy(new_runs));
-    node.alert_type = info.type;
+    node.alert_type = type;
     node.set_has_alert_label();
 }
 
@@ -925,15 +894,15 @@ void DetectAlert(ParseContext* ctx)
         return;
     }
     auto& node = ctx->nodes[head];
-    const auto [info, marker_end] = DetectAlertMarker(node.GetText());
-    if (!info) {
+    const auto [type, marker_end] = DetectAlertMarker(node.GetText());
+    if (type == AlertType::None) {
         return;
     }
-    TransformAlertNode(node, ctx->arena, *info, marker_end);
+    TransformAlertNode(node, ctx->arena, type, marker_end);
 
     // 引用の後ろのノードはまだ無いので、ノード種別に依存せず末尾まで (リスト等も含む)。
     for (Node& n : std::span{ ctx->nodes }.subspan(head + 1)) {
-        n.alert_type = info->type;
+        n.alert_type = type;
     }
 }
 
@@ -945,9 +914,6 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
 
     switch (type) {
-    case MD_BLOCK_DOC:
-        break;
-
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
@@ -1002,10 +968,6 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         BeginTable(ctx, static_cast<const MD_BLOCK_TABLE_DETAIL*>(detail));
         break;
 
-    case MD_BLOCK_THEAD:
-    case MD_BLOCK_TBODY:
-        break;
-
     case MD_BLOCK_TR:
         assert(ctx->current_node && ctx->current_node->type == NodeType::Table);
         ++ctx->current_node->table_data()->row_count;
@@ -1026,11 +988,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         BeginFootnoteDef(ctx, static_cast<const MD_BLOCK_FOOTNOTE_DEF_DETAIL*>(detail));
         break;
 
-    case MD_BLOCK_HTML:
-        break;
-
     default:
-        std::unreachable();
+        break;
     }
 
     return 0;
@@ -1079,18 +1038,6 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
     }
 
-    case MD_BLOCK_THEAD:
-    case MD_BLOCK_TBODY:
-    case MD_BLOCK_TR:
-        break;
-
-    case MD_BLOCK_TH:
-    case MD_BLOCK_TD:
-        // セル退出後は table ノード自体への AppendDoc は想定されないため nullptr に倒す。
-        // 次の TR/TD/TH 進入で再設定される。
-        ctx->active_text_buffer = nullptr;
-        break;
-
     case MD_BLOCK_H:
         // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
         assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
@@ -1113,12 +1060,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         --ctx->indent_level;
         break;
 
-    case MD_BLOCK_DOC:
-    case MD_BLOCK_HTML:
-        break;
-
     default:
-        std::unreachable();
+        break;
     }
 
     return 0;
@@ -1130,8 +1073,8 @@ bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
     if (!ctx->current_node || !IsAlertHeadCandidate(*ctx, ctx->CurrentNodeIndex())) {
         return false;
     }
-    const auto [info, end] = DetectAlertMarker(ctx->current_text);
-    return info && end == ctx->current_text.size();
+    const auto [type, end] = DetectAlertMarker(ctx->current_text);
+    return type != AlertType::None && end == ctx->current_text.size();
 }
 
 // "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
@@ -1191,15 +1134,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_FOOTNOTE_REF:
         AppendFootnoteRef(ctx, static_cast<const MD_SPAN_FOOTNOTE_REF_DETAIL*>(detail));
         break;
-    case MD_SPAN_STRONG:
-    case MD_SPAN_EM:
-    case MD_SPAN_CODE:
-    case MD_SPAN_DEL:
-    case MD_SPAN_WIKILINK:
-    case MD_SPAN_U:
-        break;
     default:
-        std::unreachable();
+        break;
     }
 
     return 0;
@@ -1211,7 +1147,9 @@ void LeaveImageSpan(ParseContext* ctx, const MD_SPAN_IMG_DETAIL* img)
     if (--ctx->image_span_depth != 0 || img->src.size == 0) {
         return;
     }
-    if (auto* const cn = ctx->current_node; cn && IsImagePromotionCandidate(*cn)) {
+    assert(ctx->current_node);
+    // Image ノードへ昇格できるのは段落だけ。他の種別は payload を別の用途に使うため、昇格すると壊れる (issue#298)。
+    if (ctx->current_node->type == NodeType::Paragraph) {
         ctx->image_src = ctx->InternUrl(ctx->AttributeText(img->src));
     }
 }
@@ -1243,18 +1181,8 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG:
         LeaveImageSpan(ctx, static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
         break;
-    case MD_SPAN_LATEXMATH_DISPLAY:
-    case MD_SPAN_LATEXMATH:
-    case MD_SPAN_STRONG:
-    case MD_SPAN_EM:
-    case MD_SPAN_CODE:
-    case MD_SPAN_DEL:
-    case MD_SPAN_FOOTNOTE_REF:
-    case MD_SPAN_WIKILINK:
-    case MD_SPAN_U:
-        break;
     default:
-        std::unreachable();
+        break;
     }
 
     return 0;
@@ -1268,9 +1196,10 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     }
 
     if (!ctx->current_node) [[unlikely]] {
-        if (type == MD_TEXT_HTML || type == MD_TEXT_NULLCHAR || !ctx->EnsureNodeForListItemText()) {
+        if (type == MD_TEXT_HTML || type == MD_TEXT_NULLCHAR) {
             return 0;
         }
+        ctx->EnsureNodeForListItemText();
     }
 
     const std::string_view chunk{ text, static_cast<size_t>(size) };
@@ -1304,7 +1233,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     case MD_TEXT_ENTITY: {
         char entity_buf[4];
-        ctx->AppendSplittable(ResolveHtmlEntity(chunk, entity_buf).value_or(chunk));
+        ctx->AppendSplittable(ResolveHtmlEntity(chunk, entity_buf));
         break;
     }
 
@@ -1318,33 +1247,25 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         ctx->AppendLineBreak(IsAlertMarkerOnlyHead(ctx) ? "\n" : " ");
         break;
 
-    case MD_TEXT_NULLCHAR:
-    case MD_TEXT_HTML:
-        break;
-
     default:
-        std::unreachable();
+        break;
     }
 
     return 0;
 }
 
-// 各種予約サイズのヒント定数。値は「入力 N byte あたり 1 個」を表す:
-//   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=128      → 256 と 2 往復した (8b22f224, cc98b79b で 256 にし、8eee1cc6, 29e67089 で戻した)。
-//                                   256 に戻さないこと。実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
-//                                   100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
-//                                   余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
-//                                   リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
+// 入力 128 byte あたり 1 ノードを予約する。256 と 2 往復した (8b22f224, cc98b79b で 256 にし、8eee1cc6, 29e67089 で戻した)。
+// 256 に戻さないこと。実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
+// 100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
+// 余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
+// リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
 // arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
-constexpr size_t kScratchInputBytesPerByte = 8;
 constexpr size_t kInputBytesPerNode = 128;
-constexpr size_t kScratchReserveMin = 1024;
-constexpr size_t kScratchReserveMax = 64 * 1024;
 
 void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
-    ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
+    // 段落とコードは kTextChunkTarget 前後で区切るので、current_text はほぼこの長さに収まる。
+    ctx.current_text.reserve(kTextChunkTarget + kTextChunkWindow);
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
@@ -1375,9 +1296,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     {
         MENDO_PROFILE("md_parse");
         md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
-        // 最後の current_node が残っていれば（典型的には全 OnLeaveBlock で処理済みだが
-        // 安全のため）テキストを確定する。
-        ctx.FinalizeCurrentNode();
+        assert(ctx.cancel_requested || !ctx.current_node);
     }
 
     // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・詰め) を飛ばし、

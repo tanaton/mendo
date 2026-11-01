@@ -50,16 +50,13 @@ public:
     // 測った高さを返す。測れなければ nullopt (例外と同じく再試行しない)。
     // entry にはレイアウトなどの計測の産物だけを書き、高さと dirty の確定は MeasureEntry (CommitMeasured) に任せる。
     // 並列計測では worker ごとに別ノード・別 entry を渡す。
-    // viewport (エントリ上端からのローカル座標) はテーブルで行単位の部分復元判定に用いる。
     // ビットマップを描くノード (IsBitmapDrawNode) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
-    virtual std::optional<float> MeasureNode(
-        const Node& node, NodeLayoutEntry& entry, float max_width,
-        YRange viewport) const = 0;
-    // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
+    virtual std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
+    // dirty でないテーブルの、viewport (エントリ上端からのローカル座標) 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
+    // 幅が再計測のしきい値 (LayoutEngine::kWidthChangeThreshold) 未満で変わっていても、表は dirty にならないので今の幾何で戻す。
     // 高さが変わったときの確定は呼び出し側 (CommitMeasured) に任せる。
-    virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
-                                                       YRange /*viewport*/) const
+    virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, YRange /*viewport*/) const
     {
         return {};
     }
@@ -72,15 +69,13 @@ protected:
 // 測れたら組んだ幅 (NodeLayoutWidth) を cached_width に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
 // 測れなければ何も確定せず、推定の高さを実測値として残さない。
-// viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
 // bitmap は画像/図ノードの DiagramEntry (無ければ nullptr)。
 inline void MeasureEntry(
-    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width,
-    YRange viewport, float entry_top, const DiagramEntry* bitmap)
+    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* bitmap)
 {
     const std::optional<float> height = IsBitmapDrawNode(node)
                                             ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, measurer.GetTheme())
-                                            : measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
+                                            : measurer.MeasureNode(node, entry, node_width);
     if (height) {
         entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), *height);
     }
@@ -90,7 +85,7 @@ inline void MeasureEntry(
 inline TableRestoreResult RestoreEntryTableRows(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, YRange viewport)
 {
-    const TableRestoreResult result = measurer.RestoreEvictedTableRows(node, entry, node_width, viewport);
+    const TableRestoreResult result = measurer.RestoreEvictedTableRows(node, entry, viewport);
     if (result.height) {
         entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), *result.height);
     }
@@ -103,7 +98,7 @@ inline constexpr LayoutDeadline kNoLayoutDeadline = LayoutDeadline::max();
 
 namespace layout {
 
-// indices のノードを backend の scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
+// indices (昇順) のノードを backend の scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
 // 戻り値は dirty のまま残したノード数 (例外で計測できなかったか、期限を過ぎて手を付けなかった)。
 int MeasureIndicesParallel(
     const std::vector<Node>& nodes,
@@ -111,7 +106,6 @@ int MeasureIndicesParallel(
     float content_width,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
-    YRange viewport,
     LayoutDeadline deadline);
 
 } // namespace layout
@@ -177,7 +171,7 @@ public:
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。見ている位置は保つ。
     bool EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
-    void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, layout::HeightChangeRange changed) noexcept;
+    void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept;
 
 private:
     // 前後で scroll target を確定・適用し、見ている位置を保ったまま op を行う。op の結果を返す。

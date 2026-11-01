@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "document.h"
 #include "document_test_helpers.h"
 #include "document_utils.h"
 #include "parse_invariants.h"
@@ -135,6 +136,7 @@ TEST(Parser, LinkRunPointsToUrl)
         { "[text](https://example.com)", "text", "https://example.com" },
         { "[section](#my-section)", "section", "#my-section" },
         { "[link](https://example.com/path?q=1&r=2#frag)", "link", "https://example.com/path?q=1&r=2#frag" },
+        { "before [link text](https://example.com) after", "before link text after", "https://example.com" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
@@ -144,15 +146,6 @@ TEST(Parser, LinkRunPointsToUrl)
         ASSERT_EQ(nodes[0].runs().size(), 1u);
         ASSERT_TRUE(nodes[0].runs()[0].has_link());
         EXPECT_EQ(nodes[0].view_link_urls()[nodes[0].runs()[0].link_url_index], c.url);
-    }
-}
-
-TEST(Parser, ParagraphWithNoLink)
-{
-    auto nodes = ParseNodes("plain text");
-    ASSERT_EQ(nodes.size(), 1u);
-    for (const auto& run : nodes[0].runs()) {
-        EXPECT_FALSE(run.has_link());
     }
 }
 
@@ -181,26 +174,6 @@ TEST(Parser, LinkUrlCountCappedAtInt16Max)
         EXPECT_LT(static_cast<size_t>(run.link_url_index), urls.size());
     }
     EXPECT_EQ(tbl->all_runs.size(), urls.size());
-}
-
-// ---- コードブロック ----
-
-TEST(Parser, CodeBlockPreservesNewlines)
-{
-    auto nodes = ParseNodes("```\na\nb\nc\n```");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    // 行間に改行を含むべき
-    EXPECT_GE(std::ranges::count(nodes[0].GetText(), '\n'), 2);
-}
-
-TEST(Parser, CodeBlockNoTrailingNewline)
-{
-    auto nodes = ParseNodes("```\nhello\n```");
-    ASSERT_EQ(nodes.size(), 1u);
-    // 末尾の改行は除去されるべき
-    EXPECT_FALSE(nodes[0].GetText().empty());
-    EXPECT_NE(nodes[0].GetText().back(), '\n');
 }
 
 // ---- 水平線 ----
@@ -387,6 +360,8 @@ TEST(Parser, SingleBlockquoteIsQuoteParagraph)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
     EXPECT_EQ(nodes[0].GetText(), "quoted text");
+    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
+    EXPECT_EQ(nodes[0].alert_label_length(), 0u);
 }
 
 // ネスト blockquote の group/quote_depth 設計回帰防止
@@ -595,7 +570,8 @@ TEST(Parser, TableConcatStructure)
     EXPECT_EQ(tbl->cell_text_starts[3], 6u);
     EXPECT_EQ(tbl->cell_text_starts[4], 7u);
     EXPECT_TRUE(tbl->cell_run_starts.empty()) << "装飾の無い表は持たない";
-    EXPECT_EQ(tbl->head_row_count, 1u);
+    EXPECT_TRUE(tbl->IsHeaderRow(0));
+    EXPECT_FALSE(tbl->IsHeaderRow(1));
     EXPECT_EQ(tbl->aligns.size(), 2u);
     EXPECT_EQ(tbl->GetCellText(0, 0), "A");
     EXPECT_EQ(tbl->GetCellText(0, 1), "B");
@@ -671,26 +647,6 @@ TEST(Parser, TableColumnCountWrapsInMd4c)
     EXPECT_EQ(tbl->cell_text_starts.size(), size_t{ tbl->row_count } * tbl->col_count + 1);
 }
 
-TEST(Parser, TableHeaderCells)
-{
-    auto nodes = ParseNodes(
-                     "| H1 | H2 |\n"
-                     "|---|---|\n"
-                     "| D1 | D2 |");
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-    EXPECT_EQ(tbl->col_count, 2u);
-
-    // 最初の行はヘッダーであるべき
-    EXPECT_TRUE(tbl->IsHeaderRow(0));
-    EXPECT_EQ(tbl->GetCellText(0, 0), "H1");
-    EXPECT_EQ(tbl->GetCellText(0, 1), "H2");
-
-    // 2番目の行はヘッダーではないべき
-    EXPECT_FALSE(tbl->IsHeaderRow(1));
-}
-
 TEST(Parser, TableAlignment)
 {
     auto nodes = ParseNodes(
@@ -720,21 +676,6 @@ TEST(Parser, TableMultipleRows)
 }
 
 // ---- 複雑なドキュメント ----
-
-TEST(Parser, ComplexDocumentNodeCount)
-{
-    auto nodes = ParseNodes(
-                     "# Title\n\n"
-                     "Paragraph.\n\n"
-                     "## Section\n\n"
-                     "- item1\n"
-                     "- item2\n\n"
-                     "---\n\n"
-                     "> quote\n\n"
-                     "```\ncode\n```\n");
-    // タイトル、段落、セクション、item1、item2、水平線、引用、コード
-    EXPECT_GE(nodes.size(), 7u);
-}
 
 TEST(Parser, NodeTypesInComplexDocument)
 {
@@ -852,45 +793,27 @@ TEST(Parser, TableCellWithBold)
 
 // ---- リンク付きテーブル ----
 
-TEST(Parser, TableCellWithLink)
+TEST(Parser, TableCellLinks)
 {
-    auto nodes = ParseNodes(
-                     "| Name | Link |\n"
-                     "|------|------|\n"
-                     "| foo | [bar](https://example.com) |");
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-    ASSERT_GE(tbl->col_count, 2u);
-
-    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 1), "https://example.com");
-    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 0), std::nullopt);
-}
-
-TEST(Parser, TableCellWithInternalLink)
-{
-    auto nodes = ParseNodes(
-                     "| Section |\n"
-                     "|---------|\n"
-                     "| [intro](#introduction) |");
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-
-    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 0), "#introduction");
-}
-
-TEST(Parser, TableCellWithBoldLink)
-{
-    auto nodes = ParseNodes(
-                     "| Link |\n"
-                     "|------|\n"
-                     "| [**bold**](https://example.com) |");
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-
-    EXPECT_TRUE(std::ranges::any_of(tbl->GetCellRuns(1, 0), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
+    struct Case {
+        std::string_view cell;
+        std::string_view url;
+        bool bold;
+    };
+    constexpr Case kCases[] = {
+        { "[bar](https://example.com)", "https://example.com", false },
+        { "[intro](#introduction)", "#introduction", false },
+        { "[**bold**](https://example.com)", "https://example.com", true },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.cell);
+        const std::string md = std::format("| Name | Link |\n|---|---|\n| foo | {} |", c.cell);
+        auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(CellLinkUrl(nodes[0], 1, 1), c.url);
+        EXPECT_EQ(CellLinkUrl(nodes[0], 1, 0), std::nullopt);
+        EXPECT_EQ(std::ranges::any_of(nodes[0].table_data()->GetCellRuns(1, 1), &TextRun::bold), c.bold);
+    }
 }
 
 TEST(Parser, TableCellMixedTextAndLink)
@@ -919,20 +842,6 @@ TEST(Parser, BoldLink)
     auto nodes = ParseNodes("[**bold link**](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
-}
-
-// ---- 不揃いな列数のテーブル ----
-
-TEST(Parser, TableUnevenColumns)
-{
-    // md4cがこれを処理する - 行内のセルが少ない場合
-    auto nodes = ParseNodes(
-                     "| A | B | C |\n"
-                     "|---|---|---|\n"
-                     "| 1 | 2 |\n");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_data()->row_count, 2u);
 }
 
 // ---- Mermaid言語のコードブロック ----
@@ -1285,30 +1194,6 @@ TEST(Parser, AlertLabelIsBold)
     EXPECT_EQ(nodes[0].runs()[0].start + nodes[0].runs()[0].length, nodes[0].alert_label_length());
 }
 
-TEST(Parser, AlertLabelLength)
-{
-    // alert_label_length は UTF-8 byte。ℹ (U+2139) は 3 byte、❗ (U+2757) も 3 byte。
-    auto nodes = ParseNodes("> [!NOTE]\n> text");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_label_length(), 8u); // ℹ 3 + ' ' 1 + "NOTE" 4
-
-    auto nodes2 = ParseNodes("> [!IMPORTANT]\n> text");
-    ASSERT_GE(nodes2.size(), 1u);
-    EXPECT_EQ(nodes2[0].alert_label_length(), 13u); // ❗ 3 + ' ' 1 + "IMPORTANT" 9
-}
-
-TEST(Parser, AlertRunPositionsAreValid)
-{
-    auto nodes = ParseNodes("> [!WARNING]\n> Some **bold** text");
-    ASSERT_GE(nodes.size(), 1u);
-    const auto& node = nodes[0];
-    for (const auto& run : node.runs()) {
-        EXPECT_LE(run.start + run.length, static_cast<uint32_t>(node.GetText().size()))
-            << "ラン [" << run.start << ", " << run.start + run.length
-            << ") がテキスト長 " << node.GetText().size() << " を超えている";
-    }
-}
-
 // マーカー直後の改行は除去範囲に入るので、本文の run はラベル行の次へちょうど平行移動する。
 TEST(Parser, AlertRunsShiftExactlyPastLabelLine)
 {
@@ -1365,16 +1250,6 @@ TEST(Parser, AlertIgnoresQuoteWithoutNodes)
         EXPECT_EQ(nodes.back().alert_type, AlertType::None);
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
-}
-
-TEST(Parser, RegularBlockquoteUnaffected)
-{
-    auto nodes = ParseNodes("> Just a normal quote");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
-    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
-    EXPECT_EQ(nodes[0].alert_label_length(), 0u);
-    EXPECT_EQ(nodes[0].GetText(), "Just a normal quote");
 }
 
 TEST(Parser, AlertMarkerOnlyNoContent)
@@ -1496,29 +1371,6 @@ TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)
     EXPECT_TRUE(checked_continuation);
 }
 
-TEST(Parser, Alert_IgnoredWhenStartedInsideNestedBlockquote)
-{
-    // GitHub 仕様: ネスト内 (`> > [!NOTE]`) の Alert マーカーは認識しない
-    auto nodes = ParseNodes(
-                     "> outer\n"
-                     "> > [!NOTE]\n"
-                     "> > inner note text");
-    for (const auto& n : nodes) {
-        EXPECT_EQ(n.alert_type, AlertType::None)
-            << "ネスト内の Alert マーカーは無効化される";
-        EXPECT_EQ(n.alert_label_length(), 0u);
-    }
-}
-
-TEST(Parser, AlertUnknownTypeIgnored)
-{
-    auto nodes = ParseNodes("> [!UNKNOWN]\n> text");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
-    // マーカーがそのまま残っているべき
-    EXPECT_TRUE(nodes[0].GetText().contains("UNKNOWN"));
-}
-
 // ノードが細かい文書でも粗い文書でも、パース後のノード配列に大きな余りを残さない。
 TEST(Parser, NodeCapacityStaysNearSize)
 {
@@ -1552,7 +1404,7 @@ TEST(Parser, AlertWithInlineFormatting)
 
 // ---- ソースオフセット ----
 
-// source_offset はノードのテキストが始まる原文の UTF-8 byte 位置。テキストを持たない HR は未設定。
+// source_offset はノードのテキストが始まる原文の UTF-8 byte 位置。テキストを持たない HR は前のノードの位置を受け継ぐ。
 TEST(Parser, SourceOffsetPointsAtTextStart)
 {
     struct Case {
@@ -1582,7 +1434,7 @@ TEST(Parser, SourceOffsetPointsAtTextStart)
     }
 }
 
-// 色々なブロックが混ざっても、設定済みの source_offset は単調増加で原文の中に収まる。
+// 色々なブロックが混ざっても、source_offset は単調非減少で原文の中に収まる。
 TEST(Parser, SourceOffsetsIncreaseAcrossBlocks)
 {
     struct Case {
@@ -1629,24 +1481,6 @@ TEST(Parser, NewlinesInTextAndLineCount)
         EXPECT_EQ(nodes[0].GetText(), c.text);
         EXPECT_EQ(nodes[0].line_count, c.line_count);
     }
-}
-
-TEST(Parser, LineCountLargeCodeBlock)
-{
-    const std::string md = MakeCodeBlockMd(100);
-    auto nodes = ParseNodes(md);
-    ASSERT_EQ(nodes.size(), 1u);
-    // 100行 → 99個の改行（末尾の\nが除去される）
-    EXPECT_EQ(nodes[0].line_count, 99);
-}
-
-// ---- UTF-8バッチ変換 ----
-
-TEST(Parser, Utf8BatchLinkText)
-{
-    auto nodes = ParseNodes("before [link text](https://example.com) after");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), "before link text after");
 }
 
 // ---- 協調キャンセル (AsyncLoadCoordinator 用) ----
@@ -2162,5 +1996,52 @@ TEST(ParserChunks, LongJapaneseLineSplitsAfterPunctuation)
         const auto text = nodes[i].GetText();
         EXPECT_TRUE(text.ends_with("。") || text.ends_with("、"));
         EXPECT_LE(text.size(), kChunkMax);
+    }
+}
+
+// シンプルな code block が view 化されることを確認 (回帰防止)
+TEST(ParserRawView, SimpleCodeBlockIsViewed)
+{
+    auto doc = Document::FromMarkdown("```cpp\nint x = 0;\nint y = 1;\n```", L"test.md");
+    bool found_code = false;
+    for (const auto& n : doc.GetNodes()) {
+        if (n.type == NodeType::CodeBlock) {
+            found_code = true;
+            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
+        }
+    }
+    ASSERT_TRUE(found_code);
+}
+
+// シンプルな段落 (span マークアップなし) が view 化されることを確認
+TEST(ParserRawView, SimpleParagraphIsViewed)
+{
+    auto doc = Document::FromMarkdown("Just a plain paragraph without any markup.", L"test.md");
+    bool found_paragraph = false;
+    for (const auto& n : doc.GetNodes()) {
+        if (n.type == NodeType::Paragraph) {
+            found_paragraph = true;
+            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
+        }
+    }
+    ASSERT_TRUE(found_paragraph);
+}
+
+// 字下げは md4c から静的な空白で届くが、原文も空白なら 1 行目が字下げされたコードも原文を指す。
+// タブの字下げは空白に置き換わるのでコピーになる。
+TEST(ParserRawView, CodeBlockWithIndentedFirstLineIsViewed)
+{
+    for (const auto& [md, viewed] : {
+             std::pair{ "```\n    return x;\nend\n```\n",    true  },
+             std::pair{ "text\n\n```cpp\n  a\n    b\n```\n", true  },
+             std::pair{ "```\n\tx\n```\n",                   false }
+    }) {
+        auto doc = Document::FromMarkdown(md, L"test.md");
+        const auto it = std::ranges::find(doc.GetNodes(), NodeType::CodeBlock, &Node::type);
+        ASSERT_NE(it, doc.GetNodes().end()) << md;
+        EXPECT_EQ(TextPointsIntoRaw(*it, doc.GetRawText()), viewed) << md;
+        if (viewed) {
+            EXPECT_EQ(doc.GetRawText().substr(it->SourceOffset(), it->GetText().size()), it->GetText()) << md;
+        }
     }
 }

@@ -8,7 +8,6 @@
 #include <limits>
 #include <span>
 #include <stop_token>
-#include <string_view>
 
 namespace layout {
 
@@ -157,13 +156,9 @@ void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, c
 
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
-// Y 位置は呼び出し側が組み直す。
-struct CarryOverResult {
-    UnchangedEnds ends;
-    size_t carried = 0; // 移したノード数 (仮表示の図を含む)
-};
-// ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
-CarryOverResult CarryOverUnchanged(
+// Y 位置は呼び出し側が組み直す。ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
+// 戻り値は移したノード数 (仮表示の図を含む)。
+size_t CarryOverUnchanged(
     const std::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
 
@@ -176,27 +171,8 @@ LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。画像・図は触らない。
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
-// 高さが変わったノードの閉区間 [first, last]。以降のノードは一定量のシフトで済むため、
-// 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は空。
-struct HeightChangeRange {
-    size_t first = std::numeric_limits<size_t>::max();
-    size_t last = 0;
-
-    constexpr bool empty() const noexcept
-    {
-        return first > last;
-    }
-    constexpr void Add(size_t i) noexcept
-    {
-        if (empty()) {
-            first = last = i;
-            return;
-        }
-        first = std::min(first, i);
-        last = std::max(last, i);
-    }
-};
-
+// safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むため、再計算を先頭からの全件ではなく
+// この範囲に限定できる。
 void RecomputeYPositions(
     const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
@@ -211,7 +187,7 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
 float CalcScrollYForDiff(
     const std::vector<Node>& nodes,
     const LayoutCache& cache,
-    std::string_view content,
+    size_t content_size,
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept;

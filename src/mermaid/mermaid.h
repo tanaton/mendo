@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -67,7 +68,7 @@ public:
     // wic は Renderer と共有する PNG デコード用。
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
     // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
-    // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
+    // user_data_folder は WebView2 のセッションデータの保存先。
     // on_update は準備完了・結果が出たとき・WebView2 を諦めたときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
     // on_viewer_failed は拡大表示を開けなかった・続けられなくなったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
@@ -118,6 +119,20 @@ public:
     void ApplyViewerLanguage();
 
 private:
+    struct MathRequest {
+        std::vector<InlineMathItem> items;
+        MathBatchCallback callback;
+        uint64_t cache_key = 0;
+        // 呼んだら空にして、答えを accept_page に持つ (DecideMathPage)。
+        MathPageGate want_page;
+        bool accept_page = true;
+        // InlineMathBatchResult::reserved_bytes。
+        size_t reserved_bytes = 0;
+        // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
+        // キャプチャの切り出しに使う。
+        mermaid_util::MathBatchLayout layout;
+    };
+
     struct RenderRequest {
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
         // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
@@ -127,11 +142,11 @@ private:
         // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
         bool width_free = false;
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
-        uint64_t code_hash = 0;
+        uint64_t request_hash = 0;
         uint64_t width_free_hash = 0;
         uint64_t CacheKey() const noexcept
         {
-            return width_free ? width_free_hash : code_hash;
+            return width_free ? width_free_hash : request_hash;
         }
         // 表示の大きさ (DIP)。描いた結果は切り出す画素数を dpr で割った値 (SetCaptureBox)、ディスクキャッシュからは索引の値。
         float css_width = 0.0f;
@@ -140,23 +155,11 @@ private:
         // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
         bool retried = false;
 
-        // Mermaid 以外 (クリップボード用・拡大表示用の SVG) はキャッシュに入れず、SVG文字列を svg_callback で返す。
+        // Mermaid だけがキャッシュに入る。Svg と View は SVG文字列を svg_callback で、Math は結果を math->callback で返す。
         mermaid_util::PageRequest page = mermaid_util::PageRequest::Mermaid;
         SvgCallback svg_callback;
-
-        // インライン数式をまとめて描く要求 (RequestMathBatch)。空でなければこの種類で、code などは使わない。
-        // キャッシュに入れず、結果は math_callback で返す。
-        std::vector<InlineMathItem> math_items;
-        MathBatchCallback math_callback;
-        uint64_t math_cache_key = 0;
-        // 呼んだら空にして、答えを math_page に持つ (DecideMathPage)。
-        MathPageGate math_want_page;
-        bool math_page = true;
-        // InlineMathBatchResult::reserved_bytes。
-        size_t math_reserved_bytes = 0;
-        // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
-        // キャプチャの切り出しに使う。
-        mermaid_util::MathBatchLayout math_layout;
+        // Math の要求だけが持つ (RequestMathBatch)。code などは使わない。
+        std::unique_ptr<MathRequest> math;
 
         // キャプチャから切り出す範囲 (物理 px)。撮るビューの大きさ。
         WICRect page_rect{};
@@ -166,11 +169,11 @@ private:
 
         bool is_math() const noexcept
         {
-            return !math_items.empty();
+            return page == mermaid_util::PageRequest::Math;
         }
         bool is_svg() const noexcept
         {
-            return page != mermaid_util::PageRequest::Mermaid;
+            return page == mermaid_util::PageRequest::Svg || page == mermaid_util::PageRequest::View;
         }
         bool is_view() const noexcept
         {
@@ -179,7 +182,7 @@ private:
         // 図の結果をキャッシュに持つ要求か。
         bool is_display() const noexcept
         {
-            return !is_svg() && !is_math();
+            return page == mermaid_util::PageRequest::Mermaid;
         }
     };
 
@@ -222,9 +225,6 @@ private:
         std::wstring pending_msg;
     };
 
-    // 描画結果。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。
-    using CachedResult = DiagramResult;
-
     struct DiskLoad {
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
@@ -266,7 +266,7 @@ private:
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled);
-    // インライン数式の要求なら、描けなかったことを知らせて math_callback をクリアする。
+    // インライン数式の要求なら、描けなかったことを知らせて math->callback をクリアする。
     static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
     // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を失敗か取り消しで呼ぶ。成功した要求は呼び済みで何もしない。
     static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
@@ -282,9 +282,9 @@ private:
     void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
     bool FitsCapture(const mermaid_util::RenderSize& size) const noexcept;
-    // ページの大きさが分かったら、デコードする前に math_want_page に聞く。ディスクキャッシュから読めずに描き直すときは
+    // ページの大きさが分かったら、デコードする前に want_page に聞く。ディスクキャッシュから読めずに描き直すときは
     // 前の答えを使う。
-    static void DecideMathPage(RenderRequest& req, const mermaid_util::RenderSize& page);
+    static void DecideMathPage(MathRequest& math, const mermaid_util::RenderSize& page);
     // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す (受け取らないページはデコードしない)。
     // ディスクキャッシュなら箱の一覧も読み、キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
     void LoadMathJob(DiskLoad& job);
@@ -294,9 +294,7 @@ private:
     std::vector<RenderRequest> TakePending(bool (RenderRequest::*kind)() const noexcept);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
-    static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
-    // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
-    void CancelPending();
+    static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
 
     // 破棄したスロット (AbandonWorker) は飛ばす。
     auto ActiveWorkers() noexcept
@@ -370,13 +368,7 @@ private:
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
         if (req.is_display()) {
-            inflight_.erase(req.code_hash);
-        }
-    }
-    void NotifyUpdate()
-    {
-        if (on_update_) {
-            on_update_();
+            inflight_.erase(req.request_hash);
         }
     }
 
@@ -392,12 +384,12 @@ private:
     void OnRenderResult(Worker& w, const mermaid_util::RenderSize& size);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream);
-    void InsertCache(uint64_t hash, CachedResult result);
-    const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
+    void InsertCache(uint64_t hash, DiagramResult result);
+    const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
     // SVG とインライン数式の要求はキャッシュに入れないので、いつも描画させる。
-    const CachedResult* FindCached(const RenderRequest& req)
+    const DiagramResult* FindCached(const RenderRequest& req)
     {
-        return req.is_display() ? FindCached(req.code_hash, req.width_free_hash, req.max_width) : nullptr;
+        return req.is_display() ? FindCached(req.request_hash, req.width_free_hash, req.max_width) : nullptr;
     }
 
     HWND hwnd_ = nullptr;
@@ -428,13 +420,14 @@ private:
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::unordered_set<uint64_t> inflight_;
 
-    // code_hash -> CachedResult (挙動は src/util/transposition_cache.h 参照)。
-    TranspositionCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;
+    // キャッシュキー -> 描画結果 (挙動は src/util/transposition_cache.h 参照)。同じコードは同じ結果になるので、失敗も成功と
+    // 同じく覚えて描き直さない。
+    TranspositionCache<uint64_t, DiagramResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
     PostedInbox<DiskLoad> disk_results_;
-    // DropQueued / CancelPending で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
+    // DropQueued / Shutdown で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。

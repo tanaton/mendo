@@ -3,7 +3,6 @@
 #include "block_h_scroll.h"
 #include "document_types.h"
 #include "layout_cache.h"
-#include "file_explorer.h"
 #include "titlebar.h"
 #include "pane_layout.h"
 #include "ui_types.h"
@@ -38,7 +37,7 @@ struct TitleBarRenderState {
 // File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。
 struct SidePaneInstance {
     PaneRect rect{};
-    ScrollState scroll{};
+    float scroll_y = 0.0f;
     int hovered_index = -1;
     bool show = false;
     PaneHeaderButton hovered_button = PaneHeaderButton::None;
@@ -90,14 +89,12 @@ struct MdPaneParams {
     // 検索のハイライト。空なら描かない。
     std::span<const SearchMatch> search_matches;
     int current_match_index = -1;
-    // マッチを引き直すたびに変わる。ノードが持つハイライト矩形のキャッシュをこれで捨てる。
-    uint32_t search_generation = 0;
-    // インライン数式の型。無ければ数式を描かない。描いたフレームの番号と、型の無かった数式 (missing) を書く。
-    InlineMathMasks* inline_math = nullptr;
 };
 
 struct RenderParams {
     MdPaneParams md;
+    // インライン数式の型。描いたフレームの番号と、型の無かった数式 (missing) を書く。
+    InlineMathMasks& inline_math;
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
     const GestureRenderState& gesture;

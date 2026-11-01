@@ -1,13 +1,17 @@
 #include <benchmark/benchmark.h>
 #include <windows.h>
 #include <psapi.h>
+#include <d2d1_1.h>
+#include <d3d11.h>
 #include <dwrite.h>
+#include <dxgi.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <format>
 #include <iterator>
+#include <memory>
 #include <memory_resource>
 #include <numeric>
 #include <optional>
@@ -15,7 +19,9 @@
 #include <string_view>
 #include "block_h_scroll.h"
 #include "command_generator.h"
+#include "d2d_util.h"
 #include "draw_cmd_test_util.h"
+#include "draw_command.h"
 #include "doc_dwrite_bridge.h"
 #include "document.h"
 #include "document_utils.h"
@@ -123,30 +129,14 @@ void RunParse(benchmark::State& state, const std::string& src)
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
 }
 
-// CRLF は NormalizeNewlines の slow path、LF は fast path (\r 検索のみ) を通る。差が slow path のコスト。
-// リポジトリは eol=lf で checkout されるので、CRLF 版はここで作る。
-void BM_FromMarkdown(benchmark::State& state, bool crlf)
+void BM_FromMarkdown(benchmark::State& state)
 {
-    std::string src = RepeatTestMd(state, 1);
-    if (state.skipped()) {
-        return;
+    const std::string src = RepeatTestMd(state, 1);
+    if (!state.skipped()) {
+        RunParse(state, src);
     }
-    std::erase(src, '\r');
-    if (crlf) {
-        std::string converted;
-        converted.reserve(src.size() + static_cast<size_t>(std::ranges::count(src, '\n')));
-        for (const char c : src) {
-            if (c == '\n') {
-                converted += '\r';
-            }
-            converted += c;
-        }
-        src = std::move(converted);
-    }
-    RunParse(state, src);
 }
-BENCHMARK_CAPTURE(BM_FromMarkdown, crlf, true)->UseManualTime()->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_FromMarkdown, lf, false)->UseManualTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_FromMarkdown)->UseManualTime()->Unit(benchmark::kMicrosecond);
 
 // 時間はパースだけ。破棄の時間とパースで増えたメモリはカウンタに出す。
 // メモリは最初の反復だけ測る (2 回目以降は解放済み領域の再利用で小さく出る)。
@@ -276,6 +266,11 @@ void BM_ParseRealCode(benchmark::State& state)
 }
 BENCHMARK(BM_ParseRealCode)->UseManualTime()->Unit(benchmark::kMillisecond);
 
+// 語を飛ばせない言語の入力。パースと字句解析の両方のベンチで使う。
+constexpr std::string_view kHtmlSnippet = "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n";
+constexpr std::string_view kYamlSnippet = "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n";
+constexpr std::string_view kElispSnippet = "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n";
+
 // 語を飛ばしにくいコード。空白の無い 1 行、コメントや文字列が始まりうる文字が密な場合、語を飛ばせない言語。
 void BM_ParseCodeBlock(benchmark::State& state, std::string_view language, std::string_view unit)
 {
@@ -285,21 +280,9 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_numbers, "json", "1,22,333,")->UseManu
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_strings, "json", "\"k\":\"v\",")->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_lines, "json", "\"k\": \"v\",\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, js_calls, "js", "a.b(c,d);")->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(
-    BM_ParseCodeBlock, html, "html",
-    "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
-    ->UseManualTime()
-    ->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(
-    BM_ParseCodeBlock, yaml, "yaml",
-    "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
-    ->UseManualTime()
-    ->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(
-    BM_ParseCodeBlock, elisp, "elisp",
-    "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
-    ->UseManualTime()
-    ->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, html, "html", kHtmlSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, yaml, "yaml", kYamlSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {
@@ -341,30 +324,29 @@ class SlowMockMeasurer : public MockTextMeasurer {
 public:
     static constexpr auto kSpin = std::chrono::microseconds(100);
 
-    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     YRange viewport = YRange::All()) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         const auto deadline = std::chrono::steady_clock::now() + kSpin;
         while (std::chrono::steady_clock::now() < deadline) {
         }
-        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width);
     }
 };
 
-void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
+void BM_MeasureIndicesParallel(benchmark::State& state)
 {
     const auto n = static_cast<size_t>(state.range(0));
     SlowMockMeasurer mock;
-    TaskScheduler ts{ 4 };
+    TaskScheduler ts{ 8 };
     mock.SetTheme(GetLightTheme());
-    mock.SetScheduler(parallel ? &ts : nullptr);
+    mock.SetScheduler(&ts);
     std::vector<size_t> indices(n);
     std::ranges::iota(indices, size_t{ 0 });
     for (auto _ : state) {
         StressFixture f;
         f.Build(n, /*include_code_block=*/false);
         state.SetIterationTime(SecondsOf([&] {
-            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, mock, indices, YRange::All(), kNoLayoutDeadline);
+            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, mock, indices, kNoLayoutDeadline);
         }));
     }
     mock.SetScheduler(nullptr);
@@ -373,13 +355,12 @@ void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
 // 所要時間はほぼ kSpin × ノード数で決まるので、短い計測時間で足りる。
 void NodeCounts(benchmark::Benchmark* b)
 {
-    for (const int n : { 16, 32, 64, 128, 256, 1024, 4096, 22000 }) {
+    for (const int n : { 128, 1024, 4096, 22000 }) {
         b->Arg(n);
     }
     b->ArgName("nodes")->MinTime(0.1)->UseManualTime()->Unit(benchmark::kMicrosecond);
 }
-BENCHMARK_CAPTURE(BM_MeasureIndicesParallel, serial, false)->Apply(NodeCounts);
-BENCHMARK_CAPTURE(BM_MeasureIndicesParallel, parallel, true)->Apply(NodeCounts);
+BENCHMARK(BM_MeasureIndicesParallel)->Apply(NodeCounts);
 
 struct RecomputeFixture {
     static constexpr size_t kNodes = 22000;
@@ -401,16 +382,6 @@ struct RecomputeFixture {
         layout::EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     }
 };
-
-// 22000 ノードを先頭から組み直すフルパス。
-void BM_RecomputeYPositions(benchmark::State& state)
-{
-    RecomputeFixture f;
-    for (auto _ : state) {
-        layout::RecomputeYPositions(f.nodes, f.cache, f.theme);
-    }
-}
-BENCHMARK(BM_RecomputeYPositions)->Unit(benchmark::kMicrosecond);
 
 // EnsureVisibleLayout の実際の使い方: 可視範囲 (5 ノード) の高さだけが変わり、後続 [105, N) は一定量ずらすだけで済む。
 void BM_RecomputeYPositionsTailShift(benchmark::State& state)
@@ -486,9 +457,28 @@ struct DWriteLayout {
     }
 };
 
+// 文書と、それを組むワーカー workers 本の DWriteLayout。
+struct DocLayout {
+    Document doc;
+    DWriteLayout l;
+
+    DocLayout(std::string md, int workers) : doc(Document::FromMarkdown(std::move(md), L"bench.md")), l(workers)
+    {}
+};
+
+// md が読めずにスキップ済みか、DirectWrite を使えなければ null。
+std::unique_ptr<DocLayout> OpenDoc(benchmark::State& state, std::string md, int workers)
+{
+    if (state.skipped()) {
+        return nullptr;
+    }
+    auto opened = std::make_unique<DocLayout>(std::move(md), workers);
+    return opened->l.SkipIfFailed(state) ? nullptr : std::move(opened);
+}
+
 void WorkerCounts(benchmark::Benchmark* b)
 {
-    for (const int n : { 0, 2, 4, 8, 12, 16 }) {
+    for (const int n : { 0, 8 }) {
         b->Arg(n);
     }
     b->ArgName("workers")->UseManualTime()->Unit(benchmark::kMillisecond);
@@ -521,15 +511,11 @@ BENCHMARK(BM_ComputeLayoutCold)->Apply(WorkerCounts);
 // 同じワーカーで 2 回目以降。キャッシュの破棄は測らない。
 void BM_ComputeLayoutWarm(benchmark::State& state)
 {
-    auto md = RepeatTestMd(state, 8);
-    if (state.skipped()) {
+    const auto opened = OpenDoc(state, RepeatTestMd(state, 8), static_cast<int>(state.range(0)));
+    if (!opened) {
         return;
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    DWriteLayout l(static_cast<int>(state.range(0)));
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
+    auto& [doc, l] = *opened;
     {
         LayoutCache warmup(doc.GetNodes().size());
         ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
@@ -561,11 +547,11 @@ std::string InlineMathMd(int paragraphs)
 // 寸法の分かったインライン数式を、インラインオブジェクトに置き換えながら全ノードを組む。
 void BM_InlineMathLayout(benchmark::State& state)
 {
-    const auto doc = Document::FromMarkdown(InlineMathMd(2000), L"bench.md");
-    DWriteLayout l(static_cast<int>(state.range(0)));
-    if (l.SkipIfFailed(state)) {
+    const auto opened = OpenDoc(state, InlineMathMd(2000), static_cast<int>(state.range(0)));
+    if (!opened) {
         return;
     }
+    auto& [doc, l] = *opened;
     InlineMathTable table;
     l.measurer.SetInlineMath(&table);
     {
@@ -609,15 +595,11 @@ BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true)->Unit(benchmark::kMi
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
 void BM_ResizeRemeasure(benchmark::State& state, const char* path)
 {
-    auto bytes = ReadOrSkip(state, path);
-    if (state.skipped()) {
+    const auto opened = OpenDoc(state, ReadOrSkip(state, path), 0);
+    if (!opened) {
         return;
     }
-    const auto doc = Document::FromMarkdown(std::move(bytes), L"bench.md");
-    DWriteLayout l(0);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
+    auto& [doc, l] = *opened;
     LayoutCache cache(doc.GetNodes().size());
     ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
     constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
@@ -664,12 +646,12 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
 {
     constexpr float kWidth = 1200.0f;
     constexpr float kScreen = 900.0f;
-    const auto doc = Document::FromMarkdown(GiantBlockMd(kind), L"bench.md");
-    const auto& nodes = doc.GetNodes();
-    DWriteLayout l(8);
-    if (l.SkipIfFailed(state)) {
+    const auto opened = OpenDoc(state, GiantBlockMd(kind), 8);
+    if (!opened) {
         return;
     }
+    auto& [doc, l] = *opened;
+    const auto& nodes = doc.GetNodes();
     for (auto _ : state) {
         LayoutCache cache = layout::MakeEstimatedLayoutCache(nodes, l.theme, l.theme.ContentWidth(kWidth));
         l.engine.Reestimate(nodes, cache, kWidth);
@@ -767,17 +749,16 @@ void BM_TokenizeLanguage(benchmark::State& state, SyntaxLanguage language, std::
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(text.size()));
 }
-BENCHMARK_CAPTURE(BM_TokenizeLanguage, html, SyntaxLanguage::Html,
-                  "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
-    ->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_TokenizeLanguage, elisp, SyntaxLanguage::EmacsLisp,
-                  "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
-    ->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_TokenizeLanguage, yaml, SyntaxLanguage::Yaml,
-                  "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
-    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, html, SyntaxLanguage::Html, kHtmlSnippet)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, elisp, SyntaxLanguage::EmacsLisp, kElispSnippet)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, yaml, SyntaxLanguage::Yaml, kYamlSnippet)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_TokenizeLanguage, toml, SyntaxLanguage::Toml,
                   "[server.http]\nhost = \"localhost\"\nport = 8080\nratio = 1.5e3\narr = [1, 2, 3]\nwhen = 1979-05-27T07:32:00Z\n")
+    ->Unit(benchmark::kMicrosecond);
+// 語を大文字小文字を区別せずに表から引く言語。
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, sql, SyntaxLanguage::Sql,
+                  "SELECT u.id, u.name, COUNT(*) AS n\nFROM users u\nJOIN orders o ON o.user_id = u.id\n"
+                  "WHERE o.total > 100 AND u.active = 1\nGROUP BY u.id, u.name\nORDER BY n DESC;\n")
     ->Unit(benchmark::kMicrosecond);
 
 // 比較用: 同じノードを text_layout から作って計測する全体 (レイアウト作成・トークナイズ・装飾)。
@@ -794,7 +775,7 @@ void BM_MeasureCodeChunk(benchmark::State& state, bool continuation)
     }
     for (auto _ : state) {
         NodeLayoutEntry entry;
-        benchmark::DoNotOptimize(l.measurer.MeasureNode(*node, entry, 1200.0f, YRange::All()));
+        benchmark::DoNotOptimize(l.measurer.MeasureNode(*node, entry, 1200.0f));
     }
 }
 BENCHMARK_CAPTURE(BM_MeasureCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
@@ -807,15 +788,11 @@ constexpr int kViewJumps = 30;
 // test.md x40 (約 3.4 万ノード) を開いたときの最初の画面と、続く前後 2 画面の先読み。ワーカー 8 本。
 void BM_ViewportOpen(benchmark::State& state, bool prefetch)
 {
-    auto md = RepeatTestMd(state, 40);
-    if (state.skipped()) {
+    const auto opened = OpenDoc(state, RepeatTestMd(state, 40), 8);
+    if (!opened) {
         return;
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    DWriteLayout l(8);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
+    auto& [doc, l] = *opened;
     for (auto _ : state) {
         LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
         ViewportManager viewport;
@@ -833,15 +810,11 @@ BENCHMARK_CAPTURE(BM_ViewportOpen, prefetch, true)->UseManualTime()->Iterations(
 // 開いて先読みしたあと、文書の 1/31 〜 30/31 のノードへ順にジャンプする。
 void BM_ViewportJump(benchmark::State& state)
 {
-    auto md = RepeatTestMd(state, 40);
-    if (state.skipped()) {
+    const auto opened = OpenDoc(state, RepeatTestMd(state, 40), 8);
+    if (!opened) {
         return;
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    DWriteLayout l(8);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
+    auto& [doc, l] = *opened;
     LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
     ViewportManager viewport;
     LayoutService service(l.engine, viewport);
@@ -888,17 +861,17 @@ void BM_TableSelectionHitTest(benchmark::State& state)
     for (size_t r = 0; r < 40; ++r) {
         std::format_to(std::back_inserter(md), "| 項目{0} | 状態{0} | 説明のテキスト {0} を少し長めに書く | {0} | {0}00 | 備考{0} |\n", r);
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const auto opened = OpenDoc(state, std::move(md), 0);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
     const Node* table_node = FirstTableOrSkip(state, doc);
     if (!table_node) {
         return;
     }
-    DWriteLayout l(0);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*table_node, entry, 1200.0f, YRange::All());
+    l.measurer.MeasureNode(*table_node, entry, 1200.0f);
     const auto& tl = *entry.table_layout();
     const auto& table = *table_node->table_data();
     std::vector<DWRITE_HIT_TEST_METRICS> buffer;
@@ -930,11 +903,11 @@ void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, flo
             return;
         }
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    DWriteLayout l(8);
-    if (l.SkipIfFailed(state)) {
+    const auto opened = OpenDoc(state, std::move(md), 8);
+    if (!opened) {
         return;
     }
+    auto& [doc, l] = *opened;
     LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
     ViewportManager viewport;
     LayoutService service(l.engine, viewport);
@@ -1009,6 +982,149 @@ void BM_TocFrame(benchmark::State& state)
 }
 BENCHMARK(BM_TocFrame)->Unit(benchmark::kMicrosecond);
 
+// 全マッチのハイライトを描く 1 フレーム分のコマンド生成。上限 (10000 件) までのマッチが見えるよう文書の先頭で測る。
+// step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
+void BM_SearchFrame(benchmark::State& state, std::string md, std::string_view query, float step)
+{
+    if (md.empty()) {
+        md = RepeatTestMd(state, 4);
+        if (state.skipped()) {
+            return;
+        }
+    }
+    const auto opened = OpenDoc(state, std::move(md), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
+    ViewportManager viewport;
+    LayoutService service(l.engine, viewport);
+    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+    viewport.SetScrollY(kViewHeight);
+    service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+    SearchState search;
+    RunSearchToEnd(search, doc.GetNodes(), query);
+    CommandGenerator generator;
+    InitWithoutText(generator, l.theme);
+    DrawCommandList cmds;
+    const auto generate = [&](float y) {
+        cmds.clear();
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = y, .search_matches = search.GetMatches(), .current_match_index = 0 }, 1.0f);
+    };
+    float offset = 0.0f;
+    for (auto _ : state) {
+        offset = offset + step > kViewHeight ? 0.0f : offset + step;
+        generate(offset);
+        benchmark::DoNotOptimize(cmds.data());
+    }
+    state.counters["matches"] = search.GetMatchCount();
+    state.counters["rects"] = static_cast<double>(CountCmd<FillRectCmd>(cmds, [](const FillRectCmd& c) static { return c.brush_id == BrushId::SearchHighlight || c.brush_id == BrushId::SearchHighlightCurrent; }));
+}
+// 1 段落が 15KB の unit の繰り返し。
+std::string RepeatedParagraphs(std::string_view unit)
+{
+    std::string paragraph;
+    while (paragraph.size() < 15'000) {
+        paragraph += unit;
+    }
+    std::string md;
+    for (int i = 0; i < 40; ++i) {
+        md += paragraph;
+        md += "\n\n";
+    }
+    return md;
+}
+BENCHMARK_CAPTURE(BM_SearchFrame, testmd_e_static, std::string{}, "e", 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, testmd_e_scroll, std::string{}, "e", 3.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, ja15kb_static, LongJapaneseParagraphs(), "い", 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, ja15kb_scroll, LongJapaneseParagraphs(), "い", 3.0f)->Unit(benchmark::kMicrosecond);
+// 英文の e は 1 画面に数百個ある。
+BENCHMARK_CAPTURE(BM_SearchFrame, english_e_static, RepeatedParagraphs("The quick brown fox jumps over the lazy dog while the green eagle sees every tree. "), "e", 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, english_e_scroll, RepeatedParagraphs("The quick brown fox jumps over the lazy dog while the green eagle sees every tree. "), "e", 3.0f)->Unit(benchmark::kMicrosecond);
+// 2 文字に 1 回現れる、1 文字検索でも実際の文書には無い密度の上限。
+BENCHMARK_CAPTURE(BM_SearchFrame, dense_static, RepeatedParagraphs("a "), "a", 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, dense_scroll, RepeatedParagraphs("a "), "a", 3.0f)->Unit(benchmark::kMicrosecond);
+
+// 描画先だけのデバイス。ExecuteDrawCommands の CPU 時間を実際の D2D で測る。
+struct OffscreenTarget {
+    Microsoft::WRL::ComPtr<ID2D1Factory1> factory;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d;
+    Microsoft::WRL::ComPtr<ID2D1Device> device;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> context;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+    FixedBrushArray brushes;
+
+    bool Init(const Theme& theme, UINT width, UINT height)
+    {
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
+        if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factory.GetAddressOf())) ||
+            FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr)) ||
+            FAILED(d3d.As(&dxgi)) || FAILED(factory->CreateDevice(dxgi.Get(), &device)) ||
+            FAILED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &context))) {
+            return false;
+        }
+        const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE));
+        if (FAILED(context->CreateBitmap(D2D1::SizeU(width, height), nullptr, 0, &props, &bitmap))) {
+            return false;
+        }
+        context->SetTarget(bitmap.Get());
+        for (size_t i = 0; i < brushes.size(); ++i) {
+            CreateSolidColorBrushOrFallback(context.Get(), theme.colors[i], brushes[i]);
+        }
+        return true;
+    }
+};
+
+// 長い行のコードブロックを描く 1 フレーム。折り返さないので、1 行のトークンのほとんどは横スクロールの clip の外にある。
+void BM_CodeBlockDraw(benchmark::State& state, std::string md)
+{
+    const auto opened = OpenDoc(state, std::move(md), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    OffscreenTarget target;
+    if (!target.Init(l.theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
+    ViewportManager viewport;
+    LayoutService service(l.engine, viewport);
+    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+    CommandGenerator generator;
+    InitWithoutText(generator, l.theme);
+    DrawCommandList cmds;
+    generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    InlineMathMasks math;
+    for (auto _ : state) {
+        target.context->BeginDraw();
+        target.context->Clear(l.theme.Color(BrushId::Background));
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, math);
+        target.context->EndDraw();
+    }
+    state.counters["cmds"] = static_cast<double>(cmds.size());
+}
+// lines 行、1 行が line_bytes の JSON。
+std::string JsonCodeBlock(int lines, size_t line_bytes)
+{
+    std::string md = "```json\n";
+    for (int i = 0; i < lines; ++i) {
+        for (size_t start = md.size(); md.size() - start < line_bytes;) {
+            md += "\"k\":\"v\",1,";
+        }
+        md += '\n';
+    }
+    md += "```\n";
+    return md;
+}
+BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_80, JsonCodeBlock(60, 80))->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_2kb, JsonCodeBlock(60, 2 * 1024))->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_12kb, JsonCodeBlock(60, 12 * 1024))->Unit(benchmark::kMicrosecond);
+
 // 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
 Document MakeBenchTableDoc()
 {
@@ -1046,7 +1162,7 @@ public:
 protected:
     void MeasureInitial(NodeLayoutEntry& entry)
     {
-        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, YRange::All(), 0.0f, nullptr);
+        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, nullptr);
     }
     void RestoreScreen(NodeLayoutEntry& entry, int k)
     {
@@ -1093,7 +1209,7 @@ BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
             RestoreScreen(entry, k);
         }
         entry.layout_dirty = true;
-        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, { 0.0f, 1000.0f }, 0.0f, nullptr); }));
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, nullptr); }));
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Resize)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
@@ -1131,21 +1247,21 @@ void BM_TableResizeFastPath(benchmark::State& state)
     for (size_t i = 0; i < 20000; ++i) {
         std::format_to(std::back_inserter(md), "| r{} | value {} | 東京都 | x | 12.5 |\n", i, i * 7);
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const auto opened = OpenDoc(state, std::move(md), 0);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
     const Node* table_node = FirstTableOrSkip(state, doc);
     if (!table_node) {
         return;
     }
-    DWriteLayout l(0);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*table_node, entry, 760.0f, YRange::All());
+    l.measurer.MeasureNode(*table_node, entry, 760.0f);
     constexpr std::array kWidths{ 700.0f, 760.0f };
     size_t k = 0;
     for (auto _ : state) {
-        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*table_node, entry, kWidths[k++ % kWidths.size()], YRange::All()); }));
+        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*table_node, entry, kWidths[k++ % kWidths.size()]); }));
     }
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
@@ -1227,15 +1343,11 @@ BENCHMARK_CAPTURE(BM_TableScroll, evict, true)->UseManualTime()->Iterations(100)
 // 遅延レイアウトを期限で区切ったときの、全 dirty を計測し終えるまで。budget 0 は区切らない。ワーカー 8 本。
 void BM_DirtyBatchDeadline(benchmark::State& state)
 {
-    auto md = RepeatTestMd(state, 4);
-    if (state.skipped()) {
+    const auto opened = OpenDoc(state, RepeatTestMd(state, 4), 8);
+    if (!opened) {
         return;
     }
-    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    DWriteLayout l(8);
-    if (l.SkipIfFailed(state)) {
-        return;
-    }
+    auto& [doc, l] = *opened;
     const auto budget = std::chrono::milliseconds(state.range(0));
     const auto deadline = [&] {
         return budget.count() > 0 ? std::chrono::steady_clock::now() + budget : kNoLayoutDeadline;
@@ -1401,9 +1513,8 @@ AppAction MakeReduceEvent(ReduceEvent kind, int i)
     std::unreachable();
 }
 
-// stack: App::Dispatch と同じく、副作用の一覧をイベントごとのスタックの領域から取る。
-// 外すとテストと同じく既定のリソースから確保する (allocs/event がその回数)。
-void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind, bool stack)
+// App::Dispatch と同じく、副作用の一覧をイベントごとのスタックの領域から取る。allocs/event は領域からあふれた確保の回数。
+void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind)
 {
     constexpr int kEvents = 10000;
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(200) });
@@ -1428,7 +1539,7 @@ void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind, bool stack)
         for (const auto& e : events) {
             alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
             std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
-            const auto list = h.Dispatch(e, stack ? static_cast<std::pmr::memory_resource*>(&arena) : &counter);
+            const auto list = h.Dispatch(e, &arena);
             effects += list.size();
             const auto invalidates = std::ranges::count_if(list, [](const SideEffect& se) static noexcept { return std::holds_alternative<effect::InvalidateWindow>(se); });
             duplicate_invalidates += invalidates > 1 ? static_cast<size_t>(invalidates - 1) : 0;
@@ -1442,14 +1553,10 @@ void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind, bool stack)
     state.counters["dup_invalidate/event"] = static_cast<double>(duplicate_invalidates) / total;
     state.SetItemsProcessed(state.iterations() * kEvents);
 }
-BENCHMARK_CAPTURE(BM_ReduceEvents, hover, ReduceEvent::Hover, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, hover_stack, ReduceEvent::Hover, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, hover_same, ReduceEvent::HoverSame, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, wheel, ReduceEvent::Wheel, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, wheel_stack, ReduceEvent::Wheel, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag, ReduceEvent::SelectDrag, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag_stack, ReduceEvent::SelectDrag, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag, ReduceEvent::ScrollbarDrag, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag_stack, ReduceEvent::ScrollbarDrag, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, hover, ReduceEvent::Hover)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, hover_same, ReduceEvent::HoverSame)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, wheel, ReduceEvent::Wheel)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag, ReduceEvent::SelectDrag)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag, ReduceEvent::ScrollbarDrag)->Unit(benchmark::kMicrosecond);
 
 } // namespace

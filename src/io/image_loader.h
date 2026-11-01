@@ -10,7 +10,6 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
-#include <map>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -23,8 +22,7 @@ public:
     ~ImageLoader();
 
     // デコード結果が届いたら hwnd へ msg_id を投げる (hwnd が null なら投げない)。
-    // wic が null なら false を返し、以降の RequestLoadAsync はデコードせず失敗扱いになる。
-    bool Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
+    void Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
     // デバイスロストでの差し替えでは、旧 rt のビットマップと始まっていないデコードを捨てる。
     // 始まったデコードは WIC ビットマップで rt に依らないので、新しい rt で使う。
@@ -102,7 +100,6 @@ private:
     UINT DecodeWidthPx(float width_dip) const noexcept;
     // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
     void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
-    void CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, float pixel_width, float pixel_height, UINT sharp_width_px);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;
@@ -125,7 +122,7 @@ private:
     // 結果を待っているパス -> 待つ間に要求し直されたか。要求は必ず結果を 1 回返すので、届いたら外す。
     // 文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、要求し直されたものだけ読み直させる。
     std::unordered_map<std::wstring, bool> pending_paths_;
-    std::map<std::wstring, uint32_t> failed_paths_;
+    std::unordered_map<std::wstring, uint32_t> failed_paths_;
 
     PostedInbox<DecodeResult> completed_;
 

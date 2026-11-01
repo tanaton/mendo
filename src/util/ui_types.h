@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <string>
+#include <string_view>
 #include <d2d1.h>
 #include <dwrite.h>
 
@@ -26,6 +28,20 @@ struct PopupEnv {
     float dpi_scale = 1.0f;
     ModalLoop* modal_loop = nullptr;
 };
+
+struct FileEntry {
+    std::wstring full_path;
+    bool is_current = false;
+    bool is_directory = false;
+    // ".." (親ディレクトリ) の項目。
+    bool is_parent = false;
+
+    // 戻り値は full_path の内部バッファを指す view。
+    std::wstring_view GetDisplayName() const noexcept;
+};
+
+// 列挙は SetDirectory / Refresh 後の最初の EnsureListed まで遅らせる。表示中のペインを描くときと
+// 一覧を見る操作だけが呼ぶので、ペインが非表示なら起動時やファイルを開くたびの I/O が起きない。
 
 struct DipPoint {
     float x = 0.0f;
@@ -53,10 +69,6 @@ struct PaneRect {
     float y = 0.0f;
     float width = 0.0f;
     float height = 0.0f;
-};
-
-struct ScrollState {
-    float scroll_y = 0.0f;
 };
 
 // サイドペイン (ファイル一覧・目次) の幅 (DIP、ズームを含まない)。

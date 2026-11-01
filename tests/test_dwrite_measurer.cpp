@@ -12,6 +12,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "mock_text_measurer.h"
 
 class DWriteMeasurerTest : public DWriteTestBase {};
 
@@ -71,11 +72,11 @@ TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_LT(center->GetMaxWidth(), 1.0e6f);
 
-    measurer_.MeasureNode(nodes[0], entry, 300.0f, YRange::All());
+    measurer_.MeasureNode(nodes[0], entry, 300.0f);
     EXPECT_LT(left->GetMaxWidth(), 1.0e6f) << "収まらない幅では列幅で折り返す";
     EXPECT_GT(height(left), wide_height);
 
-    measurer_.MeasureNode(nodes[0], entry, 800.0f, YRange::All());
+    measurer_.MeasureNode(nodes[0], entry, 800.0f);
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_FLOAT_EQ(height(left), wide_height);
 }
@@ -159,7 +160,7 @@ TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
 {
     auto [nodes, cache] = ParseAndLayout("a $x^2$ b");
     ASSERT_TRUE(cache[0].pending_math);
-    cache.NoteMaterialized(0, 0);
+    cache.NoteMaterialized(0, 1);
     cache.EvictTextLayouts(1, 1);
     EXPECT_EQ(cache[0].text_layout(), nullptr);
     EXPECT_FALSE(cache[0].pending_math);
@@ -694,4 +695,86 @@ TEST(InlineMathTable, FindDoesNotRequest)
     ASSERT_TRUE(table.Find(1));
     EXPECT_FLOAT_EQ(table.Find(1)->width, 10.0f);
     EXPECT_TRUE(table.TakeRequests().empty());
+}
+
+// MockTextMeasurer と DWriteTextMeasurer の不変条件を突き合わせる回帰テスト。
+// 絶対値は両者で異なる（mock はヒューリスティック、DWrite は実測）が、
+// 「どちらも正の高さを返す」「順序性を維持する」「同じスケーリング式を使う」等の
+// 共通ルールを検証することで、片方だけ仕様が変わった際の検出ポイントを残す。
+class MeasurerParityTest : public DWriteTestBase {
+protected:
+    MockTextMeasurer mock_;
+
+    void SetUp() override
+    {
+        DWriteTestBase::SetUp();
+        mock_.SetTheme(theme_);
+    }
+
+    struct Heights {
+        float mock;
+        float dwrite;
+    };
+
+    // 本番と同じく MeasureEntry 経由で計測する。
+    Heights MeasureBoth(const Node& node, float max_width)
+    {
+        NodeLayoutEntry mock_entry{};
+        NodeLayoutEntry dwrite_entry{};
+        MeasureEntry(mock_, node, mock_entry, max_width, nullptr);
+        MeasureEntry(measurer_, node, dwrite_entry, max_width, nullptr);
+        return { mock_entry.height, dwrite_entry.height };
+    }
+};
+
+// HorizontalRule: 両計測とも定数の正の高さを返すこと。
+TEST_F(MeasurerParityTest, HorizontalRuleIsPositive)
+{
+    Node node;
+    node.type = NodeType::HorizontalRule;
+    const auto h = MeasureBoth(node, 600.0f);
+    EXPECT_GT(h.mock, 0.0f);
+    EXPECT_GT(h.dwrite, 0.0f);
+}
+
+// 空の段落: マージン確保のため両計測とも正の高さを返すこと。
+TEST_F(MeasurerParityTest, EmptyParagraphIsPositive)
+{
+    Node node;
+    node.type = NodeType::Paragraph;
+    const auto h = MeasureBoth(node, 600.0f);
+    EXPECT_GT(h.mock, 0.0f);
+    EXPECT_GT(h.dwrite, 0.0f);
+}
+
+// 見出しと段落の順序性: 同じテキストに対し、両計測とも見出し > 段落 となること。
+TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
+{
+    Node para = MakeTextNode("Sample text");
+
+    Node heading = MakeTextNode("Sample text");
+    heading.type = NodeType::Heading;
+    heading.heading_level = 1;
+
+    const auto p = MeasureBoth(para, 600.0f);
+    const auto h = MeasureBoth(heading, 600.0f);
+
+    EXPECT_GT(p.mock, 0.0f);
+    EXPECT_GT(p.dwrite, 0.0f);
+    EXPECT_GT(h.mock, p.mock);
+    EXPECT_GT(h.dwrite, p.dwrite);
+}
+
+// 折り返し: 短いテキストと長いテキスト（同じ幅）で、長い方が高くなるか同じ高さであること。
+TEST_F(MeasurerParityTest, LongerTextIsNotShorter)
+{
+    Node short_node = MakeTextNode("Short");
+    Node long_node = MakeTextNode(
+        "This is a much longer paragraph that should wrap across multiple lines "
+        "at the given narrow max width, producing a taller layout result than the short one.");
+
+    const auto s = MeasureBoth(short_node, 200.0f);
+    const auto l = MeasureBoth(long_node, 200.0f);
+    EXPECT_GE(l.mock, s.mock);
+    EXPECT_GE(l.dwrite, s.dwrite);
 }

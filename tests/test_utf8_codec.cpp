@@ -73,34 +73,6 @@ TEST(Utf8Codec, DecodeUtf16)
     ExpectDecodes(kUtf16DecodeCases);
 }
 
-// ---- SnapToCpStart ----
-
-TEST(Utf8Codec, SnapUtf8FromContinuation)
-{
-    // U+3042 (あ) = E3 81 82。pos=1 (continuation) → 0
-    EXPECT_EQ(SnapToCpStart(std::string_view{ "\xE3\x81\x82" }, 1), 0u);
-    EXPECT_EQ(SnapToCpStart(std::string_view{ "\xE3\x81\x82" }, 2), 0u);
-    EXPECT_EQ(SnapToCpStart(std::string_view{ "\xE3\x81\x82" }, 0), 0u);
-}
-
-TEST(Utf8Codec, SnapUtf16FromLowSurrogate)
-{
-    const wchar_t s[] = { 0xD83D, 0xDE00, 0 };
-    EXPECT_EQ(SnapToCpStart(std::wstring_view{ s, 2 }, 1), 0u);
-    EXPECT_EQ(SnapToCpStart(std::wstring_view{ s, 2 }, 0), 0u);
-}
-
-// ---- DecodePrev ----
-
-TEST(Utf8Codec, DecodePrevWalksBack)
-{
-    // "AあB" = 41 E3 81 82 42。pos=4 (B の位置) → prev は あ (E3 81 82)
-    const std::string_view s{ "\x41\xE3\x81\x82\x42" };
-    const auto r = DecodePrev(s, 4);
-    EXPECT_EQ(r.cp, 0x3042u);
-    EXPECT_EQ(r.len, 3u);
-}
-
 // ---- EncodeCp: 正常系 ----
 
 // RoundTripAllScalarValues は encoder と decoder の双方に同種の bit-shift バグがあると

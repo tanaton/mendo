@@ -2,7 +2,6 @@
 #include "theme_palette.h"
 #include "i18n.h"
 #include <cassert>
-#include <span>
 
 namespace {
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
@@ -33,14 +32,6 @@ constexpr float Theme::* kScalableThemeFields[]{
 };
 } // namespace
 
-float Theme::GetHeadingSize(int level) const noexcept
-{
-    if (level < 1 || level > 6) {
-        return font_size_body;
-    }
-    return font_size_h[level - 1];
-}
-
 void Theme::ApplyZoom(float new_zoom) noexcept
 {
     assert(zoom == 1.0f && new_zoom > 0.0f);
@@ -55,6 +46,8 @@ void Theme::ApplyZoom(float new_zoom) noexcept
 
 namespace {
 constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
+constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
+constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
 
 void SetColor(Theme& t, BrushId id, D2D1_COLOR_F color) noexcept
 {
@@ -147,11 +140,12 @@ struct ThemeColor {
     D2D1_COLOR_F dark;
 };
 
-// D2D1::ColorF は constexpr でないので、初めて使うときに作る。
-std::span<const ThemeColor> ThemeColors()
+Theme BuildTheme(bool dark)
 {
+    Theme t{};
+    t.dark = dark;
     using D2D1::ColorF;
-    static const ThemeColor kColors[]{
+    const ThemeColor colors[]{
         { BrushId::Background, ColorF(0xFFFFFF), ColorF(0x1e1e1e) },
         // GitHub のインラインコード背景 (ライトは rgba(129,139,152,0.12)、ダークは rgba(101,108,118,0.2)) を背景色に重ねた色。
         { BrushId::InlineCodeBg, ColorF(0xf0f1f2), ColorF(0x2c2e30) },
@@ -197,14 +191,7 @@ std::span<const ThemeColor> ThemeColors()
         // ジェスチャー/トーストの背景パネル。ダークは灰色、ライトは黒を alpha で塗る。
         { BrushId::OverlayGestureBg, ColorF(ColorF::Black), ColorF(0.2f, 0.2f, 0.2f) },
     };
-    return kColors;
-}
-
-Theme BuildTheme(bool dark)
-{
-    Theme t{};
-    t.dark = dark;
-    for (const auto& c : ThemeColors()) {
+    for (const auto& c : colors) {
         SetColor(t, c.id, dark ? c.dark : c.light);
     }
     ApplySharedColors(t, dark ? theme_palette::kDark : theme_palette::kLight);

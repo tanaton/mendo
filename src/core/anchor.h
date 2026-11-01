@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -25,10 +24,10 @@ public:
     // anchor (ASCII 小文字) を付けた見出しのノード番号。登録済みの見出しに無ければ -1。
     int Find(std::string_view anchor) const;
 
-    // 登録済みの見出し数。続きから登録するときの開始位置になる。
+    // 登録済みの見出し数 (見出し 1 つにつきスラグを 1 つ登録する)。続きから登録するときの開始位置になる。
     size_t heading_count() const noexcept
     {
-        return heading_count_;
+        return entries_.size();
     }
 
     // 合計 n 件の見出しを登録するまで再ハッシュしないようにする。
@@ -44,11 +43,8 @@ private:
         int counter = 0;
     };
 
-    // 要素は索引ごと破棄するまで消さないので、キー文字列と要素を 1 件ずつヒープに確保せず arena に積む。
-    std::pmr::monotonic_buffer_resource arena_;
     // 採用した連番付きスラグも登録し、同じ文字列の見出しが後に来たら衝突として扱う。
-    std::pmr::unordered_map<std::pmr::string, Entry, StringTransparentHash, std::equal_to<>> entries_{ &arena_ };
-    size_t heading_count_ = 0;
+    std::unordered_map<std::string, Entry, StringTransparentHash, std::equal_to<>> entries_;
 };
 
 // 脚注参照の位置。id は脚注番号、ref_id は同じ脚注への何回目の参照か (どちらも 1 始まり)。

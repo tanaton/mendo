@@ -19,11 +19,14 @@ std::string Serialize(const IniData& data);
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {
 public:
-    ConfigService() noexcept = default;
+    ConfigService();
 
-    void SetConfigDirOverride(const std::filesystem::path& dir);
-    const std::filesystem::path& GetConfigDir() const;
-    // filename は固定の名前だけを渡す (検証しない)。設定ディレクトリが無ければ空。
+    void SetConfigDir(const std::filesystem::path& dir);
+    const std::filesystem::path& GetConfigDir() const noexcept
+    {
+        return config_dir_;
+    }
+    // filename は固定の名前だけを渡す (検証しない)。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
     void Load();
@@ -46,12 +49,7 @@ private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
     void StoreValue(std::string_view section, std::string_view key, std::string value);
 
-    // LocalAppData 配下の設定ディレクトリをプロセス全体で 1 回だけ resolve する。
-    // 関数ローカル static (magic static) は C++11 以降 thread-safe な lazy init を保証するため、
-    // 別スレッド (並列計測 worker 等) から GetConfigDir() を呼んでも安全。
-    static const std::filesystem::path& DefaultConfigDir();
-
-    std::filesystem::path config_dir_override_;
+    std::filesystem::path config_dir_;
     ini::IniData data_;
     bool dirty_ = false;
 };

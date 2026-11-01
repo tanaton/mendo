@@ -95,11 +95,11 @@ std::optional<Box> Extent(const DrawCommand& cmd)
         return Box{ kind, std::min(c->p0.x, c->p1.x) - hx, std::min(c->p0.y, c->p1.y) - hy, std::max(c->p0.x, c->p1.x) + hx, std::max(c->p0.y, c->p1.y) + hy };
     }
     if (const auto* c = std::get_if<FillEllipseCmd>(&cmd)) {
-        return Box{ kind, c->center.x - c->rx, c->center.y - c->ry, c->center.x + c->rx, c->center.y + c->ry };
+        return Box{ kind, c->center.x - c->radius, c->center.y - c->radius, c->center.x + c->radius, c->center.y + c->radius };
     }
     if (const auto* c = std::get_if<DrawEllipseCmd>(&cmd)) {
         const float h = c->stroke_width * 0.5f;
-        return Box{ kind, c->center.x - c->rx - h, c->center.y - c->ry - h, c->center.x + c->rx + h, c->center.y + c->ry + h };
+        return Box{ kind, c->center.x - c->radius - h, c->center.y - c->radius - h, c->center.x + c->radius + h, c->center.y + c->radius + h };
     }
     if (const auto* c = std::get_if<DrawTextLayoutCmd>(&cmd)) {
         DWRITE_TEXT_METRICS m{};
@@ -330,6 +330,23 @@ TEST_F(CullingParityTest, TallLayoutRequestsRunCullingWithPaneLocalRange)
     EXPECT_EQ(layouts[1].cull_top, 0.0f);
     EXPECT_EQ(layouts[1].cull_bottom, PANE_H);
     EXPECT_EQ(PaneOriginY(cmds), PANE_Y);
+}
+
+// コードブロックの本文は、横スクロールの clip に映る範囲 (スクロール量だけ右へずれる) の外のグリフを飛ばさせる。
+TEST_F(CullingParityTest, CodeBlockRequestsHorizontalCullingWithScrollOffset)
+{
+    const auto pl = ParseAndLayout(std::format("```\n{}\n```\n", std::string(400, 'x')), PANE_W);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
+    ASSERT_GE(idx, 0);
+    const auto geom = GetBlockHScrollGeometry(pl.nodes, pl.cache, static_cast<size_t>(idx), theme_, PANE_W);
+    ASSERT_TRUE(geom.can_scroll());
+    constexpr float kScrollX = 120.0f;
+    std::unordered_map<int, float> scroll_map{ { geom.scroll_key, kScrollX } };
+    const auto text = FindFirst<DrawTextLayoutCmd>(Generate(pl, 0.0f, PANE_H, BlockHScrollContext{ .scroll_x = &scroll_map }));
+    ASSERT_TRUE(text.has_value());
+    const float block_left = layout::NodeBlockX(pl.nodes[idx], theme_);
+    EXPECT_FLOAT_EQ(text->cull_left, block_left + kScrollX);
+    EXPECT_FLOAT_EQ(text->cull_right, block_left + geom.visible_width + kScrollX);
 }
 
 // タイトルバー分 (md_rect.y) 下にずれたペインでも、クリップ (ウィンドウ座標) に映るノードはすべて描く。

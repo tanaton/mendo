@@ -1,9 +1,10 @@
 #pragma once
-#include "app.h"
+#include "ui_types.h"
 #include <windows.h>
 #include <memory>
 #include <optional>
 
+class App;
 class ConfigService;
 
 class Win32Window final : public ModalLoop {
@@ -56,7 +57,6 @@ private:
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 
-    void UpdateDpiMetricsCache();
     void AwaitInitialParseBeforeDevice();
     // 起動時の、デバイスに依存しない通知を最初のフレームより前に取り込む。デバイスの作成を待つ前に呼ぶと、
     // ファイルペインの一覧の行の文字レイアウト (CreateRenderDevice の PrepareChrome) と、ディスクキャッシュにある
@@ -67,11 +67,6 @@ private:
     HWND search_edit_ = nullptr;
     bool tracking_mouse_ = false; // TME_LEAVE は WM_MOUSELEAVE を 1 回送ると解除されるので、再登録の要否を覚える
     bool was_minimized_ = false;  // 直前が最小化状態だったかのフラグ（復元時の同期描画ガード用）
-
-    // WM_DPICHANGED 時に更新。
-    int cached_nchit_border_ = 4;
-    int cached_nchit_frame_y_ = 8;
-    int cached_nchit_right_border_ = 8;
 
     ConfigService& config_;
     std::unique_ptr<App> app_;

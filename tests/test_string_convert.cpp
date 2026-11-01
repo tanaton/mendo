@@ -55,11 +55,6 @@ TEST(StringConvert, ConvertsBothDirections)
         SCOPED_TRACE(::testing::PrintToString(c.utf8));
         EXPECT_EQ(Utf8ToWide(c.utf8), c.wide);
         EXPECT_EQ(WideToUtf8(c.wide), c.utf8);
-
-        // 出力引数版は既存内容を上書きする
-        std::wstring wide_out = L"old";
-        Utf8ToWide(c.utf8, wide_out);
-        EXPECT_EQ(wide_out, c.wide);
     }
 }
 

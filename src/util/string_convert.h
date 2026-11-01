@@ -7,17 +7,12 @@
 
 namespace string_convert {
 
-inline void Utf8ToWide(std::string_view utf8, std::wstring& out)
+inline std::wstring Utf8ToWide(std::string_view utf8)
 {
     MENDO_PROFILE("Utf8ToWide");
+    std::wstring out;
     if (utf8.empty()) {
-        out.clear();
-        return;
-    }
-    // Windows API の cb*Char は int なので int の最大値を超える入力は拒否する
-    if (utf8.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        out.clear();
-        return;
+        return out;
     }
     // wchar 数 <= UTF-8 byte 数 が常に成立するため、上限確保で API 1 回呼び出し
     out.resize_and_overwrite(utf8.size(), [utf8](wchar_t* buf, size_t count) -> size_t {
@@ -25,13 +20,7 @@ inline void Utf8ToWide(std::string_view utf8, std::wstring& out)
         return n > 0 ? static_cast<size_t>(n) : 0;
     });
     MENDO_STATF("Utf8ToWide(utf8): utf8={} wide.size={} wide.cap={}", utf8.size(), out.size(), out.capacity());
-}
-
-inline std::wstring Utf8ToWide(std::string_view utf8)
-{
-    std::wstring result;
-    Utf8ToWide(utf8, result);
-    return result;
+    return out;
 }
 
 inline std::string WideToUtf8(std::wstring_view wide)

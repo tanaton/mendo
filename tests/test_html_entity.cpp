@@ -10,10 +10,10 @@ std::optional<std::string> Resolve(std::string_view entity)
 {
     char buf[4];
     const auto view = ResolveHtmlEntity(entity, buf);
-    if (!view) {
+    if (view.data() == entity.data()) {
         return std::nullopt;
     }
-    return std::string{ *view };
+    return std::string{ view };
 }
 
 } // namespace
@@ -41,13 +41,42 @@ TEST(HtmlEntity, NamedHtml5)
     EXPECT_EQ(Resolve("&NotEqualTilde;"), "≂̸");
 }
 
-TEST(HtmlEntity, RejectsUnknownNamed)
+TEST(HtmlEntity, RejectsInvalidReferences)
 {
-    EXPECT_EQ(Resolve("&unknownentity;"), std::nullopt);
-    EXPECT_EQ(Resolve("&COPY2;"), std::nullopt);
-    // 名前は大文字小文字を区別する
-    EXPECT_EQ(Resolve("&Mdash;"), std::nullopt);
-    EXPECT_EQ(Resolve("&copy"), std::nullopt);
+    constexpr std::string_view kCases[] = {
+        "&unknownentity;",
+        "&COPY2;",
+        // 名前は大文字小文字を区別する
+        "&Mdash;",
+        "&copy",
+        // 二分探索の境界: 前方一致・後方延長・表の両端の外側
+        "&AEli;",
+        "&zwnjx;",
+        "&am;",
+        "&AAA;",
+        "&zzzz;",
+        // サロゲート (U+D800-U+DFFF) は単独では文字にならない
+        "&#xD800;",
+        "&#xDBFF;",
+        "&#xDC00;",
+        "&#xDFFF;",
+        "&#0;",
+        "&#x0;",
+        "&#x110000;",
+        "&#x7FFFFFFF;",
+        // 32 bit 整数に収まらない数は wrap (例: 4294967297 → 1) せずに弾く。
+        "&#4294967296;", // 2^32 (10 桁、wrap で 0)
+        "&#4294967297;", // 2^32 + 1 (10 桁、wrap で 1)
+        "&#x100000000;", // 2^32 (9 桁 hex、wrap で 0)
+        "&#x100000001;", // 2^32 + 1 (9 桁 hex、wrap で 1)
+        "&unknown;",
+        "&#xZZ;",
+        "&#;",
+        "",
+    };
+    for (const std::string_view entity : kCases) {
+        EXPECT_EQ(Resolve(entity), std::nullopt) << entity;
+    }
 }
 
 // 表は生成物で、utf8_len や 16 進エスケープのずれは整列の static_assert では捕まらない。
@@ -73,16 +102,6 @@ TEST(HtmlEntity, GeneratedTableIsContiguousAndRoundTrips)
     }
 }
 
-// 二分探索の境界: 前方一致・後方延長・表の両端の外側
-TEST(HtmlEntity, RejectsNearMissNames)
-{
-    EXPECT_EQ(Resolve("&AEli;"), std::nullopt);
-    EXPECT_EQ(Resolve("&zwnjx;"), std::nullopt);
-    EXPECT_EQ(Resolve("&am;"), std::nullopt);
-    EXPECT_EQ(Resolve("&AAA;"), std::nullopt);
-    EXPECT_EQ(Resolve("&zzzz;"), std::nullopt);
-}
-
 TEST(HtmlEntity, NumericDecimal)
 {
     EXPECT_EQ(Resolve("&#65;"), "A");
@@ -98,42 +117,4 @@ TEST(HtmlEntity, NumericHex)
     EXPECT_EQ(Resolve("&#xFFFF;"), "\xEF\xBF\xBF");
     // 追加面 (U+1F600) は UTF-8 の 4 byte
     EXPECT_EQ(Resolve("&#x1F600;"), "\xF0\x9F\x98\x80");
-}
-
-// サロゲート (U+D800-U+DFFF) は単独では文字にならない
-TEST(HtmlEntity, RejectsSurrogates)
-{
-    EXPECT_EQ(Resolve("&#xD800;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#xDBFF;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#xDC00;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#xDFFF;"), std::nullopt);
-}
-
-TEST(HtmlEntity, RejectsZero)
-{
-    EXPECT_EQ(Resolve("&#0;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#x0;"), std::nullopt);
-}
-
-TEST(HtmlEntity, RejectsOutOfRange)
-{
-    EXPECT_EQ(Resolve("&#x110000;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#x7FFFFFFF;"), std::nullopt);
-}
-
-TEST(HtmlEntity, RejectsDigitOverflow)
-{
-    // 32 bit 整数の wrap (例: 4294967297 → 1) を桁数で先に弾く。
-    EXPECT_EQ(Resolve("&#4294967296;"), std::nullopt); // 2^32 (10 桁、wrap で 0)
-    EXPECT_EQ(Resolve("&#4294967297;"), std::nullopt); // 2^32 + 1 (10 桁、wrap で 1)
-    EXPECT_EQ(Resolve("&#x100000000;"), std::nullopt); // 2^32 (9 桁 hex、wrap で 0)
-    EXPECT_EQ(Resolve("&#x100000001;"), std::nullopt); // 2^32 + 1 (9 桁 hex、wrap で 1)
-}
-
-TEST(HtmlEntity, RejectsMalformed)
-{
-    EXPECT_EQ(Resolve("&unknown;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#xZZ;"), std::nullopt);
-    EXPECT_EQ(Resolve("&#;"), std::nullopt);
-    EXPECT_EQ(Resolve(""), std::nullopt);
 }

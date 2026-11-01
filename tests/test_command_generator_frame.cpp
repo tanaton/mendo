@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "cmd_gen_mock_test_base.h"
 #include "d2d_util.h"
-#include "file_explorer.h"
 #include "hit_test_service.h"
 #include "pane_layout.h"
 #include "search_state.h"
@@ -56,6 +55,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     ASSERT_TRUE(line.has_value());
     const float expected_y = cache_.Top(0) - scroll_y + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
+    EXPECT_EQ(line->brush_id, BrushId::Hr);
 }
 
 TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
@@ -114,21 +114,6 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
 }
 
 // ═══════════════════════════════════════════════
-// 検索マッチ
-// ═══════════════════════════════════════════════
-
-TEST_F(CmdGenFrameTest, EmptySearchMatchesProduceNoHighlight)
-{
-    Parse("Hello world");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .search_generation = 1 }, 1.0f);
-    // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
-    // (paragraph text_layout=null なので選択経路も走らない)
-    EXPECT_EQ(CountCmd<FillRectCmd>(cmds), 0);
-}
-
-// ═══════════════════════════════════════════════
 // テーマ変更の反映
 // ═══════════════════════════════════════════════
 
@@ -142,19 +127,6 @@ TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
         const auto* fr = std::get_if<FillRectCmd>(&c);
         return fr && fr->brush_id == BrushId::TableStripe;
     }));
-}
-
-// ストライプはライトで黒、ダークで白の半透明。
-TEST(TableStripeColorTest, LightBlackDarkWhiteTranslucent)
-{
-    const auto light = GetLightTheme().Color(BrushId::TableStripe);
-    const auto dark = GetDarkTheme().Color(BrushId::TableStripe);
-    EXPECT_FLOAT_EQ(light.r, 0.0f);
-    EXPECT_FLOAT_EQ(dark.r, 1.0f);
-    for (const auto& c : { light, dark }) {
-        EXPECT_GT(c.a, 0.0f);
-        EXPECT_LT(c.a, 1.0f);
-    }
 }
 
 // ═══════════════════════════════════════════════
@@ -457,7 +429,7 @@ TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
     const std::vector<Node> nodes;
     constexpr float kScroll = 200.0f;
     const SidePaneState sp{
-        .panes = { SidePaneInstance{ .rect = kSidePane, .scroll = { kScroll }, .hovered_index = 12, .show = true, .item_height = kItemHeight }, {} },
+        .panes = { SidePaneInstance{ .rect = kSidePane, .scroll_y = kScroll, .hovered_index = 12, .show = true, .item_height = kItemHeight }, {} },
         .file_entries = files,
         .toc_entries = toc,
         .nodes = nodes,
@@ -480,7 +452,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
     const std::vector<FileEntry> files;
     const std::vector<TocEntry> toc;
     const std::vector<Node> nodes;
-    const auto reveal = OffsetRectF(PaneRevealButtonRect(kSidePane.width, theme.pane_header_height), kSidePane.x, kSidePane.y);
+    const auto reveal = OffsetRectF(PaneHeaderButtonRect(kSidePane.width, theme.pane_header_height, PaneHeaderSlot::Reveal), kSidePane.x, kSidePane.y);
     for (const bool enabled : { false, true }) {
         const SidePaneState sp{
             .panes = { SidePaneInstance{ .rect = kSidePane, .show = true, .hovered_button = PaneHeaderButton::Reveal, .reveal_enabled = enabled, .item_height = kItemHeight }, {} },

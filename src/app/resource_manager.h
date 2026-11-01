@@ -21,7 +21,7 @@ public:
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;
     // 画像・図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
-    virtual void RecomputeLayout(layout::HeightChangeRange changed) = 0;
+    virtual void RecomputeLayout(IndexRange changed) = 0;
 
 protected:
     ~ResourceManagerHost() = default;
@@ -44,21 +44,16 @@ public:
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
     // 渡すものはどれも ResourceManager より長生きする。
-    constexpr void Init(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache, ResourceManagerHost& host) noexcept
-    {
-        state_ = &state;
-        image_loader_ = &image_loader;
-        mermaid_ = &mermaid;
-        mermaid_file_cache_ = &mermaid_file_cache;
-        host_ = &host;
-    }
+    ResourceManager(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache, ResourceManagerHost& host) noexcept
+        : state_(state), image_loader_(image_loader), mermaid_(mermaid), mermaid_file_cache_(mermaid_file_cache), host_(host)
+    {}
 
     // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。高さを変えたら true。
     // 読み込みは後続の RelayoutViewport (FlushPendingResources) が起動する。
-    bool ApplyCachedImagesForReload(VisibleRange range);
+    bool ApplyCachedImagesForReload(IndexRange range);
     // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
     // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
-    bool ApplyMermaidCacheHeightsForReload(VisibleRange range);
+    bool ApplyMermaidCacheHeightsForReload(IndexRange range);
     void LoadImages();
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
     void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
@@ -74,26 +69,26 @@ public:
 private:
     // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは changed に積む。
     // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
-    void ApplyCachedImages(layout::HeightChangeRange& changed);
+    void ApplyCachedImages(IndexRange& changed);
     // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。高さを変えたノードは changed に積む。
-    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed);
-    void RequestVisibleDiagrams(layout::HeightChangeRange& changed);
-    void RequestDiagramRender(size_t i, float content_width, bool dark_mode, layout::HeightChangeRange& changed);
+    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, IndexRange& changed);
+    void RequestVisibleDiagrams(IndexRange& changed);
+    void RequestDiagramRender(size_t i, float content_width, bool dark_mode, IndexRange& changed);
     // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
-    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed);
+    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, IndexRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
     const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
     void DropQueuesIfJumped();
     // changed が空でなければ、その範囲で再レイアウトさせる。Y の再計算を変わった範囲に限定する。
-    void RecomputeChangedHeights(const layout::HeightChangeRange& changed);
+    void RecomputeChangedHeights(const IndexRange& changed);
 
     struct BufferedRange {
         float viewport_top;
         float viewport_bottom;
         YRange keep;
-        VisibleRange range;
+        IndexRange range;
     };
     // 可視範囲 ± viewport_height * screens に交差するノード範囲。viewport_height <= 0 (初期化中等) は範囲が決まらない。
     std::optional<BufferedRange> ComputeBufferedRange(float screens);
@@ -103,11 +98,11 @@ private:
     std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices, float screens);
     void InvalidateMermaidForWidthChange(float content_width);
 
-    AppState* state_ = nullptr;
-    ImageLoader* image_loader_ = nullptr;
-    IMermaidRenderer* mermaid_ = nullptr;
-    MermaidFileCache* mermaid_file_cache_ = nullptr;
-    ResourceManagerHost* host_ = nullptr;
+    AppState& state_;
+    ImageLoader& image_loader_;
+    IMermaidRenderer& mermaid_;
+    MermaidFileCache& mermaid_file_cache_;
+    ResourceManagerHost& host_;
 
     float last_mermaid_content_width_ = 0.0f;
     float last_request_scroll_ = 0.0f;

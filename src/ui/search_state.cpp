@@ -89,7 +89,6 @@ bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::st
     std::swap(matched_, active_);
     completed_ = !truncated;
     has_result_ = true;
-    BumpGeneration();
     return true;
 }
 
@@ -121,7 +120,6 @@ void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcep
     has_result_ = has_result_ && !(matches_.empty() && removed > 0);
     // 変わった範囲のマッチが抜けているので、伸ばしたクエリの絞り込みには使えない。
     completed_ = false;
-    BumpGeneration();
 }
 
 size_t SearchState::FindTextMatches(std::string_view text, std::string_view next, size_t from, std::string_view query, bool fold, int node_index)
@@ -176,9 +174,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     if (col_count == 0 || starts.size() < 2) {
         return;
     }
-    // SearchMatch::table_row は int。INT_MAX 行を超えるセルは対象外にする (実用上存在しない)。
-    const size_t row_limit = std::min<size_t>(tbl.row_count, std::numeric_limits<int>::max());
-    const size_t cell_limit = std::min(row_limit * col_count, starts.size() - 1);
+    const size_t cell_limit = std::min(tbl.row_count * col_count, starts.size() - 1);
     const uint32_t query_len = static_cast<uint32_t>(query.size());
 
     size_t cursor_cell = std::numeric_limits<size_t>::max();

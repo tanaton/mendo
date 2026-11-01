@@ -3,7 +3,9 @@
 // cmd_gen_mock_test_base.h (MockLayoutTestBase を引き込む) から分けてある。
 #include "command_generator.h"
 #include "draw_command.h"
+#include "search_state.h"
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <variant>
@@ -71,4 +73,11 @@ inline void InitWithoutText(CommandGenerator& gen, const Theme& theme)
 {
     static const MdPaneFormats formats{};
     gen.Init(theme, formats, NoTextLayouts());
+}
+
+// 検索を区切らずに最後まで進める。
+inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
+{
+    s.BeginSearch(query);
+    s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
 }

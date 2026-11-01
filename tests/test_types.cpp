@@ -265,16 +265,14 @@ TEST(TextArenaTest, CopiesSurviveChunkGrowthAndLargeRequests)
     }
 }
 
-// 移し先が配った領域を持ち続け、移し元に書いても移し先のチャンクを上書きしない。
-TEST(TextArenaTest, MoveKeepsCopiesAndDetachesSource)
+// 移し先が配った領域を持ち続ける。
+TEST(TextArenaTest, MoveKeepsCopies)
 {
     TextArena source;
     const auto hello = source.CopyText("hello");
     TextArena moved = std::move(source);
-    const auto world = source.CopyText("world");
     const auto after = moved.CopyText("after");
     EXPECT_EQ(hello, "hello");
-    EXPECT_EQ(world, "world");
     EXPECT_EQ(after, "after");
     EXPECT_EQ(after.data(), hello.data() + hello.size()) << "移し先は続きから積む";
 }

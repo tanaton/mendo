@@ -37,13 +37,10 @@ Node MakeTableNode()
     return n;
 }
 
-NodeLayoutEntry MakeEntry(float height = 10.0f, bool measured = false)
+NodeLayoutEntry MakeEntry(float height)
 {
     NodeLayoutEntry e;
     e.height = height;
-    if (measured) {
-        e.cached_width = 100.0f;
-    }
     return e;
 }
 

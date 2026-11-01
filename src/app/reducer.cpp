@@ -16,6 +16,13 @@
 
 namespace {
 
+// キーボードスクロール量（DIP）
+constexpr float SCROLL_LINE_AMOUNT = 40.0f;
+constexpr float SCROLL_PAGE_FACTOR = 0.9f;
+// 横ホイール 1 ノッチあたりの DIP スクロール量。
+// Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
+constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
+
 NavEntry CurrentNavEntry(const AppState& state)
 {
     const ScrollTarget t = SnapshotVisibleTarget(state);
@@ -92,7 +99,7 @@ void SyncActiveTocIndex(AppState& state)
     // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
     const auto ctx = GetSidePaneContext(state, PaneTarget::Toc);
     if (ctx.info.content_height > 0.0f) {
-        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), ctx.item_height, ctx.info);
+        ctx.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), ctx.item_height, ctx.info);
     }
 }
 
@@ -124,24 +131,34 @@ float MdMaxScroll(const AppState& state) noexcept
 
 namespace {
 
+// Reduce の呼び出し 1 回の文脈。アクションごとの処理 On はどれもこれを受ける。
+struct ReduceContext {
+    AppState& state;
+    SideEffectList& effects;
+    NodeLayoutAccess& layout;
+    // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
+    // 直後の App::RelayoutViewport が計測してから描き直させる。
+    bool emit_scroll_effects = true;
+};
+
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
-void ClearTooltip(AppState& state, SideEffectList& effects)
+void ClearTooltip(ReduceContext& c)
 {
-    if (std::exchange(state.interaction.tooltip, {}).IsEmpty()) {
+    if (std::exchange(c.state.interaction.tooltip, {}).IsEmpty()) {
         return;
     }
-    PushEffect(effects, effect::SetTooltip{});
+    PushEffect(c.effects, effect::SetTooltip{});
 }
 
 // スクロール位置が変わった時の副作用列。Reduce が前後の scroll_y を比べて 1 回だけ積む。
 // 目次のアクティブ見出しは描画時に SyncActiveTocIndex が決め直す。
-void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
+void EmitScrollChangedSideEffects(ReduceContext& c)
 {
-    ClearTooltip(state, effects);
-    PushEffect(effects, effect::InvalidateWindow{});
+    ClearTooltip(c);
+    PushEffect(c.effects, effect::InvalidateWindow{});
     // ライブリサイズ中に上限へ収めても図や画像を取りに行かない。幅が決まるのはサイズ変更の終わり。
-    if (!state.window.is_sizing) {
-        PushEffect(effects, effect::BitmapManage{});
+    if (!c.state.window.is_sizing) {
+        PushEffect(c.effects, effect::BitmapManage{});
     }
 }
 
@@ -171,10 +188,10 @@ bool SetBlockScrollX(AppState& state, float new_value, const BlockHScrollGeometr
     return true;
 }
 
-void ReduceKeyScroll(AppState& state, const KeyScrollAction& a)
+void On(ReduceContext& c, const KeyScrollAction& a)
 {
-    auto& viewport = state.view.viewport;
-    const auto info = MdScrollInfo(state, ComputePaneLayout(state));
+    auto& viewport = c.state.view.viewport;
+    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
     const float page_size = info.content_height;
     const float max_scroll = info.max_scroll;
     switch (a.type) {
@@ -205,72 +222,72 @@ void ReduceKeyScroll(AppState& state, const KeyScrollAction& a)
 
 // 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
 // スワイプとして誤検出されないようにする。
-void NotifyVWheel(AppState& state, SideEffectList& effects, uint64_t tick)
+void NotifyVWheel(ReduceContext& c, uint64_t tick)
 {
-    auto& swipe = state.interaction.swipe_detector;
+    auto& swipe = c.state.interaction.swipe_detector;
     const bool had_overlay = swipe.IsOverlayVisible();
     swipe.NotifyVScroll(tick);
     if (had_overlay) {
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceWheelScroll(AppState& state, SideEffectList& effects, const MouseWheelAction& a)
+void ReduceWheelScroll(ReduceContext& c, const MouseWheelAction& a)
 {
-    NotifyVWheel(state, effects, a.tick);
+    NotifyVWheel(c, a.tick);
     const float amount = -static_cast<float>(a.delta) * MOUSE_WHEEL_SCROLL_MULTIPLIER;
     const auto pane = ToPaneTarget(a.zone);
     if (!pane) {
-        state.view.viewport.DirectScrollBy(amount, MdMaxScroll(state));
+        c.state.view.viewport.DirectScrollBy(amount, MdMaxScroll(c.state));
         return;
     }
-    const auto ctx = GetSidePaneContext(state, *pane);
-    if (state.view.panes.ScrollSidePaneBy(*pane, amount, ctx.info.max_scroll)) {
-        PushEffect(effects, effect::InvalidateWindow{});
+    const auto ctx = GetSidePaneContext(c.state, *pane);
+    if (c.state.view.panes.ScrollSidePaneBy(*pane, amount, ctx.info.max_scroll)) {
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
+void On(ReduceContext& c, const HWheelAction& a)
 {
     // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
-    const int drag_node = state.view.HDragNode();
-    const int target = (drag_node >= 0) ? drag_node : state.view.hover.h_block;
+    const int drag_node = c.state.view.HDragNode();
+    const int target = (drag_node >= 0) ? drag_node : c.state.view.hover.h_block;
     if (target >= 0) {
-        const auto geom = ResolveBlockHScrollGeometry(state, target);
+        const auto geom = ResolveBlockHScrollGeometry(c.state, target);
         if (!geom.can_scroll()) {
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (SetBlockScrollX(state, state.view.GetBlockScrollX(geom) + dx, geom)) {
-            PushEffect(effects, effect::InvalidateWindow{});
+        if (SetBlockScrollX(c.state, c.state.view.GetBlockScrollX(geom) + dx, geom)) {
+            PushEffect(c.effects, effect::InvalidateWindow{});
         }
         return;
     }
 
-    auto& swipe = state.interaction.swipe_detector;
+    auto& swipe = c.state.interaction.swipe_detector;
     const auto old_direction = swipe.GetOverlayDirection();
     swipe.OnHWheel(a.delta, a.tick);
-    PushEffect(effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
+    PushEffect(c.effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (old_direction != swipe.GetOverlayDirection()) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
+void On(ReduceContext& c, const BlockHScrollDragStartedAction& a)
 {
-    const auto geom = ResolveBlockHScrollGeometry(state, a.node_index);
+    const auto geom = ResolveBlockHScrollGeometry(c.state, a.node_index);
     if (!geom.can_scroll()) {
         return;
     }
-    state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(geom) };
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = c.state.view.GetBlockScrollX(geom) };
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void MoveBlockHScrollDrag(AppState& state, SideEffectList& effects, float dip_x)
+void MoveBlockHScrollDrag(ReduceContext& c, float dip_x)
 {
-    auto& sv = state.view;
-    const auto geom = ResolveBlockHScrollGeometry(state, sv.drag.block_node);
+    auto& sv = c.state.view;
+    const auto geom = ResolveBlockHScrollGeometry(c.state, sv.drag.block_node);
     if (!geom.can_scroll()) {
         return;
     }
@@ -281,99 +298,96 @@ void MoveBlockHScrollDrag(AppState& state, SideEffectList& effects, float dip_x)
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (SetBlockScrollX(state, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
-        PushEffect(effects, effect::InvalidateWindow{});
+    if (SetBlockScrollX(c.state, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
+void ApplyNavResult(ReduceContext& c, NavEntry&& entry)
 {
-    if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, state.document.doc.GetFilePath())) {
-        state.view.pending_restore = { entry.node, entry.offset };
-        PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
+    if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, c.state.document.doc.GetFilePath())) {
+        c.state.view.pending_restore = { entry.node, entry.offset };
+        PushEffect(c.effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
         // 戻る/進むを続けて表示中の文書へ戻ったとき、途中で開き始めたファイルが後から表示されないようにする。
-        PushEffect(effects, effect::CancelOtherFileLoad{});
+        PushEffect(c.effects, effect::CancelOtherFileLoad{});
         // 取り消すファイル用の復元位置なので、次に開くファイルへ持ち越さない。
-        state.view.pending_restore = {};
+        c.state.view.pending_restore = {};
         // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
-        state.view.nav_history.CommitPending();
-        ApplyScrollTarget(state, entry.node, entry.offset);
+        c.state.view.nav_history.CommitPending();
+        ApplyScrollTarget(c.state, entry.node, entry.offset);
     }
 }
 
-void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
+void On(ReduceContext& c, const NavigateHistoryAction& a)
 {
-    auto& history = state.view.nav_history;
+    auto& history = c.state.view.nav_history;
     NavEntry out;
-    const bool moved = forward ? history.GoForward(CurrentNavEntry(state), out) : history.GoBack(CurrentNavEntry(state), out);
+    const bool moved = a.forward ? history.GoForward(CurrentNavEntry(c.state), out) : history.GoBack(CurrentNavEntry(c.state), out);
     if (moved) {
-        ApplyNavResult(state, effects, std::move(out));
+        ApplyNavResult(c, std::move(out));
     }
 }
 
 // 現在位置を履歴に積んでから別ファイルを開く。
-void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::wstring& path)
+void On(ReduceContext& c, const OpenPathAction& a)
 {
-    PushCurrentNavEntry(state, path);
-    PushEffect(effects, effect::LoadFile{ path });
+    PushCurrentNavEntry(c.state, a.path);
+    PushEffect(c.effects, effect::LoadFile{ a.path });
 }
 
 void ScrollToHeading(AppState& state, int node_index)
 {
-    if (node_index < 0) {
-        return;
-    }
     const auto target = MakeHeadingTopTarget(node_index, state.theme->heading_spacing_above);
     ApplyScrollTarget(state, target.node, target.offset);
 }
 
-void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
+void On(ReduceContext& c, const FilePaneDirectoryClickedAction& a)
 {
-    state.file_explorer.SetDirectory(a.full_path);
-    state.view.panes.SidePaneScroll(PaneTarget::File) = {};
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.file_explorer.SetDirectory(a.full_path);
+    c.state.view.panes.SidePaneScroll(PaneTarget::File) = 0.0f;
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const FilePaneRevealCurrentFileAction&)
 {
     // ヘルプ表示中は移動先のフォルダがない。
-    if (!state.document.doc.HasBackingFile()) {
+    if (!c.state.document.doc.HasBackingFile()) {
         return;
     }
-    state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
-    state.file_explorer.EnsureListed();
+    c.state.file_explorer.SetDirectory(c.state.document.doc.GetDirectory());
+    c.state.file_explorer.EnsureListed();
 
-    const auto& entries = state.file_explorer.GetEntries();
-    if (state.file_explorer.IsListing()) {
-        state.file_explorer.DeferReveal();
+    const auto& entries = c.state.file_explorer.GetEntries();
+    if (c.state.file_explorer.IsListing()) {
+        c.state.file_explorer.DeferReveal();
         return;
     }
     const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
-    const auto ctx = GetSidePaneContext(state, PaneTarget::File);
-    ctx.scroll.scroll_y = it != entries.end()
-                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), ctx.item_height, ctx.info)
-                              : 0.0f;
-    PushEffect(effects, effect::InvalidateWindow{});
+    const auto ctx = GetSidePaneContext(c.state, PaneTarget::File);
+    ctx.scroll_y = it != entries.end()
+                       ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), ctx.item_height, ctx.info)
+                       : 0.0f;
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceTocItemClicked(AppState& state, const TocItemClickedAction& a)
+void On(ReduceContext& c, const TocItemClickedAction& a)
 {
-    PushCurrentNavEntry(state);
-    ScrollToHeading(state, a.node_index);
-    state.view.keep_toc_pane_once = true;
+    PushCurrentNavEntry(c.state);
+    ScrollToHeading(c.state, a.node_index);
+    c.state.view.keep_toc_pane_once = true;
 }
 
-void ReduceNavigateAnchor(AppState& state, const NavigateAnchorAction& a)
+void On(ReduceContext& c, const NavigateAnchorAction& a)
 {
     // リンク切れのアンカーで履歴を積むと、進む履歴が消えて戻っても同じ位置になる。
-    const int node_index = state.document.doc.FindAnchorIndex(a.anchor_id);
+    const int node_index = c.state.document.doc.FindAnchorIndex(a.anchor_id);
     if (node_index < 0) {
         return;
     }
-    PushCurrentNavEntry(state);
-    ScrollToHeading(state, node_index);
+    PushCurrentNavEntry(c.state);
+    ScrollToHeading(c.state, node_index);
 }
 
 void RestoreScrollAfterLoad(AppState& state)
@@ -389,16 +403,15 @@ void RestoreScrollAfterLoad(AppState& state)
     }
 }
 
-void ReduceShowHelp(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const ShowHelpAction&)
 {
     // ヘルプ表示中はヘルプに留まり、ロード中の別ファイルだけを取り消す。
-    if (IsHelpPath(state.document.doc.GetFilePath())) {
-        DiscardPendingLoad(state);
-        PushEffect(effects, effect::CancelOtherFileLoad{});
+    if (IsHelpPath(c.state.document.doc.GetFilePath())) {
+        DiscardPendingLoad(c.state);
+        PushEffect(c.effects, effect::CancelOtherFileLoad{});
         return;
     }
-    PushCurrentNavEntry(state, HELP_PATH);
-    PushEffect(effects, effect::LoadFile{ std::wstring(HELP_PATH) });
+    On(c, OpenPathAction{ std::wstring(HELP_PATH) });
 }
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
@@ -416,134 +429,128 @@ ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, fl
 }
 
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
-void ApplyHoverHighlights(AppState& state, SideEffectList& effects, HoverHighlights h)
+void ApplyHoverHighlights(ReduceContext& c, HoverHighlights h)
 {
     // 入力欄はテキスト編集領域でホバー強調は不要。
     if (h.search_bar == SearchBarHitZone::Input) {
         h.search_bar = SearchBarHitZone::None;
     }
     // 横スクロールのドラッグ中は、ポインタがどこへ出てもバーを出したままにする。
-    if (state.view.HDragNode() >= 0) {
-        h.h_block = state.view.hover.h_block;
+    if (c.state.view.HDragNode() >= 0) {
+        h.h_block = c.state.view.hover.h_block;
     }
-    if (std::exchange(state.view.hover, h) != h) {
-        PushEffect(effects, effect::InvalidateWindow{});
+    if (std::exchange(c.state.view.hover, h) != h) {
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerHover& hover)
+void On(ReduceContext& c, const PointerHoverAction& a)
 {
-    ApplyHoverHighlights(state, effects, hover);
-    if (hover.tooltip.target != state.interaction.tooltip) {
-        state.interaction.tooltip = hover.tooltip.target;
-        PushEffect(effects, effect::SetTooltip{ hover.tooltip.text });
+    ApplyHoverHighlights(c, a.hover);
+    if (a.hover.tooltip.target != c.state.interaction.tooltip) {
+        c.state.interaction.tooltip = a.hover.tooltip.target;
+        PushEffect(c.effects, effect::SetTooltip{ a.hover.tooltip.text });
     }
 }
 
 // ペインを経由せずに離れた経路 (ウィンドウ外・キャプション上) で呼ばないとホバーハイライトが残留する。
-void ReduceMouseLeave(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const MouseLeaveAction&)
 {
-    ApplyHoverHighlights(state, effects, {});
-    ClearTooltip(state, effects);
+    ApplyHoverHighlights(c, {});
+    ClearTooltip(c);
 }
 
-void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
+// キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
+// 届かないため、進行中のジェスチャーとドラッグをここで終える。
+void On(ReduceContext& c, const CaptureChangedAction&)
 {
-    bool invalidate = false;
-    if (state.interaction.gesture.GetPhase() != GesturePhase::Idle) {
-        state.interaction.gesture.Reset();
-        invalidate = true;
-    }
-    // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
-    // 届かないため、進行中のドラッグをここで終える。
-    if (state.view.drag.kind != LeftDrag::None) {
-        state.view.drag = {};
-        invalidate = true;
-    }
-    if (invalidate) {
-        PushEffect(effects, effect::InvalidateWindow{});
-    }
-}
-
-void ReduceSplitterDragStarted(AppState& state, const SplitterDragStartedAction& a)
-{
-    state.view.drag = { .kind = LeftDrag::Splitter, .pane = a.edge };
-}
-
-void MoveSplitterDrag(AppState& state, SideEffectList& effects, float dip_x)
-{
-    const float splitter_w = state.theme->splitter_width;
-    const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
-    const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(state.view.drag.pane, dip_x, state.window.WidthDip(), splitter_w);
-    if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
+    if (!CaptureRequired(c.state)) {
         return;
     }
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.interaction.gesture.Reset();
+    c.state.view.drag = {};
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void MoveTextSelectionDrag(AppState& state, SideEffectList& effects, int node_index, uint32_t text_pos)
+void On(ReduceContext& c, const SplitterDragStartedAction& a)
+{
+    c.state.view.drag = { .kind = LeftDrag::Splitter, .pane = a.edge };
+}
+
+void MoveSplitterDrag(ReduceContext& c, float dip_x)
+{
+    const float splitter_w = c.state.theme->splitter_width;
+    const float before_file = c.state.view.panes.GetSidePaneWidth(PaneTarget::File);
+    const float before_toc = c.state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
+    c.state.view.panes.DragSplitterTo(c.state.view.drag.pane, dip_x, c.state.window.WidthDip(), splitter_w);
+    if (c.state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && c.state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
+        return;
+    }
+    PushEffect(c.effects, effect::InvalidateWindow{});
+}
+
+void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
 {
     if (node_index < 0) {
         return;
     }
     // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
-    const auto next = state.view.drag.SelectionTo(node_index, text_pos);
-    if (next == state.view.viewport.GetSelection()) {
+    const auto next = c.state.view.drag.SelectionTo(node_index, text_pos);
+    if (next == c.state.view.viewport.GetSelection()) {
         return;
     }
-    state.view.viewport.SetSelection(next);
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.view.viewport.SetSelection(next);
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
 // 選択の無いクリックなど、見た目が変わらないなら再描画しない。
-void EndTextSelectionDrag(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
+void EndTextSelectionDrag(ReduceContext& c, const LeftDragEndedAction& a)
 {
-    MoveTextSelectionDrag(state, effects, a.node_index, a.text_pos);
-    state.view.drag = {};
+    MoveTextSelectionDrag(c, a.node_index, a.text_pos);
+    c.state.view.drag = {};
 }
 
-void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
+void On(ReduceContext& c, const LeftDragEndedAction& a)
 {
-    const LeftDrag drag = state.view.drag.kind;
+    const LeftDrag drag = c.state.view.drag.kind;
     if (drag == LeftDrag::None) {
         return;
     }
     if (drag == LeftDrag::TextSelect) {
-        EndTextSelectionDrag(state, effects, a);
+        EndTextSelectionDrag(c, a);
         return;
     }
-    state.view.drag = {};
+    c.state.view.drag = {};
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
-        PushEffect(effects, effect::SettleViewport{});
+        PushEffect(c.effects, effect::SettleViewport{});
     }
     else if (drag == LeftDrag::BlockHScroll) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
+void On(ReduceContext& c, const SearchInputDragStartedAction& a)
 {
-    state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
-    PushEffect(effects, effect::SearchFocus{ a.caret_pos, a.caret_pos });
+    c.state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
+    PushEffect(c.effects, effect::SearchFocus{ a.caret_pos, a.caret_pos });
 }
 
-void MoveSearchInputDrag(AppState& state, SideEffectList& effects, int caret)
+void MoveSearchInputDrag(ReduceContext& c, int caret)
 {
-    const auto& sg = state.search;
-    const int anchor = state.view.drag.search_anchor;
+    const auto& sg = c.state.search;
+    const int anchor = c.state.view.drag.search_anchor;
     if (caret == sg.caret_pos && anchor == sg.selection_start) {
         return;
     }
-    PushEffect(effects, effect::SearchFocus{ anchor, caret });
+    PushEffect(c.effects, effect::SearchFocus{ anchor, caret });
 }
 
-void ReduceMdScrollbarDragStarted(AppState& state, const MdScrollbarDragStartedAction& a)
+void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
 {
-    const auto info = MdScrollInfo(state, ComputePaneLayout(state));
-    auto& viewport = state.view.viewport;
+    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
+    auto& viewport = c.state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
-    state.view.drag = { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset };
+    c.state.view.drag = { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset };
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), info.max_scroll);
@@ -557,100 +564,97 @@ void MoveMdScrollbarDrag(AppState& state, float dip_y)
     state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y), info.max_scroll);
 }
 
-void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
+void On(ReduceContext& c, const PaneScrollbarDragStartedAction& a)
 {
-    const auto ctx = GetSidePaneContext(state, a.pane);
+    const auto ctx = GetSidePaneContext(c.state, a.pane);
     if (!ShowsVScrollbar(ctx.info, false)) {
         return;
     }
-    const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll.scroll_y), ctx.info.thumb_height, a.dip_y);
-    state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset };
+    const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll_y), ctx.info.thumb_height, a.dip_y);
+    c.state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset };
     if (!grip.inside_thumb) {
-        ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
-        PushEffect(effects, effect::InvalidateWindow{});
+        ctx.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void MovePaneScrollbarDrag(AppState& state, SideEffectList& effects, float dip_y)
+void MovePaneScrollbarDrag(ReduceContext& c, float dip_y)
 {
-    const auto ctx = GetSidePaneContext(state, state.view.drag.pane);
-    const float new_thumb_y = dip_y - state.view.drag.grip_offset;
-    ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    PushEffect(effects, effect::InvalidateWindow{});
+    const auto ctx = GetSidePaneContext(c.state, c.state.view.drag.pane);
+    const float new_thumb_y = dip_y - c.state.view.drag.grip_offset;
+    ctx.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)
+void On(ReduceContext& c, const TextSelectionStartedAction& a)
 {
     if (a.node_index < 0) {
         return;
     }
-    auto& selection = state.view.viewport.GetSelection();
-    const bool had_selection = selection.active();
-    selection.Clear();
-    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
+    auto& viewport = c.state.view.viewport;
+    const bool had_selection = viewport.GetSelection().active();
+    viewport.ClearSelection();
+    c.state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
     if (had_selection) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceLeftDragMoved(AppState& state, SideEffectList& effects, const LeftDragMovedAction& a)
+void On(ReduceContext& c, const LeftDragMovedAction& a)
 {
-    switch (state.view.drag.kind) {
+    switch (c.state.view.drag.kind) {
     case LeftDrag::None:
         return;
     case LeftDrag::SearchInput:
-        MoveSearchInputDrag(state, effects, a.search_caret);
+        MoveSearchInputDrag(c, a.search_caret);
         return;
     case LeftDrag::Splitter:
-        MoveSplitterDrag(state, effects, a.dip_x);
+        MoveSplitterDrag(c, a.dip_x);
         return;
     case LeftDrag::PaneScrollbar:
-        MovePaneScrollbarDrag(state, effects, a.dip_y);
+        MovePaneScrollbarDrag(c, a.dip_y);
         return;
     case LeftDrag::MdScrollbar:
-        MoveMdScrollbarDrag(state, a.dip_y);
+        MoveMdScrollbarDrag(c.state, a.dip_y);
         return;
     case LeftDrag::BlockHScroll:
-        MoveBlockHScrollDrag(state, effects, a.dip_x);
+        MoveBlockHScrollDrag(c, a.dip_x);
         return;
     case LeftDrag::TextSelect:
-        MoveTextSelectionDrag(state, effects, a.node_index, a.text_pos);
+        MoveTextSelectionDrag(c, a.node_index, a.text_pos);
         return;
     }
     std::unreachable();
 }
 
-void ReduceRightClickGestureStarted(AppState& state, const RightClickGestureStartedAction& a)
+void On(ReduceContext& c, const RightClickGestureStartedAction& a)
 {
-    state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
+    c.state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
 }
 
-void ReduceRightClickGestureMoved(AppState& state, SideEffectList& effects, const RightClickGestureMovedAction& a)
+void On(ReduceContext& c, const RightClickGestureMovedAction& a)
 {
-    if (state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y)) {
-        PushEffect(effects, effect::InvalidateWindow{});
+    if (c.state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y)) {
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, const RightClickGestureCompletedAction& a)
+void On(ReduceContext& c, const RightClickGestureCompletedAction& a)
 {
-    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
-        return;
-    }
-    switch (state.interaction.gesture.OnRButtonUp()) {
+    switch (c.state.interaction.gesture.OnRButtonUp()) {
     case GestureResult::ShowContextMenu:
-        PushEffect(effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
+        PushEffect(c.effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
         break;
     case GestureResult::Back:
-        NavigateHistory(state, effects, /*forward=*/false);
+        On(c, NavigateHistoryAction{ .forward = false });
         break;
     case GestureResult::Forward:
-        NavigateHistory(state, effects, /*forward=*/true);
+        On(c, NavigateHistoryAction{ .forward = true });
         break;
     case GestureResult::None:
-        break;
+        return;
     }
-    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
 // ---- 検索バー ----
@@ -664,28 +668,25 @@ constexpr void ResetSearchCaret(SearchGroup& sg) noexcept
     sg.selection_start = -1;
 }
 
-void ScrollToCurrentMatch(AppState& state, NodeLayoutAccess& layout)
+void ScrollToCurrentMatch(ReduceContext& c)
 {
-    const auto& ss = state.search.search_state;
+    const auto& ss = c.state.search.search_state;
     const int idx = ss.GetCurrentMatchIndex();
     if (idx < 0 || idx >= ss.GetMatchCount()) {
         return;
     }
     const auto& match = ss.GetMatches()[idx];
-    const auto& cache = state.document.layout_cache;
-    if (match.node_index < 0 || match.node_index >= static_cast<int>(cache.size())) {
-        return;
-    }
+    const auto& cache = c.state.document.layout_cache;
 
     // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
-    layout.EnsureNodeLayout(match.node_index);
-    const auto info = MdScrollInfo(state, ComputePaneLayout(state));
+    c.layout.EnsureNodeLayout(match.node_index);
+    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
     const auto& entry = cache[match.node_index];
     // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
     //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
     const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache.Top(static_cast<size_t>(match.node_index)));
     const float visible_height = info.content_height - (ss.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
-    auto& viewport = state.view.viewport;
+    auto& viewport = c.state.view.viewport;
     const float scroll_y = viewport.GetScrollY();
     const float effective_bottom = scroll_y + visible_height;
 
@@ -694,145 +695,163 @@ void ScrollToCurrentMatch(AppState& state, NodeLayoutAccess& layout)
     }
 }
 
-void ContinueSearch(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool force_invalidate = false)
+void ContinueSearch(ReduceContext& c, bool force_invalidate = false)
 {
-    auto& ss = state.search.search_state;
-    const bool done = ss.ContinueSearch(state.document.doc.GetNodes(), std::chrono::steady_clock::now() + kSearchSliceBudget);
+    auto& ss = c.state.search.search_state;
+    const bool done = ss.ContinueSearch(c.state.document.doc.GetNodes(), std::chrono::steady_clock::now() + kSearchSliceBudget);
     // 結果は終わったときにまとめて差し替わるので、続きの区切りでは描き直さない。
     if (force_invalidate || done) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
     if (!done) {
         return;
     }
     // 差し替えで選択は外れている。途中で前回の結果を辿っていても、見ている位置の近くで選び直す。
-    ss.SetCurrentMatchNear(state.view.viewport.GetScrollY(), state.document.layout_cache);
-    if (state.search.scroll_after_search) {
-        ScrollToCurrentMatch(state, layout);
+    ss.SetCurrentMatchNear(c.state.view.viewport.GetScrollY(), c.state.document.layout_cache);
+    if (c.state.search.scroll_after_search) {
+        ScrollToCurrentMatch(c);
     }
 }
 
 // 今のクエリで検索し直す。終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
-void RunSearchAndLocate(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool scroll_to_match = false)
+void RunSearchAndLocate(ReduceContext& c, bool scroll_to_match = false)
 {
     // 入力欄は UTF-16、Document テキストは UTF-8。
-    state.search.search_state.BeginSearch(string_convert::WideToUtf8(state.search.query_wide));
-    state.search.scroll_after_search = scroll_to_match;
+    c.state.search.search_state.BeginSearch(string_convert::WideToUtf8(c.state.search.query_wide));
+    c.state.search.scroll_after_search = scroll_to_match;
     // クエリや前のマッチの消去を描画に出すため、始めの区切りは必ず描き直す。
-    ContinueSearch(state, effects, layout, true);
+    ContinueSearch(c, true);
 }
 
-void CloseSearchBar(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const CloseSearchBarAction&)
 {
-    state.search.search_state.Hide();
-    state.search.ime_composition.clear();
-    PushEffect(effects, effect::SearchUnfocus{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.search.search_state.Hide();
+    c.state.search.ime_composition.clear();
+    PushEffect(c.effects, effect::SearchUnfocus{});
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
 // 開いていれば閉じる。
-void ToggleSearchBar(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+void On(ReduceContext& c, const OpenSearchBarAction&)
 {
-    auto& sg = state.search;
+    auto& sg = c.state.search;
     if (sg.search_state.IsVisible()) {
-        CloseSearchBar(state, effects);
+        On(c, CloseSearchBarAction{});
         return;
     }
     sg.search_state.Show();
     ResetSearchCaret(sg);
     if (!sg.query_wide.empty()) {
-        RunSearchAndLocate(state, effects, layout);
+        RunSearchAndLocate(c);
     }
-    PushEffect(effects, effect::SearchFocus{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(c.effects, effect::SearchFocus{});
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceSearchStep(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
+void On(ReduceContext& c, const ToggleHighlightAction&)
 {
-    auto& ss = state.search.search_state;
+    c.state.search.search_state.ToggleHighlightEnabled();
+    PushEffect(c.effects, effect::InvalidateWindow{});
+}
+
+void On(ReduceContext& c, const SearchContinueAction&)
+{
+    if (c.state.search.search_state.IsSearching()) {
+        ContinueSearch(c);
+    }
+}
+
+void On(ReduceContext& c, const SearchSelectAllAction&)
+{
+    PushEffect(c.effects, effect::SearchFocus{});
+}
+
+void On(ReduceContext& c, const SearchStepAction& a)
+{
+    auto& ss = c.state.search.search_state;
     if (!ss.IsVisible()) {
-        ToggleSearchBar(state, effects, layout);
+        On(c, OpenSearchBarAction{});
         return;
     }
-    const bool wrapped = forward ? ss.NextMatch() : ss.PrevMatch();
+    const bool wrapped = a.forward ? ss.NextMatch() : ss.PrevMatch();
     if (wrapped && ss.GetMatchCount() > 1) {
-        PushEffect(effects, effect::Beep{});
+        PushEffect(c.effects, effect::Beep{});
     }
-    ScrollToCurrentMatch(state, layout);
-    PushEffect(effects, effect::InvalidateWindow{});
+    ScrollToCurrentMatch(c);
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, std::wstring_view text)
+void On(ReduceContext& c, const SearchTextChangedAction& a)
 {
-    auto& sg = state.search;
+    auto& sg = c.state.search;
     // 文書の切り替えで入力欄を空にしたときなど、中身が変わらない通知は検索も再描画もしない。
-    if (text == sg.query_wide) {
+    if (a.text == sg.query_wide) {
         return;
     }
-    sg.query_wide.assign(text);
-    if (text.empty()) {
+    sg.query_wide = a.text;
+    if (a.text.empty()) {
         sg.search_state.BeginSearch({});
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
         return;
     }
     // 検索は時間で区切って進むので、大きな文書でも入力を待たせずにすぐ始める。
-    RunSearchAndLocate(state, effects, layout, true);
+    RunSearchAndLocate(c, true);
 }
 
-void ReduceToggleCaseSensitive(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+void On(ReduceContext& c, const ToggleCaseSensitiveAction&)
 {
-    state.search.search_state.ToggleCaseSensitive();
-    if (!state.search.query_wide.empty()) {
-        RunSearchAndLocate(state, effects, layout);
+    c.state.search.search_state.ToggleCaseSensitive();
+    if (!c.state.search.query_wide.empty()) {
+        RunSearchAndLocate(c);
     }
-    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
 // 表示中は常に入力欄がフォーカスを持つので、表示中だけ描き直す。
-void ReduceSearchSelection(AppState& state, SideEffectList& effects, const SearchSelectionAction& a)
+void On(ReduceContext& c, const SearchSelectionAction& a)
 {
-    auto& sg = state.search;
+    auto& sg = c.state.search;
     if (sg.caret_pos == a.sel_end && sg.selection_start == a.sel_start) {
         return;
     }
     sg.caret_pos = a.sel_end;
     sg.selection_start = a.sel_start;
     if (sg.search_state.IsVisible()) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceImeComposition(AppState& state, SideEffectList& effects, std::wstring_view comp)
+void On(ReduceContext& c, const ImeCompositionAction& a)
 {
-    auto& sg = state.search;
-    if (sg.ime_composition == comp) {
+    auto& sg = c.state.search;
+    if (sg.ime_composition == a.text) {
         return;
     }
-    sg.ime_composition = comp;
+    sg.ime_composition = a.text;
     if (sg.search_state.IsVisible()) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
+void On(ReduceContext& c, const TogglePaneAction& a)
 {
-    state.view.panes.ToggleSidePane(a.target);
+    c.state.view.panes.ToggleSidePane(a.target);
     // 次に表示したとき、隠す前のホバー強調が残らないようにする。
     const auto k = std::to_underlying(a.target);
-    state.view.hover.side_index[k] = -1;
-    state.view.hover.side_button[k] = PaneHeaderButton::None;
-    PushEffect(effects, effect::SettleViewport{});
+    c.state.view.hover.side_index[k] = -1;
+    c.state.view.hover.side_button[k] = PaneHeaderButton::None;
+    PushEffect(c.effects, effect::SettleViewport{});
 }
 
-void ReduceSelectAll(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const SelectAllAction&)
 {
-    state.view.viewport.SelectAll(state.document.doc.GetNodes());
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.view.viewport.SelectAll(c.state.document.doc.GetNodes());
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWordAction& a)
+void On(ReduceContext& c, const SelectWordAction& a)
 {
-    const auto& nodes = state.document.doc.GetNodes();
+    const auto& nodes = c.state.document.doc.GetNodes();
     if (!NodeAt(nodes, a.node_index)) {
         return;
     }
@@ -840,40 +859,40 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
     if (!wb.found) {
         return;
     }
-    state.view.viewport.SetSelection(TextSelection::MakeOrdered(static_cast<int>(wb.start_node), wb.start, static_cast<int>(wb.end_node), wb.end));
-    PushEffect(effects, effect::InvalidateWindow{});
+    c.state.view.viewport.SetSelection(TextSelection::MakeOrdered(static_cast<int>(wb.start_node), wb.start, static_cast<int>(wb.end_node), wb.end));
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceClearSelection(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const ClearSelectionAction&)
 {
-    if (state.search.search_state.IsVisible()) {
-        CloseSearchBar(state, effects);
+    if (c.state.search.search_state.IsVisible()) {
+        On(c, CloseSearchBarAction{});
         return;
     }
-    auto& viewport = state.view.viewport;
-    const bool dragging = state.view.drag.kind == LeftDrag::TextSelect;
+    auto& viewport = c.state.view.viewport;
+    const bool dragging = c.state.view.drag.kind == LeftDrag::TextSelect;
     const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
-        state.view.drag = {};
+        c.state.view.drag = {};
     }
     viewport.ClearSelection();
     if (visible) {
-        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
-void ReduceCopy(const AppState& state, SideEffectList& effects, const CopyAction& a)
+void On(ReduceContext& c, const CopyAction& a)
 {
-    const auto& sel = state.view.viewport.GetSelection();
+    const auto& sel = c.state.view.viewport.GetSelection();
     if (!sel.active()) {
         return;
     }
-    const auto& nodes = state.document.doc.GetNodes();
-    PushEffect(effects, effect::ClipboardWrite{
-                            .text = ExtractSelectedText(nodes, sel),
-                            .html = a.formatted ? ExtractSelectedTextAsHtml(nodes, sel, state.theme->dark) : std::string{},
-                        });
+    const auto& nodes = c.state.document.doc.GetNodes();
+    PushEffect(c.effects, effect::ClipboardWrite{
+                              .text = ExtractSelectedText(nodes, sel),
+                              .html = a.formatted ? ExtractSelectedTextAsHtml(nodes, sel, c.state.theme->dark) : std::string{},
+                          });
 }
 
 // 戻り値: 段が動いたか。
@@ -886,46 +905,46 @@ bool StepZoomBy(ZoomLevel& zoom, const ZoomAction& a)
     return stepped > 0;
 }
 
-void ReduceSidePaneZoom(AppState& state, SideEffectList& effects, PaneTarget pane, const ZoomAction& a)
+void ReduceSidePaneZoom(ReduceContext& c, PaneTarget pane, const ZoomAction& a)
 {
-    auto& zoom = state.view.panes.SidePaneZoom(pane);
+    auto& zoom = c.state.view.panes.SidePaneZoom(pane);
     const float old_zoom = zoom.Value();
     if (!StepZoomBy(zoom, a)) {
         return;
     }
     // 先頭に見えていた項目が先頭に残るよう、スクロール位置も倍率の比で動かす。
-    auto& scroll = state.view.panes.SidePaneScroll(pane);
-    scroll.scroll_y *= zoom.Value() / old_zoom;
-    scroll.scroll_y = std::clamp(scroll.scroll_y, 0.0f, GetSidePaneContext(state, pane).info.max_scroll);
-    PushEffect(effects, effect::InvalidateWindow{});
+    auto& scroll_y = c.state.view.panes.SidePaneScroll(pane);
+    scroll_y *= zoom.Value() / old_zoom;
+    scroll_y = std::clamp(scroll_y, 0.0f, GetSidePaneContext(c.state, pane).info.max_scroll);
+    PushEffect(c.effects, effect::InvalidateWindow{});
 }
 
-void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
+void On(ReduceContext& c, const ZoomAction& a)
 {
     if (a.pane) {
-        ReduceSidePaneZoom(state, effects, *a.pane, a);
+        ReduceSidePaneZoom(c, *a.pane, a);
         return;
     }
     // 全レイアウトを捨てて組み直すのは段数によらず 1 回で済ませる (App::ApplyZoom)。
-    auto& zoom = state.view.viewport.Zoom();
+    auto& zoom = c.state.view.viewport.Zoom();
     const float old_zoom = zoom.Value();
     if (!StepZoomBy(zoom, a)) {
         return;
     }
-    const auto anchor = SnapshotVisibleTarget(state);
+    const auto anchor = SnapshotVisibleTarget(c.state);
     const float zoom_ratio = zoom.Value() / old_zoom;
     // サイドペインは別に倍率を持つので、幅・スクロール位置もペイン配置もそのまま。
     if (anchor.IsValid()) {
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
-        state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
+        c.state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
-    PushEffect(effects, effect::ApplyZoom{});
+    PushEffect(c.effects, effect::ApplyZoom{});
 }
 
 // ポインタの下の領域だけをズームする。
-void ReduceWheelZoom(AppState& state, SideEffectList& effects, const MouseWheelAction& a)
+void ReduceWheelZoom(ReduceContext& c, const MouseWheelAction& a)
 {
-    auto& accum = state.interaction.zoom_wheel_accum;
+    auto& accum = c.state.interaction.zoom_wheel_accum;
     // 向きが反転したら逆向きの端数は持ち越さない。
     if ((accum < 0) != (a.delta < 0)) {
         accum = 0;
@@ -936,138 +955,165 @@ void ReduceWheelZoom(AppState& state, SideEffectList& effects, const MouseWheelA
         return;
     }
     accum = 0;
-    ReduceZoom(state, effects, ZoomAction{ a.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(a.zone) });
+    On(c, ZoomAction{ a.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(a.zone) });
 }
 
-void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const MouseWheelAction& a)
 {
-    const auto anchor = SnapshotVisibleTarget(state);
-    if (anchor.IsValid()) {
-        // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
-        state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
+    if (a.ctrl) {
+        ReduceWheelZoom(c, a);
     }
-    PushEffect(effects, effect::ToggleDarkMode{});
+    else {
+        ReduceWheelScroll(c, a);
+    }
 }
 
-void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a)
+void On(ReduceContext& c, const ToggleDarkModeAction&)
 {
-    if (state.window.window_active != a.active) {
-        state.window.window_active = a.active;
-        PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(c.effects, effect::ToggleDarkMode{});
+}
+
+void On(ReduceContext& c, const ActivateAction& a)
+{
+    if (c.state.window.window_active != a.active) {
+        c.state.window.window_active = a.active;
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
     if (!a.active) {
-        ClearTooltip(state, effects);
+        ClearTooltip(c);
     }
 }
 
-void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& a)
+void On(ReduceContext& c, const ResizeAction& a)
 {
     if (a.width == 0 || a.height == 0) {
         return;
     }
     // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面もレイアウトも変わらない。
-    const bool dpi_changed = std::exchange(state.window.dpi_changed, false);
-    if (a.width == state.window.client_width && a.height == state.window.client_height && !dpi_changed) {
+    const bool dpi_changed = std::exchange(c.state.window.dpi_changed, false);
+    if (a.width == c.state.window.client_width && a.height == c.state.window.client_height && !dpi_changed) {
         return;
     }
-    state.window.client_width = a.width;
-    state.window.client_height = a.height;
-    state.window.size_changed_in_sizing = true;
-    PushEffect(effects, effect::RendererResize{ a.width, a.height, state.window.is_sizing });
-    const float window_w_dip = PixelToDip(static_cast<float>(a.width), state.window.cached_dpi_scale);
-    state.window.titlebar.UpdateLayout(window_w_dip);
-    if (state.window.is_sizing) {
-        state.view.viewport.ClampScroll(MdMaxScroll(state));
-        PushEffect(effects, effect::InvalidateWindow{});
+    c.state.window.client_width = a.width;
+    c.state.window.client_height = a.height;
+    c.state.window.size_changed_in_sizing = true;
+    PushEffect(c.effects, effect::RendererResize{ a.width, a.height, c.state.window.is_sizing });
+    c.state.window.titlebar.UpdateLayout(c.state.window.WidthDip());
+    if (c.state.window.is_sizing) {
+        c.state.view.viewport.ClampScroll(MdMaxScroll(c.state));
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
     else {
-        PushEffect(effects, effect::SettleViewport{});
+        PushEffect(c.effects, effect::SettleViewport{});
     }
 }
 
-void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const EnterSizeMoveAction&)
 {
-    state.window.is_sizing = false;
-    if (state.window.size_changed_in_sizing) {
+    c.state.window.is_sizing = true;
+    c.state.window.size_changed_in_sizing = false;
+}
+
+void On(ReduceContext& c, const ExitSizeMoveAction&)
+{
+    c.state.window.is_sizing = false;
+    if (c.state.window.size_changed_in_sizing) {
         // ライブリサイズ中に大きめに取った描画面を、実際の大きさに合わせ直す。
-        PushEffect(effects, effect::RendererResize{ state.window.client_width, state.window.client_height });
-        PushEffect(effects, effect::SettleViewport{});
+        PushEffect(c.effects, effect::RendererResize{ c.state.window.client_width, c.state.window.client_height });
+        PushEffect(c.effects, effect::SettleViewport{});
     }
 }
 
-void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChangedAction& a)
+void On(ReduceContext& c, const DpiChangedAction& a)
 {
-    state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
+    c.state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
     // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
     // 続く WM_SIZE が同じピクセルサイズでも処理させる。
-    state.window.size_changed_in_sizing = true;
-    state.window.dpi_changed = true;
-    PushEffect(effects, effect::ApplyDpi{ static_cast<float>(a.dpi), a.suggested });
+    c.state.window.size_changed_in_sizing = true;
+    c.state.window.dpi_changed = true;
+    PushEffect(c.effects, effect::ApplyDpi{ static_cast<float>(a.dpi), a.suggested });
 }
 
-void ReduceSwipeOverlayTimeout(AppState& state, SideEffectList& effects)
+void On(ReduceContext& c, const SwipeOverlayTimeoutAction&)
 {
-    const auto result = state.interaction.swipe_detector.Commit();
-    PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+    const auto result = c.state.interaction.swipe_detector.Commit();
+    PushEffect(c.effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
     if (result != NavDirection::None) {
-        NavigateHistory(state, effects, result == NavDirection::Forward);
-        PushEffect(effects, effect::InvalidateWindow{});
+        On(c, NavigateHistoryAction{ .forward = result == NavDirection::Forward });
+        PushEffect(c.effects, effect::InvalidateWindow{});
     }
 }
 
 // ノード/見出し index に結び付く一時状態 (選択・横スクロール・ホバー・目次の現在位置・ツールチップの対象・
 // 文書を対象にするドラッグ) を消す。文書を差し替えると別の要素を指すので、
 // ロードとリロードの両方で消す。ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
-void ResetPerNodeTransientState(AppState& state, SideEffectList& effects)
+void ResetPerNodeTransientState(ReduceContext& c)
 {
-    auto& view = state.view;
+    auto& view = c.state.view;
     view.viewport.ClearSelection();
     view.block_scroll_x.clear();
     view.hover = {};
     view.active_toc_index = -1;
     // ツールチップの同一判定は node / TOC の index で行う。
-    ClearTooltip(state, effects);
+    ClearTooltip(c);
     if (IsDocumentBoundDrag(view.drag.kind)) {
         view.drag = {};
     }
 }
 
-void ReduceDocumentOpened(AppState& state, SideEffectList& effects, const DocumentOpenedAction& a)
+void On(ReduceContext& c, const DocumentOpenedAction& a)
 {
-    ResetPerNodeTransientState(state, effects);
+    c.emit_scroll_effects = false;
+    ResetPerNodeTransientState(c);
     // 同一文書の再パースと違い、サイドペインのスクロールも先頭へ戻す。
-    state.view.panes.ResetScrollStates();
+    c.state.view.panes.ResetScrollStates();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。入力欄を空にしたときの EN_CHANGE は、
     // ここでクエリを先に空にしておくので何もせず終わる。
-    auto& sg = state.search;
+    auto& sg = c.state.search;
     sg.search_state.Hide();
     sg.query_wide.clear();
     sg.ime_composition.clear();
     ResetSearchCaret(sg);
-    PushEffect(effects, effect::SearchUnfocus{ /*clear_text=*/true });
+    PushEffect(c.effects, effect::SearchUnfocus{ /*clear_text=*/true });
 
-    const auto& doc = state.document.doc;
+    const auto& doc = c.state.document.doc;
     if (a.follow_file_pane && !doc.GetDirectory().empty()) {
-        state.file_explorer.SetDirectory(doc.GetDirectory());
+        c.state.file_explorer.SetDirectory(doc.GetDirectory());
     }
-    state.file_explorer.SetCurrentFile(doc.GetFilePath());
-    RestoreScrollAfterLoad(state);
+    c.state.file_explorer.SetCurrentFile(doc.GetFilePath());
+    RestoreScrollAfterLoad(c.state);
 }
 
-void ReduceDocumentReloaded(AppState& state, SideEffectList& effects, const DocumentReloadedAction& a)
+void On(ReduceContext& c, const DocumentReloadedAction& a)
 {
+    c.emit_scroll_effects = false;
     // ReloadSettledAction の検索し直しが終わるまで、変わらなかったノードのハイライトと件数を残す。
-    state.search.search_state.KeepMatchesOfUnchangedNodes(a.unchanged);
-    ResetPerNodeTransientState(state, effects);
+    c.state.search.search_state.KeepMatchesOfUnchangedNodes(a.unchanged);
+    ResetPerNodeTransientState(c);
     // 直前の移動先 (ノード基準) は旧文書のもの。捨ててピクセル位置で固定する。
-    state.view.viewport.SetScrollY(a.scroll_y);
+    c.state.view.viewport.SetScrollY(a.scroll_y);
 }
 
-void ReduceReloadSettled(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+void On(ReduceContext& c, const ReloadSettledAction&)
 {
-    if (state.search.search_state.IsVisible() && !state.search.query_wide.empty()) {
-        RunSearchAndLocate(state, effects, layout);
+    if (c.state.search.search_state.IsVisible() && !c.state.search.query_wide.empty()) {
+        RunSearchAndLocate(c);
     }
+}
+
+void On(ReduceContext& c, const LoadFailedAction&)
+{
+    DiscardPendingLoad(c.state);
+}
+
+void On(ReduceContext& c, const OpenFileAction&)
+{
+    PushEffect(c.effects, effect::OpenFileDialog{});
+}
+
+void On(ReduceContext& c, const ReloadFileAction&)
+{
+    PushEffect(c.effects, effect::ReloadFile{});
 }
 
 } // namespace
@@ -1094,112 +1140,15 @@ SearchBarRenderState BuildSearchBarRenderState(const AppState& state)
 SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess& layout, std::pmr::memory_resource* resource)
 {
     SideEffectList effects(resource);
+    ReduceContext c{ state, effects, layout };
     // viewport を動かす経路 (キー・ホイール・スクロールバー・履歴・検索のマッチ移動など) を問わず、
     // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
-    // 文書を差し替えた後 (読み込みの復元・リロード) では積まない。直後の App::RelayoutViewport が計測してから描き直させる。
-    bool emit_scroll_effects = true;
     const float old_scroll = state.view.viewport.GetScrollY();
     const bool had_capture = CaptureRequired(state);
 
-    // clang-format off
-    std::visit(overloaded{
-        // ---- スクロール ----
-        [&](const KeyScrollAction& a) { ReduceKeyScroll(state, a); },
-        [&](const MouseWheelAction& a) {
-            if (a.ctrl) {
-                ReduceWheelZoom(state, effects, a);
-            }
-            else {
-                ReduceWheelScroll(state, effects, a);
-            }
-        },
-
-        // ---- ペイン・選択・クリップボード ----
-        [&](const TogglePaneAction& a) { ReduceTogglePane(state, effects, a); },
-        [&](const SelectAllAction&) { ReduceSelectAll(state, effects); },
-        [&](const SelectWordAction& a) { ReduceSelectWord(state, effects, a); },
-        [&](const ClearSelectionAction&) { ReduceClearSelection(state, effects); },
-        [&](const CopyAction& a) { ReduceCopy(state, effects, a); },
-
-        // ---- ズーム・テーマ ----
-        [&](const ZoomAction& a) { ReduceZoom(state, effects, a); },
-        [&](const ToggleDarkModeAction&) { ReduceToggleDarkMode(state, effects); },
-
-        // ---- ウィンドウ・システムイベント ----
-        [&](const ActivateAction& a) { ReduceActivate(state, effects, a); },
-        [&](const EnterSizeMoveAction&) {
-            state.window.is_sizing = true;
-            state.window.size_changed_in_sizing = false;
-        },
-        [&](const ExitSizeMoveAction&) { ReduceExitSizeMove(state, effects); },
-        [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
-        [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
-        [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
-        [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
-
-        // ---- 検索 ----
-        [&](const OpenSearchBarAction&) { ToggleSearchBar(state, effects, layout); },
-        [&](const CloseSearchBarAction&) { CloseSearchBar(state, effects); },
-        [&](const SearchStepAction& a) { ReduceSearchStep(state, effects, layout, a.forward); },
-        [&](const SearchSelectAllAction&) { PushEffect(effects, effect::SearchFocus{}); },
-        [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, layout, a.text); },
-        [&](const SearchContinueAction&) {
-            if (state.search.search_state.IsSearching()) {
-                ContinueSearch(state, effects, layout);
-            }
-        },
-        [&](const ToggleCaseSensitiveAction&) { ReduceToggleCaseSensitive(state, effects, layout); },
-        [&](const ToggleHighlightAction&) {
-            state.search.search_state.ToggleHighlightEnabled();
-            PushEffect(effects, effect::InvalidateWindow{});
-        },
-        [&](const SearchSelectionAction& a) { ReduceSearchSelection(state, effects, a); },
-        [&](const ImeCompositionAction& a) { ReduceImeComposition(state, effects, a.text); },
-
-        // ---- マウス関連 ----
-        [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
-        [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
-        [&](const PointerHoverAction& a) { ReducePointerHover(state, effects, a.hover); },
-        [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, a); },
-        [&](const LeftDragMovedAction& a) { ReduceLeftDragMoved(state, effects, a); },
-        [&](const LeftDragEndedAction& a) { ReduceLeftDragEnded(state, effects, a); },
-        [&](const SearchInputDragStartedAction& a) { ReduceSearchInputDragStarted(state, effects, a); },
-        [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, a); },
-        [&](const PaneScrollbarDragStartedAction& a) { ReducePaneScrollbarDragStarted(state, effects, a); },
-        [&](const TextSelectionStartedAction& a) { ReduceTextSelectionStarted(state, effects, a); },
-        [&](const RightClickGestureStartedAction& a) { ReduceRightClickGestureStarted(state, a); },
-        [&](const RightClickGestureMovedAction& a) { ReduceRightClickGestureMoved(state, effects, a); },
-        [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
-        [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
-        [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
-        [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, a); },
-        [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, a); },
-        [&](const DocumentOpenedAction& a) {
-            ReduceDocumentOpened(state, effects, a);
-            emit_scroll_effects = false;
-        },
-        [&](const DocumentReloadedAction& a) {
-            ReduceDocumentReloaded(state, effects, a);
-            emit_scroll_effects = false;
-        },
-        [&](const ReloadSettledAction&) { ReduceReloadSettled(state, effects, layout); },
-        [&](const LoadFailedAction&) { DiscardPendingLoad(state); },
-
-        // ---- ナビゲーション ----
-        [&](const NavigateHistoryAction& a) { NavigateHistory(state, effects, a.forward); },
-
-        // ---- ファイル操作 ----
-        [&](const OpenPathAction& a) { OpenFileWithHistory(state, effects, a.path); },
-        [&](const ShowHelpAction&) { ReduceShowHelp(state, effects); },
-        [&](const OpenFileAction&) { PushEffect(effects, effect::OpenFileDialog{}); },
-        [&](const ReloadFileAction&) { PushEffect(effects, effect::ReloadFile{}); },
-
-        // ---- 非同期・タイマー ----
-        [&](const SwipeOverlayTimeoutAction&) { ReduceSwipeOverlayTimeout(state, effects); },
-    }, action);
-    // clang-format on
-    if (emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
-        EmitScrollChangedSideEffects(state, effects);
+    std::visit([&](const auto& a) { On(c, a); }, action);
+    if (c.emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
+        EmitScrollChangedSideEffects(c);
     }
     // メニューのモーダルループより先に済ませるよう先頭に積む。
     const bool needs_capture = CaptureRequired(state);

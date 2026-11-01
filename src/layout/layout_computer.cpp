@@ -7,6 +7,7 @@
 #include <functional>
 #include <iterator>
 #include <ranges>
+#include <string_view>
 
 namespace layout {
 
@@ -110,7 +111,7 @@ void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural
 
     const float total_natural = std::ranges::fold_left(natural_widths, 0.0f, std::plus{});
 
-    if (total_natural > 0 && total_natural > effective_available) {
+    if (total_natural > effective_available) {
         // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
         // 自然幅で出して横スクロールに任せる方が読みやすい。
         const float smallest = *std::ranges::min_element(natural_widths);
@@ -237,7 +238,7 @@ void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, c
     });
 }
 
-CarryOverResult CarryOverUnchanged(
+size_t CarryOverUnchanged(
     const std::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
 {
@@ -253,7 +254,7 @@ CarryOverResult CarryOverUnchanged(
     for (const auto [old_index, new_index] : PairChangedDiagrams(old_nodes, new_nodes, ends)) {
         stale += new_cache.TakeDiagramAsStale(old_cache, old_index, new_index) ? 1 : 0;
     }
-    return { .ends = ends, .carried = ends.head + ends.tail + stale };
+    return ends.head + ends.tail + stale;
 }
 
 LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
@@ -290,7 +291,7 @@ void RecomputeYPositions(
 {
     MENDO_PROFILE("RecomputeYPositions");
     const auto node_count = nodes.size();
-    float y = (from_index < node_count) ? NodeStartY(nodes, cache, theme, from_index) : theme.margin_top;
+    float y = NodeStartY(nodes, cache, theme, from_index);
 
     // safe_exit_after の契約: 以降のノードは height/sa/sb が不変なので、
     // text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
@@ -311,7 +312,7 @@ void RecomputeYPositions(
 float CalcScrollYForDiff(
     const std::vector<Node>& nodes,
     const LayoutCache& cache,
-    std::string_view content,
+    size_t content_size,
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept
@@ -329,7 +330,7 @@ float CalcScrollYForDiff(
     const float node_h = cache[changed_node].height;
 
     const auto node_start = nodes[changed_node].SourceOffset();
-    const size_t next_start = NextSourceOffset(nodes, node_start, content.size());
+    const size_t next_start = NextSourceOffset(nodes, node_start, content_size);
     if (next_start > node_start) {
         const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
         node_y += node_h * std::min(fraction, 1.0f);
@@ -341,10 +342,6 @@ float CalcScrollYForDiff(
 
 int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept
 {
-    const int n = static_cast<int>(entries.size());
-    if (n == 0) {
-        return -1;
-    }
     // cache[entries[i].node_index].text_top <= scroll_y + margin を満たす最大の i を求める。
     const float threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries, [&](const TocEntry& e) noexcept {

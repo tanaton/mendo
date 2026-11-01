@@ -36,10 +36,10 @@ enum class PaneHeaderButton : uint8_t {
 template <typename Fn>
 void ForEachPaneHeaderButton(float pane_width, float header_height, bool is_file_pane, bool reveal_enabled, Fn&& fn)
 {
-    fn(PaneCloseButtonRect(pane_width, header_height), PaneHeaderButton::Close, true);
+    fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Close), PaneHeaderButton::Close, true);
     if (is_file_pane) {
-        fn(PaneRefreshButtonRect(pane_width, header_height), PaneHeaderButton::Refresh, true);
-        fn(PaneRevealButtonRect(pane_width, header_height), PaneHeaderButton::Reveal, reveal_enabled);
+        fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Refresh), PaneHeaderButton::Refresh, true);
+        fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Reveal), PaneHeaderButton::Reveal, reveal_enabled);
     }
 }
 
@@ -159,13 +159,13 @@ public:
         Inst(t).width = std::max(w, SIDE_PANE_MIN_WIDTH);
     }
 
-    constexpr ScrollState& SidePaneScroll(PaneTarget t) noexcept
+    constexpr float& SidePaneScroll(PaneTarget t) noexcept
     {
-        return Inst(t).scroll;
+        return Inst(t).scroll_y;
     }
-    constexpr const ScrollState& SidePaneScroll(PaneTarget t) const noexcept
+    constexpr float SidePaneScroll(PaneTarget t) const noexcept
     {
-        return Inst(t).scroll;
+        return Inst(t).scroll_y;
     }
     // 一覧の項目 (文字・行の高さ) だけに掛かる倍率。ヘッダーとペイン幅は変えない。
     constexpr ZoomLevel& SidePaneZoom(PaneTarget t) noexcept
@@ -180,7 +180,7 @@ public:
     constexpr void ResetScrollStates() noexcept
     {
         for (auto& inst : instances_) {
-            inst.scroll = {};
+            inst.scroll_y = 0.0f;
         }
     }
 
@@ -191,11 +191,11 @@ public:
     void DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept;
 
     // 左からファイル・目次・本文と並べる。top_offset はタイトルバーの高さ。
-    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
+    PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset) const noexcept;
 
 private:
     struct Instance {
-        ScrollState scroll{};
+        float scroll_y = 0.0f;
         float width = SIDE_PANE_DEFAULT_WIDTH;
         ZoomLevel zoom;
         bool show = true;

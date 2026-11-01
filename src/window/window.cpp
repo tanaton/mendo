@@ -1,4 +1,5 @@
 #include "window.h"
+#include "app.h"
 #include "app_constants.h"
 #include "config_service.h"
 #include "i18n.h"
@@ -38,6 +39,24 @@ constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 // 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
 // EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
 constexpr LONG IME_CARET_X_OFFSET = 8;
+
+// 自前の枠の太さ (px)。WM_DPICHANGED の中でも新しい DPI の値が要るので、持たずに毎回求める。
+struct FrameMetrics {
+    int border;
+    int frame_y;
+    int right_border;
+};
+
+FrameMetrics GetFrameMetrics(HWND hwnd) noexcept
+{
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const int padded = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    return {
+        .border = MulDiv(4, dpi, USER_DEFAULT_SCREEN_DPI),
+        .frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + padded,
+        .right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + padded,
+    };
+}
 
 // IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
 void PlaceImeWindowsBelowCaret(HWND edit)
@@ -135,7 +154,6 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     InitSystemMenu();
     UpdateDwmFrame();
-    UpdateDpiMetricsCache();
 
     // 描画デバイスが無い間はクライアント領域が透けるので、最初のフレームを出すまで DWM に隠させる。
     SetCloaked(hwnd_, TRUE);
@@ -189,18 +207,6 @@ void Win32Window::TakeStartupMessages()
     if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::INLINE_MATH_REQUESTED, app_msg::INLINE_MATH_REQUESTED, PM_REMOVE)) {
         app_->OnInlineMathRequested();
     }
-}
-
-void Win32Window::UpdateDpiMetricsCache()
-{
-    MENDO_PROFILE("Win32Window::UpdateDpiMetricsCache");
-    if (!hwnd_) {
-        return;
-    }
-    const UINT dpi = GetDpiForWindow(hwnd_);
-    cached_nchit_border_ = MulDiv(4, dpi, USER_DEFAULT_SCREEN_DPI);
-    cached_nchit_frame_y_ = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-    cached_nchit_right_border_ = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
 
 void Win32Window::UpdateDwmFrame()
@@ -315,11 +321,12 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
     // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
     // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
     if (IsZoomed(hwnd_)) {
+        const auto [border, frame_y, right_border] = GetFrameMetrics(hwnd_);
         auto& rc = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0];
-        rc.top += cached_nchit_frame_y_;
-        rc.left += cached_nchit_right_border_;
-        rc.right -= cached_nchit_right_border_;
-        rc.bottom -= cached_nchit_frame_y_;
+        rc.top += frame_y;
+        rc.left += right_border;
+        rc.right -= right_border;
+        rc.bottom -= frame_y;
     }
     return 0;
 }
@@ -340,9 +347,7 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
         return HTNOWHERE;
     }
 
-    const int border = cached_nchit_border_;
-    const int frame_y = cached_nchit_frame_y_;
-    const int right_border = cached_nchit_right_border_;
+    const auto [border, frame_y, right_border] = GetFrameMetrics(hwnd_);
 
     RECT rc{};
     if (!GetClientRect(hwnd_, &rc)) {
@@ -595,7 +600,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (app_->OnKeyDown(wParam)) {
             return 0;
         }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
 
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
@@ -611,7 +616,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DPICHANGED:
         app_->Dispatch(DpiChangedAction{ HIWORD(wParam), *reinterpret_cast<const RECT*>(lParam) });
         UpdateDwmFrame();
-        UpdateDpiMetricsCache();
         return 0;
 
     case WM_TIMER:
@@ -628,14 +632,14 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (HIWORD(lParam)) {
             ModifyMenuW(reinterpret_cast<HMENU>(wParam), SC_RESET_WINDOW, MF_BYCOMMAND | MF_STRING, SC_RESET_WINDOW, i18n::S().menu_reset_window.data());
         }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
 
     case WM_SYSCOMMAND:
         if ((wParam & 0xFFF0) == SC_RESET_WINDOW) {
             ResetWindowPlacement();
             return 0;
         }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
 
     case WM_CAPTURECHANGED:
         // 自分自身への SetCapture (ドラッグ開始) でも届くため、喪失時のみ処理する
@@ -647,7 +651,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CLOSE:
         // 起動時と揃えて DWM の閉じるアニメーションを出さない。DestroyWindow 内の非表示化より前に隠す必要がある。
         SetCloaked(hwnd_, TRUE);
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
 
     case WM_ENDSESSION:
         // ログオフ・シャットダウンでは WM_DESTROY が来ないままプロセスが終わるため、ここで終了処理 (設定保存) を通す。
@@ -672,7 +676,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (wParam == HTSYSMENU) {
             return 0;
         }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+        break;
 
     default:
         break;
@@ -839,9 +843,9 @@ LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, UINT msg, WPARAM wParam, LPA
 void Win32Window::OnSearchEditChanged()
 {
     const int text_len = GetWindowTextLengthW(search_edit_);
-    SearchTextChangedAction changed{ std::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
+    SearchTextChangedAction changed{ std::wstring(static_cast<size_t>(text_len), L'\0') };
     const int copied = GetWindowTextW(search_edit_, changed.text.data(), text_len + 1);
-    changed.text.resize(static_cast<size_t>(std::max(copied, 0)));
+    changed.text.resize(static_cast<size_t>(copied));
     app_->Dispatch(changed);
     SyncSearchCaretFromEdit();
 }
@@ -893,9 +897,6 @@ void Win32Window::RepositionSearchEdit()
 
 void Win32Window::SyncSearchCaretFromEdit()
 {
-    if (!search_edit_) {
-        return;
-    }
     DWORD sel_start = 0;
     DWORD sel_end = 0;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));

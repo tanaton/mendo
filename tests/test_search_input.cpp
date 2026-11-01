@@ -172,7 +172,7 @@ TEST_F(SearchInputTest, TocRowsDrawHeadingText)
         .active_toc_index = -1,
     };
     chrome::SidePaneFormats fmts;
-    fmts.item[std::to_underlying(PaneTarget::Toc)] = fmt_.Get();
+    fmts.toc_item = fmt_.Get();
     DrawCommandList cmds;
     chrome::EmitSidePanes(cmds, text_layouts_, fmts, theme, sp);
     EXPECT_EQ(TextsOf(cmds), (std::vector<std::wstring>{ L"A", L"B" }));

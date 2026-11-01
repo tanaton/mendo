@@ -23,8 +23,7 @@ public:
         return true;
     }
 
-    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     YRange /*viewport*/) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             return 10.0f;
@@ -35,11 +34,7 @@ public:
 
         const auto& text = node.GetText();
         if (text.empty()) {
-            // 実装と同じ高さを使う。Init 前は theme が無いので行高の半分で代用する。
-            if (theme_) {
-                return layout::EmptyTextNodeHeight(node, *theme_);
-            }
-            return IsEmptyListItemContainer(node) ? 0.0f : line_height * 0.5f;
+            return layout::EmptyTextNodeHeight(node, *theme_);
         }
 
         // テキスト長と利用可能な幅から行数を推定。コードブロックは実装と同じく折り返さない。
@@ -61,15 +56,7 @@ private:
     float MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
-        if (!tbl || tbl->row_count == 0) {
-            return 0.0f;
-        }
-
         const size_t col_count = tbl->col_count;
-        if (col_count == 0) {
-            return entry.height;
-        }
-
         const auto row_count = tbl->row_count;
         auto* const existing = entry.table_layout();
         auto& tl = existing ? *existing : entry.set_table_layout(std::make_unique<TableLayoutData>(row_count, col_count, false));

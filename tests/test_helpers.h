@@ -1,11 +1,12 @@
 #pragma once
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <d2d1.h>
 #include <filesystem>
 #include <fstream>
-#include <optional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -14,19 +15,10 @@
 #include <windows.h>
 #include <vector>
 #include "document_types.h"
-#include "image_loader.h"
 #include "layout_cache.h"
-#include "search_state.h"
-#include "side_effect.h"
+#include "task_scheduler.h"
 #include "test_nodes.h"
 #include "theme.h"
-
-// 検索を区切らずに最後まで進める。
-inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
-{
-    s.BeginSearch(query);
-    s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
-}
 
 // 重なりを許さず needle の出現回数を数える。
 inline size_t CountOccurrences(std::string_view s, std::string_view needle)
@@ -103,7 +95,6 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
 }
 
 // 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
-// 複数テストファイルで共通して使用される。
 // spacing_above = spacing_below = 0 を仮定する。
 inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
 {
@@ -115,20 +106,6 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
         y += node_height;
     }
     return cache;
-}
-
-// FindCachedImage の結果を DiagramEntry に写す (bitmap と、今の DPI での寸法)。
-inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
-{
-    const auto* cached = loader.FindCachedImage(path);
-    if (!cached) {
-        return false;
-    }
-    out.bitmap = cached->bitmap;
-    const auto size = loader.DipSize(*cached);
-    out.width = size.width;
-    out.height = size.height;
-    return true;
 }
 
 inline size_t CountDirty(const LayoutCache& cache) noexcept
@@ -163,7 +140,7 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
         std::string text;
         text.reserve(len);
         for (size_t k = 0; k < len; ++k) {
-            text.push_back(static_cast<wchar_t>('a' + ((i + k) % 26)));
+            text.push_back(static_cast<char>('a' + ((i + k) % 26)));
         }
         SetTestText(n, text, 0);
         return n;
@@ -216,11 +193,10 @@ struct StressFixture {
     }
 };
 
-// レイアウト系テスト共通の Theme。Theme は zoom 以外初期化子なしの集約のため、
-// value-init + 明示設定で未初期化読み（flaky の温床）を防ぐ。
+// レイアウト系テスト共通の Theme。
 inline Theme MakeLayoutTestTheme()
 {
-    Theme theme{};
+    Theme theme;
     theme.margin_top = 10.0f;
     theme.heading_spacing_above = 8.0f;
     theme.heading_spacing_below = 4.0f;
@@ -320,89 +296,6 @@ protected:
     }
 };
 
-template <typename T>
-bool HasEffect(const SideEffectList& effects) noexcept
-{
-    return std::ranges::any_of(effects, [](const SideEffect& se) static {
-        return std::holds_alternative<T>(se);
-    });
-}
-
-// SideEffect から特定の effect 型を取り出す。該当しなければ nullptr。
-template <typename T>
-const T* GetEffect(const SideEffect& se) noexcept
-{
-    return std::get_if<T>(&se);
-}
-
-// SideEffectList の中で型 T が最初に現れる位置を返す。
-// 型 T はいずれかのドメイン variant のメンバである必要がある。
-template <typename T>
-inline std::optional<size_t> IndexOfEffect(const SideEffectList& effects) noexcept
-{
-    const auto it = std::ranges::find_if(effects, [](const SideEffect& se) static noexcept { return GetEffect<T>(se) != nullptr; });
-    if (it == effects.end()) {
-        return std::nullopt;
-    }
-    return static_cast<size_t>(it - effects.begin());
-}
-
-// SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。
-// フィールド値の検証 (HasEffect では型の有無しか見られない) に使う。
-template <typename T>
-inline const T* FindEffect(const SideEffectList& effects) noexcept
-{
-    for (const auto& se : effects) {
-        if (const T* p = GetEffect<T>(se)) {
-            return p;
-        }
-    }
-    return nullptr;
-}
-
-// effects 内で A が存在し、かつ B が存在し、A が B より先に現れる場合のみ true。
-template <typename A, typename B>
-inline bool HasEffectInOrder(const SideEffectList& effects) noexcept
-{
-    const auto a = IndexOfEffect<A>(effects);
-    const auto b = IndexOfEffect<B>(effects);
-    return a && b && *a < *b;
-}
-
-// プロセス内一意の一時ファイルを RAII で作成・削除する。
-// jthread / 非同期ロード系テストで「実ファイルを 1 つ」だけ要求するケースに使う。
-// 大量ファイルや subdir 構造が要るテストは TempDirTestBase / ScopedTempDir を使うこと。
-class TempFile {
-public:
-    TempFile(std::wstring_view name_hint, std::string_view content)
-    {
-        const auto tmp_dir = std::filesystem::temp_directory_path();
-        std::wstring fname = L"mendo_";
-        fname.append(name_hint);
-        fname += L"_";
-        fname += std::to_wstring(::GetCurrentProcessId());
-        fname += L"_";
-        fname += std::to_wstring(reinterpret_cast<uintptr_t>(this));
-        path_ = tmp_dir / fname;
-        WriteTestFile(path_, content);
-    }
-    ~TempFile()
-    {
-        std::error_code ec;
-        std::filesystem::remove(path_, ec);
-    }
-    TempFile(const TempFile&) = delete;
-    TempFile& operator=(const TempFile&) = delete;
-
-    const std::wstring& Path() const noexcept
-    {
-        return path_.native();
-    }
-
-private:
-    std::filesystem::path path_;
-};
-
 // 条件 pred が true になるまで短時間ポーリングする。timeout 内に成立すれば true。
 // バックグラウンドワーカー完了の決定論的観測手段が無いケースの最終手段。
 template <class Pred>
@@ -418,47 +311,113 @@ inline bool PollUntil(Pred pred, std::chrono::milliseconds timeout = std::chrono
     return false;
 }
 
-// worker から PostMessage される HWND の提供と、届いた通知の計数に使う。
-// HWND_MESSAGE 親で可視化されず、メッセージループ不要 (作成スレッドのキューに積まれる)。
-class MessageOnlyWindow {
+// worker を workers 本塞ぎ、以降に積んだタスクを待たせる。Open で走り出す。破棄時にも開くので、ASSERT で抜けても
+// 後続テストを道連れにしない。タスクが待ちから抜けるのは Open より後になりうるので、状態はタスクと共有する。
+class WorkerGate {
 public:
-    MessageOnlyWindow()
+    explicit WorkerGate(TaskScheduler& scheduler, int workers = 1)
     {
-        const wchar_t* class_name = L"MendoTestMsgWnd";
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = ::DefWindowProcW;
-        wc.hInstance = ::GetModuleHandleW(nullptr);
-        wc.lpszClassName = class_name;
-        ::RegisterClassExW(&wc);
-        hwnd_ = ::CreateWindowExW(0, class_name, L"", 0, 0, 0, 0, 0,
-                                  HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
-    }
-    ~MessageOnlyWindow()
-    {
-        if (hwnd_) {
-            ::DestroyWindow(hwnd_);
+        for (int i = 0; i < workers; ++i) {
+            const bool posted = scheduler.Post([state = state_] {
+                state->entered.fetch_add(1);
+                state->entered.notify_all();
+                state->open.wait(false);
+            });
+            EXPECT_TRUE(posted);
+            if (!posted) {
+                return;
+            }
+        }
+        for (int n = state_->entered.load(); n < workers; n = state_->entered.load()) {
+            state_->entered.wait(n);
         }
     }
-    MessageOnlyWindow(const MessageOnlyWindow&) = delete;
-    MessageOnlyWindow& operator=(const MessageOnlyWindow&) = delete;
-
-    HWND Get() const noexcept { return hwnd_; }
-
-    // キューに溜まった msg_id を取り出して数える。
-    int DrainMessages(UINT msg_id) const noexcept
+    ~WorkerGate()
     {
-        int n = 0;
-        MSG m;
-        while (::PeekMessageW(&m, hwnd_, msg_id, msg_id, PM_REMOVE)) {
-            ++n;
-        }
-        return n;
+        Open();
+    }
+    WorkerGate(const WorkerGate&) = delete;
+    WorkerGate& operator=(const WorkerGate&) = delete;
+
+    void Open() noexcept
+    {
+        state_->open.store(true);
+        state_->open.notify_all();
     }
 
 private:
-    HWND hwnd_ = nullptr;
+    struct State {
+        std::atomic<int> entered{ 0 };
+        std::atomic<bool> open{ false };
+    };
+    std::shared_ptr<State> state_ = std::make_shared<State>();
 };
+
+// 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
+// AddRef/Release は no-op (static instance で寿命管理は不要)。
+class StubD2D1Bitmap : public ID2D1Bitmap {
+public:
+    STDMETHODIMP QueryInterface(REFIID, void**) override
+    {
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP_(ULONG)
+    AddRef() override
+    {
+        return 1;
+    }
+    STDMETHODIMP_(ULONG)
+    Release() override
+    {
+        return 1;
+    }
+    void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
+    {
+        if (factory) {
+            *factory = nullptr;
+        }
+    }
+    D2D1_SIZE_F STDMETHODCALLTYPE GetSize() const override
+    {
+        return D2D1_SIZE_F{ 1.0f, 1.0f };
+    }
+    D2D1_SIZE_U STDMETHODCALLTYPE GetPixelSize() const override
+    {
+        return D2D1_SIZE_U{ 1u, 1u };
+    }
+    D2D1_PIXEL_FORMAT STDMETHODCALLTYPE GetPixelFormat() const override
+    {
+        return D2D1_PIXEL_FORMAT{};
+    }
+    void STDMETHODCALLTYPE GetDpi(FLOAT* dpiX, FLOAT* dpiY) const override
+    {
+        if (dpiX) {
+            *dpiX = 96.0f;
+        }
+        if (dpiY) {
+            *dpiY = 96.0f;
+        }
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromBitmap(const D2D1_POINT_2U*, ID2D1Bitmap*, const D2D1_RECT_U*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromRenderTarget(const D2D1_POINT_2U*, ID2D1RenderTarget*, const D2D1_RECT_U*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE CopyFromMemory(const D2D1_RECT_U*, const void*, UINT32) override
+    {
+        return E_NOTIMPL;
+    }
+};
+
+// AddRef/Release が何もしないので static のまま共用する。
+inline StubD2D1Bitmap& SharedStubBitmap() noexcept
+{
+    static StubD2D1Bitmap instance;
+    return instance;
+}
 
 // COM apartment 初期化を管理する基底フィクスチャ。
 // 既に他スイートで別モードで初期化済みのケース (RPC_E_CHANGED_MODE) では

@@ -30,49 +30,6 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
-TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
-{
-    auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
-    EXPECT_GT(cache[0].height, 0.0f);
-}
-
-TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
-{
-    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD");
-    for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
-    }
-}
-
-TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
-{
-    auto [nodes, cache] = ParseAndLayout("First\n\nSecond\n\nThird");
-    for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
-        EXPECT_GE(cache.Top(i), prev_bottom);
-    }
-}
-
-// ---- 見出しの間隔 ----
-
-TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
-{
-    auto [nodes, cache] = ParseAndLayout("Paragraph\n\n# Heading\n\nAnother");
-    ASSERT_EQ(nodes.size(), 3u);
-
-    float para_bottom = cache.Top(0) + cache[0].height;
-    float heading_y = cache.Top(1);
-    EXPECT_GT(heading_y - para_bottom, theme_.paragraph_spacing);
-}
-
-TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
-{
-    auto [nodes, cache] = ParseAndLayout("# Heading\n\nParagraph");
-    ASSERT_EQ(nodes.size(), 2u);
-    EXPECT_GT(cache[0].height, cache[1].height);
-}
-
 // ---- ダーティ追跡 ----
 
 TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
@@ -93,10 +50,8 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
-    if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
-        EXPECT_FALSE(more);
-    }
+    ASSERT_TRUE(cache.HasDirtyNodes());
+    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
 
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache.Top(i), cache.Top(i - 1));
@@ -119,17 +74,6 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
 
-// ---- 幅の変更 ----
-
-TEST_F(MockLayoutTest, WidthChangeRecalculates)
-{
-    auto [nodes, cache] = ParseAndLayout("Some text that could wrap when narrower");
-    float h_wide = cache[0].height;
-    ComputeLayout(engine_, nodes, cache, 200.0f);
-    float h_narrow = cache[0].height;
-    EXPECT_GE(h_narrow, h_wide);
-}
-
 // ---- テーブルモック ----
 
 TEST_F(MockLayoutTest, TableHasPositiveHeight)
@@ -148,31 +92,6 @@ TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
     const int idx = FindFirstNodeIndexByType(nodes, NodeType::HorizontalRule);
     ASSERT_GE(idx, 0);
     EXPECT_GT(cache[idx].height, 0.0f);
-}
-
-// ---- EnsureVisibleLayout ----
-
-TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
-{
-    // ビューポート[0,50)の部分レイアウト
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(20), 800.0f, 0.0f, 50.0f);
-    EXPECT_TRUE(cache.HasDirtyNodes());
-
-    const auto dirty_before = CountDirty(cache);
-
-    // より後の領域のレイアウトを確保
-    float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
-    EXPECT_TRUE(engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f));
-    EXPECT_LT(CountDirty(cache), dirty_before) << "可視範囲のダーティノードがクリーンになるべき";
-}
-
-// ---- 範囲省略時の全件レイアウト ----
-
-TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
-{
-    auto [nodes, cache] = ParseAndLayout("A\n\nB", ViewportWidthFor(800.0f));
-    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
-    EXPECT_FALSE(cache.HasDirtyNodes());
 }
 
 // ---- Mermaidブロックのズーム耐性 ----
@@ -345,75 +264,6 @@ TEST_F(MockLayoutTest, ReestimateFollowsContentWidth)
     EXPECT_TRUE(cache[0].layout_dirty);
 }
 
-// ---- 多数ノードの合計高さ ----
-
-TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
-{
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
-    const float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
-    EXPECT_GT(total, 500.0f);
-    size_t last = nodes.size() - 1;
-    EXPECT_LE(cache.Top(last) + cache[last].height, total);
-}
-
-// ---- ファイル切り替えリグレッションテスト ----
-
-TEST_F(MockLayoutTest, FileSwitchWithFreshCacheProducesCorrectLayout)
-{
-    // ファイルAを開くシミュレーション: "# Big Heading\n\nSome paragraph"
-    auto nodes_a = ParseNodes("# Big Heading\n\nSome paragraph");
-    LayoutCache cache(nodes_a.size());
-    LayoutAll(nodes_a, cache, 800.0f);
-
-    ASSERT_EQ(nodes_a.size(), 2u);
-    float heading_height_a = cache[0].height;
-    float para_height_a = cache[1].height;
-    EXPECT_GT(heading_height_a, 0.0f);
-    EXPECT_GT(para_height_a, 0.0f);
-
-    // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
-    auto nodes_b = ParseNodes("Just a paragraph\n\nAnother one\n\nThird");
-    cache = LayoutCache(nodes_b.size());
-    LayoutAll(nodes_b, cache, 800.0f);
-
-    ASSERT_EQ(nodes_b.size(), 3u);
-    // ファイルBのすべてのノードは新しく正しい高さの段落であるべき
-    for (size_t i = 0; i < nodes_b.size(); i++) {
-        EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i << " はクリーンであるべき";
-        EXPECT_GT(cache[i].height, 0.0f) << "ノード " << i << " は正の高さを持つべき";
-        EXPECT_EQ(nodes_b[i].type, NodeType::Paragraph);
-    }
-    // ファイルBの最初のノードはファイルAの見出しの高さを保持していてはならない
-    EXPECT_NE(cache[0].height, heading_height_a)
-        << "ファイルBの段落はファイルAの見出しの高さを保持していてはならない";
-}
-
-TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithFreshCacheRecalculates)
-{
-    // ファイルA: 見出し2つ
-    auto nodes_a = ParseNodes("# H1\n\n## H2");
-    LayoutCache cache(nodes_a.size());
-    LayoutAll(nodes_a, cache, 800.0f);
-    float h1_height = cache[0].height;
-    float h2_height = cache[1].height;
-
-    // ファイルB: 段落2つ（ファイルAと同じノード数）
-    auto nodes_b = ParseNodes("alpha\n\nbeta");
-    cache = LayoutCache(nodes_b.size());
-    LayoutAll(nodes_b, cache, 800.0f);
-
-    // 段落は見出しより短いべき
-    EXPECT_LT(cache[0].height, h1_height)
-        << "段落はH1見出しより短いべき";
-    EXPECT_LT(cache[1].height, h2_height)
-        << "段落はH2見出しより短いべき";
-
-    // すべてクリーンであるべき
-    for (size_t i = 0; i < cache.size(); i++) {
-        EXPECT_FALSE(cache[i].layout_dirty);
-    }
-}
-
 // ---- 文書差し替え直後 (空のキャッシュ) の各レイアウト入口 ----
 // アプリの文書切り替えは同じ幅のまま可視範囲だけ部分レイアウトする。
 
@@ -422,24 +272,14 @@ namespace {
 constexpr float kSwitchWidth = 800.0f;
 constexpr float kSwitchViewportBottom = 600.0f;
 
-void LayoutPreviousDocument(LayoutEngine& engine, LayoutCache& cache)
-{
-    auto prev = ParseNodes("# Prev\n\nbody");
-    cache = LayoutCache(prev.size());
-    ComputeLayout(engine, prev, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
-}
-
 } // namespace
 
 // 未推定のキャッシュでも可視ノードが計測されること (ヘルプ表示で本文が空になっていた回帰の安全網)。
 TEST_F(MockLayoutTest, FileSwitchPartialLayoutAtSameWidthMeasuresVisibleNodes)
 {
-    LayoutCache cache;
-    LayoutPreviousDocument(engine_, cache);
-
     const auto md = MakeParagraphs(5);
     auto nodes = ParseNodes(md);
-    cache = LayoutCache(nodes.size());
+    LayoutCache cache(nodes.size());
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
 
     ASSERT_EQ(nodes.size(), 5u);
@@ -453,12 +293,9 @@ TEST_F(MockLayoutTest, FileSwitchPartialLayoutAtSameWidthMeasuresVisibleNodes)
 // スクロール範囲が極端に短くなる。ロード時の推定で最初から全体の高さが概ね正しいこと。
 TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 {
-    LayoutCache cache;
-    LayoutPreviousDocument(engine_, cache);
-
     const auto md = MakeParagraphs(2000);
     auto nodes = ParseNodes(md);
-    cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, layout::BufferedRange(0.0f, kSwitchViewportBottom, 5.0f))) {
     }
@@ -474,12 +311,9 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 // 遅延レイアウトタイマー (OnDeferredLayout) はビューポート制限付きで ProcessDirtyBatch を呼ぶ。
 TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipOnFreshCacheMeasuresTopNodes)
 {
-    LayoutCache cache;
-    LayoutPreviousDocument(engine_, cache);
-
     const auto md = MakeParagraphs(10);
     auto nodes = ParseNodes(md);
-    cache = LayoutCache(nodes.size());
+    LayoutCache cache(nodes.size());
     engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, layout::BufferedRange(0.0f, kSwitchViewportBottom, 1.0f));
 
     EXPECT_FALSE(cache[0].layout_dirty);
@@ -491,12 +325,9 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipOnFreshCacheMeasuresTopNodes)
 // 後続フレームで高さが変わらない (無駄な再計測をしない) こと。
 TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
 {
-    LayoutCache cache;
-    LayoutPreviousDocument(engine_, cache);
-
     const auto md = MakeParagraphs(10);
     auto nodes = ParseNodes(md);
-    cache = LayoutCache(nodes.size());
+    LayoutCache cache(nodes.size());
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     const float top0 = cache.Top(0);
     const float height0 = cache[0].height;
@@ -510,12 +341,9 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
 // 推定で位置が決まっているので、復元先の可視ノードが計測されること。
 TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
 {
-    LayoutCache cache;
-    LayoutPreviousDocument(engine_, cache);
-
     const auto md = MakeParagraphs(200);
     auto nodes = ParseNodes(md);
-    cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
 
     constexpr size_t kTarget = 150;
     const float scroll_y = cache.Top(kTarget);

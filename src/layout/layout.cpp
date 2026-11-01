@@ -2,7 +2,6 @@
 #include "document.h"
 #include "parallel_for.h"
 #include "profiler.h"
-#include "task_scheduler.h"
 #include "viewport_manager.h"
 #include <algorithm>
 #include <atomic>
@@ -18,26 +17,20 @@ int MeasureIndicesParallel(
     float content_width,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
-    YRange viewport,
     LayoutDeadline deadline)
 {
+    assert(std::ranges::is_sorted(indices));
     const Theme& theme = backend.GetTheme();
     if (!indices.empty()) {
-        const auto [lo, hi] = std::ranges::minmax(indices);
-        cache.NoteMaterialized(lo, hi);
+        cache.NoteMaterialized(indices.front(), indices.back() + 1);
     }
-    std::atomic<size_t> taken{ 0 };
-    const auto past_deadline = [&] {
-        return deadline != kNoLayoutDeadline && taken.fetch_add(1, std::memory_order_relaxed) > 0 &&
-               std::chrono::steady_clock::now() >= deadline;
-    };
     // 1 ノードの計測 (数百 µs) に比べ worker を起こす手間 (8 本で約 30µs) と chunk の取得は小さいので、1 ノード単位で配って
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
     std::atomic<int> left{ 0 };
     ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
         for (const size_t i : indices.subspan(begin, end - begin)) {
-            if (past_deadline()) {
+            if (i != indices.front() && std::chrono::steady_clock::now() >= deadline) {
                 left.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
@@ -46,7 +39,7 @@ int MeasureIndicesParallel(
             const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
             // 例外はノード単位で捕まえ、同じ chunk の残りも計測する。
             try {
-                MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap);
+                MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), bitmap);
             } catch (...) {
                 MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
             }
@@ -119,7 +112,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             last_measured = i;
         }
         else if (const auto* tl = entry.table_layout(); tl && tl->HasEvictedRows()) {
-            cache.NoteMaterialized(i, i);
+            cache.NoteMaterialized(i, i + 1);
             const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), range.ToLocal(entry_top));
             result.updated |= restored.restored;
             if (restored.height) {
@@ -132,7 +125,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, range, deadline);
+        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, deadline);
         // 期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;
         height_changed = true;
@@ -166,8 +159,8 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
     // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
-    const bool has_outside = vr.first > 0 || vr.last_plus_1 < node_count;
-    const bool any_dirty = has_outside || std::ranges::any_of(std::views::iota(vr.first, vr.last_plus_1), [&cache](size_t i) {
+    const bool has_outside = vr.begin > 0 || vr.end < node_count;
+    const bool any_dirty = has_outside || std::ranges::any_of(std::views::iota(vr.begin, vr.end), [&cache](size_t i) {
         return cache[i].layout_dirty;
     });
     cache.SetHasDirtyNodes(any_dirty);
@@ -241,14 +234,14 @@ bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, fl
     return EnsureRangeLayout(doc, cache, width, top, top);
 }
 
-void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, layout::HeightChangeRange changed) noexcept
+void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept
 {
     // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
     KeepingAnchor(cache, [&] {
         if (changed.empty()) {
             return false;
         }
-        RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.first, changed.last);
+        RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
         return true;
     });
 }

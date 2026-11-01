@@ -9,6 +9,27 @@
 #include <string>
 #include <string_view>
 
+// GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で直接書き込ませる。
+// 確保・ロック・fill のいずれかが失敗したら空を返す (確保済みメモリは解放される)。
+template <class Fill>
+UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill)
+{
+    UniqueGlobalMem mem{ GlobalAlloc(GMEM_MOVEABLE, size) };
+    if (!mem) {
+        return {};
+    }
+    void* ptr = GlobalLock(mem.get());
+    if (!ptr) {
+        return {};
+    }
+    const bool ok = fill(ptr);
+    GlobalUnlock(mem.get());
+    if (!ok) {
+        return {};
+    }
+    return mem;
+}
+
 class ClipboardSession {
 public:
     explicit ClipboardSession(HWND hwnd) noexcept
@@ -41,11 +62,6 @@ private:
 template <typename CharT>
 inline UniqueGlobalMem BuildGlobalZeroTerminated(std::basic_string_view<CharT> text) noexcept
 {
-    // text.size() + 1 が SIZE_MAX/sizeof(CharT) を超えると bytes 計算がオーバーフローする。
-    // GlobalAlloc は size_t 受けでも実用上数 GB が上限なので、UINT_MAX を実用上限とする。
-    if (text.size() > std::numeric_limits<UINT>::max() / sizeof(CharT) - 1) {
-        return {};
-    }
     return AllocGlobalFilled((text.size() + 1) * sizeof(CharT), [text](void* p) noexcept {
         auto* dest = static_cast<CharT*>(p);
         std::char_traits<CharT>::copy(dest, text.data(), text.size());

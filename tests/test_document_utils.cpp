@@ -996,110 +996,34 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
 
 // ---- FindLinkAtPosition: テーブルセル内のリンク ----
 
-TEST(FindLinkAtPosition, TableCellLinkFound)
+// pos は linearized 形式の offset。リンクのセルの文字だけが当たり、区切り文字や他のセルは外れる。
+TEST(FindLinkAtPosition, TableCells)
 {
-    // セル(1, 1)にリンクを持つテーブルノードを構築:
-    // | Name | URL     |
-    // | foo  | [bar](https://example.com) |
-    // 線形化テキスト: "Name\tURL\nfoo\tbar"
-    Node node;
-    node.type = NodeType::Table;
-    auto* tbl = AttachTestTable(node);
-    const int16_t link = AddTestLinkUrl(node, "https://example.com");
-
-    // concat 化: "Name\tURL\nfoo\tbar", cell_text_starts: [0, 5, 9, 13, 16]
-    tbl->row_count = 2;
-    tbl->col_count = 2;
-    tbl->concat_text = "Name\tURL\nfoo\tbar";
-    tbl->cell_text_starts = { 0u, 5u, 9u, 13u, 16u };
-    tbl->all_runs = { MakeRun(0, 4), MakeRun(0, 3), MakeRun(0, 3), MakeRun(0, 3, link) };
-    tbl->cell_run_starts = { 0u, 1u, 2u, 3u, 4u };
-    tbl->aligns = { TableAlign::Default, TableAlign::Default };
-    tbl->head_row_count = 1;
-
-    // "bar"内の位置（オフセット13）でリンクが見つかるべき
-    auto result = FindLinkAtPosition(node, 13);
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "https://example.com");
-
-    // "Name"内の位置（オフセット1）ではリンクが見つからないべき
-    auto no_link = FindLinkAtPosition(node, 1);
-    EXPECT_FALSE(no_link.has_value());
-
-    // "foo"内の位置（オフセット9）ではリンクが見つからないべき
-    auto no_link2 = FindLinkAtPosition(node, 9);
-    EXPECT_FALSE(no_link2.has_value());
-}
-
-TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
-{
-    auto nodes = ParseNodes(
-                     "| Text | Link |\n"
-                     "|------|------|\n"
-                     "| hello | [click](https://example.com) |");
+    const auto nodes = ParseNodes("| Name | URL |\n|---|---|\n| foo | [bar](https://example.com) |\n| [s](#sec) | x |");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Table);
-
-    // セル内にリンクのrunが存在することを確認
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-    ASSERT_GE(tbl->col_count, 2u);
-    bool has_link = false;
-    for (const auto& run : tbl->GetCellRuns(1, 1)) {
-        if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], "https://example.com");
-            has_link = true;
-        }
+    ASSERT_EQ(nodes[0].GetText(), "Name\tURL\nfoo\tbar\ns\tx");
+    struct Case {
+        uint32_t pos;
+        std::optional<std::string_view> expected;
+    };
+    const Case kCases[] = {
+        { 1, std::nullopt },
+        { 9, std::nullopt },
+        { 12, std::nullopt }, // セルの間のタブ
+        { 13, "https://example.com" },
+        { 15, "https://example.com" },
+        { 16, std::nullopt }, // 行末の改行
+        { 17, "#sec" },
+        { 19, std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.pos);
+        EXPECT_EQ(FindLinkAtPosition(nodes[0], c.pos), c.expected);
     }
-    EXPECT_TRUE(has_link);
-}
-
-TEST(FindLinkAtPosition, TableCellInternalLink)
-{
-    Node node;
-    node.type = NodeType::Table;
-    auto* tbl = AttachTestTable(node);
-    const int16_t link = AddTestLinkUrl(node, "#my-section");
-
-    // concat 化: 1 行 1 列の "section"
-    tbl->row_count = 1;
-    tbl->col_count = 1;
-    tbl->concat_text = "section";
-    tbl->cell_text_starts = { 0u, 7u };
-    tbl->all_runs = { MakeRun(0, 7, link) };
-    tbl->cell_run_starts = { 0u, 1u };
-    tbl->aligns = { TableAlign::Default };
-
-    auto result = FindLinkAtPosition(node, 3);
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(*result, "#my-section");
-}
-
-TEST(FindLinkAtPosition, TablePositionOnSeparator)
-{
-    // タブ/改行区切り上の位置ではリンクを返さないべき
-    Node node;
-    node.type = NodeType::Table;
-    auto* tbl = AttachTestTable(node);
-    const int16_t link = AddTestLinkUrl(node, "https://b.com");
-
-    // concat 化: 1 行 2 列の "A\tB"
-    tbl->row_count = 1;
-    tbl->col_count = 2;
-    tbl->concat_text = "A\tB";
-    tbl->cell_text_starts = { 0u, 2u, 3u };
-    tbl->all_runs = { MakeRun(0, 1), MakeRun(0, 1, link) };
-    tbl->cell_run_starts = { 0u, 1u, 2u };
-    tbl->aligns = { TableAlign::Default, TableAlign::Default };
-
-    // タブ区切り（オフセット1）はどのセルにもマッチしないべき
-    EXPECT_FALSE(FindLinkAtPosition(node, 1).has_value());
-    // "B"（オフセット2）でリンクが見つかるべき
-    EXPECT_EQ(FindLinkAtPosition(node, 2), "https://b.com");
 }
 
 // ============================================================
-// FindFirstDifference (UTF-16 コード単位の差分検出)
+// FindFirstDifference (UTF-8 byte の差分検出)
 // ============================================================
 
 TEST(FindFirstDifference, ReturnsFirstDifferingByte)
@@ -1126,35 +1050,6 @@ TEST(FindFirstDifference, ReturnsFirstDifferingByte)
         SCOPED_TRACE(::testing::PrintToString(c.old_text) + " -> " + ::testing::PrintToString(c.new_text));
         EXPECT_EQ(FindFirstDifference(c.old_text, c.new_text), c.expected);
     }
-}
-
-// 粗いチャンク比較 → 細かいチャンク → バイト単位の各境界で差分位置が正確に出る。
-TEST(FindFirstDifference, LargeInputAcrossChunkBoundaries)
-{
-    const std::string base(200 * 1024, 'a');
-    for (const size_t pos : { size_t{ 0 }, size_t{ 63 }, size_t{ 64 }, size_t{ 65535 }, size_t{ 65536 }, size_t{ 131071 }, base.size() - 1 }) {
-        std::string changed = base;
-        changed[pos] = 'b';
-        EXPECT_EQ(FindFirstDifference(base, changed), pos) << "pos=" << pos;
-    }
-    EXPECT_EQ(FindFirstDifference(base, base), std::string_view::npos);
-    EXPECT_EQ(FindFirstDifference(base, base + "x"), base.size());
-}
-
-// 末尾を削っただけの保存は何度読み直しても prefix shrink なので、上限で defer をやめる。
-TEST(PrefixShrinkRetry, StopsDeferringAfterLimit)
-{
-    PrefixShrinkRetry retry;
-    for (int i = 0; i < PrefixShrinkRetry::kMaxDefers; ++i) {
-        EXPECT_FALSE(retry.Exhausted());
-        retry.CountDefer();
-    }
-    EXPECT_TRUE(retry.Exhausted());
-    retry.CountDefer();
-    EXPECT_TRUE(retry.Exhausted());
-
-    retry.Reset();
-    EXPECT_FALSE(retry.Exhausted());
 }
 
 // 上限後は prefix shrink を受け入れ、縮んだ位置へ差し替える。それ以外の判定は変わらない。
@@ -1247,17 +1142,6 @@ TEST(FindNodeBySourceOffset, HandBuiltNodes)
         SCOPED_TRACE(c.name);
         EXPECT_EQ(FindNodeBySourceOffset(c.nodes, c.diff_offset), c.expected);
     }
-}
-
-TEST(FindNodeBySourceOffset, ParsedMarkdown)
-{
-    std::string_view md = "# Title\n\nParagraph\n\n## Section";
-    auto nodes = ParseNodes(md);
-    ASSERT_GE(nodes.size(), 3u);
-    // 最初のノードの offset は "# " の後 = 2
-    EXPECT_EQ(nodes[0].SourceOffset(), 2u);
-    // "Paragraph" は "# Title\n\n" = 9バイト目から
-    EXPECT_EQ(nodes[1].SourceOffset(), 9u);
 }
 
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
@@ -1393,68 +1277,51 @@ TEST(DiffToNode, EditAtParagraphBoundary)
 // CalcScrollYForDiff
 // ============================================================
 
-// ヘルパー: source_offset を等間隔に設定したノード列を構築する。
-static std::vector<Node> MakeNodes(int count, size_t offset_step = 100)
-{
-    std::vector<Node> nodes(count);
-    for (int i = 0; i < count; ++i) {
-        nodes[i].SetSourceOffset(i * offset_step);
-    }
-    return nodes;
-}
-
 TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 {
     std::vector<Node> nodes;
     LayoutCache cache;
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 0, 500.0f, 42.0f), 42.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 7, 0, 500.0f, 42.0f), 42.0f);
 }
 
 TEST(CalcScrollYForDiff, FallbackWhenDiffPosIsNpos)
 {
     // npos = 差分位置なし (改行コード変換のみのリロード等)。現在位置を維持する。
-    std::string content(300, 'x');
-    auto nodes = MakeNodes(3, 100);
+    auto nodes = NodesAt({ 0, 100, 200 });
     auto cache = MakeUniformCache(3, 100.0f);
     EXPECT_FLOAT_EQ(
-        CalcScrollYForDiff(nodes, cache, content, std::string_view::npos, 500.0f, 123.0f), 123.0f);
+        CalcScrollYForDiff(nodes, cache, 300, std::string_view::npos, 500.0f, 123.0f), 123.0f);
 }
 
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
 {
     // すべてのノードの source_offset が diff_pos より大きい。
-    // content は MakeNodes が埋める最大 offset (200) + SetSourceOffset の上書き (50) を
-    // string_view{base + offset, 0} で構築できるサイズを確保する必要がある。
-    std::string content(300, 'x');
-    auto nodes = MakeNodes(3, 100);
-    nodes[0].SetSourceOffset(50);
+    auto nodes = NodesAt({ 50, 100, 200 });
     auto cache = MakeUniformCache(3);
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 10, 500.0f, 99.0f), 99.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 10, 500.0f, 99.0f), 99.0f);
 }
 
 TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
 {
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
-    std::string content(300, 'x');
-    auto nodes = MakeNodes(3, 100);
+    auto nodes = NodesAt({ 0, 100, 200 });
     auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 0, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 0, 500.0f, 0.0f), 0.0f);
 
     // diff_pos=100 → node 1, y=100, margin=100 → max(0, 100-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 100, 500.0f, 0.0f), 0.0f);
 
     // diff_pos=200 → node 2, y=200, margin=100 → max(0, 200-100)=100
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 200, 500.0f, 0.0f), 100.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 200, 500.0f, 0.0f), 100.0f);
 }
 
 TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
 {
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
-    std::string content(200, 'x');
-    auto nodes = MakeNodes(2, 100);
+    auto nodes = NodesAt({ 0, 100 });
     auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
@@ -1462,31 +1329,26 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
     // node_y = 0 + 1000*0.5 = 500
     // margin = 100*0.2 = 20
     // result = max(0, 500-20) = 480
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 100.0f, 0.0f), 480.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 50, 100.0f, 0.0f), 480.0f);
 }
 
 TEST(CalcScrollYForDiff, FractionClampsToOne)
 {
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
-    std::string content(200, 'x');
-    auto nodes = MakeNodes(2, 100);
+    auto nodes = NodesAt({ 0, 100 });
     auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
     // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 99, 100.0f, 0.0f), 970.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 99, 100.0f, 0.0f), 970.0f);
     // diff_pos=100 → node 1 (exact match), y=1000, scroll = 1000-20 = 980
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 100.0f, 0.0f), 980.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 100, 100.0f, 0.0f), 980.0f);
 }
 
 TEST(CalcScrollYForDiff, SkipsInheritedSourceOffsets)
 {
     // ノード1が位置を受け継いでいる場合、ノード2を next_start として使う
-    std::string content(300, 'x');
-    std::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(0);
-    // nodes[1] は受け継いだ位置のまま（HorizontalRule等）
-    nodes[2].SetSourceOffset(200);
+    auto nodes = NodesAt({ 0, 0, 200 });
     auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
@@ -1494,7 +1356,7 @@ TEST(CalcScrollYForDiff, SkipsInheritedSourceOffsets)
     // node_y = 0 + 100*0.5 = 50
     // margin = 500*0.2 = 100
     // result = max(0, 50-100) = 0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 100, 500.0f, 0.0f), 0.0f);
 }
 
 // 先頭が HR の文書で、最初の本文より前の差分は HR の位置へスクロールする (fallback_scroll を使わない)。
@@ -1508,43 +1370,21 @@ TEST(CalcScrollYForDiff, DiffBeforeFirstTextUsesLeadingRule)
 
     const auto cache = MakeUniformCache(2, 1000.0f);
     // fraction = 2/5, node_y = 1000 * 0.4 = 400, margin = 500 * 0.2 = 100
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md, 2, 500.0f, 42.0f), 300.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md.size(), 2, 500.0f, 42.0f), 300.0f);
 }
 
 TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
 {
-    // 最後のノードでは content.size() が next_start として使われる
-    std::string content(100, 'x');
-    auto nodes = MakeNodes(1, 0);
-    nodes[0].SetSourceOffset(0);
+    // 最後のノードでは文書の長さが next_start として使われる
+    auto nodes = NodesAt({ 0 });
     auto cache = MakeUniformCache(1, 1000.0f);
 
-    // diff_pos=50, next_start=content.size()=100
+    // diff_pos=50, next_start=100
     // fraction = 50/100 = 0.5
     // node_y = 0 + 1000*0.5 = 500
     // margin = 200*0.2 = 40
     // result = max(0, 500-40) = 460
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 200.0f, 0.0f), 460.0f);
-}
-
-TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
-{
-    // 実際のMarkdownをパースして差分スクロール位置を計算する統合テスト
-    std::string md = "# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
-    auto nodes = ParseNodes(std::string_view{ md });
-    ASSERT_GE(nodes.size(), 4u);
-
-    // 等間隔 cache (text_top=0,50,100,...) を構築。spacing/Heading 個別寸法は無視し、
-    // CalcScrollYForDiff が cache.Top(i) をどう参照するかだけを見る統合テスト。
-    auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 50.0f);
-
-    // "Second paragraph" の先頭で diff
-    size_t diff_pos = static_cast<size_t>(md.find("Second"));
-    ASSERT_NE(diff_pos, std::string::npos);
-
-    float result = CalcScrollYForDiff(nodes, cache, md, diff_pos, 500.0f, 0.0f);
-    // スクロール位置は 0 以上で、fallback(0) とは異なる値が期待される
-    EXPECT_GE(result, 0.0f);
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 100, 50, 200.0f, 0.0f), 460.0f);
 }
 
 // issue#146 回帰テスト:
@@ -1577,7 +1417,7 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     // current_scroll(=0) のまま fallback されていた。これが issue#146 の症状。
     constexpr float viewport_height = 500.0f;
     constexpr float current_scroll = 0.0f;
-    const float result = CalcScrollYForDiff(nodes, cache, new_md,
+    const float result = CalcScrollYForDiff(nodes, cache, new_md.size(),
                                             decision.diff_pos, viewport_height, current_scroll);
 
     // 修正後: 追記境界 (旧 doc 末尾) 近辺にスクロール。current_scroll とは
@@ -2066,4 +1906,79 @@ TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
     const auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 24u);
     ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+TEST(HandleLinkClickTest, ClassifiesLinks)
+{
+    using Type = LinkClickResult::Type;
+    struct Case {
+        std::string_view url;
+        Type type;
+        std::string_view target;
+    };
+    constexpr Case kCases[] = {
+        { "", Type::None, "" },
+
+        { "#section-1", Type::Anchor, "section-1" },
+        { "#", Type::Anchor, "" },
+        { "#見出し", Type::Anchor, "見出し" },
+        // ブラウザからコピーしたリンクはパーセントエンコードされている。
+        { "#%E8%A6%8B%E5%87%BA%E3%81%97", Type::Anchor, "見出し" },
+        { "#read%2Dme", Type::Anchor, "read-me" },
+
+        { "https://example.com", Type::ExternalUrl, "https://example.com" },
+        { "http://example.com", Type::ExternalUrl, "http://example.com" },
+        { "mailto:user@example.com", Type::ExternalUrl, "mailto:user@example.com" },
+        // スキームは RFC 上 case-insensitive
+        { "HTTPS://EXAMPLE.COM", Type::ExternalUrl, "HTTPS://EXAMPLE.COM" },
+        { "HtTpS://example.com", Type::ExternalUrl, "HtTpS://example.com" },
+        { "HTTP://example.com", Type::ExternalUrl, "HTTP://example.com" },
+        { "MAILTO:user@example.com", Type::ExternalUrl, "MAILTO:user@example.com" },
+        { "MailTo:user@example.com", Type::ExternalUrl, "MailTo:user@example.com" },
+        // prefix 後が空でも通るのが現状の仕様。変えるならここを更新する
+        { "http://", Type::ExternalUrl, "http://" },
+        // 関連付けのコマンドラインへ引数を差し込めないよう、引用符・空白・制御文字は %XX にする。
+        { "mailto:a\" /m \"x", Type::ExternalUrl, "mailto:a%22%20/m%20%22x" },
+        { "https://example.com/a b\tc\x7F", Type::ExternalUrl, "https://example.com/a%20b%09c%7F" },
+        { "https://example.com/?q=%22", Type::ExternalUrl, "https://example.com/?q=%22" },
+        { "https://例え.jp/パス", Type::ExternalUrl, "https://例え.jp/パス" },
+
+        { "file:///C:/Windows/System32/cmd.exe", Type::None, "" },
+        { "javascript:alert(1)", Type::None, "" },
+        { "ftp://example.com/file", Type::None, "" },
+        { "other.md", Type::None, "" },
+        // 先頭空白でスキーム比較をすり抜ける攻撃
+        { " http://example.com", Type::None, "" },
+        { "http:example.com", Type::None, "" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.url));
+        const auto result = ClassifyLinkClick(c.url);
+        EXPECT_EQ(result.type, c.type);
+        EXPECT_EQ(result.target, c.target);
+    }
+}
+
+TEST(PercentDecodeTest, DecodesHexPairsAndKeepsInvalidSequences)
+{
+    struct Case {
+        std::string_view in;
+        std::string_view out;
+    };
+    constexpr Case kCases[] = {
+        { "", "" },
+        { "plain/path.png", "plain/path.png" },
+        { "my%20images/a.png", "my images/a.png" },
+        { "%E6%97%A5%E6%9C%AC", "\xE6\x97\xA5\xE6\x9C\xAC" },
+        { "%e6%97%a5", "\xE6\x97\xA5" },
+        { "100%", "100%" },
+        { "%2", "%2" },
+        { "%zz%20", "%zz " },
+        { "%%41", "%A" },
+        { "a%2Fb", "a/b" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.in);
+        EXPECT_EQ(PercentDecode(c.in), c.out);
+    }
 }

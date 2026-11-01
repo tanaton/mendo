@@ -240,16 +240,7 @@ inline bool HasAsciiLetter(std::string_view s) noexcept
     return std::ranges::any_of(s, IsAsciiAlpha<char>);
 }
 
-namespace detail {
-// constant evaluation 中に throw へ到達するとコンパイルエラーになることを利用し、
-// consteval 契約違反を診断メッセージ付きで表面化させる。
-[[noreturn]] inline void consteval_fail(const char* msg)
-{
-    throw msg;
-}
-} // namespace detail
-
-// コンパイル時に契約違反を検出する。
+// コンパイル時に契約違反を検出する (定数評価中に throw へ到達するとコンパイルエラーになる)。
 //  - NUL 終端 (literal[N-1] == '\0')。
 //  - 全文字が ASCII 範囲 (<= 0x7F)。
 //  - 大文字 'A'-'Z' を含まない (RHS は小文字確定でなければならない)。
@@ -262,15 +253,15 @@ struct BasicLowercaseAsciiLiteral {
         : value(literal, N - 1)
     {
         if (literal[N - 1] != CharT{}) {
-            detail::consteval_fail("LowercaseAsciiLiteral: literal must be NUL-terminated");
+            throw "LowercaseAsciiLiteral: literal must be NUL-terminated";
         }
         for (size_t i = 0; i < N - 1; ++i) {
             // char (signed) で 0x80+ は負値になるので unsigned 変換で判定。
             if (static_cast<std::make_unsigned_t<CharT>>(literal[i]) > 0x7F) {
-                detail::consteval_fail("LowercaseAsciiLiteral: literal must contain only ASCII characters");
+                throw "LowercaseAsciiLiteral: literal must contain only ASCII characters";
             }
             if (IsAsciiUpper(literal[i])) {
-                detail::consteval_fail("LowercaseAsciiLiteral: literal must be lowercase ASCII");
+                throw "LowercaseAsciiLiteral: literal must be lowercase ASCII";
             }
         }
     }

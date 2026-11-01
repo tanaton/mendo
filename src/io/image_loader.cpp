@@ -15,13 +15,12 @@ ImageLoader::~ImageLoader()
     Shutdown();
 }
 
-bool ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
+void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
 {
     wic_factory_ = wic;
     hwnd_ = hwnd;
     msg_id_ = msg_id;
     scheduler_ = &scheduler;
-    return wic_factory_ != nullptr;
 }
 
 void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
@@ -108,9 +107,6 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, float max_width
 
 void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const
 {
-    if (!wic_factory_) {
-        return;
-    }
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
     const auto bytes = ReadAllBytes(path.c_str(), nullptr, path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
     TaskScheduler::EnsureWorkerCom();
@@ -129,10 +125,14 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
 
 bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
-    const auto results = completed_.Drain(deadline, [&](DecodeResult& r) {
+    bool request_again = false;
+    completed_.Drain(deadline, [&](DecodeResult& r) {
+        const auto pending = pending_paths_.extract(r.path);
         if (r.dropped) {
+            request_again |= pending && pending.mapped();
             return;
         }
+        request_again = true;
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
         bool failed = !r.bitmap;
         const auto* existing = cache_.Find(r.path);
@@ -140,37 +140,18 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
             Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
             const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
             if (SUCCEEDED(hr) && bitmap) {
-                CacheBitmap(r.path, std::move(bitmap), r.width, r.height, r.sharp_width_px);
+                cache_.Insert(r.path, CachedImage{ std::move(bitmap), r.width, r.height, r.sharp_width_px });
+                cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static noexcept { return BitmapBytes(c.bitmap.Get()); });
             }
             else {
                 failed = true;
             }
         }
         if (failed) {
-            r.bitmap.Reset();
-        }
-    });
-    bool request_again = false;
-    for (const auto& r : results) {
-        const auto pending = pending_paths_.extract(r.path);
-        if (r.dropped) {
-            request_again |= pending && pending.mapped();
-            continue;
-        }
-        request_again = true;
-        if (!r.bitmap) {
             ++failed_paths_[r.path];
         }
-    }
+    });
     return request_again;
-}
-
-void ImageLoader::CacheBitmap(
-    const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
-    float pixel_width, float pixel_height, UINT sharp_width_px)
-{
-    cache_.Insert(path, CachedImage{ std::move(bitmap), pixel_width, pixel_height, sharp_width_px });
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static noexcept { return BitmapBytes(c.bitmap.Get()); });
 }
 
 void ImageLoader::DropQueued()

@@ -1,4 +1,5 @@
 #include "window.h"
+#include "app.h"
 #include "config_service.h"
 #include "renderer.h"
 #include "file_io.h"
@@ -66,7 +67,6 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
         arg_path = ToAbsolutePath(arg);
         ctx.arg_path = arg_path;
         ctx.arg_kind = ClassifyPath(arg_path);
-        ctx.arg_is_last_file = ctx.arg_kind == StartupArgKind::File && !last_file.empty() && path_util::iequal(arg_path, last_file);
     }
     return DecideStartupPlan(ctx);
 }

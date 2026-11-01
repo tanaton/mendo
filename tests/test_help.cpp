@@ -118,7 +118,7 @@ TEST_F(HelpNavigationTest, GoBackFromHelpToFile)
     history_.Push(NavEntry{ L"C:\\file.md", 5, 10.0f });
 
     NavEntry out;
-    ASSERT_TRUE(history_.GoBack(NavEntry{ HELP_PATH, 0, 0.0f }, out));
+    ASSERT_TRUE(history_.GoBack(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f }, out));
     EXPECT_EQ(out.file_path, L"C:\\file.md");
     EXPECT_EQ(out.node, 5);
     EXPECT_FLOAT_EQ(out.offset, 10.0f);
@@ -129,7 +129,7 @@ TEST_F(HelpNavigationTest, GoForwardFromFileToHelp)
     history_.Push(NavEntry{ L"C:\\file.md", 5, 10.0f });
 
     NavEntry back_out;
-    history_.GoBack(NavEntry{ HELP_PATH, 0, 0.0f }, back_out);
+    history_.GoBack(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f }, back_out);
 
     NavEntry fwd_out;
     ASSERT_TRUE(history_.GoForward(NavEntry{ L"C:\\file.md", 5, 10.0f }, fwd_out));
@@ -140,7 +140,7 @@ TEST_F(HelpNavigationTest, GoForwardFromFileToHelp)
 
 TEST_F(HelpNavigationTest, PushHelpThenGoBack)
 {
-    history_.Push(NavEntry{ HELP_PATH, 0, 0.0f });
+    history_.Push(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f });
 
     NavEntry out;
     ASSERT_TRUE(history_.GoBack(NavEntry{ L"C:\\file.md", 3, 40.0f }, out));
@@ -149,7 +149,7 @@ TEST_F(HelpNavigationTest, PushHelpThenGoBack)
 
 TEST_F(HelpNavigationTest, HelpPathInHistoryCanGoBack)
 {
-    history_.Push(NavEntry{ HELP_PATH, 0, 0.0f });
+    history_.Push(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f });
     EXPECT_TRUE(history_.CanGoBack());
 }
 

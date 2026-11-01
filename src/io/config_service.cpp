@@ -131,56 +131,47 @@ constexpr auto kKeyDarkMode = "DarkMode"sv;
 constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
 } // namespace
 
-void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
+namespace {
+std::filesystem::path DefaultConfigDir()
 {
-    config_dir_override_ = dir;
-}
-
-const std::filesystem::path& ConfigService::DefaultConfigDir()
-{
-    // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
-    static const std::filesystem::path kDir = []() static noexcept -> std::filesystem::path {
-        // SHGetKnownFolderPath は初回に windows.storage.dll のロード等で ms 単位かかるため、環境変数を優先する。
-        wchar_t env[MAX_PATH];
-        const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", env, MAX_PATH);
-        if (len < MAX_PATH) {
-            std::filesystem::path base(std::wstring_view(env, len));
-            if (base.is_absolute()) {
-                base /= L"mendo";
-                return base;
-            }
+    // SHGetKnownFolderPath は初回に windows.storage.dll のロード等で ms 単位かかるため、環境変数を優先する。
+    wchar_t env[MAX_PATH];
+    const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", env, MAX_PATH);
+    if (len < MAX_PATH) {
+        std::filesystem::path base(std::wstring_view(env, len));
+        if (base.is_absolute()) {
+            base /= L"mendo";
+            return base;
         }
-        // 失敗時も解放が必要なので RAII で受ける。
-        UniqueCoTaskMemStr appdata;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
-            return std::filesystem::path(appdata.get()) / L"mendo";
-        }
-        return {};
-    }();
-    return kDir;
-}
-
-const std::filesystem::path& ConfigService::GetConfigDir() const
-{
-    if (!config_dir_override_.empty()) {
-        return config_dir_override_;
     }
-    return DefaultConfigDir();
+    // 失敗時も解放が必要なので RAII で受ける。
+    UniqueCoTaskMemStr appdata;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
+        return std::filesystem::path(appdata.get()) / L"mendo";
+    }
+    // 必ず空でないパスを返し、設定と図のキャッシュに「置き場所が無い」場合を持ち込まない。
+    std::error_code ec;
+    return std::filesystem::temp_directory_path(ec) / L"mendo";
+}
+} // namespace
+
+ConfigService::ConfigService() : config_dir_(DefaultConfigDir())
+{
+}
+
+void ConfigService::SetConfigDir(const std::filesystem::path& dir)
+{
+    config_dir_ = dir;
 }
 
 std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) const
 {
-    const auto& dir = GetConfigDir();
-    return dir.empty() ? std::filesystem::path{} : dir / filename;
+    return config_dir_ / filename;
 }
 
 void ConfigService::Load()
 {
-    const auto ini_path = GetConfigPath(kSettingsFile);
-    if (ini_path.empty()) {
-        return;
-    }
-    const auto buf = ReadAllBytes(ini_path.c_str());
+    const auto buf = ReadAllBytes(GetConfigPath(kSettingsFile).c_str());
     if (buf.empty()) {
         return;
     }
@@ -195,10 +186,10 @@ void ConfigService::Load()
 
 void ConfigService::Flush()
 {
-    const auto ini_path = GetConfigPath(kSettingsFile);
-    if (!dirty_ || ini_path.empty()) {
+    if (!dirty_) {
         return;
     }
+    const auto ini_path = GetConfigPath(kSettingsFile);
     std::error_code ec;
     std::filesystem::create_directories(ini_path.parent_path(), ec);
     if (ec) {

@@ -73,7 +73,7 @@ public:
             return GestureResult::None;
         }
 
-        const NavDirection dir = phase_ == GesturePhase::Pressed ? NavDirection::None : direction_;
+        const NavDirection dir = direction_;
         Reset();
 
         switch (dir) {

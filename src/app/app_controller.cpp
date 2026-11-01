@@ -271,7 +271,7 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
     if (link) {
         const uint64_t key = PackTooltipKey(node_index, link->index);
         return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::wstring& text) {
-            string_convert::Utf8ToWide(link->url, text);
+            text = string_convert::Utf8ToWide(link->url);
         });
     }
     const std::string_view src = node.image_src();
@@ -281,12 +281,10 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
     const std::string_view alt = node.GetText();
     return MakeTooltip(current, TooltipTarget::Zone::MdImage, node_index, [&](std::wstring& text) {
         if (!alt.empty()) {
-            string_convert::Utf8ToWide(alt, text);
+            text = string_convert::Utf8ToWide(alt);
             text += L"\n";
         }
-        std::wstring src_wide;
-        string_convert::Utf8ToWide(src, src_wide);
-        text += src_wide;
+        text += string_convert::Utf8ToWide(src);
     });
 }
 
@@ -304,9 +302,6 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
     const auto item = static_cast<uint32_t>(idx);
     if (is_file) {
         const auto& entries = state.file_explorer.GetEntries();
-        if (item >= entries.size()) {
-            return {};
-        }
         // 一覧は列挙し直すと並びが変わるため世代を含める。
         const uint64_t key = PackTooltipKey(state.file_explorer.GetGeneration(), item);
         return MakeTooltip(current, TooltipTarget::Zone::FilePaneItem, key, [&](std::wstring& text) {
@@ -314,11 +309,8 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
         });
     }
     const auto& toc_entries = state.document.doc.GetToc();
-    if (item >= toc_entries.size()) {
-        return {};
-    }
     return MakeTooltip(current, TooltipTarget::Zone::TocPaneItem, item, [&](std::wstring& text) {
-        string_convert::Utf8ToWide(state.document.doc.GetNodes()[toc_entries[item].node_index].GetText(), text);
+        text = string_convert::Utf8ToWide(state.document.doc.GetNodes()[toc_entries[item].node_index].GetText());
     });
 }
 

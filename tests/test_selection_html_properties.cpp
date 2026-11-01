@@ -241,9 +241,7 @@ TEST(SelectionHtmlProperty, ExampleFilesHtmlTextMatchesPlainText)
     for (const std::string_view path : { "example/test.md", "example/nested.md" }) {
         SCOPED_TRACE(path);
         auto bytes = ReadExampleFileBytes(path);
-        if (bytes.empty()) {
-            GTEST_SKIP() << path << " not found";
-        }
+        ASSERT_FALSE(bytes.empty());
         auto doc = Document::FromMarkdown(std::move(bytes), L"example.md");
         CheckRandomSelections(doc.GetNodes(), 7, 300);
         if (HasFatalFailure()) {

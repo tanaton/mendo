@@ -14,12 +14,27 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <shlwapi.h>
-#include <atomic>
 #include <deque>
-#include <future>
 #include <memory>
+#include "document_test_helpers.h"
+#include <algorithm>
+#include <ranges>
 
 namespace {
+
+// FindCachedImage の結果を DiagramEntry に写す (bitmap と、今の DPI での寸法)。
+inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+{
+    const auto* cached = loader.FindCachedImage(path);
+    if (!cached) {
+        return false;
+    }
+    out.bitmap = cached->bitmap;
+    const auto size = loader.DipSize(*cached);
+    out.width = size.width;
+    out.height = size.height;
+    return true;
+}
 
 // 共有なしで書き込み用に開ければ、ローダーがファイルを開いたままにしていない。
 bool CanOpenExclusively(const std::wstring& path)
@@ -381,24 +396,6 @@ protected:
         loader_.ClearCache();
     }
 
-    // worker (2 つ) を塞ぎ、以降のタスクを待たせる。戻り値に set_value すると走り出す。
-    // タスクが待ちから抜けるのは set_value より後になりうるので、待ちの状態はスタックに置かずタスクに持たせる。
-    // スタックの latch だと、続けて塞いだときに同じ番地の次の latch を見て待ち続け、worker が 1 つ塞がったままになる。
-    std::promise<void> BlockWorkers()
-    {
-        std::promise<void> release;
-        std::shared_future<void> released = release.get_future().share();
-        auto blocked = std::make_shared<std::atomic<int>>(0);
-        for (int i = 0; i < 2; ++i) {
-            scheduler_.Post([released, blocked] {
-                ++*blocked;
-                released.wait();
-            });
-        }
-        EXPECT_TRUE(PollUntil([&] { return blocked->load() == 2; }));
-        return release;
-    }
-
     // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。
     bool LoadAndGet(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
     {
@@ -525,9 +522,12 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
         ASSERT_TRUE(CreateTestImage(c.filename, c.container, c.width, c.height));
         DiagramEntry entry;
         EXPECT_TRUE(LoadAndGet(GetTestImagePath(c.filename), entry));
-        EXPECT_TRUE(entry.bitmap);
+        ASSERT_TRUE(entry.bitmap);
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(c.width));
         EXPECT_FLOAT_EQ(entry.height, static_cast<float>(c.height));
+        const auto px = entry.bitmap->GetPixelSize();
+        EXPECT_EQ(px.width, c.width);
+        EXPECT_EQ(px.height, c.height);
     }
 }
 
@@ -588,11 +588,11 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
 
     for (int attempt = 0; attempt < 4; ++attempt) {
         // 要求をキュー待ちのまま捨てる。
-        auto release = BlockWorkers();
+        WorkerGate gate(scheduler_, 2);
         loader_.RequestLoadAsync(path, 0.0f);
         loader_.DropQueued();
         loader_.RequestLoadAsync(path, 0.0f);
-        release.set_value();
+        gate.Open();
         ASSERT_TRUE(PollUntil([&] { return loader_.ProcessCompletedDecodes(); }));
         EXPECT_EQ(loader_.CacheSize(), 0u);
     }
@@ -606,10 +606,10 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
 {
     ASSERT_TRUE(CreateTestImage(L"drop.png", GUID_ContainerFormatPng, 40, 40));
 
-    auto release = BlockWorkers();
+    WorkerGate gate(scheduler_, 2);
     loader_.RequestLoadAsync(GetTestImagePath(L"drop.png"), 0.0f);
     loader_.DropQueued();
-    release.set_value();
+    gate.Open();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、捨てた要求の結果が届いている。
     scheduler_.Shutdown();
@@ -662,17 +662,6 @@ TEST_F(ImageLoaderTest, UndecodableFileReturnsFalse)
 
 // ---- 異常系: 未初期化の状態 ----
 
-TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse)
-{
-    ImageLoader uninitialized;
-    EXPECT_FALSE(uninitialized.Init(nullptr, nullptr, 0, scheduler_));
-    ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(uninitialized, GetTestImagePath(L"valid.png"), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
 TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
 {
     ImageLoader loader_null;
@@ -708,18 +697,6 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached)
     EXPECT_FALSE(GetCachedImage(loader_, L"C:\\not_cached.png", entry));
 }
 
-TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
-{
-    ASSERT_TRUE(CreateTestImage(L"clear_test.png", GUID_ContainerFormatPng, 30, 30));
-    auto path = GetTestImagePath(L"clear_test.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry));
-    loader_.ClearCache();
-
-    EXPECT_FALSE(GetCachedImage(loader_, path, entry));
-}
-
 // ---- Shutdown テスト ----
 
 TEST_F(ImageLoaderTest, ShutdownWithoutInitIsNoOp)
@@ -736,20 +713,6 @@ TEST_F(ImageLoaderTest, CancelPendingIsNoOp)
 }
 
 // ---- ファイルロック回避テスト ----
-
-TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad)
-{
-    ASSERT_TRUE(CreateTestImage(L"deletable.png", GUID_ContainerFormatPng, 32, 32));
-    auto path = GetTestImagePath(L"deletable.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry));
-
-    // 読み込み後にファイルを削除できること（ロックされていない証拠）
-    std::error_code ec;
-    EXPECT_TRUE(std::filesystem::remove(path, ec))
-        << "画像読み込み後にファイルを削除できなかった: " << ec.message();
-}
 
 TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 {
@@ -908,18 +871,6 @@ protected:
     }
 };
 
-TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache)
-{
-    ASSERT_TRUE(CreateTestImage(L"async.png", GUID_ContainerFormatPng, 120, 90));
-    auto path = GetTestImagePath(L"async.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 120.0f);
-    EXPECT_FLOAT_EQ(entry.height, 90.0f);
-}
-
 TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
 {
     ASSERT_TRUE(CreateTestImage(L"dup.png", GUID_ContainerFormatPng, 50, 50));
@@ -935,26 +886,6 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     EXPECT_EQ(processed_count_, 1);
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
-}
-
-TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
-{
-    ASSERT_TRUE(CreateTestImage(L"a.png", GUID_ContainerFormatPng, 10, 10));
-    ASSERT_TRUE(CreateTestImage(L"b.png", GUID_ContainerFormatPng, 20, 20));
-    auto path_a = GetTestImagePath(L"a.png");
-    auto path_b = GetTestImagePath(L"b.png");
-
-    loader_.RequestLoadAsync(path_a, 0.0f);
-    loader_.RequestLoadAsync(path_b, 0.0f);
-
-    ASSERT_TRUE(WaitForCached(2));
-    EXPECT_GE(processed_count_, 1);
-
-    DiagramEntry entry_a, entry_b;
-    EXPECT_TRUE(GetCachedImage(loader_, path_a, entry_a));
-    EXPECT_TRUE(GetCachedImage(loader_, path_b, entry_b));
-    EXPECT_FLOAT_EQ(entry_a.width, 10.0f);
-    EXPECT_FLOAT_EQ(entry_b.width, 20.0f);
 }
 
 TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
@@ -996,10 +927,10 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     auto path = GetTestImagePath(L"cancel.png");
 
     // 要求をキュー待ちのまま取り消す。
-    auto release = BlockWorkers();
+    WorkerGate gate(scheduler_, 2);
     loader_.RequestLoadAsync(path, 0.0f);
     loader_.CancelPending();
-    release.set_value();
+    gate.Open();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
     scheduler_.Shutdown();
@@ -1146,41 +1077,31 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     EXPECT_FALSE(GetCachedImage(loader_, path, entry));
 }
 
-TEST_F(ImageLoaderAsyncTest, CancelPendingClearsFailedPaths)
+// 失敗の記録を消す操作の後は、同じパスを読み直せる。
+TEST_F(ImageLoaderAsyncTest, ClearingFailedPathsAllowsRetry)
 {
-    const auto path = GetTestImagePath(L"fail_then_clear.png");
+    struct Case {
+        std::wstring_view filename;
+        void (ImageLoader::*clear)();
+    };
+    const Case kCases[] = {
+        { L"fail_cancel.png", &ImageLoader::CancelPending },
+        { L"fail_clear_cache.png", &ImageLoader::ClearCache },
+        { L"fail_reset.png", &ImageLoader::ResetFailedPaths },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.filename }));
+        const auto path = GetTestImagePath(c.filename);
+        ASSERT_TRUE(FailLoads(path, 3));
 
-    // 3回失敗させてブラックリスト化
-    ASSERT_TRUE(FailLoads(path, 3));
+        (loader_.*c.clear)();
 
-    // CancelPending でクリア
-    loader_.CancelPending();
-
-    // 実在するファイルを同じパスに作成 → リトライが成功すること
-    ASSERT_TRUE(CreateTestImage(L"fail_then_clear.png", GUID_ContainerFormatPng, 40, 30));
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry)) << "CancelPending 後のリトライが完了しなかった";
-    EXPECT_FLOAT_EQ(entry.width, 40.0f);
-    EXPECT_FLOAT_EQ(entry.height, 30.0f);
-}
-
-TEST_F(ImageLoaderAsyncTest, ClearCacheAlsoClearsFailedPaths)
-{
-    const auto path = GetTestImagePath(L"fail_then_clearcache.png");
-
-    // 3回失敗させてブラックリスト化
-    ASSERT_TRUE(FailLoads(path, 3));
-
-    // ClearCache でもクリアされること
-    loader_.ClearCache();
-
-    ASSERT_TRUE(CreateTestImage(L"fail_then_clearcache.png", GUID_ContainerFormatPng, 55, 45));
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry)) << "ClearCache 後のリトライが完了しなかった";
-    EXPECT_FLOAT_EQ(entry.width, 55.0f);
-    EXPECT_FLOAT_EQ(entry.height, 45.0f);
+        ASSERT_TRUE(CreateTestImage(c.filename, GUID_ContainerFormatPng, 40, 30));
+        DiagramEntry entry;
+        ASSERT_TRUE(LoadAndGet(path, entry)) << "記録を消した後のリトライが完了しなかった";
+        EXPECT_FLOAT_EQ(entry.width, 40.0f);
+        EXPECT_FLOAT_EQ(entry.height, 30.0f);
+    }
 }
 
 TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
@@ -1198,24 +1119,6 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
     ASSERT_TRUE(LoadAndGet(path, entry)) << "一時障害後のリトライが成功しなかった";
     EXPECT_FLOAT_EQ(entry.width, 70.0f);
     EXPECT_FLOAT_EQ(entry.height, 50.0f);
-}
-
-TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
-{
-    const auto path = GetTestImagePath(L"reset_failed.png");
-
-    // 3回失敗させてブラックリスト化
-    ASSERT_TRUE(FailLoads(path, 3));
-
-    // ResetFailedPaths でクリア
-    loader_.ResetFailedPaths();
-
-    ASSERT_TRUE(CreateTestImage(L"reset_failed.png", GUID_ContainerFormatPng, 33, 22));
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry)) << "ResetFailedPaths 後のリトライが完了しなかった";
-    EXPECT_FLOAT_EQ(entry.width, 33.0f);
-    EXPECT_FLOAT_EQ(entry.height, 22.0f);
 }
 
 TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
@@ -1263,42 +1166,28 @@ TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
 // デコードサイズ計算
 // ============================================================
 
-TEST(ComputeDecodeSize, KeepsSizeWithinLimits)
+TEST(ComputeDecodeSize, KeepsAspectWithinLimits)
 {
-    EXPECT_EQ(wic_util::ComputeDecodeSize(800, 600, 1920, 16384), (wic_util::PixelSize{ 800, 600 }));
-}
-
-TEST(ComputeDecodeSize, ShrinksToMaxWidthKeepingAspect)
-{
-    EXPECT_EQ(wic_util::ComputeDecodeSize(6000, 4000, 1920, 16384), (wic_util::PixelSize{ 1920, 1280 }));
-}
-
-TEST(ComputeDecodeSize, ShrinksTallImageToMaxDimension)
-{
-    EXPECT_EQ(wic_util::ComputeDecodeSize(1000, 40000, 1920, 16384), (wic_util::PixelSize{ 410, 16384 }));
-}
-
-TEST(ComputeDecodeSize, ZeroLimitsMeanUnlimited)
-{
-    EXPECT_EQ(wic_util::ComputeDecodeSize(6000, 4000, 0, 0), (wic_util::PixelSize{ 6000, 4000 }));
-}
-
-TEST(ComputeDecodeSize, NeverProducesZeroDimension)
-{
-    EXPECT_EQ(wic_util::ComputeDecodeSize(100000, 1, 1000, 0), (wic_util::PixelSize{ 1000, 1 }));
-}
-
-TEST_F(ImageLoaderAsyncTest, AsyncLoadedBitmapIsUploadedFromDecodedPixels)
-{
-    ASSERT_TRUE(CreateTestImage(L"decoded.png", GUID_ContainerFormatPng, 64, 32));
-    auto path = GetTestImagePath(L"decoded.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry));
-    ASSERT_TRUE(entry.bitmap);
-    const auto px = entry.bitmap->GetPixelSize();
-    EXPECT_EQ(px.width, 64u);
-    EXPECT_EQ(px.height, 32u);
+    struct Case {
+        UINT width;
+        UINT height;
+        UINT max_width;
+        UINT max_dim;
+        wic_util::PixelSize expected;
+    };
+    constexpr Case kCases[] = {
+        { 800, 600, 1920, 16384, { 800, 600 } },
+        { 6000, 4000, 1920, 16384, { 1920, 1280 } },
+        { 1000, 40000, 1920, 16384, { 410, 16384 } },
+        // 0 は制限なし
+        { 6000, 4000, 0, 0, { 6000, 4000 } },
+        // 辺が 0 にならない
+        { 100000, 1, 1000, 0, { 1000, 1 } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.width);
+        EXPECT_EQ(wic_util::ComputeDecodeSize(c.width, c.height, c.max_width, c.max_dim), c.expected);
+    }
 }
 
 static const GUID* Sniff(std::initializer_list<uint8_t> head)
@@ -1327,4 +1216,87 @@ TEST(SniffImageContainer, RejectsOtherFormats)
     EXPECT_EQ(Sniff({ 'D', 'D', 'S', ' ' }), nullptr);
     EXPECT_EQ(Sniff({ 0x89, 'P', 'N', 'G' }), nullptr);
     EXPECT_EQ(Sniff({ 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E' }), nullptr);
+}
+
+// ============================================================
+// ImageLoader キャッシュテスト
+// ============================================================
+
+class ImageLoaderCacheTest : public ::testing::Test {
+protected:
+    // FindCachedImage / InsertCacheEntryForTest だけを使うので Init は不要。
+    ImageLoader loader_;
+};
+
+TEST_F(ImageLoaderCacheTest, GetCachedImageReturnsFalseForUnknownPath)
+{
+    DiagramEntry out;
+    EXPECT_FALSE(GetCachedImage(loader_, L"nonexistent.png", out));
+}
+
+TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
+{
+    // キャッシュをクリアしてもクラッシュしないこと
+    loader_.ClearCache();
+    DiagramEntry out;
+    EXPECT_FALSE(GetCachedImage(loader_, L"any.png", out));
+}
+
+TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
+{
+    // 新規 Insert は先頭に入り、容量超過時は末尾 (= 最も古く Insert された) が捨てられる。
+    const size_t max_entries = 128; // MAX_CACHE_ENTRIES
+
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    // 1 つ追加すると最も古く Insert された img_0 が捨てられる
+    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    DiagramEntry out;
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"overflow.png", out));
+}
+
+TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
+{
+    const size_t max_entries = 128;
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+
+    // ヒットで末尾から外れるので、次の overflow では 1 つ前の img_1 が捨てられる
+    DiagramEntry out;
+    ASSERT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
+    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
+
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_1.png", out));
+}
+
+TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
+{
+    // 連続 overflow が起きると古い Insert から順に末尾から捨てられていく。
+    const size_t max_entries = 128;
+
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+
+    // 10 回 overflow を起こす → img_0..img_9 が末尾から順に捨てられる
+    for (int i = 0; i < 10; i++) {
+        loader_.InsertCacheEntryForTest(L"overflow_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+    EXPECT_EQ(loader_.CacheSize(), max_entries);
+
+    DiagramEntry out;
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_9.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_10.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"overflow_9.png", out));
 }

@@ -27,14 +27,13 @@ constexpr float kYEps = 0.05f;
 // Reestimate が再計測を省く幅変化の上限。
 constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 
-// 計測したエントリに目印 (行追跡の無い table_layout) を残す。EvictEntryLayout はこれを
+// 計測したエントリに目印の text_layout を残す。EvictEntryLayout はこれを
 // 破棄するので、keep 範囲外に目印が残っていれば解放漏れと分かる。
 class MarkingMeasurer : public MockTextMeasurer {
 public:
-    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     YRange viewport = YRange::All()) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
-        const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width);
         if (node.type != NodeType::Table) {
             entry.set_text_layout(Marker());
         }
@@ -141,7 +140,6 @@ protected:
     void TearDown() override
     {
         measurer_.SetScheduler(nullptr);
-        scheduler_.Shutdown();
     }
 
     // アプリのファイル読込と同じく推定高さで並べてから可視範囲だけ計測する。
@@ -192,7 +190,7 @@ protected:
     };
 
     // 1 操作を適用し、再現用の説明を返す。Evict の keep 範囲は keep_out に返す。
-    std::string Apply(std::mt19937& rng, Op op, VisibleRange& keep_out)
+    std::string Apply(std::mt19937& rng, Op op, IndexRange& keep_out)
     {
         measurer_.SetScheduler(rng() % 2 == 0 ? &scheduler_ : nullptr);
         switch (op) {
@@ -252,8 +250,8 @@ protected:
         case Op::Evict: {
             const float buffer = kViewportHeight * static_cast<float>(rng() % 3);
             keep_out = ComputeVisibleNodeRange(cache_, scroll_ - buffer, scroll_ + kViewportHeight + buffer);
-            cache_.EvictTextLayouts(keep_out.first, keep_out.last_plus_1);
-            return "Evict keep=[" + std::to_string(keep_out.first) + "," + std::to_string(keep_out.last_plus_1) + ")";
+            cache_.EvictTextLayouts(keep_out.begin, keep_out.end);
+            return "Evict keep=[" + std::to_string(keep_out.begin) + "," + std::to_string(keep_out.end) + ")";
         }
         case Op::Count:
             break;
@@ -305,7 +303,7 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
         Load(rng, 120);
         ASSERT_GT(nodes_.size(), 100u);
         for (int step = 0; step < 400; ++step) {
-            VisibleRange keep{};
+            IndexRange keep{};
             const Op op = RandomOp(rng);
             const std::string desc = Apply(rng, op, keep);
             if (op != Op::Evict) {
@@ -313,7 +311,7 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
             }
             SCOPED_TRACE("seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " " + desc);
             for (size_t i = 0; i < nodes_.size(); ++i) {
-                if (i >= keep.first && i < keep.last_plus_1) {
+                if (i >= keep.begin && i < keep.end) {
                     continue;
                 }
                 // 行の幾何を持つ表は、作り直しを避けるため幾何だけ残してセルの layout を捨てる。
@@ -337,7 +335,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
         Load(rng, 100);
         ASSERT_GT(nodes_.size(), 80u);
         for (int step = 0; step < 300; ++step) {
-            VisibleRange keep{};
+            IndexRange keep{};
             const std::string desc = Apply(rng, RandomOp(rng), keep);
             SCOPED_TRACE("seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " " + desc);
             ASSERT_TRUE(YChainConsistent(nodes_, cache_, theme_));
@@ -352,7 +350,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_FALSE(cache_[i].layout_dirty) << "i=" << i;
             NodeLayoutEntry remeasured{};
             remeasured.height = cache_[i].height;
-            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, YRange::All(), 0.0f, cache_.FindDiagram(i));
+            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, cache_.FindDiagram(i));
             ASSERT_FLOAT_EQ(cache_[i].height, remeasured.height) << "i=" << i;
         }
 
@@ -381,11 +379,10 @@ public:
     const Node* base = nullptr;
     mutable std::vector<size_t> measured;
 
-    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     YRange viewport = YRange::All()) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
     {
         measured.push_back(static_cast<size_t>(&node - base));
-        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width);
     }
 };
 
@@ -422,13 +419,13 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     EXPECT_LT(viewport.GetScrollY(), measured_scroll_y) << "推定し直した Y で位置を求め直す";
     EXPECT_FLOAT_EQ(viewport.GetScrollY(), cache.Top(kTarget));
     const auto vr = ComputeVisibleNodeRange(cache, viewport.GetScrollY(), viewport.GetScrollY() + kHeight);
-    for (size_t i = vr.first; i < vr.last_plus_1; ++i) {
+    for (size_t i = vr.begin; i < vr.end; ++i) {
         EXPECT_FALSE(cache[i].layout_dirty) << "可視ノードが未計測 i=" << i;
     }
     // 1 パス目は推定の Y で 1 画面分 (この文書では 20 ノード弱) を計測するので、実測の可視ノードより多くなる。
     constexpr size_t kEstimatedScreenNodes = 30;
     for (const size_t i : measurer.measured) {
-        EXPECT_GE(i, vr.first) << "見ていた位置より上を計測した";
+        EXPECT_GE(i, vr.begin) << "見ていた位置より上を計測した";
         EXPECT_LT(i, kTarget + kEstimatedScreenNodes) << "見ていた位置から離れた所を計測した";
     }
 }
@@ -452,6 +449,31 @@ TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
 
     EXPECT_LE(measurer.measured.size(), 2u);
     EXPECT_TRUE(cache[doc.GetNodes().size() - 1].layout_dirty);
+}
+
+// 図の描き直し (ダークモードの切り替えなど) で画面より上の高さが変わっても、target が無くても見ている内容は動かない。
+TEST(LayoutServiceTest, RecomputeAfterDiagramKeepsViewWithoutTarget)
+{
+    const Theme theme = GetLightTheme();
+    RecordingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    ViewportManager viewport;
+    LayoutService service(engine, viewport);
+
+    auto doc = Document::FromMarkdown(MakeParagraphs(100), L"t.md");
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    constexpr size_t kVisible = 50;
+    viewport.SetScrollY(cache.Top(kVisible) + 3.0f);
+    ASSERT_FALSE(viewport.GetScrollTarget().IsValid());
+
+    constexpr float kGrowth = 500.0f;
+    cache[1].height += kGrowth;
+    IndexRange changed;
+    changed.Add(1);
+    service.RecomputeAfterDiagram(doc, cache, changed);
+
+    EXPECT_FLOAT_EQ(viewport.GetScrollY(), cache.Top(kVisible) + 3.0f);
 }
 
 // worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。
@@ -523,7 +545,7 @@ TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
     const float title_height = old_cache[0].height;
     new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
 
-    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes)).carried, 3u);
+    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes)), 3u);
     EXPECT_FALSE(new_cache[0].layout_dirty);
     EXPECT_FLOAT_EQ(new_cache[0].height, title_height);
     EXPECT_FALSE(new_cache[1].layout_dirty);
@@ -547,4 +569,59 @@ TEST(CarryOverUnchangedTest, LinkTargetChangeIsNotCarried)
     layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes));
     EXPECT_TRUE(new_cache[0].layout_dirty);
     EXPECT_FALSE(new_cache[1].layout_dirty);
+}
+
+namespace {
+
+constexpr std::string_view kOneDiagramMd = "# t\n\n```mermaid\ngraph TD;A-->B\n```\n\ntail\n";
+
+// 描き終えた図を 1 つ持つ文書のレイアウト。
+LayoutCache CacheWithDiagramResult(const Document& doc)
+{
+    auto cache = MakeUniformCache(static_cast<int>(doc.GetNodes().size()));
+    auto& diagram = cache.EnsureDiagram(doc.GetDiagramNodeIndices()[0]);
+    diagram.bitmap = &SharedStubBitmap();
+    diagram.width = 100.0f;
+    diagram.height = 50.0f;
+    return cache;
+}
+
+} // namespace
+
+// 図のコードを書き換えたリロードでは、旧結果と高さを仮表示として新しいノードへ引き継ぐ。
+TEST(CarryOverUnchangedTest, KeepsEditedDiagramAsStale)
+{
+    const auto doc = Document::FromMarkdown(std::string{ kOneDiagramMd }, L"C:\\dir\\test.md");
+    auto cache = CacheWithDiagramResult(doc);
+    const size_t old_index = doc.GetDiagramNodeIndices()[0];
+    cache.EnsureDiagram(old_index).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
+    cache[old_index].height = 321.0f;
+
+    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, L"C:\\dir\\test.md");
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), GetLightTheme());
+    const size_t new_index = next.GetDiagramNodeIndices()[0];
+
+    EXPECT_EQ(layout::CarryOverUnchanged(doc.GetNodes(), cache, next.GetNodes(), next_cache, FindUnchangedEnds(doc.GetNodes(), next.GetNodes())), next.GetNodes().size());
+    const auto* d = next_cache.FindDiagram(new_index);
+    ASSERT_NE(d, nullptr);
+    EXPECT_TRUE(d->bitmap);
+    EXPECT_TRUE(d->stale);
+    EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
+    EXPECT_EQ(d->png, nullptr) << "前のコードの絵をコピー・保存させない";
+    EXPECT_FLOAT_EQ(next_cache[new_index].height, 321.0f);
+}
+
+// 変わった範囲の図の数が変わったら、どの図の続きか分からないので引き継がない。
+TEST(CarryOverUnchangedTest, SkipsDiagramsWhenCountChanges)
+{
+    const auto doc = Document::FromMarkdown(std::string{ kOneDiagramMd }, L"C:\\dir\\test.md");
+    auto cache = CacheWithDiagramResult(doc);
+
+    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, L"C:\\dir\\test.md");
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), GetLightTheme());
+
+    layout::CarryOverUnchanged(doc.GetNodes(), cache, next.GetNodes(), next_cache, FindUnchangedEnds(doc.GetNodes(), next.GetNodes()));
+    for (const size_t i : next.GetDiagramNodeIndices()) {
+        EXPECT_EQ(next_cache.FindDiagram(i), nullptr) << "node " << i;
+    }
 }

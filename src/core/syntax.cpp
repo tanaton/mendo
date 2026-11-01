@@ -387,7 +387,7 @@ inline constexpr auto kTokenStartStorage = [] {
         { Cfg.hash_comment || Cfg.preprocessor,                            '#'  },
         { Cfg.angle_block_comment,                                         '<'  },
         { Cfg.lua_long_bracket,                                            '['  },
-        { Cfg.lua_long_bracket || Cfg.dash_dash_comment,                   '-'  },
+        { Cfg.dash_dash_comment,                                           '-'  },
         { Cfg.double_colon_comment,                                        ':'  },
         { Cfg.verbatim_at_string || Cfg.at_builtin,                        '@'  },
         { Cfg.backslash_line_string,                                       '\\' },
@@ -487,7 +487,8 @@ private:
 // シェルの単語を区切る文字 (空白とメタ文字) か。
 constexpr bool IsShellWordBoundary(char c) noexcept
 {
-    return CharSet{ " \t\n;&|()<>" }.contains(c);
+    static constexpr CharSet kBoundaries{ " \t\n;&|()<>" };
+    return kBoundaries.contains(c);
 }
 
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
@@ -589,7 +590,7 @@ void TokenizeRange(
             }
         }
 
-        if constexpr (Cfg.hash_comment && !Cfg.preprocessor) {
+        if constexpr (Cfg.hash_comment) {
             if (c == '#' && (!Cfg.hash_comment_word_start || i == 0 || IsShellWordBoundary(text[i - 1])) &&
                 (!Cfg.hash_attribute_bracket || i + 1 >= text.size() || text[i + 1] != '[')) {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
@@ -735,17 +736,14 @@ void TokenizeRange(
                 }
             }
 
-            std::string_view lookup_word = word;
-            [[maybe_unused]] char lower_buf[kw::KEYWORD_MAX_LEN];
-            if constexpr (Cfg.case_insensitive) {
-                lookup_word = kw::ToLowerLookupKey(word, lower_buf);
-            }
-
+            const auto in_table = [word](kw::KeywordTable table) {
+                return Cfg.case_insensitive ? table.contains_ignore_case(word) : table.contains(word);
+            };
             SyntaxTokenType tt = SyntaxTokenType::Plain;
-            if (keywords.contains(lookup_word)) {
+            if (in_table(keywords)) {
                 tt = SyntaxTokenType::Keyword;
             }
-            else if (types.contains(lookup_word)) {
+            else if (in_table(types)) {
                 tt = SyntaxTokenType::Type;
             }
             else if (IsFollowedByParen(text, i)) {
@@ -892,7 +890,8 @@ constexpr bool IsNumberWord(std::string_view w) noexcept
     if (w.empty() || !(IsAsciiDigit(w[0]) || lead_dot)) {
         return false;
     }
-    if (w.size() > 2 && w[0] == '0' && CharSet{ "xXoObB" }.contains(w[1])) {
+    static constexpr CharSet kRadixLetters{ "xXoObB" };
+    if (w.size() > 2 && w[0] == '0' && kRadixLetters.contains(w[1])) {
         return SkipChars(w, 2, "0123456789abcdefABCDEF_") == w.size();
     }
     size_t i = SkipChars(w, 0, "0123456789_");
@@ -1032,7 +1031,8 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::vector<Sy
         EmitRange(tokens, pos, key_end, SyntaxTokenType::Type);
         return colon + 1;
     }
-    if (CharSet{ "[]{},#&*!|>%@`" }.contains(c)) {
+    static constexpr CharSet kIndicators{ "[]{},#&*!|>%@`" };
+    if (kIndicators.contains(c)) {
         return pos;
     }
     for (size_t k = pos + 1; k < eol; k++) {
@@ -1292,7 +1292,8 @@ void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
             i++;
             continue;
         }
-        const size_t e = SkipWhile(text, i, [](char ch) static noexcept { return IsIdentChar(ch) || CharSet{ "+-.:" }.contains(ch); });
+        static constexpr CharSet kScalarPunct{ "+-.:" };
+        const size_t e = SkipWhile(text, i, [](char ch) static noexcept { return IsIdentChar(ch) || kScalarPunct.contains(ch); });
         if (e == i) {
             i++;
             continue;
@@ -1644,7 +1645,8 @@ void TokenizeMarkup(std::string_view text, std::vector<SyntaxToken>& tokens)
                 j = EmitRange(tokens, j, e, SyntaxTokenType::String);
                 continue;
             }
-            const size_t e = SkipWhile(text, j, [](char ch) static noexcept { return !IsMarkupSpace(ch) && !CharSet{ "=>/<\"'" }.contains(ch); });
+            static constexpr CharSet kAttrNameEnd{ " \t\n=>/<\"'" };
+            const size_t e = SkipWhile(text, j, [](char ch) static noexcept { return !kAttrNameEnd.contains(ch); });
             j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
         }
         i = j;
@@ -1890,7 +1892,8 @@ constexpr size_t ScanNestedComment(std::string_view text, size_t pos, std::strin
 
 constexpr bool IsHaskellSymbolChar(char c) noexcept
 {
-    return CharSet{ "!#$%&*+./<=>?@\\^|-~:" }.contains(c);
+    static constexpr CharSet kSymbols{ "!#$%&*+./<=>?@\\^|-~:" };
+    return kSymbols.contains(c);
 }
 
 // 文字リテラル 'a' / '\n' / '\'' の終端。' が識別子の一部 (foldl') や型レベルの昇格 ('True) なら npos。
@@ -1996,7 +1999,8 @@ struct LispDialect {
 
 constexpr bool IsLispDelimiter(char c) noexcept
 {
-    return IsMarkupSpace(c) || CharSet{ "()[]{}\"';`," }.contains(c);
+    static constexpr CharSet kDelimiters{ " \t\n()[]{}\"';`," };
+    return kDelimiters.contains(c);
 }
 
 constexpr size_t SkipLispSymbol(std::string_view text, size_t pos) noexcept
@@ -2021,14 +2025,17 @@ constexpr size_t ScanLispCharBody(std::string_view text, size_t pos) noexcept
 constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
 {
     const size_t n = text.size();
-    pos = SkipWhile(text, pos, [](char c) static noexcept { return IsMarkupSpace(c) || CharSet{ "'`#@^~," }.contains(c); });
+    static constexpr CharSet kOpens{ "([{" };
+    static constexpr CharSet kCloses{ ")]}" };
+    static constexpr CharSet kPrefixes{ " \t\n'`#@^~," };
+    pos = SkipChars(text, pos, kPrefixes);
     if (pos >= n) {
         return n;
     }
     if (text[pos] == '"') {
         return ScanString(text, pos, '"', true);
     }
-    if (!CharSet{ "([{" }.contains(text[pos])) {
+    if (!kOpens.contains(text[pos])) {
         return SkipLispSymbol(text, pos);
     }
     int depth = 0;
@@ -2047,10 +2054,10 @@ constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
             k = k + 1 < n ? NextCodePoint(text, k + 1) : n;
             continue;
         }
-        if (CharSet{ "([{" }.contains(ch)) {
+        if (kOpens.contains(ch)) {
             depth++;
         }
-        else if (CharSet{ ")]}" }.contains(ch) && --depth == 0) {
+        else if (kCloses.contains(ch) && --depth == 0) {
             return k + 1;
         }
         k++;
@@ -2121,10 +2128,11 @@ size_t ScanLispDispatch(std::string_view text, size_t i, std::vector<SyntaxToken
         e = SkipLispSymbol(text, i + 1);
         const auto word = text.substr(i + 1, e - i - 1);
         static constexpr ascii_util::DocLowercaseLiteral kBooleans[]{ "t", "f", "true", "false" };
+        static constexpr CharSet kRadixLetters{ "xXbBoOeEiIdD" };
         if (std::ranges::any_of(kBooleans, [&](const auto& b) { return ascii_util::iequal(word, b); })) {
             type = SyntaxTokenType::Keyword;
         }
-        else if (word.size() > 1 && CharSet{ "xXbBoOeEiIdD" }.contains(word[0]) &&
+        else if (word.size() > 1 && kRadixLetters.contains(word[0]) &&
                  word.find_first_not_of("0123456789abcdefABCDEF._/+-", 1) == npos) {
             type = SyntaxTokenType::Number; // #x1F / #b101 / #e1.5
         }
@@ -2147,10 +2155,9 @@ void TokenizeLisp(std::string_view text, const LispDialect& d, std::vector<Synta
     // 深さごとに「直下のリストは呼び出しではない」を覚える (let の束縛リスト、cond の節の親)
     DepthFlags plain_children;
     int depth = 0;
-    bool call_head = false;     // 次のシンボルが呼び出し位置
-    bool define_name = false;   // 次のシンボルが定義名
-    bool params_next = false;   // 次の ( は引数リスト
-    bool bindings_next = false; // 次の ( は束縛リスト
+    bool call_head = false;       // 次のシンボルが呼び出し位置
+    bool define_name = false;     // 次のシンボルが定義名
+    bool plain_list_next = false; // 次の ( は引数リストか束縛リスト
     size_t i = 0;
     while (i < n) {
         const char c = text[i];
@@ -2169,18 +2176,18 @@ void TokenizeLisp(std::string_view text, const LispDialect& d, std::vector<Synta
         }
         if (c == '(' || c == '[' || c == '{') {
             const bool quoted = i > 0 && (text[i - 1] == '\'' || text[i - 1] == '`');
-            const bool plain = quoted || plain_children.test(depth) || params_next || bindings_next;
+            const bool plain = quoted || plain_children.test(depth) || plain_list_next;
             depth++;
             // 束縛リストの (x 1) も引数リストの (max-level 3) / ((x integer)) も呼び出しではない
-            plain_children.set(depth, c == '(' && (bindings_next || params_next));
+            plain_children.set(depth, c == '(' && plain_list_next);
             call_head = c == '(' && !plain;
-            define_name = params_next = bindings_next = false;
+            define_name = plain_list_next = false;
             i++;
             continue;
         }
         if (c == ')' || c == ']' || c == '}') {
             depth = std::max(depth - 1, 0);
-            call_head = define_name = params_next = bindings_next = false;
+            call_head = define_name = plain_list_next = false;
             i++;
             continue;
         }
@@ -2218,15 +2225,14 @@ void TokenizeLisp(std::string_view text, const LispDialect& d, std::vector<Synta
         else if (define_name) {
             type = SyntaxTokenType::Function;
             define_name = false;
-            params_next = true;
+            plain_list_next = true;
         }
         else if (call_head) {
             type = LispContains(d, d.special, sym) ? SyntaxTokenType::Keyword
                    : IsLispNumber(sym)             ? SyntaxTokenType::Number
                                                    : SyntaxTokenType::Function;
             define_name = LispContains(d, kw::LISP_DEFINERS, sym);
-            params_next = LispContains(d, kw::LISP_PARAM_FORMS, sym);
-            bindings_next = LispContains(d, kw::LISP_BINDERS, sym);
+            plain_list_next = LispContains(d, kw::LISP_PLAIN_LIST_FORMS, sym);
             if (d.cond_clauses && ascii_util::iequal(sym, "cond")) {
                 plain_children.set(depth, true);
             }
@@ -2287,9 +2293,10 @@ struct VimName {
 
 constexpr VimName ScanVimName(std::string_view text, size_t pos) noexcept
 {
+    static constexpr CharSet kScopes{ "gsablwtv" };
     size_t i = pos;
     bool scoped = false;
-    if (pos + 2 < text.size() && CharSet{ "gsablwtv" }.contains(text[pos]) && text[pos + 1] == ':' &&
+    if (pos + 2 < text.size() && kScopes.contains(text[pos]) && text[pos + 1] == ':' &&
         (IsIdentStart(text[pos + 2]) || IsAsciiDigit(text[pos + 2]))) {
         i = pos + 2;
         scoped = true;
@@ -2301,11 +2308,12 @@ constexpr VimName ScanVimName(std::string_view text, size_t pos) noexcept
 constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
 {
     constexpr size_t kMaxLength = 32;
+    static constexpr CharSet kEnds{ " \t<>" };
     if (pos + 1 >= text.size() || !IsAsciiAlpha(text[pos + 1])) {
         return npos;
     }
     const size_t limit = std::min(text.size(), pos + kMaxLength);
-    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) static noexcept { return !CharSet{ " \t<>" }.contains(c); });
+    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) static noexcept { return !kEnds.contains(c); });
     return i < limit && text[i] == '>' ? i + 1 : npos;
 }
 
@@ -2375,7 +2383,8 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             const bool is_map = kw::VIM_MAP_COMMANDS.contains(word);
             if (!is_map && !kw::VIM_COMMANDS.contains(word)) {
                 // Plug 'x' 等のユーザー定義コマンド
-                if (IsAsciiUpper(text[i]) && (j == eol || !CharSet{ "(.:" }.contains(text[j]))) {
+                static constexpr CharSet kNotCommandEnds{ "(.:" };
+                if (IsAsciiUpper(text[i]) && (j == eol || !kNotCommandEnds.contains(text[j]))) {
                     i = EmitRange(tokens, i, j, SyntaxTokenType::Function);
                 }
                 continue;

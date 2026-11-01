@@ -45,6 +45,7 @@ constexpr size_t AlertColorIndex(AlertType t) noexcept
 }
 
 // Alert の先頭でマーカーの代わりに置く "アイコン ラベル"。AlertColorIndex 順。
+// label は大小を除けばマーカー [!TYPE] の TYPE と同じ (GitHub 仕様で ASCII 固定)。
 struct AlertLabel {
     std::string_view icon;
     std::string_view label;
@@ -57,11 +58,11 @@ inline constexpr AlertLabel kAlertLabels[ALERT_TYPE_COUNT]{
     { "⛔",               "Caution"   },
 };
 
-// "アイコン ラベル" の UTF-8 byte 数。None なら 0。
+// "アイコン ラベル" の UTF-8 byte 数。t は None でないこと。
 constexpr uint32_t AlertLabelLength(AlertType t) noexcept
 {
-    const size_t i = AlertColorIndex(t);
-    return i < ALERT_TYPE_COUNT ? static_cast<uint32_t>(kAlertLabels[i].icon.size() + 1 + kAlertLabels[i].label.size()) : 0u;
+    const AlertLabel& a = kAlertLabels[AlertColorIndex(t)];
+    return static_cast<uint32_t>(a.icon.size() + 1 + a.label.size());
 }
 
 // md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）
@@ -95,8 +96,6 @@ struct NodeTableData {
     // row は数十万〜数百万行になりうるため uint32_t。col_count は md4c が 16 bit で持つ。
     // 両者の積 (cell index) は CellIndex で size_t 昇格。
     uint32_t row_count = 0;
-    // 先頭からこの行数がヘッダ (md4c は先頭の 1 行だけをヘッダにする)。
-    uint32_t head_row_count = 0;
     uint16_t col_count = 0;
 
     constexpr size_t CellIndex(size_t r, size_t c) const noexcept
@@ -147,9 +146,10 @@ struct NodeTableData {
         return { all_runs.data() + start, static_cast<size_t>(end - start) };
     }
 
+    // md4c は先頭の 1 行だけをヘッダにする。
     constexpr bool IsHeaderRow(size_t r) const noexcept
     {
-        return r < head_row_count;
+        return r == 0;
     }
 
     constexpr TableAlign ColAlign(size_t c) const noexcept
@@ -364,7 +364,6 @@ struct Node {
     constexpr void set_code_lead(uint32_t length, SyntaxTokenType token_type) noexcept
     {
         if (length == 0 || token_type == SyntaxTokenType::Plain) {
-            flags_ &= static_cast<uint8_t>(~kHasCodeLead);
             return;
         }
         payload_.code_lead = { length, token_type };

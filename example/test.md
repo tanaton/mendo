@@ -180,7 +180,6 @@ private:
     bool EnsureSearchEdit();
     void RepositionSearchEdit();   // 開くとき・WM_SIZE・IME の変換開始で置き直す
     void SyncSearchCaretFromEdit();
-    void UpdateDpiMetricsCache();
     // 起動時の読み込みが D3D デバイスの先行作成より先に終われば、可視範囲の計測を作成の裏で済ませる
     void AwaitInitialParseBeforeDevice();
     // 起動時のデバイスに依存しない通知 (FILE_LISTED / INLINE_MATH_REQUESTED) を最初のフレームより前に取り込む
@@ -190,9 +189,6 @@ private:
     HWND search_edit_ = nullptr;
     bool tracking_mouse_ = false;
     bool was_minimized_ = false;
-    int  cached_nchit_border_ = 4;
-    int  cached_nchit_frame_y_ = 8;
-    int  cached_nchit_right_border_ = 8;
 
     ConfigService& config_;
     std::unique_ptr<App> app_;
@@ -303,7 +299,9 @@ private:
     // スピナーは読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。
     bool               spinner_shown_ = false;
     float              spinner_angle_ = 0.0f;
-    PrefixShrinkRetry  prefix_shrink_retry_;   // 末尾が縮んだリロードを延期する回数の上限管理
+    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるので、延期の回数に上限を置く
+    static constexpr int kMaxPrefixShrinkDefers = 10;
+    int                prefix_shrink_defers_ = 0;
 
     // 全状態集約
     AppState state_;
@@ -723,7 +721,7 @@ using SideEffectList = std::pmr::vector<SideEffect>;
 
 再描画要求は `effect::InvalidateWindow`（ウィンドウ全体の `InvalidateRect(hwnd, nullptr, FALSE)`）に一本化されている。タイトルバーや Markdown ペインだけを部分無効化する effect は持たない。`OnPaint` は `rcPaint` を見ずに毎回全面を描き、`FLIP_DISCARD` のスワップチェーンでは部分描画もできないため、無効化矩形を絞っても描画量は減らないからである。
 
-`PushEffect<T>(effects, e)` は effect を `SideEffectList` に追加するヘルパーで、最初の 1 件で 4 件分を予約する。一覧の領域は `Reduce` の第 3 引数の `memory_resource` から取る（既定は既定のリソースで、テストはこちら）。`App::Dispatch` は呼び出しごとにスタックの 1KiB を `monotonic_buffer_resource` にして渡す。マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積み、一覧の確保と解放が `Reduce` の 3〜4 割（1 イベント約 25ns）を占めていたため（`BM_ReduceEvents` の `*_stack` と比べる）。effect が持つ文字列は `std::variant` が allocator を受け継がないので既定のリソースのままで、領域より長生きしない。同じ `InvalidateWindow` が 2 回積まれることはあるが、`InvalidateRect` は冪等で、マウスの移動・ホイール・ドラッグの経路では起きない（`dup_invalidate/event` = 0）ので重複は除かない。テストで使う `HasEffect<T>(effects)` は `std::holds_alternative`、`GetEffect<T>(side_effect)` は `std::get_if` の薄いラッパである（`tests/test_helpers.h`）。
+`PushEffect<T>(effects, e)` は effect を `SideEffectList` に追加するヘルパーで、最初の 1 件で 4 件分を予約する。一覧の領域は `Reduce` の第 3 引数の `memory_resource` から取る（既定は既定のリソースで、テストはこちら）。`App::Dispatch` は呼び出しごとにスタックの 1KiB を `monotonic_buffer_resource` にして渡す。マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積み、一覧の確保と解放が `Reduce` の 3〜4 割（1 イベント約 25ns）を占めていたため。effect が持つ文字列は `std::variant` が allocator を受け継がないので既定のリソースのままで、領域より長生きしない。同じ `InvalidateWindow` が 2 回積まれることはあるが、`InvalidateRect` は冪等で、マウスの移動・ホイール・ドラッグの経路では起きない（`dup_invalidate/event` = 0）ので重複は除かない。テストで使う `FindEffect<T>(effects)` と `HasEffect<T>(effects)` は `std::get_if` の薄いラッパである（`tests/reducer_harness.h`）。
 
 #### 3.4.4 App::Execute — 副作用の実行
 
@@ -749,7 +747,7 @@ void App::Dispatch(const AppAction& action)
 | | `Beep` | `MessageBeep(MB_OK)`（検索の折り返し） |
 | Window | `SearchFocus` / `SearchUnfocus` | `Win32Window::FocusSearchEdit` / `UnfocusSearch` をその場で呼ぶ（`Win32Window` が検索ボックスを操作する） |
 | | `ApplyZoom` / `ToggleDarkMode` | `App::ApplyZoom` / `App::ToggleDarkMode` |
-| | `SettleViewport` | `App::SettleViewport`（ライブリサイズ中は積まず、`ReduceResize` がスクロールを収めて再描画を積む） |
+| | `SettleViewport` | `App::SettleViewport`（ライブリサイズ中は積まず、`ResizeAction` の reducer がスクロールを収めて再描画を積む） |
 | | `RendererResize` | `Renderer::Resize(width, height, live)` |
 | | `ApplyDpi` | `Renderer::SetDpi(dpi)` と、WM_DPICHANGED が勧める矩形 `suggested` への `SetWindowPos` |
 | Navigation | `LoadFile` / `ReloadFile` / `OpenFileDialog` / `CancelOtherFileLoad` | `App::LoadMarkdownFile` / `ReloadCurrentFile` / `OpenFileDialog` / `CancelOtherFileLoad` |
@@ -1001,7 +999,7 @@ public:
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。
     bool EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
-    void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, layout::HeightChangeRange changed) noexcept;
+    void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept;
 };
 ```
 
@@ -1260,7 +1258,7 @@ struct Theme {
 };
 ```
 
-色は描画の固定ブラシと同じ添字の `colors` 1 つに持つ。`BuildTheme(dark)`（`theme.cpp` 内部）が `dark` を決め、テーマごとに違う色はライトとダークを 1 行に並べた 1 つの表（`ThemeColors()`）から写す。背景（`BrushId::Background`、`Clear` に使う）・本文・見出し・コード・アラート（`AlertBrushIdFromIndex` / `AlertBgBrushIdFromIndex` の連番）・シンタックス（`SyntaxTokenType` の Keyword 以降と同じ順に並べ、`SyntaxBrushId` が差で引く）・タイトルバー・ペイン・検索・ジェスチャーとトーストの背景（`OverlayGestureBg`）の色に加えて、両テーマ共通の固定色（選択・閉じるボタンの赤・オーバーレイの白 `OverlayWhite`・ジェスチャーの軌跡）と、`dark` で決まる重ね色（表のストライプ・スクロールバーのつまみ・ボタンのオーバーレイ `Overlay`（ダークは白、ライトは黒））もここで入れる。`Renderer::RecreateBrushes` は `colors` を添字順に 1 回なめてブラシに写すだけ。ポップアップ（コンテキストメニュー・設定ダイアログ）も `Color(BrushId::Text)` などから自前のブラシを作る。
+色は描画の固定ブラシと同じ添字の `colors` 1 つに持つ。`BuildTheme(dark)`（`theme.cpp` 内部）が `dark` を決め、テーマごとに違う色はライトとダークを 1 行に並べた 1 つの表（`BuildTheme` 内の `colors`）から写す。背景（`BrushId::Background`、`Clear` に使う）・本文・見出し・コード・アラート（`AlertBrushIdFromIndex` / `AlertBgBrushIdFromIndex` の連番）・シンタックス（`SyntaxTokenType` の Keyword 以降と同じ順に並べ、`SyntaxBrushId` が差で引く）・タイトルバー・ペイン・検索・ジェスチャーとトーストの背景（`OverlayGestureBg`）の色に加えて、両テーマ共通の固定色（選択・閉じるボタンの赤・オーバーレイの白 `OverlayWhite`・ジェスチャーの軌跡）と、`dark` で決まる重ね色（表のストライプ・スクロールバーのつまみ・ボタンのオーバーレイ `Overlay`（ダークは白、ライトは黒））もここで入れる。`Renderer::RecreateBrushes` は `colors` を添字順に 1 回なめてブラシに写すだけ。ポップアップ（コンテキストメニュー・設定ダイアログ）も `Color(BrushId::Text)` などから自前のブラシを作る。
 
 Reducer は `AppState::theme`（`ThemeService` 所有 `Theme` への非所有ポインタ）経由で寸法を直接参照する。
 
@@ -1283,7 +1281,7 @@ public:
 
 今のテーマは `ThemeService` が 1 つだけ持ち、`Renderer`（`const Theme*`）・`DWriteTextMeasurer` / `LayoutEngine`・`AppState::theme`・ポップアップ（`PopupEnv::theme`）はそれを参照する。切り替えは同じ場所を書き換え、ベーステーマから作り直すので倍率の累積誤差は溜まらない。起動時は `App::Init` が `session::LoadDarkMode` / `session::LoadZoomLevel` の値で `ThemeService::Init` を呼び、テーマを作ってフォントを決めてから `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。フォントの解決は DirectWrite の共有ファクトリだけを使い、D3D デバイスを待つより前に済む。
 
-ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシを `RecreateBrushes` で作り直すだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文とジェスチャーの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。`App::ToggleDarkMode` もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する（reducer の `ReduceToggleDarkMode` は見ていた位置を scroll target に置くだけで、文書には書かない）。
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシを `RecreateBrushes` で作り直すだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文とジェスチャーの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。`App::ToggleDarkMode` もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する（reducer の `ToggleDarkModeAction` の処理は見ていた位置を scroll target に置くだけで、文書には書かない）。
 
 #### 3.9.3 ズームシステム
 
@@ -1303,7 +1301,7 @@ public:
 
 `ZOOM_DEFAULT_INDEX = 7`、`ZOOM_STEP_COUNT = 17`。
 
-ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（段を変える前後の倍率の比でスケール）を scroll target に置き、`App::ApplyZoom` が全ノードのレイアウトを無効化して（`LayoutCache::InvalidateAllLayouts`。reducer は文書に書かない）、`ThemeService::ApplyZoom` が zoom=1.0 の基準テーマから倍率を掛けて今のテーマを作り直し（累積適用による誤差を避ける）、計測と描画の書式を作り直す。続く `App::RelayoutViewport` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
+ズーム変更では reducer の `ZoomAction` の処理が可視先頭のノードとノード内オフセット（段を変える前後の倍率の比でスケール）を scroll target に置き、`App::ApplyZoom` が全ノードのレイアウトを無効化して（`LayoutCache::InvalidateAllLayouts`。reducer は文書に書かない）、`ThemeService::ApplyZoom` が zoom=1.0 の基準テーマから倍率を掛けて今のテーマを作り直し（累積適用による誤差を避ける）、計測と描画の書式を作り直す。続く `App::RelayoutViewport` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
 
 本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールしないので、本文のズームでペイン配置（`ComputePaneLayout`）は変わらない。保存するペイン幅はズームを含まない DIP 値である。
 
@@ -1399,7 +1397,7 @@ Zig は汎用 lexer に `\\` の行文字列と `@import` 等の組み込み関�
 
 Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]]` のコメント）のフラグを足して扱う。Vim script は専用 lexer で、行頭と `|` の後をコマンド位置として読み、コマンド名（省略形を含む）を Keyword、`g:` / `s:` / `a:` 等のスコープ付き変数と `&option` / `$ENV` / `@r` を Type、`<CR>` 等のキー表記を Preprocessor にする。`"` は行頭ならコメント、式の中では同じ行に閉じの `"` があれば文字列、無ければ行末コメントとみなす。マッピングコマンドの引数はキー列なのでキー表記だけを色付けし、`lua << EOF` の本文は Lua として、`let x =<< END` の本文は文字列として色付けする。`<<` はコマンド（`let` は代入の `=`）の直後に来たときだけ本文の始まりとみなし、行の途中のシフト演算子や文字列中の `<<` では始めない。先頭のコマンドが `vim9script` の文書（と ` ```vim9 `）は Vim9 script として `#` をコメント、`"` を文字列とする。
 
-キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDoubleDollar` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
+キーワードリストは `syntax_keywords.h` に集約され、語の長さと先頭・中央・末尾の文字から番地を求める開番地法の表（`WordTable<N>`。受け渡しは型消去した `KeywordTable`）で持つ。判定は番地から順に空きまでを見る。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDoubleDollar` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
 
 ---
 
@@ -1489,11 +1487,11 @@ ReadDirectoryChangesW の通知バッファは 64KB 確保（バッファ溢れ�
 // 原文はパース前の差分判定に、ノードはパース後に変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
 struct ReloadBase {
     std::shared_ptr<const DocumentData> data;   // Document::ShareData
-    bool accept_prefix_shrink = false;          // prefix shrink も defer せずにパースする (PrefixShrinkRetry の上限後)
+    bool accept_prefix_shrink = false;          // prefix shrink も defer せずにパースする (defer の上限後)
 };
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / DeferPrefixShrink と書き込み途中はパースせずに返す (doc は空)。
+// NoChange / DeferPrefixShrink / StillGrowing はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
 struct ReloadCheck {
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
     // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる。
@@ -1501,8 +1499,6 @@ struct ReloadCheck {
     std::weak_ptr<const DocumentData> base;
     // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (Replace のとき)。worker で数える。
     UnchangedEnds ends;
-    // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。worker が結果を出す直前に確かめる。
-    bool still_growing = false;
 };
 
 // ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
@@ -1620,7 +1616,7 @@ public:
 
 `ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図は呼び出しごとの `changed` に積み、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
@@ -1743,7 +1739,7 @@ private:
 
 #### 3.13.2 リンク解決
 
-リンククリックは `nav.h` のフリー関数 `ClassifyLinkClick(url)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）と外部 URL を `ShellExecuteExW` で開く処理（`App::ShellOpenAsync`。UI スレッドを待たせないよう専用スレッドで開く）を分岐する。`#` で始まる URL がアンカー、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外（相対パスや `file://` を含む）は何もしない。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。リンクから別ファイルへは遷移しない。別ファイルへの遷移（履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
+リンククリックは `document_utils.h` のフリー関数 `ClassifyLinkClick(url)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）と外部 URL を `ShellExecuteExW` で開く処理（`App::ShellOpenAsync`。UI スレッドを待たせないよう専用スレッドで開く）を分岐する。`#` で始まる URL がアンカー、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外（相対パスや `file://` を含む）は何もしない。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。リンクから別ファイルへは遷移しない。別ファイルへの遷移（履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
 
 ```cpp
 struct LinkClickResult {
@@ -1911,8 +1907,8 @@ public:
     constexpr void  SetSidePaneWidth(PaneTarget t, float w) noexcept;  // PANE_MIN_WIDTH に clamp
 
     // スクロール
-    constexpr ScrollState&       SidePaneScroll(PaneTarget t) noexcept;
-    constexpr const ScrollState& SidePaneScroll(PaneTarget t) const noexcept;
+    constexpr float& SidePaneScroll(PaneTarget t) noexcept;
+    constexpr float  SidePaneScroll(PaneTarget t) const noexcept;
     constexpr void ResetScrollStates() noexcept;
     bool ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept;  // 変化した場合 true
 
@@ -2075,7 +2071,7 @@ public:
     ConfigService() noexcept = default;
 
     // 設定ディレクトリ
-    void SetConfigDirOverride(const std::filesystem::path& dir);    // テスト用
+    void SetConfigDir(const std::filesystem::path& dir);
     const std::filesystem::path& GetConfigDir() const;
     // filename は固定の名前だけを渡す (検証しない)。設定ディレクトリが無ければ空。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
@@ -2329,7 +2325,7 @@ struct ContextMenuParams {
 class ContextMenu {
 public:
     static int Show(HWND owner, const ContextMenuParams& params);  // 選んだ項目の ID。選ばずに閉じたら 0
-    struct Impl;  // context_menu_impl.h。開くたびに作る (項目・レイアウト・HitTest / NavHitTest / ZoomHitTest)
+    struct Impl;  // context_menu.cpp。開くたびに作る (項目・レイアウト・HitTest / NavHitTest / ZoomHitTest)
 };
 ```
 
@@ -2505,7 +2501,7 @@ public:
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;
     // 画像・図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
-    virtual void RecomputeLayout(layout::HeightChangeRange changed) = 0;
+    virtual void RecomputeLayout(IndexRange changed) = 0;
 
 protected:
     ~ResourceManagerHost() = default;
@@ -2524,9 +2520,9 @@ public:
                         MermaidFileCache& mermaid_file_cache, ResourceManagerHost& host) noexcept;
 
     // 画像
-    bool ApplyCachedImagesForReload(VisibleRange range);   // range の全画像。未キャッシュは無視。高さを変えたら true
+    bool ApplyCachedImagesForReload(IndexRange range);   // range の全画像。未キャッシュは無視。高さを変えたら true
     // リロード直後のスクロール位置計算用に、range の図の推定高さをディスクキャッシュにある寸法で上書きする。
-    bool ApplyMermaidCacheHeightsForReload(VisibleRange range);
+    bool ApplyMermaidCacheHeightsForReload(IndexRange range);
     void LoadImages();   // 可視範囲。未キャッシュは読み込みを起動
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う (IMAGE_LOADED・空き時間・デバイス作成直後)。
     void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
@@ -2545,7 +2541,7 @@ public:
 
 private:
     // 再レイアウトはしない。高さが変わったノードは changed に積む。
-    void RequestVisibleDiagrams(layout::HeightChangeRange& changed);
+    void RequestVisibleDiagrams(IndexRange& changed);
     // indices の先読み範囲を、可視部分 → 下側 → 上側の 3 区間に分ける。
     std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices, float screens);
     // 前回の要求位置から EVICT_BUFFER_SCREENS 画面を越えて移動していたら、図と画像の待ちを捨てる。
@@ -2584,12 +2580,10 @@ ScrollTarget pending_restore;
 
 ```cpp
 struct SystemCursors {
-    HCURSOR arrow   = nullptr;
-    HCURSOR hand    = nullptr;
-    HCURSOR ibeam   = nullptr;
-    HCURSOR size_we = nullptr;
+    std::array<HCURSOR, 4> cursors{};  // PointerCursor の順
 
     void Load() noexcept;
+    HCURSOR Get(app_controller::PointerCursor cursor) const noexcept;
 };
 ```
 
@@ -2623,25 +2617,25 @@ public:
 
 #### 3.28.2 UniqueResource — RAII ハンドルラッパー
 
-ポリシーベースの汎用 RAII リソースラッパー。
+無効値と解放関数をテンプレート引数で受ける汎用 RAII リソースラッパー。
 
 ```cpp
-template<typename Traits>
+template <typename T, T (*Invalid)() noexcept, auto Close>
 class UniqueResource {
 public:
     explicit UniqueResource(handle_t h) noexcept;
     explicit operator bool() const noexcept;
     handle_t get() const noexcept;
     handle_t release() noexcept;
-    void reset(handle_t h = Traits::invalid()) noexcept;
+    void reset(handle_t h = Invalid()) noexcept;
 };
 
 // 定義済み (win_handle.h)
-using UniqueHandle       = UniqueResource<HandleTraits>;        // CloseHandle (INVALID_HANDLE_VALUE)
-using UniqueEventHandle  = UniqueResource<EventHandleTraits>;   // CloseHandle (nullptr)
-using UniqueFindHandle   = UniqueResource<FindHandleTraits>;    // FindClose
-using UniqueCoTaskMemStr = UniqueResource<CoTaskMemStrTraits>;  // CoTaskMemFree
-using UniqueGlobalMem    = UniqueResource<GlobalMemTraits>;     // GlobalFree
+using UniqueHandle       = UniqueResource<HANDLE, InvalidHandleValue, CloseHandle>;
+using UniqueEventHandle  = UniqueResource<HANDLE, NullHandle<HANDLE>, CloseHandle>;
+using UniqueFindHandle   = UniqueResource<HANDLE, InvalidHandleValue, FindClose>;
+using UniqueCoTaskMemStr = UniqueResource<wchar_t*, NullHandle<wchar_t*>, CoTaskMemFree>;
+using UniqueGlobalMem    = UniqueResource<HGLOBAL, NullHandle<HGLOBAL>, GlobalFree>;
 
 // GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で書かせる。失敗したら空
 template <class Fill>
@@ -2916,8 +2910,6 @@ classDiagram
         +vector~InlineCodeBg~ inline_code_bgs
         +vector~SyntaxToken~ syntax_tokens
         +unique_ptr~TableLayoutData~ table_layout
-        +unique_ptr~SearchHlCache~ search_hl_cache
-        +unique_ptr~LineWindow~ line_window
     }
 
     class TableLayoutData {
@@ -2929,7 +2921,7 @@ classDiagram
         +vector~float~ natural_col_widths / cell_natural_widths / cell_nowrap_heights
         -vector~uint8_t~ row_evicted_
         +float last_applied_max_width
-        -LiveRange live_rows_
+        -IndexRange live_rows_
         +CommitGeometry(max_width)
         +EvictRowsOutside(keep_begin, keep_end, released)
         +TableWidth() float
@@ -2956,9 +2948,9 @@ classDiagram
 
 遅延レイアウトで計測する dirty が残っているかは `LayoutCache` 自身が `HasDirtyNodes()` として持ち、`LayoutEngine` が計測のたびに決め直す。キャッシュと一緒に動くので、推定直後（true）のキャッシュを文書ごと差し替えても遅延レイアウトが拾う。
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。`MeasureTable` はローカルに組み、全セルを測って幾何を確定（`FinalizeTableLayout` の `CommitGeometry`）してから `NodeLayoutEntry::set_table_layout` で置くので、`table_layout()` があれば描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）は揃っている。幅も合っているかは `GeometryValidAt` で分かる。幅が変わっても組み直すまでは前の幅の幾何のまま残り（見えている表は描く前に組み直す）、推定が `entry.height` だけを伸ばしても、同じ幅の早道は幾何の高さ（`TotalHeight`）で確定し直す。`table_layout()` の無いテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows` が呼ぶ `TableLayoutData::EvictRowsOutside`）はセルレイアウトが生存しうる行範囲 `live_rows_`（`LiveRange`。ノードの `text_layout` の `live_nodes_` も同じ型）のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。evict 済みの行の印（`row_evicted_`）・その数・生存範囲は互いに揃っている必要があるので private にし、`TableLayoutData` のメンバ（`EvictRowsOutside` / `MarkRowRestored` / `MarkAllRowsEvicted`）だけが書き換える。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。`MeasureTable` はローカルに組み、全セルを測って幾何を確定（`FinalizeTableLayout` の `CommitGeometry`）してから `NodeLayoutEntry::set_table_layout` で置くので、`table_layout()` があれば描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）は揃っている。幅も合っているかは `GeometryValidAt` で分かる。幅が変わっても組み直すまでは前の幅の幾何のまま残り（見えている表は描く前に組み直す）、推定が `entry.height` だけを伸ばしても、同じ幅の早道は幾何の高さ（`TotalHeight`）で確定し直す。`table_layout()` の無いテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows` が呼ぶ `TableLayoutData::EvictRowsOutside`）はセルレイアウトが生存しうる行範囲 `live_rows_`（`IndexRange`。ノードの `text_layout` の `live_nodes_` も同じ型）のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。evict 済みの行の印（`row_evicted_`）・その数・生存範囲は互いに揃っている必要があるので private にし、`TableLayoutData` のメンバ（`EvictRowsOutside` / `MarkRowRestored` / `MarkAllRowsEvicted`）だけが書き換える。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
-`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー・保存用の元 PNG データ（`PngBytes` = `shared_ptr<const ByteBuffer>`）。`error`（`DiagramError`。失敗の種類と、Mermaid が返した文言）は描画失敗の理由で、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は窓を求め直さない。選択の矩形はキャッシュせず毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
+`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー・保存用の元 PNG データ（`PngBytes` = `shared_ptr<const ByteBuffer>`）。`error`（`DiagramError`。失敗の種類と、Mermaid が返した文言）は描画失敗の理由で、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索・選択のハイライトの矩形はキャッシュせず、可視範囲の前後の行にかかる分を毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
 
 ### 4.3 Document
 
@@ -3261,22 +3253,19 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_parser.cpp` | Markdownパーサ |
 | `test_layout.cpp` | レイアウトエンジン |
 | `test_layout_cache.cpp` | LayoutCache |
-| `test_text_measurer.cpp` | ITextMeasurer |
-| `test_measurer_parity.cpp` | DWriteTextMeasurer 整合性 |
+| `test_layout_engine.cpp` | LayoutEngine（MockTextMeasurer 経由） |
 | `test_syntax.cpp` | シンタックスハイライト |
 | `test_theme.cpp` | テーマ定義 |
 | `test_theme_service.cpp` | ThemeService |
 | `test_document.cpp` | Document |
-| `test_document_utils.cpp` | テキスト操作 |
+| `test_document_utils.cpp` | テキスト操作・リンクの判定 |
 | `test_html_entity.cpp` | HTML 文字参照の解決 |
 | `test_anchor.cpp` | アンカーID生成（`GenerateAnchorId` はテスト用ヘルパー `document_test_helpers.h` に置く）・見出しアンカー索引・脚注アンカー |
 | `test_toc.cpp` | 目次生成・`FindActiveTocIndex` |
 | `test_types.cpp` | 型・データ構造 |
 | `test_file_io.cpp` | ファイルI/O ユーティリティ |
 | `test_file_explorer.cpp` | FileExplorer |
-| `test_session_service.cpp` | session:: |
-| `test_config_service.cpp` | ConfigService（設定永続化） |
-| `test_ini_parser.cpp` | INI の読み書き（`config_service.h` の `ini::Parse` / `Serialize`） |
+| `test_config_service.cpp` | ConfigService（設定永続化）・session::・INI の読み書き（`ini::Parse` / `Serialize`） |
 | `test_locale.cpp` | i18n ロケール |
 | `test_string_convert.cpp` | UTF-8 ↔ Wide 変換 |
 | `test_pane_layout.cpp` | ペインレイアウト計算・PaneController |
@@ -3285,8 +3274,6 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_mouse_gesture.cpp` | MouseGesture・ジェスチャ / スワイプのオーバーレイ状態 |
 | `test_swipe_detector.cpp` | SwipeDetector |
 | `test_nav_history.cpp` | NavHistory |
-| `test_navigation_service.cpp` | リンク解決・ナビゲーション |
-| `test_nav_button_format.cpp` | ナビゲーションボタン定数 |
 | `test_titlebar.cpp` | TitleBar |
 | `test_context_menu.cpp` | ContextMenu |
 | `test_settings_dialog.cpp` | SettingsDialog |
@@ -3294,7 +3281,6 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_search_bar.cpp` | 検索バー (検索バーのアクションの Reduce) |
 | `test_tooltip_target.cpp` | TooltipTarget |
 | `test_ui_constants.cpp` | UIConstants |
-| `test_copy_button.cpp` | コピーボタン矩形 |
 | `test_image.cpp` | ImageLoader |
 | `test_help.cpp` | ヘルプドキュメント |
 | `test_mermaid_util.cpp` | Mermaidユーティリティ |
@@ -3307,7 +3293,6 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_command_generator_content.cpp` | CommandGenerator コンテンツ描画 (モック経路) |
 | `test_command_generator_highlight.cpp` | CommandGenerator ハイライト描画 |
 | `test_transposition_cache.cpp` | TranspositionCache |
-| `test_memory_eviction.cpp` | メモリエビクション |
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
 | `test_utility.cpp` | ユーティリティ関数（`utility.h`、FNV-1a ハッシュを含む） |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator（起動時の先行読み込みと `Attach` を含む） |
@@ -3336,7 +3321,7 @@ pie title テストカバレッジ（ファイル数ベース）
 #### Reducer / Effect テスト
 
 - [x] 各 `AppAction` に対する状態遷移
-- [x] Effect 発行の妥当性（`HasEffect<T>`, `GetEffect<T>`）
+- [x] Effect 発行の妥当性（`HasEffect<T>`, `FindEffect<T>`）
 - [x] スクロール／ズーム／ナビゲーションの結合動作
 
 #### NavHistory テスト
@@ -3435,10 +3420,6 @@ inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止
 inline constexpr UINT TOAST_DURATION_MS         = 1300; // トースト表示時間
 inline constexpr UINT TOOLTIP_DELAY_MS          = 500;  // ツールチップを出すまでの待ち
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS  = 500;  // 描画デバイスの作り直しに失敗した後の再試行間隔
-
-// [kFirstTimer, kLastTimer] の範囲判定に使う
-inline constexpr Id kFirstTimer = Id::LOADING_ANIM;
-inline constexpr Id kLastTimer  = static_cast<Id>(std::to_underlying(Id::END) - 1);
 }
 ```
 
@@ -3493,6 +3474,7 @@ src/
 ├── main.cpp                       # エントリポイント (wWinMain)
 ├── pch.h                          # プリコンパイル済みヘッダ
 ├── app/                           # アプリケーション層
+│   ├── async_load_coordinator.h / .cpp # LoadFile・非同期ロード調停 (stop_token・起動時の先行読み込み)・AsyncLoadResult・リロード判定 (AnalyzeReloadDiff / prefix shrink の判定)
 │   ├── app.h / app.cpp            # App 統括（Init / Dispatch / 副作用の実行 Execute / OnPaint / レイアウト / テーマ適用 / コンテキストメニュー・設定ダイアログ / ファイル読み込み / マウス入力 / インライン数式の描画の依頼）+ SystemCursors
 │   ├── clipboard_manager.h / .cpp # ClipboardManager (コピー/PNG 保存/SVG コピー)
 │   ├── app_state.h                # AppState (全状態集約) + reducer と App が導出するペイン/ブロック情報 (ComputePaneLayout 等) + ResolveGestureOverlay
@@ -3541,7 +3523,7 @@ src/
 │   ├── theme_palette.h            # 配色パレットとフォント候補の定義
 │   └── brush_id.h                 # ブラシ ID 定義
 ├── nav/                           # ナビゲーション層
-│   └── nav.h / nav.cpp            # NavHistory + LinkClickResult / ClassifyLinkClick
+│   └── nav.h / nav.cpp            # NavHistory
 ├── input/                         # 入力処理層
 │   ├── hit_test_service.h / .cpp  # hit_test 名前空間の関数群 + MdPaneHitContext
 │   ├── mouse_gesture.h            # MouseGesture (ヘッダオンリー)
@@ -3550,7 +3532,6 @@ src/
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
-│   ├── async_load_coordinator.h / .cpp # LoadFile・非同期ロード調停 (stop_token・起動時の先行読み込み)・AsyncLoadResult・リロード判定 (AnalyzeReloadDiff / PrefixShrinkRetry)
 │   └── config_service.h / .cpp    # ConfigService + session:: + INI の読み書き (ini::Parse / Serialize)
 ├── mermaid/                       # Mermaid層
 │   ├── mermaid.h / mermaid.cpp    # MermaidRenderer (WebView2)
@@ -3560,9 +3541,7 @@ src/
 ├── ui/                            # UI層 (Win32/D2D 依存ありの可視層)
 │   ├── titlebar.h / titlebar.cpp  # TitleBar + ウィンドウのタイトル (BuildTitleString)
 │   ├── context_menu.h / .cpp      # ContextMenu (D2D描画)
-│   ├── context_menu_impl.h        # 内部実装
 │   ├── settings_dialog.h / .cpp   # SettingsDialog (言語の選択・図のキャッシュの消去、D2D描画)
-│   ├── settings_dialog_impl.h     # 内部実装 (テストも読む)
 │   ├── popup_window.h             # 自前描画のポップアップ (コンテキストメニュー・設定ダイアログ) の共通の土台 PopupWindow
 │   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget + ApplyDarkModeToWindow
 │   └── search_state.h / .cpp      # SearchState
@@ -3584,7 +3563,7 @@ src/
     ├── i18n.h                     # 国際化
     ├── resource.h                 # リソースID
     ├── ui_constants.h             # UI 定数 + DIP⇔ピクセル変換・ボタン矩形・SearchBarLayout
-    ├── ui_types.h                 # DipPoint / DipRect / PaneRect / ScrollState / OverlayButton / LeftDrag / NavDirection / ZoomLevel / ModalLoop / PopupEnv
+    ├── ui_types.h                 # DipPoint / DipRect / PaneRect / FileEntry / OverlayButton / LeftDrag / NavDirection / ZoomLevel / ModalLoop / PopupEnv
     ├── pane_layout.h / .cpp       # PaneZone / PaneLayout / PaneController / PaneScrollInfo
     ├── task_scheduler.h / .cpp    # TaskScheduler + ワーカー数 (SharedWorkerCount / LayoutWorkerCount)
     └── profiler.h                 # パフォーマンス計測
@@ -4948,7 +4927,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 21 | TOC + FindActiveTocIndex | document_types.h + layout_computer.h/cpp | mendo_core | あり |
 | 22 | PaneController | pane_layout.h/cpp | mendo_core | あり |
 | 23 | ViewportManager | viewport_manager.h | mendo_core | あり |
-| 24 | NavHistory + ClassifyLinkClick | nav.h / nav.cpp | mendo_core | あり |
+| 24 | NavHistory + ClassifyLinkClick | nav.h/cpp + document_utils.h/cpp | mendo_core | あり |
 | 25 | MouseGesture | mouse_gesture.h | mendo_core | あり |
 | 26 | SwipeDetector | swipe_detector.h | mendo_core | あり |
 | 27 | hit_test | hit_test_service.h/cpp | mendo_core | あり |

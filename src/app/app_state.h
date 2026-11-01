@@ -167,7 +167,7 @@ inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 struct SidePaneContext {
     PaneScrollInfo info;
     float item_height;
-    ScrollState& scroll;
+    float& scroll_y;
 };
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 // 目次のアクティブ見出しを今の scroll_y と見出しの Y から決め直し、変わったら目次ペインを追従させる。
@@ -194,7 +194,7 @@ inline PaneScrollInfo SidePaneScrollInfo(const AppState& state, PaneTarget pane,
 inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
     const float item_h = SidePaneItemHeight(state, pane);
-    const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
+    const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane));
     return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }
 

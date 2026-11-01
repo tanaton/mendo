@@ -58,7 +58,6 @@ public:
     // touch なら当たった項目の LRU を更新する (使えない幅なしの項目では更新しない)。寸法だけ見るときは更新しない。
     std::optional<Hit> Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch);
     // PNG の読み込み (ReadAllBytes) は呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
-    // キャッシュのディレクトリが無ければ空。
     std::filesystem::path PngPath(uint64_t key) const
     {
         return GetPngPath(InternalKey(key));
@@ -130,7 +129,6 @@ private:
     // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。
     // どのスレッドからでも呼べる。
     void PrepareWrite(const std::filesystem::path& path);
-    // doomed_files_ を worker で消す。投げられなければその場で消す。
     void RemoveDoomedFilesAsync();
     void RemoveDoomedFiles();
 
