@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+// 列挙は SetDirectory / Refresh 後の最初の EnsureListed まで遅らせる。表示中のペインを描くときと
+// 一覧を見る操作だけが呼ぶので、ペインが非表示なら起動時やファイルを開くたびの I/O が起きない。
 class FileExplorer {
 public:
     // 列挙を別スレッドに任せる先。dir を List で列挙し、結果を request と一緒に ApplyListing へ渡させる。

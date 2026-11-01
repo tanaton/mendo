@@ -50,12 +50,6 @@ std::string HeadingSectionsMd(int count, int body_lines = 0)
     return md;
 }
 
-template <typename T>
-auto CountEffect(const SideEffectList& effects)
-{
-    return std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<T>(e); });
-}
-
 } // namespace
 
 class ReducerTest : public ::testing::Test {

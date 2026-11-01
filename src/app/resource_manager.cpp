@@ -19,10 +19,10 @@
 
 namespace {
 
-constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
+constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, IndexRange range) noexcept
 {
-    const auto b = std::ranges::lower_bound(sorted_indices, first_visible_node);
-    const auto e = std::ranges::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
+    const auto b = std::ranges::lower_bound(sorted_indices, range.begin);
+    const auto e = std::ranges::lower_bound(b, sorted_indices.end(), range.end);
     return { b, e };
 }
 
@@ -74,7 +74,7 @@ bool ResourceManager::ApplyCachedImagesForReload(IndexRange range)
     }
     // Y は呼び出し側が組み直す。
     IndexRange changed;
-    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range.begin, range.end) }, false, changed);
+    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range) }, false, changed);
     return !changed.empty();
 }
 
@@ -85,7 +85,7 @@ bool ResourceManager::ApplyMermaidCacheHeightsForReload(IndexRange range)
     const bool dark_mode = theme.dark;
     const auto& nodes = state_.document.doc.GetNodes();
     bool any_applied = false;
-    for (size_t i : VisibleSlice(state_.document.doc.GetDiagramNodeIndices(), range.begin, range.end)) {
+    for (size_t i : VisibleSlice(state_.document.doc.GetDiagramNodeIndices(), range)) {
         // 結果を残しているエントリ (仮表示で引き継いだ図など) にはハッシュも残し、RequestRender に計算し直させない。
         auto* const diagram = state_.document.layout_cache.FindDiagram(i);
         const uint64_t code_hash = diagram ? mermaid_util::EnsureDiagramCodeHash(diagram->code_hash, nodes[i])
@@ -136,7 +136,7 @@ void ResourceManager::EvictOffscreenBitmaps()
     state_.document.layout_cache.EvictTextLayouts(lr.begin, lr.end);
     // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。表はセル 1 つごとに text_layout を持つので、
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
-    state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr.begin, lr.end), layout_keep->keep);
+    state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
     // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
     // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
@@ -330,9 +330,9 @@ std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::s
     if (!r) {
         return { indices, {}, {} };
     }
-    const auto all = VisibleSlice(indices, r->range.begin, r->range.end);
+    const auto all = VisibleSlice(indices, r->range);
     const auto vr = ComputeVisibleNodeRange(state_.document.layout_cache, r->viewport_top, r->viewport_bottom);
-    const auto visible = VisibleSlice(all, vr.begin, vr.end);
+    const auto visible = VisibleSlice(all, vr);
     const auto above = static_cast<size_t>(visible.data() - all.data());
     return { visible, all.subspan(above + visible.size()), all.first(above) };
 }

@@ -40,9 +40,6 @@ struct FileEntry {
     std::wstring_view GetDisplayName() const noexcept;
 };
 
-// 列挙は SetDirectory / Refresh 後の最初の EnsureListed まで遅らせる。表示中のペインを描くときと
-// 一覧を見る操作だけが呼ぶので、ペインが非表示なら起動時やファイルを開くたびの I/O が起きない。
-
 struct DipPoint {
     float x = 0.0f;
     float y = 0.0f;

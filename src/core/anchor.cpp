@@ -133,8 +133,9 @@ std::string ToLowerAnchorCopy(std::string_view text)
 
 std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node_index)
 {
-    const std::string base = GenerateAnchorId(heading_text);
-    auto result = entries_.try_emplace(base, Entry{ node_index });
+    std::string base = GenerateAnchorId(heading_text);
+    // 挿入しなければ base はムーブされない。
+    auto result = entries_.try_emplace(std::move(base), Entry{ node_index });
     if (!result.second) {
         // unordered_map は再ハッシュでも要素の参照が変わらない。
         int& counter = result.first->second.counter;

@@ -113,7 +113,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
         }
         else if (const auto* tl = entry.table_layout(); tl && tl->HasEvictedRows()) {
             cache.NoteMaterialized(i, i + 1);
-            const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), range.ToLocal(entry_top));
+            const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, range.ToLocal(entry_top));
             result.updated |= restored.restored;
             if (restored.height) {
                 height_changed = true;

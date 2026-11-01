@@ -58,14 +58,9 @@ protected:
         pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ far_top, far_top + 1000.0f });
     }
 
-    TableRestoreResult Restore(YRange viewport, float width)
-    {
-        return RestoreEntryTableRows(measurer_, TableNode(), Entry(), width, viewport);
-    }
-
     TableRestoreResult Restore(YRange viewport)
     {
-        return Restore(viewport, ContentWidth());
+        return RestoreEntryTableRows(measurer_, TableNode(), Entry(), viewport);
     }
 
     // 書き込み先の entry を dirty にして、表を計測し直す。
@@ -267,7 +262,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     EXPECT_FALSE(entry.layout_dirty);
     ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 
-    const auto result = Restore(YRange::All(), narrow);
+    const auto result = Restore(YRange::All());
     EXPECT_TRUE(result.restored);
     EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
@@ -367,7 +362,7 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
         // 狭い幅で行高さを見積もりのまま残し、復元で実測に揃わせる。
         Measure(entry, narrow);
         measurer_.SetScheduler(scheduler);
-        const auto result = Restore(YRange::All(), narrow);
+        const auto result = Restore(YRange::All());
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());

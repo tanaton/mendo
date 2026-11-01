@@ -296,12 +296,21 @@ void App::OnPaint()
     });
 
     EndPaint(hwnd_, &ps);
-    if (result == FrameResult::DeviceRecreated) {
+    switch (result) {
+    case FrameResult::Done:
+        break;
+    case FrameResult::RedrawNow:
+        Invalidate();
+        break;
+    case FrameResult::DeviceRecreated:
         OnRenderDeviceRecreated();
-    }
-    else if (result == FrameResult::RetryLater) {
+        Invalidate();
+        break;
+    case FrameResult::RetryLater:
         // CreateDevice は作り直す前に RT を解放する。再試行までの入力で解放済みの RT を触らせない。
         ShareRenderTarget();
+        SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
+        break;
     }
     ManageInlineMathPages();
     // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
@@ -309,17 +318,6 @@ void App::OnPaint()
     // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
     if (!show_loading) {
         RefreshHoverAtCursor();
-    }
-    switch (result) {
-    case FrameResult::Done:
-        break;
-    case FrameResult::RedrawNow:
-    case FrameResult::DeviceRecreated:
-        Invalidate();
-        break;
-    case FrameResult::RetryLater:
-        SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
-        break;
     }
     MENDO_FRAME_MARK();
 }

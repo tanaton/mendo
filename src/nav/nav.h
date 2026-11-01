@@ -3,7 +3,6 @@
 #include <deque>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <utility>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。

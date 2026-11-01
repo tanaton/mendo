@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -227,10 +228,6 @@ struct YRange {
         return { kInf, -kInf };
     }
 
-    constexpr bool Contains(const YRange& r) const noexcept
-    {
-        return top <= r.top && r.bottom <= bottom;
-    }
     constexpr YRange ToLocal(float entry_top) const noexcept
     {
         return { top - entry_top, bottom - entry_top };

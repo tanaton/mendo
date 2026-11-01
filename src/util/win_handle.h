@@ -4,11 +4,9 @@
 // 無効値は関数で渡す (INVALID_HANDLE_VALUE は定数式でない)。
 template <typename T, T (*Invalid)() noexcept, auto Close>
 class UniqueResource {
-    using handle_t = T;
-
 public:
     UniqueResource() noexcept = default;
-    explicit UniqueResource(handle_t h) noexcept : handle_(h)
+    explicit UniqueResource(T h) noexcept : handle_(h)
     {}
     ~UniqueResource()
     {
@@ -31,26 +29,26 @@ public:
     {
         return handle_ != Invalid();
     }
-    handle_t get() const noexcept
+    T get() const noexcept
     {
         return handle_;
     }
 
-    handle_t release() noexcept
+    T release() noexcept
     {
-        handle_t h = handle_;
+        T h = handle_;
         handle_ = Invalid();
         return h;
     }
 
     // 出力引数で受け取る API 用。
-    handle_t* put() noexcept
+    T* put() noexcept
     {
         reset();
         return &handle_;
     }
 
-    void reset(handle_t h = Invalid()) noexcept
+    void reset(T h = Invalid()) noexcept
     {
         if (handle_ != Invalid()) {
             Close(handle_);
@@ -59,7 +57,7 @@ public:
     }
 
 private:
-    handle_t handle_ = Invalid();
+    T handle_ = Invalid();
 };
 
 inline HANDLE InvalidHandleValue() noexcept

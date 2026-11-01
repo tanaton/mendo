@@ -305,6 +305,7 @@ private:
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
     // 数式の一部に当たった選択や検索ヒットも数式全体を塗れるよう、クラスタまで広げて引く (HitTestRange)。
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
+    void EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。doc_start / doc_length は UTF-8 byte 単位。
     void GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
     // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。

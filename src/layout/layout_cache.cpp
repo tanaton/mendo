@@ -3,7 +3,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <optional>
 #include <ranges>
 

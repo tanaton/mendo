@@ -26,17 +26,12 @@ protected:
     }
 };
 
-// ---- GetConfigDir / GetConfigPath ----
+// ---- GetConfigPath ----
 
-TEST_F(ConfigServiceTest, GetConfigDirReturnsSetDir)
-{
-    EXPECT_EQ(config_.GetConfigDir(), temp_dir_);
-}
-
-TEST_F(ConfigServiceTest, GetConfigDirDefaultsToMendoFolder)
+TEST_F(ConfigServiceTest, GetConfigPathDefaultsToMendoFolder)
 {
     const ConfigService config;
-    const auto& dir = config.GetConfigDir();
+    const auto dir = config.GetConfigPath(L"x").parent_path();
     EXPECT_FALSE(dir.empty());
     EXPECT_TRUE(dir.wstring().contains(L"mendo"));
 }

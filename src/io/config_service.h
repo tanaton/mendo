@@ -22,10 +22,6 @@ public:
     ConfigService();
 
     void SetConfigDir(const std::filesystem::path& dir);
-    const std::filesystem::path& GetConfigDir() const noexcept
-    {
-        return config_dir_;
-    }
     // filename は固定の名前だけを渡す (検証しない)。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 

@@ -1264,6 +1264,13 @@ std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestClusters(IDWri
     return HitTestRange(layout, range.startPosition, range.length);
 }
 
+void CommandGenerator::EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush)
+{
+    for (const auto& m : HitTestClusters(layout, start, length)) {
+        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), brush);
+    }
+}
+
 void CommandGenerator::GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
 {
     auto* layout = entry.text_layout();
@@ -1278,9 +1285,7 @@ void CommandGenerator::GenSelectionHighlight(const Node& node, const NodeLayoutE
     if (end <= begin) {
         return;
     }
-    for (const auto& m : HitTestClusters(layout, begin, end - begin)) {
-        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), BrushId::Selection);
-    }
+    EmitClusterRects(layout, begin, end - begin, origin_x, origin_y, BrushId::Selection);
 }
 
 CommandGenerator::NodeSearchMatches CommandGenerator::FindNodeSearchMatches(int node_index) const
@@ -1312,9 +1317,7 @@ void CommandGenerator::EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_
     const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
     // 結果は持たない。英文の e が画面に 1000 個見えるスクロールで 1 フレーム 13 → 310µs (BM_SearchFrame)。
     // 結合文字の基底だけの検索でもクラスタ全体を塗るので、数式の無いノードでも広げる。
-    for (const auto& m : HitTestClusters(layout, start_w, length_w)) {
-        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), hl_brush);
-    }
+    EmitClusterRects(layout, start_w, length_w, origin_x, origin_y, hl_brush);
 }
 
 void CommandGenerator::GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y)

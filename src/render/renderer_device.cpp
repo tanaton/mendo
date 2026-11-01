@@ -349,6 +349,8 @@ bool Renderer::CreateDevice()
     d3d_device_.Reset();
 
     if (!CreateDeviceResources()) {
+        // 途中で失敗すると描画先の無い context が残る。GetRenderTarget の非 null は使えることを意味する。
+        device_context_.Reset();
         return false;
     }
     device_lost_ = false;

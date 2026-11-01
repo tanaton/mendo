@@ -380,8 +380,7 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     const auto& evicted = Generate(pl, 0.0f);
     EXPECT_TRUE(CollectRectsByBrush(evicted, { BrushId::SearchHighlight }).empty());
 
-    const auto restored = RestoreEntryTableRows(measurer_, pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
-                                                YRange{ 0.0f, PANE.height });
+    const auto restored = RestoreEntryTableRows(measurer_, pl.nodes[0], pl.cache[0], YRange{ 0.0f, PANE.height });
     ASSERT_TRUE(restored.restored);
     const auto& cmds = Generate(pl, 0.0f);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());

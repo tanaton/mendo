@@ -893,38 +893,52 @@ void BM_TableSelectionHitTest(benchmark::State& state)
 }
 BENCHMARK(BM_TableSelectionHitTest)->Unit(benchmark::kMicrosecond);
 
+// md が空なら test.md を 4 回繰り返した文書を開く。
+std::unique_ptr<DocLayout> OpenDocOrTestMd(benchmark::State& state, std::string md)
+{
+    if (md.empty()) {
+        md = RepeatTestMd(state, 4);
+    }
+    return OpenDoc(state, std::move(md), 8);
+}
+
+// 1 画面の本文を組んでコマンドを作る一式。スクロールと組む順序はベンチごとに違うので、作るところまでを持つ。
+struct MdPaneFrame {
+    static constexpr PaneRect kPane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+
+    LayoutCache cache;
+    ViewportManager viewport;
+    LayoutService service;
+    CommandGenerator generator;
+    DrawCommandList cmds;
+
+    explicit MdPaneFrame(DocLayout& d) : cache(layout::MakeEstimatedLayoutCache(d.doc.GetNodes(), d.l.theme)), service(d.l.engine, viewport)
+    {
+        InitWithoutText(generator, d.l.theme);
+    }
+};
+
 // 全選択のまま本文を描く 1 フレーム分のコマンド生成。step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
 // 比較のために選択なしも測る。
 void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, float step)
 {
-    if (md.empty()) {
-        md = RepeatTestMd(state, 4);
-        if (state.skipped()) {
-            return;
-        }
-    }
-    const auto opened = OpenDoc(state, std::move(md), 8);
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
     if (!opened) {
         return;
     }
-    auto& [doc, l] = *opened;
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
-    ViewportManager viewport;
-    LayoutService service(l.engine, viewport);
-    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    const auto& doc = opened->doc;
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
     const float start_y = cache.Bottom(cache.size() - 1) * 0.5f;
     viewport.SetScrollY(start_y);
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     const auto last = static_cast<int>(doc.GetNodes().size()) - 1;
     const TextSelection selection = select ? TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(doc.GetNodes().back().GetText().size())) : TextSelection{};
-    CommandGenerator generator;
-    InitWithoutText(generator, l.theme);
-    DrawCommandList cmds;
     float offset = 0.0f;
     for (auto _ : state) {
         offset = offset + step > kViewHeight ? 0.0f : offset + step;
         cmds.clear();
-        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = selection, .md_pane_rect = pane, .scroll_y = start_y + offset }, 1.0f);
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = selection, .md_pane_rect = MdPaneFrame::kPane, .scroll_y = start_y + offset }, 1.0f);
         benchmark::DoNotOptimize(cmds.data());
     }
     state.counters["cmds"] = static_cast<double>(cmds.size());
@@ -934,12 +948,12 @@ void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, flo
     }
     state.counters["text_layouts"] = text_layouts;
 }
-// 1 段落が 15KB の和文。区切りの上限に近い、選択の位置変換がいちばん重い本文。
-std::string LongJapaneseParagraphs()
+// 1 段落が 15KB の unit の繰り返し。
+std::string RepeatedParagraphs(std::string_view unit)
 {
     std::string paragraph;
     while (paragraph.size() < 15'000) {
-        paragraph += "吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。";
+        paragraph += unit;
     }
     std::string md;
     for (int i = 0; i < 40; ++i) {
@@ -947,6 +961,11 @@ std::string LongJapaneseParagraphs()
         md += "\n\n";
     }
     return md;
+}
+// 1 段落が 15KB の和文。区切りの上限に近い、選択の位置変換がいちばん重い本文。
+std::string LongJapaneseParagraphs()
+{
+    return RepeatedParagraphs("吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。");
 }
 BENCHMARK_CAPTURE(BM_SelectionFrame, testmd_none_static, std::string{}, false, 0.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SelectionFrame, testmd_all_static, std::string{}, true, 0.0f)->Unit(benchmark::kMicrosecond);
@@ -986,63 +1005,36 @@ BENCHMARK(BM_TocFrame)->Unit(benchmark::kMicrosecond);
 // step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
 void BM_SearchFrame(benchmark::State& state, std::string md, std::string_view query, float step)
 {
-    if (md.empty()) {
-        md = RepeatTestMd(state, 4);
-        if (state.skipped()) {
-            return;
-        }
-    }
-    const auto opened = OpenDoc(state, std::move(md), 8);
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
     if (!opened) {
         return;
     }
-    auto& [doc, l] = *opened;
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
-    ViewportManager viewport;
-    LayoutService service(l.engine, viewport);
-    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    const auto& doc = opened->doc;
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     viewport.SetScrollY(kViewHeight);
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     SearchState search;
     RunSearchToEnd(search, doc.GetNodes(), query);
-    CommandGenerator generator;
-    InitWithoutText(generator, l.theme);
-    DrawCommandList cmds;
-    const auto generate = [&](float y) {
-        cmds.clear();
-        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = y, .search_matches = search.GetMatches(), .current_match_index = 0 }, 1.0f);
-    };
     float offset = 0.0f;
     for (auto _ : state) {
         offset = offset + step > kViewHeight ? 0.0f : offset + step;
-        generate(offset);
+        cmds.clear();
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane, .scroll_y = offset, .search_matches = search.GetMatches(), .current_match_index = 0 }, 1.0f);
         benchmark::DoNotOptimize(cmds.data());
     }
     state.counters["matches"] = search.GetMatchCount();
     state.counters["rects"] = static_cast<double>(CountCmd<FillRectCmd>(cmds, [](const FillRectCmd& c) static { return c.brush_id == BrushId::SearchHighlight || c.brush_id == BrushId::SearchHighlightCurrent; }));
-}
-// 1 段落が 15KB の unit の繰り返し。
-std::string RepeatedParagraphs(std::string_view unit)
-{
-    std::string paragraph;
-    while (paragraph.size() < 15'000) {
-        paragraph += unit;
-    }
-    std::string md;
-    for (int i = 0; i < 40; ++i) {
-        md += paragraph;
-        md += "\n\n";
-    }
-    return md;
 }
 BENCHMARK_CAPTURE(BM_SearchFrame, testmd_e_static, std::string{}, "e", 0.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SearchFrame, testmd_e_scroll, std::string{}, "e", 3.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SearchFrame, ja15kb_static, LongJapaneseParagraphs(), "い", 0.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SearchFrame, ja15kb_scroll, LongJapaneseParagraphs(), "い", 3.0f)->Unit(benchmark::kMicrosecond);
 // 英文の e は 1 画面に数百個ある。
-BENCHMARK_CAPTURE(BM_SearchFrame, english_e_static, RepeatedParagraphs("The quick brown fox jumps over the lazy dog while the green eagle sees every tree. "), "e", 0.0f)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_SearchFrame, english_e_scroll, RepeatedParagraphs("The quick brown fox jumps over the lazy dog while the green eagle sees every tree. "), "e", 3.0f)->Unit(benchmark::kMicrosecond);
+constexpr std::string_view kEnglishUnit = "The quick brown fox jumps over the lazy dog while the green eagle sees every tree. ";
+BENCHMARK_CAPTURE(BM_SearchFrame, english_e_static, RepeatedParagraphs(kEnglishUnit), "e", 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SearchFrame, english_e_scroll, RepeatedParagraphs(kEnglishUnit), "e", 3.0f)->Unit(benchmark::kMicrosecond);
 // 2 文字に 1 回現れる、1 文字検索でも実際の文書には無い密度の上限。
 BENCHMARK_CAPTURE(BM_SearchFrame, dense_static, RepeatedParagraphs("a "), "a", 0.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SearchFrame, dense_scroll, RepeatedParagraphs("a "), "a", 3.0f)->Unit(benchmark::kMicrosecond);
@@ -1090,15 +1082,10 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
         state.SkipWithError("D3D device init failed");
         return;
     }
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
-    ViewportManager viewport;
-    LayoutService service(l.engine, viewport);
-    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
-    CommandGenerator generator;
-    InitWithoutText(generator, l.theme);
-    DrawCommandList cmds;
-    generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane }, 1.0f);
     InlineMathMasks math;
     for (auto _ : state) {
         target.context->BeginDraw();
@@ -1108,10 +1095,10 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
     }
     state.counters["cmds"] = static_cast<double>(cmds.size());
 }
-// lines 行、1 行が line_bytes の JSON。
-std::string JsonCodeBlock(int lines, size_t line_bytes)
+// lines 行、1 行が line_bytes の JSON。lang が空ならトークンが無いコードブロックになる。
+std::string JsonCodeBlock(int lines, size_t line_bytes, std::string_view lang = "json")
 {
-    std::string md = "```json\n";
+    std::string md = std::format("```{}\n", lang);
     for (int i = 0; i < lines; ++i) {
         for (size_t start = md.size(); md.size() - start < line_bytes;) {
             md += "\"k\":\"v\",1,";
@@ -1124,6 +1111,7 @@ std::string JsonCodeBlock(int lines, size_t line_bytes)
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_80, JsonCodeBlock(60, 80))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_2kb, JsonCodeBlock(60, 2 * 1024))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_12kb, JsonCodeBlock(60, 12 * 1024))->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_CodeBlockDraw, plain_12kb, JsonCodeBlock(60, 12 * 1024, ""))->Unit(benchmark::kMicrosecond);
 
 // 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
 Document MakeBenchTableDoc()
@@ -1167,7 +1155,7 @@ protected:
     void RestoreScreen(NodeLayoutEntry& entry, int k)
     {
         const float top = entry.height * static_cast<float>(k) / static_cast<float>(kRestores);
-        RestoreEntryTableRows(layout_->measurer, *table_, entry, 1200.0f, { top, top + 1000.0f });
+        RestoreEntryTableRows(layout_->measurer, *table_, entry, { top, top + 1000.0f });
     }
 
     std::optional<Document> doc_;
@@ -1541,7 +1529,7 @@ void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind)
             std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
             const auto list = h.Dispatch(e, &arena);
             effects += list.size();
-            const auto invalidates = std::ranges::count_if(list, [](const SideEffect& se) static noexcept { return std::holds_alternative<effect::InvalidateWindow>(se); });
+            const auto invalidates = CountEffect<effect::InvalidateWindow>(list);
             duplicate_invalidates += invalidates > 1 ? static_cast<size_t>(invalidates - 1) : 0;
             benchmark::DoNotOptimize(list.data());
         }

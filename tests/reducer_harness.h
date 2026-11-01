@@ -4,8 +4,10 @@
 #include "reducer.h"
 #include "side_effect.h"
 #include "theme.h"
+#include <algorithm>
 #include <string>
 #include <string_view>
+#include <variant>
 
 // SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。
 template <typename T>
@@ -23,6 +25,12 @@ template <typename T>
 bool HasEffect(const SideEffectList& effects) noexcept
 {
     return FindEffect<T>(effects) != nullptr;
+}
+
+template <typename T>
+auto CountEffect(const SideEffectList& effects)
+{
+    return std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<T>(e); });
 }
 
 // effects 内で A が存在し、かつ B が存在し、A が B より先に現れる場合のみ true。

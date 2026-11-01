@@ -132,7 +132,7 @@ struct PopupWindow {
     // Dispatch は副作用の一覧を呼び出しごとに持つので、ポップアップを開いた Dispatch の途中で割り込まれても壊れない。
     void RunModal(HWND owner_hwnd, std::wstring_view title, POINT pos)
     {
-        static const bool registered = RegisterWindowClass();
+        static const bool registered = RegisterWindowClass(Derived::kClassName, WndProc, nullptr, LoadCursorW(nullptr, IDC_ARROW));
         if (!registered) {
             return;
         }
@@ -305,17 +305,6 @@ private:
     Derived& derived() noexcept
     {
         return static_cast<Derived&>(*this);
-    }
-
-    static bool RegisterWindowClass() noexcept
-    {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = WndProc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = Derived::kClassName;
-        return RegisterClassExW(&wc) != 0;
     }
 
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

@@ -262,18 +262,6 @@ void CreateController(ICoreWebView2Environment* env, HWND hwnd, Fn on_done)
     }
 }
 
-bool RegisterWindowClass(std::wstring_view name, WNDPROC proc, HICON icon = nullptr, HCURSOR cursor = nullptr)
-{
-    WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = proc;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.hIcon = icon;
-    wc.hCursor = cursor;
-    wc.lpszClassName = name.data();
-    return RegisterClassExW(&wc) != 0;
-}
-
 void BringToFront(HWND hwnd) noexcept
 {
     if (IsIconic(hwnd)) {
@@ -473,7 +461,7 @@ void MermaidRenderer::EnsureInitialized()
 
 bool MermaidRenderer::CreateWorkerWindow(int index)
 {
-    static const bool registered = RegisterWindowClass(MERMAID_HOST_CLASS, HostWndProc);
+    static const bool registered = RegisterWindowClass(MERMAID_HOST_CLASS.data(), HostWndProc);
     if (!registered) {
         return false;
     }
@@ -698,7 +686,15 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
 {
     ICoreWebView2* webview = workers_[index].webview.Get();
 
-    AddWebMessageHandler(webview, [this, index](const wchar_t* msg) { DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg)); });
+    // 閉じた webview の通知は作り直しの後にも届くので、登録した webview が今のものであるときだけ受ける。
+    // ハンドラは登録先の webview が持つので、そのアドレスが別の webview に再利用されることはない。
+    const auto current = [this, index, webview] { return workers_[index].webview.Get() == webview; };
+
+    AddWebMessageHandler(webview, [this, index, current](const wchar_t* msg) {
+        if (current()) {
+            DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg));
+        }
+    });
 
     // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが描画中 (IsRendering) の
     // まま恒久的にビジー扱いになり、全ワーカー喪失で以後の図が Loading 固着する。
@@ -707,10 +703,10 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
         webview,
         "add_ProcessFailed",
         &ICoreWebView2::add_ProcessFailed,
-        [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+        [this, index, current](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
             COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
             // 無応答も作り直す。無限ループする図から戻る手段はこれだけ。
-            if (FAILED(args->get_ProcessFailedKind(&kind)) || IsPageLost(kind) || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE) {
+            if (current() && (FAILED(args->get_ProcessFailedKind(&kind)) || IsPageLost(kind) || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE)) {
                 RecoverWorker(index);
             }
             return S_OK;
@@ -1387,7 +1383,7 @@ LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wPar
 bool MermaidRenderer::CreateViewerWindow()
 {
     static const bool registered = RegisterWindowClass(
-        MERMAID_VIEWER_CLASS, ViewerWndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
+        MERMAID_VIEWER_CLASS.data(), ViewerWndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
     RECT owner{};
     if (!registered || !GetWindowRect(hwnd_, &owner)) {
         return false;
@@ -1448,7 +1444,14 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
     RestrictWebView(webview);
     RestrictViewerInput(webview);
 
-    AddWebMessageHandler(webview, [this](const wchar_t* msg) { OnViewerMessage(msg); });
+    // ワーカーと同じく、閉じた webview の通知を開き直した後のビューアへ通さない。
+    const auto current = [this, webview] { return viewer_.webview.Get() == webview; };
+
+    AddWebMessageHandler(webview, [this, current](const wchar_t* msg) {
+        if (current()) {
+            OnViewerMessage(msg);
+        }
+    });
     // 大きな図で無応答になっても回復を待てて、GPU やユーティリティのプロセスはページを巻き込まずに作り直される。
     // ページが失われたときだけ閉じる。
     // clang-format off
@@ -1456,9 +1459,9 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
         webview,
         "add_ProcessFailed",
         &ICoreWebView2::add_ProcessFailed,
-        [this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+        [this, current](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
             COREWEBVIEW2_PROCESS_FAILED_KIND kind{};
-            if (SUCCEEDED(args->get_ProcessFailedKind(&kind)) && IsPageLost(kind)) {
+            if (current() && SUCCEEDED(args->get_ProcessFailedKind(&kind)) && IsPageLost(kind)) {
                 PostViewerFailed();
             }
             return S_OK;
@@ -1469,9 +1472,9 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
         webview,
         "add_NavigationCompleted",
         &ICoreWebView2::add_NavigationCompleted,
-        [this](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+        [this, current](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
             BOOL succeeded = FALSE;
-            if (!viewer_.page_ready && SUCCEEDED(args->get_IsSuccess(&succeeded)) && !succeeded) {
+            if (current() && !viewer_.page_ready && SUCCEEDED(args->get_IsSuccess(&succeeded)) && !succeeded) {
                 PostViewerFailed();
             }
             return S_OK;
@@ -1717,10 +1720,6 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
 {
     using mermaid_util::WebMessageKind;
     auto& w = workers_[index];
-    // 作り直しの途中に閉じた webview の通知が届いても、Ready を立てて webview の無いワーカーへ配らない。
-    if (!w.webview) {
-        return;
-    }
     const auto& req = parsed.request;
     const bool req_id_match = req.valid && req.id == w.current_request.request_id;
     // payload は has_payload のときだけ設定され、それ以外は空 view。

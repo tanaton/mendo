@@ -82,12 +82,12 @@ inline void MeasureEntry(
 }
 
 // RestoreEvictedTableRows で可視の evict 行を戻し、行の実測で高さが変わったら確定する。viewport はローカル座標。
-inline TableRestoreResult RestoreEntryTableRows(
-    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, YRange viewport)
+// 組み直していないので、確定する幅は今の幅ではなく表の幾何を組んだ幅。
+inline TableRestoreResult RestoreEntryTableRows(const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, YRange viewport)
 {
     const TableRestoreResult result = measurer.RestoreEvictedTableRows(node, entry, viewport);
     if (result.height) {
-        entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), *result.height);
+        entry.CommitMeasured(entry.table_layout()->last_applied_max_width, *result.height);
     }
     return result;
 }
