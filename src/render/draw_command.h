@@ -1,13 +1,13 @@
 #pragma once
 #include "brush_id.h"
 #include "syntax.h"
+#include "utility.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <array>
 #include <limits>
 #include <memory>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 #include <span>
@@ -136,7 +136,7 @@ struct InlineMathMask {
 // 見えたときに組ごと読み直す (missing)。
 struct InlineMathMasks {
     std::vector<std::unique_ptr<InlineMathPage>> pages;
-    std::unordered_map<uint64_t, InlineMathMask> masks;
+    FlatHashMap<InlineMathMask> masks;
     size_t page_bytes = 0;
     // 描いたフレームの番号。Renderer が描くたびに進める。
     uint64_t frame = 0;
@@ -145,8 +145,7 @@ struct InlineMathMasks {
 
     const InlineMathMask* Find(uint64_t key) const noexcept
     {
-        const auto it = masks.find(key);
-        return it != masks.end() ? &it->second : nullptr;
+        return masks.Find(key);
     }
     InlineMathPage& AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
     // key の型を置き換える。前の型のページを指す型が無くなったら、そのページを捨てる。

@@ -1,12 +1,16 @@
 #pragma once
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <dwrite.h>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <wrl/client.h>
 
 // Document テキスト (UTF-8 string_view) を IDWriteTextLayout / IDWriteTextFormat に
 // 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で UTF-16 にし、
@@ -105,7 +109,38 @@ inline std::optional<DWRITE_HIT_TEST_METRICS> LineBoxAt(IDWriteTextLayout* layou
     return m;
 }
 
+// 書式のフォントに字形が無い文字体系の文字を、システムのフォールバックが選ぶフォント名に対応させる。
+// 計測の手間の大半はフォールバックの処理で、同じフォントを範囲に明示するとグリフは同じまま速くなる
+// (test.md の幅変更 192 → 56ms)。選ばれるフォントは言語設定と環境で変わる (同じ漢字が ko-kr では Malgun Gothic) ので、
+// 名前を持たずシステムに尋ねる。解決には 1 文字体系で数百 µs かかるので、文書に現れた文字体系だけを初めて現れたときに解決する。
+// kScripts に無い文字体系、尋ねても分からないもの、書式のフォントに字形がある文字はこれまでどおりに組むので、
+// どの言語の文字も表示は変わらない。
+class FallbackFontMap {
+public:
+    static constexpr size_t kScriptCount = 21;
+
+    // base_family を主フォントとする locale の書式の対応に切り替える。計測中に呼ばないこと。
+    void Reset(IDWriteFactory* factory, std::wstring_view base_family, std::wstring_view locale);
+    // c に明示するフォント名。無ければ nullptr。同じフォントなら同じポインタを返す。計測ワーカーから同時に呼べる。
+    const wchar_t* FamilyFor(wchar_t c) const;
+
+private:
+    const wchar_t* Resolve(size_t script) const;
+
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory_;
+    // 最初の Resolve が決める。resolved_ を acquire で読んだ後なら参照できる。
+    mutable Microsoft::WRL::ComPtr<IDWriteFont> base_font_;
+    std::wstring base_family_;
+    std::wstring locale_;
+    mutable std::array<std::atomic<const wchar_t*>, kScriptCount> resolved_{};
+    mutable std::mutex mutex_;
+    mutable std::array<std::wstring, kScriptCount> names_;
+};
+
+// text を組んだ layout の、フォントが分かる文字の区間に SetFontFamilyName を掛ける。
+void ApplyFallbackFonts(IDWriteTextLayout* layout, std::wstring_view text, const FallbackFontMap& fonts);
+
 HRESULT CreateDocTextLayout(
     IDWriteFactory* factory, std::string_view text,
     IDWriteTextFormat* fmt, float max_w, float max_h,
-    IDWriteTextLayout** out);
+    const FallbackFontMap& fonts, IDWriteTextLayout** out);

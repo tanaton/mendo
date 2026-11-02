@@ -1,4 +1,5 @@
 #pragma once
+#include "doc_dwrite_bridge.h"
 #include "layout.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -49,8 +50,13 @@ private:
     // 起動時に全ワーカーへ先に作らせない。最初の計測は D3D デバイスの作成の裏で終わるので速くならず、
     // 作成と競合して最初のフレームが 1〜5ms 遅れ、使わないワーカーの分だけ private も 1〜3MB 増える。
     const DWriteContext& Context() const;
-    static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
-    static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
+    // 書式と、その書式の主フォントに合う FallbackFontMap。合わない組み合わせは字形を黙って変える。
+    struct TextStyle {
+        IDWriteTextFormat* format;
+        const FallbackFontMap& fonts;
+    };
+    TextStyle NodeStyle(const DWriteContext& ctx, const Node& node) const noexcept;
+    TextStyle TableRowStyle(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) const noexcept;
     std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const;
     // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
     // fit_width > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
@@ -69,6 +75,9 @@ private:
     float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
 
     DWriteContext ctx_;
+    // 本文と見出し (theme.font_family)、コードブロック (theme.monospace_font) の書式の対応。フォールバック先は主フォントでも変わる。
+    FallbackFontMap body_fonts_;
+    FallbackFontMap code_fonts_;
     // RecreateFormats を呼んだスレッド。並列計測中には変わらない (RecreateFormats と同じ契約)。
     std::thread::id owner_thread_;
     InlineMathTable* inline_math_ = nullptr;

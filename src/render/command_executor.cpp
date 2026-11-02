@@ -251,12 +251,9 @@ InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bit
 void InlineMathMasks::Assign(uint64_t key, const InlineMathMask& mask)
 {
     ++mask.page->masks;
-    const auto [it, inserted] = masks.try_emplace(key, mask);
-    if (inserted) {
-        return;
-    }
-    InlineMathPage* const old = std::exchange(it->second, mask).page;
-    if (--old->masks == 0) {
+    const auto [slot, inserted] = masks.TryEmplace(key);
+    InlineMathPage* const old = std::exchange(*slot, mask).page;
+    if (!inserted && --old->masks == 0) {
         page_bytes -= BitmapBytes(old->bitmap.Get());
         std::erase_if(pages, [old](const auto& p) { return p.get() == old; });
     }
@@ -285,7 +282,7 @@ void InlineMathMasks::EvictPages(size_t budget)
         // ビットマップを手放したページを捨てる印にする。
         p->bitmap.Reset();
     }
-    std::erase_if(masks, [](const auto& m) static { return !m.second.page->bitmap; });
+    masks.EraseIf([](const InlineMathMask& m) static { return !m.page->bitmap; });
     std::erase_if(pages, [](const auto& p) static { return !p->bitmap; });
 }
 

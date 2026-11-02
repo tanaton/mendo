@@ -10,14 +10,13 @@
 #include "syntax.h"
 #include "ui_constants.h"
 #include "utf8_codec.h"
+#include "utility.h"
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cmath>
-#include <memory_resource>
 #include <ranges>
 #include <string_view>
-#include <unordered_map>
 
 using Microsoft::WRL::ComPtr;
 
@@ -115,10 +114,8 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
     std::vector<uint32_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
-            std::pmr::monotonic_buffer_resource arena;
-            std::pmr::unordered_map<std::string_view, size_t> first_rows(&arena);
-            // arena は伸長で手放したバケットを返さないので、先に広げておく。
-            first_rows.reserve(tbl.row_count);
+            // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (20 万行 20 列で 47 → 39ms)。
+            FlatHashMap<uint32_t> first_rows;
             for (size_t r = 0; r < tbl.row_count; ++r) {
                 const size_t ci = tbl.CellIndex(r, c);
                 reps[ci] = static_cast<uint32_t>(ci);
@@ -126,10 +123,14 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
                 if (text.empty() || tbl.IsHeaderRow(r)) {
                     continue;
                 }
-                // 同じテキストで装飾が違うセルは、最初のものだけを代表にして自分で測る。
-                const auto [it, inserted] = first_rows.try_emplace(text, r);
-                if (!inserted && std::ranges::equal(tbl.GetCellRuns(r, c), tbl.GetCellRuns(it->second, c))) {
-                    reps[ci] = static_cast<uint32_t>(tbl.CellIndex(it->second, c));
+                const auto [first_row, added] = first_rows.TryEmplace(Fnv1a64(text));
+                if (added) {
+                    *first_row = static_cast<uint32_t>(r);
+                    continue;
+                }
+                // ハッシュが衝突したセルと、同じテキストで装飾が違うセルは、最初のものを代表にせず自分で測る。
+                if (tbl.GetCellText(*first_row, c) == text && std::ranges::equal(tbl.GetCellRuns(r, c), tbl.GetCellRuns(*first_row, c))) {
+                    reps[ci] = static_cast<uint32_t>(tbl.CellIndex(*first_row, c));
                 }
             }
         }
@@ -287,6 +288,8 @@ bool DWriteTextMeasurer::RecreateFormats()
     static std::atomic<uint64_t> s_generation{ 0 };
     ctx_.generation = ++s_generation;
     owner_thread_ = std::this_thread::get_id();
+    body_fonts_.Reset(ctx_.factory.Get(), theme_->font_family, theme_->text_locale);
+    code_fonts_.Reset(ctx_.factory.Get(), theme_->monospace_font, theme_->text_locale);
     return CreateFormats(*theme_, ctx_);
 }
 
@@ -309,23 +312,23 @@ const DWriteTextMeasurer::DWriteContext& DWriteTextMeasurer::Context() const
     return t_ctx;
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept
+DWriteTextMeasurer::TextStyle DWriteTextMeasurer::NodeStyle(const DWriteContext& ctx, const Node& node) const noexcept
 {
     if (node.type == NodeType::CodeBlock) {
-        return ctx.code.Get();
+        return { ctx.code.Get(), code_fonts_ };
     }
     if (node.type == NodeType::Heading) {
         const int8_t lv = node.heading_level;
         if (lv >= 1 && lv <= 6) {
-            return ctx.h[lv - 1].Get();
+            return { ctx.h[lv - 1].Get(), body_fonts_ };
         }
     }
-    return ctx.body.Get();
+    return { ctx.body.Get(), body_fonts_ };
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept
+DWriteTextMeasurer::TextStyle DWriteTextMeasurer::TableRowStyle(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) const noexcept
 {
-    return tbl.IsHeaderRow(r) ? ctx.h[Theme::kTableHeaderLevel - 1].Get() : ctx.body.Get();
+    return { tbl.IsHeaderRow(r) ? ctx.h[Theme::kTableHeaderLevel - 1].Get() : ctx.body.Get(), body_fonts_ };
 }
 
 bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float math_font_size, float fit_width) const
@@ -460,7 +463,8 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
     const auto& text = node.GetText();
     const auto& ctx = Context();
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(CreateDocTextLayout(ctx.factory.Get(), text, GetTextFormat(ctx, node), layout_width, layout::kNoWrapLayoutWidth, &layout))) {
+    const TextStyle style = NodeStyle(ctx, node);
+    if (FAILED(CreateDocTextLayout(ctx.factory.Get(), text, style.format, layout_width, layout::kNoWrapLayoutWidth, style.fonts, &layout))) {
         return std::nullopt;
     }
 
@@ -491,7 +495,8 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
-    if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
+    const TextStyle style = TableRowStyle(ctx, tbl, r);
+    if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, style.format, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, style.fonts, &cell_layout))) {
         if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true, MathFontSize(*theme_, tbl, r), /*fit_width=*/0.0f)) {
             std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
         }

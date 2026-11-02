@@ -42,7 +42,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
     constexpr uint64_t kChunkKeySalt = 0xA54FF53A5F1D36F1ULL;
 
     chunks_.clear();
-    chunk_of_.clear();
+    chunk_of_.Clear();
     InlineMathChunk current;
     const auto close = [&] {
         if (current.items.empty()) {
@@ -66,9 +66,11 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
                 continue;
             }
             const uint64_t key = InlineMathKey(*tex, font_size);
-            if (!chunk_of_.try_emplace(key, static_cast<uint32_t>(chunks_.size())).second) {
+            const auto [chunk, added] = chunk_of_.TryEmplace(key);
+            if (!added) {
                 continue;
             }
+            *chunk = static_cast<uint32_t>(chunks_.size());
             current.items.push_back({ key, std::string{ *tex }, font_size });
             // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
             // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
@@ -128,8 +130,8 @@ void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key, bool failed) noexce
 
 std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
 {
-    const auto it = chunk_of_.find(key);
-    return it != chunk_of_.end() ? std::optional<size_t>{ it->second } : std::nullopt;
+    const uint32_t* const chunk = chunk_of_.Find(key);
+    return chunk ? std::optional<size_t>{ *chunk } : std::nullopt;
 }
 
 void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
