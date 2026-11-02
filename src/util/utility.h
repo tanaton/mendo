@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -92,6 +93,97 @@ struct StringTransparentHash {
     {
         return std::hash<std::string_view>{}(sv);
     }
+};
+
+// ハッシュ値をキーにする開番地法の表。要素を 1 本の配列に並べ、unordered_map のように要素ごとに確保しない。
+// 挿入で要素が動くので、ポインタは次の挿入まで有効。
+template <class V>
+class FlatHashMap {
+public:
+    size_t size() const noexcept
+    {
+        return size_;
+    }
+
+    const V* Find(uint64_t key) const noexcept
+    {
+        if (size_ == 0) {
+            return nullptr;
+        }
+        const Slot& slot = slots_[Probe(key)];
+        return slot.used ? &slot.value : nullptr;
+    }
+
+    // key が無ければ既定値で足す。second は足したとき true。
+    std::pair<V*, bool> TryEmplace(uint64_t key)
+    {
+        // 負荷率は 1/2 まで。
+        if ((size_ + 1) * 2 > slots_.size()) {
+            Rebuild(std::max<size_t>(slots_.size() * 2, kMinSlots));
+        }
+        Slot& slot = slots_[Probe(key)];
+        const bool added = !slot.used;
+        if (added) {
+            slot.key = key;
+            slot.used = true;
+            ++size_;
+        }
+        return { &slot.value, added };
+    }
+
+    template <class Pred>
+    void EraseIf(Pred&& pred)
+    {
+        for (Slot& slot : slots_) {
+            slot.used = slot.used && !pred(slot.value);
+        }
+        Rebuild(slots_.size());
+    }
+
+    // 配列は残す。
+    void Clear() noexcept
+    {
+        std::ranges::fill(slots_, Slot{});
+        size_ = 0;
+    }
+
+private:
+    struct Slot {
+        uint64_t key = 0;
+        V value{};
+        bool used = false;
+    };
+    static constexpr size_t kMinSlots = 16;
+
+    // 連番に近いキーでも散らばるよう、掛けた結果の上位のビットを使う。
+    size_t Home(uint64_t key) const noexcept
+    {
+        return static_cast<size_t>((key * kGoldenRatio64) >> std::countl_zero(slots_.size() - 1));
+    }
+    // key の要素か、key を置く空きの位置。
+    size_t Probe(uint64_t key) const noexcept
+    {
+        const size_t mask = slots_.size() - 1;
+        size_t i = Home(key);
+        while (slots_[i].used && slots_[i].key != key) {
+            i = (i + 1) & mask;
+        }
+        return i;
+    }
+    // slot_count は 2 のべき乗か 0。
+    void Rebuild(size_t slot_count)
+    {
+        auto old = std::exchange(slots_, std::vector<Slot>(slot_count));
+        size_ = 0;
+        for (Slot& slot : old) {
+            if (slot.used) {
+                *TryEmplace(slot.key).first = std::move(slot.value);
+            }
+        }
+    }
+
+    std::vector<Slot> slots_;
+    size_t size_ = 0;
 };
 
 // inner が outer の範囲に収まるか。md4c が渡す静的リテラルのように別の配列を指しうるポインタ同士は、

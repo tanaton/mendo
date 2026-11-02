@@ -1001,6 +1001,26 @@ void BM_TocFrame(benchmark::State& state)
 }
 BENCHMARK(BM_TocFrame)->Unit(benchmark::kMicrosecond);
 
+// 数式 10000 個の型から、画面の 200 個を引く。描画はグリフランごとに 1 回引く。
+void BM_InlineMathMaskFind(benchmark::State& state)
+{
+    InlineMathMasks math;
+    InlineMathPage page;
+    std::vector<uint64_t> keys;
+    for (int i = 0; i < 10000; ++i) {
+        keys.push_back(InlineMathKey(std::to_string(i), 16.0f));
+        math.Assign(keys.back(), { .page = &page, .src = {}, .dest = {} });
+    }
+    size_t at = 0;
+    for (auto _ : state) {
+        for (int k = 0; k < 200; ++k) {
+            benchmark::DoNotOptimize(math.Find(keys[at]));
+            at = (at + 3779) % keys.size();
+        }
+    }
+}
+BENCHMARK(BM_InlineMathMaskFind)->Unit(benchmark::kMicrosecond);
+
 // 全マッチのハイライトを描く 1 フレーム分のコマンド生成。上限 (10000 件) までのマッチが見えるよう文書の先頭で測る。
 // step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
 void BM_SearchFrame(benchmark::State& state, std::string md, std::string_view query, float step)
@@ -1253,6 +1273,40 @@ void BM_TableResizeFastPath(benchmark::State& state)
     }
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+
+// 列に同じ値が並ぶ大きな表の計測 (20 列)。測るセルが代表だけになるので、代表のセルの探索が時間の大半を占める。ワーカー 8 本。
+void BM_TableFewValues(benchmark::State& state)
+{
+    constexpr int kCols = 20;
+    const auto rows = static_cast<size_t>(state.range(0));
+    std::string md;
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int c = 0; c < kCols; ++c) {
+            md += pass == 0 ? "| h " : "|---";
+        }
+        md += "|\n";
+    }
+    for (size_t r = 0; r < rows; ++r) {
+        for (size_t c = 0; c < kCols; ++c) {
+            std::format_to(std::back_inserter(md), "| 状態{} ", (r * (c + 1)) % 7);
+        }
+        md += "|\n";
+    }
+    const auto opened = OpenDoc(state, std::move(md), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    const Node* table = FirstTableOrSkip(state, doc);
+    if (!table) {
+        return;
+    }
+    for (auto _ : state) {
+        NodeLayoutEntry entry;
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(l.measurer, *table, entry, 1200.0f, nullptr); }));
+    }
+}
+BENCHMARK(BM_TableFewValues)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
 // インラインコードを含む 5000 行の表。行ごとにインラインコードの背景も作られる。
 Document MakeInlineCodeTableDoc()
