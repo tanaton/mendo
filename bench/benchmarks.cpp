@@ -1279,13 +1279,13 @@ void BM_TableFewValues(benchmark::State& state)
 {
     constexpr int kCols = 20;
     const auto rows = static_cast<size_t>(state.range(0));
-    std::string md;
-    for (int pass = 0; pass < 2; ++pass) {
-        for (int c = 0; c < kCols; ++c) {
-            md += pass == 0 ? "| h " : "|---";
-        }
-        md += "|\n";
+    std::string head;
+    std::string rule;
+    for (int c = 0; c < kCols; ++c) {
+        head += "| h ";
+        rule += "|---";
     }
+    std::string md = head + "|\n" + rule + "|\n";
     for (size_t r = 0; r < rows; ++r) {
         for (size_t c = 0; c < kCols; ++c) {
             std::format_to(std::back_inserter(md), "| 状態{} ", (r * (c + 1)) % 7);

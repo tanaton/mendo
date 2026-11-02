@@ -171,6 +171,53 @@ TEST(FlatHashMap, EraseIfKeepsTheRest)
     }
 }
 
+// 消した要素の後ろに詰まっていた要素も、配列の端をまたぐものも引ける。
+TEST(FlatHashMap, EraseIfKeepsProbeChains)
+{
+    FlatHashMap<uint64_t> map;
+    constexpr uint64_t kCount = 5000;
+    for (uint64_t i = 0; i < kCount; ++i) {
+        *map.TryEmplace(i * 0x9E3779B1ULL).first = i;
+    }
+    for (const uint64_t divisor : { 2u, 3u, 5u }) {
+        map.EraseIf([divisor](uint64_t value) { return value % divisor == 0; });
+    }
+    for (uint64_t i = 0; i < kCount; ++i) {
+        const bool kept = i % 2 != 0 && i % 3 != 0 && i % 5 != 0;
+        const auto* const value = map.Find(i * 0x9E3779B1ULL);
+        ASSERT_EQ(value != nullptr, kept) << i;
+        if (kept) {
+            EXPECT_EQ(*value, i);
+        }
+    }
+}
+
+// 既存のキーを引くだけでは配列が伸びず、ポインタも動かない。
+TEST(FlatHashMap, TryEmplaceOnExistingKeyDoesNotGrow)
+{
+    FlatHashMap<int> map;
+    for (uint64_t key = 0; key < 8; ++key) {
+        map.TryEmplace(key);
+    }
+    const int* const before = map.Find(0);
+    for (uint64_t key = 0; key < 8; ++key) {
+        EXPECT_FALSE(map.TryEmplace(key).second);
+    }
+    EXPECT_EQ(map.Find(0), before);
+}
+
+// ムーブ元は配列が空なので、引いても範囲外を読まず、使い直せる。
+TEST(FlatHashMap, MovedFromMapIsUsable)
+{
+    FlatHashMap<int> map;
+    *map.TryEmplace(1).first = 5;
+    FlatHashMap<int> moved = std::move(map);
+    EXPECT_EQ(*moved.Find(1), 5);
+    EXPECT_EQ(map.Find(1), nullptr);
+    *map.TryEmplace(2).first = 7;
+    EXPECT_EQ(*map.Find(2), 7);
+}
+
 TEST(FlatHashMap, ClearAllowsReuse)
 {
     FlatHashMap<int> map;

@@ -46,10 +46,16 @@ constexpr ScriptRange kScripts[]{
 };
 static_assert(std::ranges::is_sorted(kScripts, {}, &ScriptRange::first));
 
-// 区間の隣にあると、隣り合う区間の端の文字をフォールバックに残す文字の下限。これより小さい文字は結合しない。
 // 異体字セレクタ・結合文字・絵文字の VS16 は前の文字と、ゼロ幅接合子は前後の文字と同じフォントで組まれるので、
-// 端の文字だけを明示すると字形が変わる。種類を見分けず、対応の無い文字の両隣は一律に残す (その 1 文字が速くならないだけ)。
+// 端の文字だけを明示すると字形が変わる。種類を見分けず、これ以上の対応の無い文字の両隣はフォールバックに残す
+// (その 1 文字が速くならないだけ)。下限は結合文字のブロックの先頭。
 constexpr wchar_t kFirstCombiningChar = 0x0300;
+
+// 1 つのレイアウトに明示する区間の数の上限。SetFontFamilyName は区間の数の二乗で遅くなり、和文と英字が 1 字ずつ交互に並ぶ
+// 18KB のノード (4500 区間) では明示しないときの 60ms が全部明示すると 101ms になる。上限までなら 55ms で、
+// どの区間数でも明示しないより遅くならない。普通の和文は 16KB のノードでも数百区間なので届かない。
+// 掛ける順序は前からのままにする。後ろからだと同じ 4500 区間が 311ms になる。
+constexpr size_t kMaxFallbackRanges = 1024;
 
 // 1 文字をシステムのフォールバックに尋ねるための入力。
 class SingleCharSource final : public UncountedCom<IDWriteTextAnalysisSource> {
@@ -223,7 +229,8 @@ const wchar_t* FallbackFontMap::Resolve(size_t script) const
 
 void ApplyFallbackFonts(IDWriteTextLayout* layout, std::wstring_view text, const FallbackFontMap& fonts)
 {
-    for (size_t i = 0; i < text.size();) {
+    size_t ranges = 0;
+    for (size_t i = 0; i < text.size() && ranges < kMaxFallbackRanges;) {
         const wchar_t* const family = fonts.FamilyFor(text[i]);
         if (!family) {
             ++i;
@@ -237,6 +244,7 @@ void ApplyFallbackFonts(IDWriteTextLayout* layout, std::wstring_view text, const
         const size_t end = next < text.size() && text[next] >= kFirstCombiningChar ? next - 1 : next;
         if (begin < end) {
             layout->SetFontFamilyName(family, { static_cast<UINT32>(begin), static_cast<UINT32>(end - begin) });
+            ++ranges;
         }
         i = next;
     }

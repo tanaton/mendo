@@ -3,14 +3,17 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "example_files.h"
+#include "theme_palette.h"
 #include "ui_constants.h"
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
 #include <ranges>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -295,13 +298,13 @@ public:
     }
 };
 
+struct Style {
+    DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;
+    bool italic = false;
+};
+
 class FallbackFontMapTest : public ::testing::Test {
 protected:
-    struct Style {
-        DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;
-        bool italic = false;
-    };
-
     void SetUp() override
     {
         ASSERT_TRUE(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory_.GetAddressOf()))));
@@ -320,6 +323,14 @@ protected:
             layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, all);
         }
         return layout;
+    }
+
+    // どのフォントにも字形が無い文字 (未割り当てなど) を含む。
+    bool HasMissingGlyph(std::wstring_view text, IDWriteTextFormat* format) const
+    {
+        GlyphCollector plain;
+        Build(text, format, {}, nullptr)->Draw(nullptr, &plain, 0.0f, 0.0f);
+        return std::ranges::any_of(plain.glyphs, [](const DrawnGlyph& g) static { return g.index == 0; });
     }
 
     // 明示の有無でグリフ・位置・行の高さが同じか。
@@ -366,7 +377,14 @@ protected:
     ComPtr<IDWriteFactory> factory_;
 };
 
-constexpr const wchar_t* kBases[]{ L"Segoe UI", L"Cascadia Mono" };
+// 本文の主フォントと、コードの主フォントになりうる候補。
+constexpr auto kBases = [] {
+    std::array<const wchar_t*, 1 + std::size(theme_palette::kMonospaceFontCandidates)> bases{ L"Segoe UI" };
+    std::ranges::copy(theme_palette::kMonospaceFontCandidates, bases.begin() + 1);
+    return bases;
+}();
+// 太字の run は EXTRA_BOLD で組む。見出しの書式は BOLD。
+constexpr Style kStyles[]{ {}, { DWRITE_FONT_WEIGHT_BOLD }, { DWRITE_FONT_WEIGHT_EXTRA_BOLD }, { DWRITE_FONT_WEIGHT_NORMAL, true } };
 constexpr const wchar_t* kLocales[]{ L"ja-jp", L"zh-cn", L"zh-tw", L"ko-kr", L"en-us", L"th-th", L"hi-in", L"ar-sa", L"ru-ru" };
 
 // 文字体系ごとの文章と、区間の境目で字形が変わりやすい並び。
@@ -398,6 +416,19 @@ constexpr const wchar_t* kCorpus[]{
 };
 
 } // namespace
+
+// 区間の数には上限があり、上限を超えた分はフォールバックに任せる。字形はどちらでも同じ。
+TEST_F(FallbackFontMapTest, GlyphsMatchFallbackBeyondRangeLimit)
+{
+    std::wstring text;
+    for (int i = 0; i < 2000; ++i) {
+        text += static_cast<wchar_t>(0x4E00 + i);
+        text += L'a';
+    }
+    const auto format = Format(L"Segoe UI", L"ja-jp");
+    const auto map = Map(L"Segoe UI", L"ja-jp");
+    EXPECT_TRUE(SameAsFallback(text, format.Get(), *map));
+}
 
 TEST_F(FallbackFontMapTest, UnknownScriptsAreLeftToTheSystem)
 {
@@ -454,15 +485,11 @@ TEST_F(FallbackFontMapTest, BaseFontIsNotNamed)
 
 TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForEveryLanguage)
 {
-    for (const auto* base : kBases) {
-        for (const auto* locale : kLocales) {
-            const auto format = Format(base, locale);
-            const auto map = Map(base, locale);
-            for (const auto* text : kCorpus) {
-                for (const Style style : { Style{}, Style{ DWRITE_FONT_WEIGHT_BOLD }, Style{ DWRITE_FONT_WEIGHT_EXTRA_BOLD }, Style{ DWRITE_FONT_WEIGHT_NORMAL, true } }) {
-                    EXPECT_TRUE(SameAsFallback(text, format.Get(), *map, style)) << "base=" << testing::PrintToString(std::wstring(base)) << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text)) << " weight=" << style.weight << " italic=" << style.italic;
-                }
-            }
+    for (const auto [base, locale] : std::views::cartesian_product(kBases, kLocales)) {
+        const auto format = Format(base, locale);
+        const auto map = Map(base, locale);
+        for (const auto [text, style] : std::views::cartesian_product(kCorpus, kStyles)) {
+            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map, style)) << "base=" << testing::PrintToString(std::wstring(base)) << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text)) << " weight=" << style.weight << " italic=" << style.italic;
         }
     }
 }
@@ -487,31 +514,33 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
 
 // 対応表の全文字を 1 文字ずつ比べる。時間がかかるので、対応表を変えたときに --gtest_also_run_disabled_tests で回す。
 // どのフォントにも字形が無い文字 (未割り当てなど) は豆腐の形しか変わらないので比べない。
+// 英字に挟まれた文字と、和文に挟まれた文字の両方を見る。前後の文字でフォールバック先が変わることがある。
 TEST_F(FallbackFontMapTest, DISABLED_GlyphsMatchFallbackForEveryCharacter)
 {
-    for (const auto* base : kBases) {
-        for (const auto* locale : kLocales) {
-            const auto format = Format(base, locale, 0.0f);
-            const auto map = Map(base, locale);
-            size_t differ = 0;
-            for (UINT32 c = 0x0900; c <= 0xFFEF; ++c) {
-                if (!map->FamilyFor(static_cast<wchar_t>(c))) {
+    constexpr std::pair<wchar_t, wchar_t> kNeighbours[]{ { L'a', L'b' }, { L'漢', L'字' } };
+    for (const auto [base, locale] : std::views::cartesian_product(kBases, kLocales)) {
+        const auto format = Format(base, locale, 0.0f);
+        const auto map = Map(base, locale);
+        size_t mismatches = 0;
+        for (UINT32 c = 0x0900; c <= 0xFFEF; ++c) {
+            if (!map->FamilyFor(static_cast<wchar_t>(c))) {
+                continue;
+            }
+            for (const auto& [before, after] : kNeighbours) {
+                const wchar_t text[]{ before, static_cast<wchar_t>(c), after };
+                if (HasMissingGlyph({ text, 3 }, format.Get())) {
                     continue;
                 }
-                const wchar_t text[]{ L'a', static_cast<wchar_t>(c), L'b' };
-                GlyphCollector plain;
-                Build({ text, 3 }, format.Get(), {}, nullptr)->Draw(nullptr, &plain, 0.0f, 0.0f);
-                if (std::ranges::any_of(plain.glyphs, [](const DrawnGlyph& g) static { return g.index == 0; })) {
-                    continue;
-                }
-                if (!SameAsFallback({ text, 3 }, format.Get(), *map)) {
-                    ++differ;
-                    if (differ <= 40) {
-                        ADD_FAILURE() << std::hex << "U+" << c << " " << testing::PrintToString(std::wstring(base)) << " " << testing::PrintToString(std::wstring(locale));
+                for (const Style& style : kStyles) {
+                    if (SameAsFallback({ text, 3 }, format.Get(), *map, style)) {
+                        continue;
+                    }
+                    if (++mismatches <= 40) {
+                        ADD_FAILURE() << std::hex << "U+" << c << " " << testing::PrintToString(std::wstring(base)) << " " << testing::PrintToString(std::wstring(locale)) << " weight=" << std::dec << style.weight << " italic=" << style.italic;
                     }
                 }
             }
-            std::wcout << base << L" " << locale << L": " << differ << L" chars differ\n";
         }
+        std::wcout << base << L" " << locale << L": " << mismatches << L" mismatches\n";
     }
 }

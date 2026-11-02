@@ -96,7 +96,7 @@ struct StringTransparentHash {
 };
 
 // ハッシュ値をキーにする開番地法の表。要素を 1 本の配列に並べ、unordered_map のように要素ごとに確保しない。
-// 挿入で要素が動くので、ポインタは次の挿入まで有効。
+// 要素は配列の中で動くので、Find や TryEmplace のポインタは次に表を変えるまでしか使えない。
 template <class V>
 class FlatHashMap {
 public:
@@ -107,7 +107,8 @@ public:
 
     const V* Find(uint64_t key) const noexcept
     {
-        if (size_ == 0) {
+        // 配列は最初の追加まで無い。
+        if (slots_.empty()) {
             return nullptr;
         }
         const Slot& slot = slots_[Probe(key)];
@@ -117,30 +118,40 @@ public:
     // key が無ければ既定値で足す。second は足したとき true。
     std::pair<V*, bool> TryEmplace(uint64_t key)
     {
-        // 負荷率は 1/2 まで。
+        if (slots_.empty()) {
+            Rebuild(kMinSlots);
+        }
+        size_t i = Probe(key);
+        if (slots_[i].used) {
+            return { &slots_[i].value, false };
+        }
+        // 線形探索は負荷率が 1/2 を超えると急に遅くなる。
         if ((size_ + 1) * 2 > slots_.size()) {
-            Rebuild(std::max<size_t>(slots_.size() * 2, kMinSlots));
+            Rebuild(slots_.size() * 2);
+            i = Probe(key);
         }
-        Slot& slot = slots_[Probe(key)];
-        const bool added = !slot.used;
-        if (added) {
-            slot.key = key;
-            slot.used = true;
-            ++size_;
-        }
-        return { &slot.value, added };
+        Slot& slot = slots_[i];
+        slot.key = key;
+        slot.used = true;
+        ++size_;
+        return { &slot.value, true };
     }
 
     template <class Pred>
     void EraseIf(Pred&& pred)
     {
-        for (Slot& slot : slots_) {
-            slot.used = slot.used && !pred(slot.value);
+        // 追い出しのたびに通るので配列を確保し直さない。消した穴へ後ろの要素を詰めるので、同じ位置を調べ直す。
+        for (size_t i = 0; i < slots_.size();) {
+            if (slots_[i].used && pred(slots_[i].value)) {
+                EraseAt(i);
+            }
+            else {
+                ++i;
+            }
         }
-        Rebuild(slots_.size());
     }
 
-    // 配列は残す。
+    // 次に同じくらい足すときに確保し直さないよう、配列は残す。
     void Clear() noexcept
     {
         std::ranges::fill(slots_, Slot{});
@@ -170,7 +181,21 @@ private:
         }
         return i;
     }
-    // slot_count は 2 のべき乗か 0。
+    // 後ろの要素を詰めて、消した穴で探索が止まらないようにする。
+    void EraseAt(size_t hole) noexcept
+    {
+        const size_t mask = slots_.size() - 1;
+        for (size_t i = (hole + 1) & mask; slots_[i].used; i = (i + 1) & mask) {
+            // 本来の位置が (hole, i] の外にある要素なら、hole へ移しても探索が届く。
+            if (((i - Home(slots_[i].key)) & mask) >= ((i - hole) & mask)) {
+                slots_[hole] = std::move(slots_[i]);
+                hole = i;
+            }
+        }
+        slots_[hole] = {};
+        --size_;
+    }
+    // slot_count は 2 のべき乗。
     void Rebuild(size_t slot_count)
     {
         auto old = std::exchange(slots_, std::vector<Slot>(slot_count));
