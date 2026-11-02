@@ -34,6 +34,11 @@ public:
     {
         inline_math_ = table;
     }
+    // theme.font_family と theme.text_locale の書式の対応。
+    const FallbackFontMap& BodyFonts() const noexcept
+    {
+        return body_fonts_;
+    }
 
 private:
     struct DWriteContext {

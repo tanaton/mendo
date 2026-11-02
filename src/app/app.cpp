@@ -66,6 +66,7 @@ bool App::Init(HWND hwnd)
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
     }
+    renderer_.SetPaneItemFonts(&measurer_.BodyFonts());
 
     measurer_.SetScheduler(&layout_scheduler_);
 

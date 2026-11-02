@@ -80,6 +80,17 @@ TEST_F(TextLayoutCacheTest, KeepsEverythingBelowLimit)
     EXPECT_EQ(cache_.TextOf(first), Item(0));
 }
 
+// 同じ書式でも、フォントを明示したレイアウトとしていないレイアウトを取り違えない。
+TEST_F(TextLayoutCacheTest, KeepsLayoutsApartByFallbackFonts)
+{
+    const FallbackFontMap& fonts = measurer_.BodyFonts();
+    auto* const plain = cache_.Get(fmt_.Get(), L"漢字", kBox);
+    auto* const hinted = cache_.Get(fmt_.Get(), L"漢字", kBox, {}, &fonts);
+
+    EXPECT_NE(plain, hinted);
+    EXPECT_EQ(cache_.Get(fmt_.Get(), L"漢字", kBox, {}, &fonts), hinted);
+}
+
 // 長いファイル名でも、タイトルは左右のボタンの間に収める。
 TEST_F(TextLayoutCacheTest, LongTitleStaysBetweenTheButtons)
 {
