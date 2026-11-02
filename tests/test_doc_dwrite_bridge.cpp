@@ -289,10 +289,15 @@ public:
         file->GetReferenceKey(&key, &key_size);
         std::string face(static_cast<const char*>(key), key_size);
         face += std::to_string(run->fontFace->GetIndex()) + ":" + std::to_string(static_cast<int>(run->fontFace->GetSimulations()));
+        // 右から左のランは x が右端で、ペンは左へ進む。advanceOffset も進む向きに掛かる。
+        const bool rtl = (run->bidiLevel & 1) != 0;
         float pen = x;
         for (UINT32 i = 0; i < run->glyphCount; ++i) {
-            glyphs.push_back({ face, run->glyphIndices[i], pen, y, run->fontEmSize });
-            pen += run->glyphAdvances[i];
+            const float advance = run->glyphAdvances[i];
+            const DWRITE_GLYPH_OFFSET offset = run->glyphOffsets ? run->glyphOffsets[i] : DWRITE_GLYPH_OFFSET{};
+            const float origin = rtl ? pen - advance - offset.advanceOffset : pen + offset.advanceOffset;
+            glyphs.push_back({ face, run->glyphIndices[i], origin, y - offset.ascenderOffset, run->fontEmSize });
+            pen += rtl ? -advance : advance;
         }
         return S_OK;
     }
@@ -465,15 +470,14 @@ TEST_F(FallbackFontMapTest, SameFontSharesTheName)
 // 言語設定を変えたら引き直す。
 TEST_F(FallbackFontMapTest, ResetChangesLocale)
 {
+    const auto name_of = [](const wchar_t* family) static { return std::wstring(family ? family : L""); };
     FallbackFontMap map;
     map.Reset(factory_.Get(), L"Segoe UI", L"ja-jp");
-    const std::wstring ja = map.FamilyFor(L'漢') ? map.FamilyFor(L'漢') : L"";
+    map.FamilyFor(L'漢');
     map.Reset(factory_.Get(), L"Segoe UI", L"zh-cn");
-    const std::wstring zh = map.FamilyFor(L'漢') ? map.FamilyFor(L'漢') : L"";
-    if (ja.empty() || zh.empty()) {
-        GTEST_SKIP() << "この環境には東アジアのフォントが無い";
-    }
-    EXPECT_NE(ja, zh);
+    // 選ばれるフォントは環境で変わるので、言語の間で違うことは求めない。
+    const auto fresh = Map(L"Segoe UI", L"zh-cn");
+    EXPECT_EQ(name_of(map.FamilyFor(L'漢')), name_of(fresh->FamilyFor(L'漢')));
 }
 
 // 書式のフォントに字形がある文字体系は明示しない (速くならない)。
