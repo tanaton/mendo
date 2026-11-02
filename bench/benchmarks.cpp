@@ -1001,6 +1001,43 @@ void BM_TocFrame(benchmark::State& state)
 }
 BENCHMARK(BM_TocFrame)->Unit(benchmark::kMicrosecond);
 
+// 目次の全行が入れ替わるフレーム (文書の切り替えやつまみのドラッグ)。レイアウトの整形は描くときまで遅れるので GetMetrics で済ませる。
+void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
+{
+    const auto opened = OpenDoc(state, ReadOrSkip(state, "example/test.md"), 0);
+    if (!opened) {
+        return;
+    }
+    auto* const factory = opened->l.factory.Get();
+    const Theme& theme = opened->l.theme;
+    const auto item = CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const std::vector<FileEntry> files;
+    const SidePaneState sp{
+        .panes = { {}, SidePaneInstance{ .rect = { .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight }, .show = true, .zoom = 1.0f, .item_height = theme.pane_item_height } },
+        .file_entries = files,
+        .toc_entries = opened->doc.GetToc(),
+        .nodes = opened->doc.GetNodes(),
+        .active_toc_index = 3,
+    };
+    const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = explicit_fonts ? &opened->l.measurer.BodyFonts() : nullptr };
+    DrawCommandList cmds;
+    for (auto _ : state) {
+        TextLayoutCache text_layouts;
+        text_layouts.SetFactory(factory);
+        cmds.clear();
+        chrome::EmitSidePanes(cmds, text_layouts, fmts, theme, sp);
+        for (const auto& cmd : cmds) {
+            if (const auto* text = std::get_if<DrawTextLayoutCmd>(&cmd)) {
+                DWRITE_TEXT_METRICS metrics{};
+                text->layout->GetMetrics(&metrics);
+                benchmark::DoNotOptimize(metrics);
+            }
+        }
+    }
+}
+BENCHMARK_CAPTURE(BM_TocColdFrame, fallback, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TocColdFrame, explicit_fonts, true)->Unit(benchmark::kMicrosecond);
+
 // 数式 10000 個の型から、画面の 200 個を引く。描画はグリフランごとに 1 回引く。
 void BM_InlineMathMaskFind(benchmark::State& state)
 {

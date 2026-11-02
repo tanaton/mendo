@@ -530,11 +530,11 @@ const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
 }
 
 // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
-void EmitLeftText(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height)
+void EmitLeftText(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height, const FallbackFontMap* fonts)
 {
     // 箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中もレイアウトを使い回す。
     constexpr float kLayoutWidth = 4096.0f;
-    text_layouts.Emit(out, text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
+    text_layouts.Emit(out, text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f, fonts);
 }
 
 const wchar_t* PaneHeaderButtonIcon(PaneHeaderButton button) noexcept
@@ -569,7 +569,7 @@ void EmitSidePaneHeader(DrawCommandList& out, TextLayoutCache& text_layouts, con
     if (const auto text_rect = PaneHeaderTextRect(r.width, header_h, is_file_pane)) {
         const D2D1_RECT_F clip = OffsetRectF(*text_rect, r.x, r.y);
         out.push_back(PushClipCmd{ clip });
-        EmitLeftText(out, text_layouts, fmts.header, header_text, clip.left, clip.top, text_rect->bottom - text_rect->top);
+        EmitLeftText(out, text_layouts, fmts.header, header_text, clip.left, clip.top, text_rect->bottom - text_rect->top, nullptr);
         out.push_back(PopClipCmd{});
     }
 }
@@ -622,7 +622,7 @@ void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const
 
         text_layouts.Emit(out, FileEntryIcon(entry), fmts.file_icon, D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
 
-        EmitLeftText(out, text_layouts, fmts.file_item, entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height);
+        EmitLeftText(out, text_layouts, fmts.file_item, entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height, fmts.item_fonts);
     });
 }
 
@@ -643,7 +643,7 @@ void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePane
         const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         // 項目の文字列は持たない。見えている 40 行を描くたびに変換して 1 フレーム約 4µs (BM_TocFrame)。
         DecodeForDWrite(TocItemText(heading.GetText()), title);
-        EmitLeftText(out, text_layouts, fmts.toc_item, title, text_left, row.top, pane.item_height);
+        EmitLeftText(out, text_layouts, fmts.toc_item, title, text_left, row.top, pane.item_height, fmts.item_fonts);
 
         if (i == active_index) {
             const float line_y = row.bottom - 1.0f;

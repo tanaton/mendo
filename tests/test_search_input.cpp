@@ -178,6 +178,42 @@ TEST_F(SearchInputTest, TocRowsDrawHeadingText)
     EXPECT_EQ(TextsOf(cmds), (std::vector<std::wstring>{ L"A", L"B" }));
 }
 
+// 一覧の項目にだけフォントを明示する。ペインの見出しは UI のロケールなので、本文の対応を掛けない。
+TEST_F(SearchInputTest, PaneItemFontsApplyToItemsButNotHeader)
+{
+    const FallbackFontMap& fonts = measurer_.BodyFonts();
+    const wchar_t* const family = fonts.FamilyFor(L'漢');
+    if (!family) {
+        GTEST_SKIP() << "この環境には漢字のフォールバック先が無い";
+    }
+
+    const auto nodes = ParseNodes("# 漢字");
+    const std::vector<FileEntry> files;
+    const std::vector<TocEntry> toc{ { 0 } };
+    const SidePaneState sp{
+        .panes = { {}, SidePaneInstance{ .rect = kPane, .show = true, .zoom = 1.0f, .item_height = 24.0f } },
+        .file_entries = files,
+        .toc_entries = toc,
+        .nodes = nodes,
+        .active_toc_index = -1,
+    };
+    const auto header_fmt = CreateThemeFormat(13.0f);
+    chrome::SidePaneFormats fmts;
+    fmts.header = header_fmt.Get();
+    fmts.toc_item = fmt_.Get();
+    fmts.item_fonts = &fonts;
+    DrawCommandList cmds;
+    chrome::EmitSidePanes(cmds, text_layouts_, fmts, theme_, sp);
+
+    std::vector<std::wstring> names;
+    for (const auto& text : CollectCmds<DrawTextLayoutCmd>(cmds)) {
+        wchar_t name[LF_FACESIZE]{};
+        text.layout->GetFontFamilyName(0, name, LF_FACESIZE);
+        names.emplace_back(name);
+    }
+    EXPECT_EQ(names, (std::vector<std::wstring>{ theme_.font_family, family }));
+}
+
 // 測った選択範囲を、文字列より先に、文字列の左端からの位置に塗る。
 TEST_F(SearchInputTest, SelectionIsPaintedBeforeText)
 {

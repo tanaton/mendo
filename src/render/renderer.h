@@ -116,6 +116,12 @@ public:
     // デバイスの作成前に呼ぶと最初のフレームの文字レイアウトを先に作れる。
     void PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
 
+    // ファイル一覧と目次の項目は本文と主フォントもロケールも同じなので、本文の対応を共有し、解決を二度しない。
+    void SetPaneItemFonts(const FallbackFontMap* fonts) noexcept
+    {
+        pane_item_fonts_ = fonts;
+    }
+
 private:
     // フレーム共通の前処理 (デバイスロスト復旧・タイトルバー・サイドペイン)。
     // 描画できない場合はそのフレームの結果を返す。
@@ -199,6 +205,7 @@ private:
         float zoom = 0.0f;
     };
     PaneListFormats pane_list_fmt_[2];
+    const FallbackFontMap* pane_item_fonts_ = nullptr;
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;

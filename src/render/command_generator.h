@@ -24,7 +24,7 @@
 #include <unordered_map>
 
 // 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
-// (書式, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
+// (書式, フォントの対応, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
 // これで得たレイアウトを DrawTextLayout で描く。キーで書式を参照して持つので、書式を作り直しても
 // 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはなく、古いものは上限で捨てる。
 class TextLayoutCache {
@@ -36,9 +36,10 @@ public:
     }
 
     // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory まで有効。underline は下線を引く範囲 (IME の合成中の文字列)。
-    IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box, DWRITE_TEXT_RANGE underline = {})
+    // fonts は fmt の主フォントとロケールに合うものだけを渡す。
+    IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box, DWRITE_TEXT_RANGE underline = {}, const FallbackFontMap* fonts = nullptr)
     {
-        if (const auto it = entries_.find(KeyView{ fmt, text, box.width, box.height, underline.startPosition, underline.length }); it != entries_.end()) {
+        if (const auto it = entries_.find(KeyView{ fmt, fonts, text, box.width, box.height, underline.startPosition, underline.length }); it != entries_.end()) {
             it->second.last_used = frame_;
             return it->second.layout.Get();
         }
@@ -49,20 +50,23 @@ public:
         if (!layout) {
             return nullptr;
         }
+        if (fonts) {
+            ApplyFallbackFonts(layout.Get(), text, *fonts);
+        }
         if (underline.length > 0) {
             layout->SetUnderline(TRUE, underline);
         }
         auto* const raw = layout.Get();
-        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), std::wstring(text), box.width, box.height, underline.startPosition, underline.length },
+        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), fonts, std::wstring(text), box.width, box.height, underline.startPosition, underline.length },
                          Entry{ std::move(layout), frame_ });
         return raw;
     }
 
     // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
     void Emit(DrawCommandList& out, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box,
-              BrushId brush_id, float opacity)
+              BrushId brush_id, float opacity, const FallbackFontMap* fonts = nullptr)
     {
-        if (auto* layout = Get(fmt, text, box)) {
+        if (auto* layout = Get(fmt, text, box, {}, fonts)) {
             out.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
         }
     }
@@ -97,6 +101,7 @@ public:
 private:
     struct KeyView {
         IDWriteTextFormat* fmt;
+        const FallbackFontMap* fonts;
         std::wstring_view text;
         float width;
         float height;
@@ -106,6 +111,7 @@ private:
     };
     struct Key {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
+        const FallbackFontMap* fonts;
         std::wstring text;
         float width;
         float height;
@@ -113,7 +119,7 @@ private:
         uint32_t underline_length;
         operator KeyView() const noexcept
         {
-            return { fmt.Get(), text, width, height, underline_start, underline_length };
+            return { fmt.Get(), fonts, text, width, height, underline_start, underline_length };
         }
     };
     struct KeyHash {
@@ -123,6 +129,7 @@ private:
             size_t h = std::hash<std::wstring_view>{}(k.text);
             const auto mix = [&h](size_t v) noexcept { h ^= v + kGoldenRatio64 + (h << 6) + (h >> 2); };
             mix(std::hash<const void*>{}(k.fmt));
+            mix(std::hash<const void*>{}(k.fonts));
             mix(std::bit_cast<uint32_t>(k.width));
             mix(std::bit_cast<uint32_t>(k.height));
             mix(k.underline_start);
@@ -221,6 +228,8 @@ struct SidePaneFormats {
     IDWriteTextFormat* toc_item = nullptr;
     // ファイル一覧のアイコン。
     IDWriteTextFormat* file_icon = nullptr;
+    // file_item と toc_item だけに掛ける。header は UI のロケールなので、掛けると字形が変わる。
+    const FallbackFontMap* item_fonts = nullptr;
 };
 // 表示中のサイドペインとスプリッタ。
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,

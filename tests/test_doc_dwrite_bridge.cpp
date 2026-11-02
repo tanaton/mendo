@@ -3,6 +3,7 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "example_files.h"
+#include "theme.h"
 #include "theme_palette.h"
 #include "ui_constants.h"
 #include <wrl/client.h>
@@ -494,6 +495,21 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForEveryLanguage)
         const auto map = Map(base, locale);
         for (const auto [text, style] : std::views::cartesian_product(kCorpus, kStyles)) {
             EXPECT_TRUE(SameAsFallback(text, format.Get(), *map, style)) << "base=" << testing::PrintToString(std::wstring(base)) << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text)) << " weight=" << style.weight << " italic=" << style.italic;
+        }
+    }
+}
+
+// ファイル一覧と目次の項目は、本文の対応を本文と違う大きさと NO_WRAP の書式に掛ける。大きさはペインのズームの両端と等倍。
+TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForPaneItems)
+{
+    constexpr const wchar_t* kTextLocales[]{ L"ja-jp", L"zh-cn", L"zh-tw", L"zh-hk", L"ko-kr" };
+    const float pane_size = GetLightTheme().pane_font_size;
+    for (const auto [zoom, locale] : std::views::cartesian_product(std::array{ ZOOM_STEPS[0], 1.0f, ZOOM_STEPS[ZOOM_STEP_COUNT - 1] }, kTextLocales)) {
+        const float size = pane_size * zoom;
+        const auto format = CreateTextFormat(factory_.Get(), { .family = L"Segoe UI", .size = size, .locale = locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+        const auto map = Map(L"Segoe UI", locale);
+        for (const wchar_t* const text : kCorpus) {
+            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map)) << "size=" << size << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text));
         }
     }
 }
