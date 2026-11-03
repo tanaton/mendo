@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
+#include <format>
 #include <iterator>
-#include <string>
 #include "ui_constants.h"
 
 // ═══════════════════════════════════════════════
@@ -149,65 +149,47 @@ TEST(PaneHeaderButtonRectTest, SitsLeftOfNeighborWithSameSize)
 // ComputeSearchBarLayout — close ボタンの右寄せ (issue #253)
 // ═══════════════════════════════════════════════
 
-// 十分な幅では close ボタンがバー右端に寄せられる
+namespace {
+
+constexpr float kWideBarWidth = 1600.0f;
+
+SearchBarLayout SearchBarAt(float md_width, bool has_query = true)
+{
+    return ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = md_width, .height = 900.0f }, has_query);
+}
+
+} // namespace
+
+// 十分な幅では close ボタンだけバー右端へ寄せ、大きさと高さは他のボタンと揃える。
+// 左側のボタンは従来どおり左詰めで重ならず、highlight と close の間が空く。
 TEST(SearchBarLayoutTest, CloseButtonRightAlignedWhenWide)
 {
-    const float md_left = 0.0f;
-    const float md_width = 1600.0f;
-    const float md_bottom = 900.0f;
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = md_left, .width = md_width, .height = md_bottom }, true);
-
-    const float bar_right = md_left + md_width;
-    EXPECT_FLOAT_EQ(l.close_btn.right, bar_right - SEARCH_BAR_PADDING);
-    EXPECT_FLOAT_EQ(l.close_btn.left, bar_right - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
-}
-
-// close ボタンは幅=BTN_SIZE・高さ=INPUT_HEIGHT を維持する
-TEST(SearchBarLayoutTest, CloseButtonKeepsButtonSize)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
-    EXPECT_FLOAT_EQ(l.close_btn.right - l.close_btn.left, SEARCH_BTN_SIZE);
+    const auto l = SearchBarAt(kWideBarWidth);
+    EXPECT_FLOAT_EQ(l.close_btn.right, kWideBarWidth - SEARCH_BAR_PADDING);
+    EXPECT_FLOAT_EQ(l.close_btn.left, kWideBarWidth - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
     EXPECT_FLOAT_EQ(l.close_btn.bottom - l.close_btn.top, SEARCH_INPUT_HEIGHT);
-}
-
-// close ボタンは他ボタンと同じ垂直位置に揃う
-TEST(SearchBarLayoutTest, CloseButtonVerticallyAlignedWithOthers)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     EXPECT_FLOAT_EQ(l.close_btn.top, l.highlight_btn.top);
     EXPECT_FLOAT_EQ(l.close_btn.bottom, l.highlight_btn.bottom);
-}
 
-// 右寄せにより highlight と close の間に隙間が空く
-TEST(SearchBarLayoutTest, GapBetweenHighlightAndCloseWhenWide)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
+    EXPECT_LT(l.up_btn.right, l.down_btn.left);
+    EXPECT_LT(l.down_btn.right, l.case_btn.left);
+    EXPECT_LT(l.case_btn.right, l.highlight_btn.left);
     // 単に隣接 (gap 分) ではなく、明確に離れている
     EXPECT_GT(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
 }
 
-// 右寄せしても left 側のボタン位置は従来の左詰めのまま
-TEST(SearchBarLayoutTest, LeftButtonsUnaffectedByRightAlign)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
-    // up/down/case/highlight は icon 起点で gap 刻みに左詰めされ、互いに重ならない
-    EXPECT_LT(l.up_btn.right, l.down_btn.left);
-    EXPECT_LT(l.down_btn.right, l.case_btn.left);
-    EXPECT_LT(l.case_btn.right, l.highlight_btn.left);
-    EXPECT_LT(l.highlight_btn.right, l.close_btn.left);
-}
-
-// 狭幅では右寄せをやめ、highlight の右隣 (左詰め) にフォールバックする
+// 狭幅では右寄せをやめ、highlight の右隣 (左詰め) にフォールバックする。
+// 件数表示なし (has_query=false) では count_rect が消えて詰まるが、それでもフォールバックする。
 TEST(SearchBarLayoutTest, CloseButtonFallsBackToLeftPackedWhenNarrow)
 {
-    const float md_width = 300.0f;
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = md_width, .height = 900.0f }, true);
-
-    // フォールバック時は highlight の直後 (gap 分だけ離れて) に並ぶ
-    EXPECT_FLOAT_EQ(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
-    // 右寄せ位置よりも右側に居る = フォールバックが発動している証拠
-    const float right_aligned_x = md_width - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE;
-    EXPECT_GT(l.close_btn.left, right_aligned_x);
+    constexpr float md_width = 300.0f;
+    for (const bool has_query : { true, false }) {
+        SCOPED_TRACE(has_query);
+        const auto l = SearchBarAt(md_width, has_query);
+        EXPECT_FLOAT_EQ(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
+        // 右寄せ位置よりも右側に居る = フォールバックが発動している証拠
+        EXPECT_GT(l.close_btn.left, md_width - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
+    }
 }
 
 // 右寄せ⇔フォールバックの遷移を検証する。しきい値幅は SEARCH_* 定数やボタン構成に依存して
@@ -218,7 +200,7 @@ TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 {
     // 右寄せなら close は highlight から離れ、フォールバックなら highlight 直後に密着する
     auto right_aligned = [](float w) static {
-        auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = w, .height = 900.0f }, true);
+        const auto l = SearchBarAt(w);
         return l.close_btn.left > l.highlight_btn.right + SEARCH_BAR_GAP + 0.5f;
     };
     // 十分狭ければフォールバック、十分広ければ右寄せ (遷移が存在する両端)
@@ -236,34 +218,17 @@ TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
     EXPECT_TRUE(right_aligned(threshold));
 }
 
-// 件数表示なし (has_query=false) では count_rect が消えてレイアウトが詰まるが、
-// 狭幅では依然フォールバックする (フォールバック境界は has_query で変わる)
-TEST(SearchBarLayoutTest, CloseButtonFallsBackWhenNarrowWithoutQuery)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 300.0f, .height = 900.0f }, false);
-    EXPECT_FLOAT_EQ(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
-}
-
 // ═══════════════════════════════════════════════
 // HitTestSearchBar — 右寄せ close ボタンのヒット判定
 // ═══════════════════════════════════════════════
 
-// 右寄せされた close ボタンの中心はちゃんと Close と判定される
-TEST(SearchBarHitTestTest, CenterOfRightAlignedCloseHitsClose)
+// 右寄せされた close ボタンの中心は Close、highlight との間の空白はどのゾーンにも当たらない。
+TEST(SearchBarHitTestTest, RightAlignedCloseAndGap)
 {
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
-    const float cx = (l.close_btn.left + l.close_btn.right) / 2.0f;
-    const float cy = (l.close_btn.top + l.close_btn.bottom) / 2.0f;
+    const auto l = SearchBarAt(kWideBarWidth);
+    const auto [cx, cy] = RectCenter(l.close_btn);
     EXPECT_EQ(HitTestSearchBar(l, cx, cy), SearchBarHitZone::Close);
-}
-
-// highlight と close の間の空白はどのゾーンにも当たらない
-TEST(SearchBarHitTestTest, GapBetweenHighlightAndCloseHitsNone)
-{
-    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
-    const float gap_x = (l.highlight_btn.right + l.close_btn.left) / 2.0f;
-    const float cy = (l.close_btn.top + l.close_btn.bottom) / 2.0f;
-    EXPECT_EQ(HitTestSearchBar(l, gap_x, cy), SearchBarHitZone::None);
+    EXPECT_EQ(HitTestSearchBar(l, (l.highlight_btn.right + l.close_btn.left) / 2.0f, cy), SearchBarHitZone::None);
 }
 
 // ═══════════════════════════════════════════════
@@ -277,17 +242,18 @@ TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
     for (const float header_h : { 24.0f, 28.0f, 36.0f }) {
         for (const bool file_buttons : { false, true }) {
             for (float w = 0.0f; w <= 400.0f; w += 0.25f) {
-                SCOPED_TRACE(std::to_string(w) + (file_buttons ? " file" : " toc") + " h=" + std::to_string(header_h));
                 const auto rect = PaneHeaderTextRect(w, header_h, file_buttons);
                 if (!rect) {
                     continue;
                 }
-                ASSERT_LT(rect->left, rect->right);
-                ASSERT_GE(rect->left, 0.0f);
-                ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Close).left);
+                // 失敗したときだけ組み立てる (9600 通りで毎回 SCOPED_TRACE を作らない)。
+                const auto where = [&] { return std::format("w={} {} h={}", w, file_buttons ? "file" : "toc", header_h); };
+                ASSERT_LT(rect->left, rect->right) << where();
+                ASSERT_GE(rect->left, 0.0f) << where();
+                ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Close).left) << where();
                 if (file_buttons) {
-                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Refresh).left);
-                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Reveal).left);
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Refresh).left) << where();
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Reveal).left) << where();
                 }
             }
             // 通常幅では見出しが出る (常に nullopt で上のループを素通りしないこと)。

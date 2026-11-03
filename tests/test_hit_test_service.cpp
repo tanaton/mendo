@@ -323,24 +323,14 @@ protected:
 
 // ---- OverlayButtonRect ----
 
-TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize)
+// コピーボタンは COPY_BTN_SIZE の正方形で、ブロックの右上から COPY_BTN_MARGIN だけ内側に置く。
+TEST_F(CopyButtonTest, CopyButtonRectSitsInsideBlockTopRight)
 {
-    D2D1_RECT_F r = OverlayButtonRect(100.0f, 10.0f, OverlayButton::CodeCopy);
-    float w = r.right - r.left;
-    float h = r.bottom - r.top;
-    EXPECT_FLOAT_EQ(w, COPY_BTN_SIZE);
-    EXPECT_FLOAT_EQ(h, COPY_BTN_SIZE);
-}
-
-TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
-{
-    float block_right = 500.0f;
-    float block_top = 100.0f;
-    D2D1_RECT_F r = OverlayButtonRect(block_right, block_top, OverlayButton::CodeCopy);
-    // ボタンの右端はブロック右端から COPY_BTN_MARGIN 内側
-    EXPECT_FLOAT_EQ(r.right, block_right - COPY_BTN_MARGIN);
-    // ボタンの上端はブロック上端から COPY_BTN_MARGIN 下
-    EXPECT_FLOAT_EQ(r.top, block_top + COPY_BTN_MARGIN);
+    const D2D1_RECT_F r = OverlayButtonRect(500.0f, 100.0f, OverlayButton::CodeCopy);
+    EXPECT_FLOAT_EQ(r.right - r.left, COPY_BTN_SIZE);
+    EXPECT_FLOAT_EQ(r.bottom - r.top, COPY_BTN_SIZE);
+    EXPECT_FLOAT_EQ(r.right, 500.0f - COPY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(r.top, 100.0f + COPY_BTN_MARGIN);
 }
 
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、重ならず並ぶ。
@@ -357,28 +347,24 @@ TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
 
 // ---- CopyButtonHitTest ----
 
-TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
+// ボタンの外、コードブロックの無い文書、空の文書では当たらない。
+TEST_F(CopyButtonTest, MissesOutsideCopyButton)
 {
-    auto pr = ParseAndLayout("```\nsome code\n```");
-    const int code_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
-    ASSERT_GE(code_idx, 0) << "コードブロックノードが見つからない";
-
-    auto [cx, cy] = CopyBtnCenter(pr, code_idx);
-    EXPECT_EQ(CopyNodeAt(pr, cx, cy), code_idx);
-}
-
-TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
-{
-    auto pr = ParseAndLayout("```\nsome code\n```");
-    // 明らかにボタン外の座標（左上端）
-    EXPECT_EQ(CopyNodeAt(pr, 5, 5), -1);
-}
-
-TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
-{
-    auto pr = ParseAndLayout("Just a paragraph");
-    // ドキュメント中央をクリック
-    EXPECT_EQ(CopyNodeAt(pr, 400, 20), -1);
+    struct Case {
+        std::string_view md;
+        int x;
+        int y;
+    };
+    constexpr Case kCases[] = {
+        { "```\nsome code\n```", 5, 5 },
+        { "Just a paragraph", 400, 20 },
+        { "", 400, 400 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        auto pr = ParseAndLayout(c.md);
+        EXPECT_EQ(CopyNodeAt(pr, c.x, c.y), -1);
+    }
 }
 
 TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
@@ -408,12 +394,6 @@ TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 
     auto [cx2, cy2] = CopyBtnCenter(pr, code_indices[1]);
     EXPECT_EQ(CopyNodeAt(pr, cx2, cy2), code_indices[1]);
-}
-
-TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
-{
-    auto pr = ParseAndLayout("");
-    EXPECT_EQ(CopyNodeAt(pr, 400, 400), -1);
 }
 
 TEST_F(CopyButtonTest, ScrolledViewportHitTest)

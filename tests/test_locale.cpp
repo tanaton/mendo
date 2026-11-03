@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "i18n.h"
+#include "test_helpers.h"
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -80,15 +81,11 @@ static_assert(sizeof(i18n::Strings) == sizeof(kStringFields) / sizeof(kStringFie
 
 class LocaleTest : public ::testing::Test {
 protected:
-    void TearDown() override
-    {
-        // テスト後にデフォルト状態に戻す
-        i18n::g_strings = &i18n::kJa;
-        i18n::g_chosen = nullptr;
-    }
+    ScopedLanguage restore_language_;
 };
 
-TEST_F(LocaleTest, ExplicitLanguagePicksItsTable)
+// 設定のキーでその言語の表を選び、終了時に同じキーを保存するので次回も同じ言語になる。
+TEST_F(LocaleTest, ExplicitLanguagePicksItsTableAndKeyRoundTrips)
 {
     const std::pair<const wchar_t*, const i18n::Strings*> kCases[] = {
         { L"ja", &i18n::kJa },
@@ -98,25 +95,21 @@ TEST_F(LocaleTest, ExplicitLanguagePicksItsTable)
         { L"ko", &i18n::kKo },
     };
     for (const auto& [key, table] : kCases) {
+        SCOPED_TRACE(std::wstring(key));
         i18n::Init(key);
         EXPECT_EQ(&i18n::S(), table);
-    }
-}
-
-// 終了時に保存したキーで次回も同じ言語になる。
-TEST_F(LocaleTest, LangKeyRoundTrips)
-{
-    for (const wchar_t* key : { L"ja", L"en", L"zh", L"zh-hant", L"ko" }) {
-        i18n::Init(key);
+        EXPECT_EQ(i18n::ChosenLanguage(), table);
         EXPECT_EQ(i18n::ConfigLangKey(), key);
     }
 }
 
-// OS に合わせる設定は空で保存し、次回も OS の表示言語で決める (OS の言語を変えたら追従する)。
+// 空や知らないキーは OS の表示言語に合わせる。保存は空にし、次回も OS の表示言語で決める (OS の言語を変えたら追従する)。
 TEST_F(LocaleTest, FollowingOsSavesEmptyKey)
 {
     for (const wchar_t* key : { L"", L"fr" }) {
+        SCOPED_TRACE(std::wstring(key));
         i18n::Init(key);
+        EXPECT_EQ(&i18n::S(), &i18n::SystemStrings());
         EXPECT_EQ(i18n::ChosenLanguage(), nullptr);
         EXPECT_TRUE(i18n::ConfigLangKey().empty());
     }
@@ -133,18 +126,6 @@ TEST_F(LocaleTest, SetLanguageSwitchesImmediately)
     i18n::SetLanguage(nullptr);
     EXPECT_EQ(&i18n::S(), &i18n::SystemStrings());
     EXPECT_TRUE(i18n::ConfigLangKey().empty());
-}
-
-TEST_F(LocaleTest, UnknownLangFallsBackToOsDetection)
-{
-    i18n::Init(L"fr");
-    EXPECT_EQ(&i18n::S(), &i18n::SystemStrings());
-}
-
-TEST_F(LocaleTest, EmptyLangFallsBackToOsDetection)
-{
-    i18n::Init(L"");
-    EXPECT_EQ(&i18n::S(), &i18n::SystemStrings());
 }
 
 TEST_F(LocaleTest, UiLanguagePicksStrings)
@@ -218,13 +199,4 @@ TEST_F(LocaleTest, HelpResourceIdsAndLangKeysAreDistinct)
             }
         }
     }
-}
-
-TEST_F(LocaleTest, SReturnsCorrectTableAfterInit)
-{
-    i18n::Init(L"en");
-    EXPECT_EQ(i18n::S().tooltip_help, i18n::kEn.tooltip_help);
-
-    i18n::Init(L"ja");
-    EXPECT_EQ(i18n::S().tooltip_help, i18n::kJa.tooltip_help);
 }

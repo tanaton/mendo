@@ -53,16 +53,11 @@ const PngBytes kNoPng;
 
 class ClipboardManagerTest : public ::testing::Test {
 protected:
-    void SetUp() override
-    {
-        InitManager(&renderer_);
-    }
-
     // HWND/WIC nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
     // png 無し (nullptr) のため BuildDib は空を返し、クリップボード書き込みは行われない。
-    void InitManager(IMermaidRenderer* renderer)
+    void SetUp() override
     {
-        manager_.Init(nullptr, renderer, nullptr, [this](std::wstring_view m) { toasts_.emplace_back(m); });
+        manager_.Init(nullptr, &renderer_, nullptr, [this](std::wstring_view m) { toasts_.emplace_back(m); });
     }
 
     // 文書を差し替え、最初の type ノードの index を返す。
@@ -139,18 +134,28 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpForOutOfRangeIndex)
 
 // ---- CopyDiagramToClipboard 主要パス ----
 
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardRequestsRendererForMermaid)
+// 図のコード・幅・ダークモードを渡して SVG を頼み、待つ間のトーストを出す。
+TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeWidthAndDarkModeToRenderer)
 {
-    const int cb_idx = Load(kMermaidMd);
+    const int cb_idx = Load("```mermaid\ngraph LR; X-->Y\n```\n");
     ASSERT_GE(cb_idx, 0);
 
     CopyDiagram(cb_idx);
     EXPECT_EQ(renderer_.request_count, 1);
-    ASSERT_FALSE(toasts_.empty());
+    EXPECT_FALSE(toasts_.empty());
     EXPECT_FLOAT_EQ(renderer_.last_width, kDefaultMdWidth);
     EXPECT_FALSE(renderer_.last_dark);
+    EXPECT_TRUE(renderer_.last_code.contains("graph LR"));
+    renderer_.FireCallback({}, true);
+
+    CopyDiagram(cb_idx, 1024.0f, true);
+    EXPECT_EQ(renderer_.request_count, 2);
+    EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
+    EXPECT_TRUE(renderer_.last_dark);
+    renderer_.FireCallback({}, true);
 }
 
+// 待っている間の再入は弾く。取り消されたら失敗のトーストを出し、次の要求を受け付ける。
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
 {
     const int cb_idx = Load(kMermaidMd);
@@ -162,7 +167,9 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     EXPECT_EQ(renderer_.request_count, 1);
 
     // cancelled 経路で in-flight だけ解除 (svg_cache に何も入れない)。
+    const auto before = toasts_.size();
     renderer_.FireCallback({}, true);
+    EXPECT_EQ(toasts_.size(), before + 1);
     CopyDiagram(cb_idx);
     EXPECT_EQ(renderer_.request_count, 2);
 }
@@ -183,19 +190,6 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightReentryDoesNotStaleIn
     EXPECT_EQ(toasts_.size(), before + 1);
 }
 
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardCancelledCallbackEmitsFailToast)
-{
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-
-    CopyDiagram(cb_idx);
-    const auto toast_count_before = toasts_.size();
-    renderer_.FireCallback({}, true);
-    EXPECT_EQ(toasts_.size(), toast_count_before + 1);
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 2);
-}
-
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardEmptyResultEmitsFailToast)
 {
     const int cb_idx = Load(kMermaidMd);
@@ -205,18 +199,4 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardEmptyResultEmitsFailToast)
     const auto before = toasts_.size();
     renderer_.FireCallback({}, false);
     EXPECT_EQ(toasts_.size(), before + 1);
-}
-
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeAndDarkModeToRenderer)
-{
-    const int cb_idx = Load("```mermaid\ngraph LR; X-->Y\n```\n");
-    ASSERT_GE(cb_idx, 0);
-
-    CopyDiagram(cb_idx, 1024.0f, true);
-    EXPECT_EQ(renderer_.request_count, 1);
-    EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
-    EXPECT_TRUE(renderer_.last_dark);
-    EXPECT_TRUE(renderer_.last_code.contains("graph LR"));
-
-    renderer_.FireCallback({}, true);
 }

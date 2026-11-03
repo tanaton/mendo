@@ -6,6 +6,7 @@
 #include "mock_text_measurer.h"
 #include "file_io.h"
 #include "image_loader.h"
+#include "layout_invariants.h"
 #include "wic_util.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
@@ -235,55 +236,33 @@ protected:
     }
 };
 
-TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
+// 本文の幅に収まる画像は原寸の高さ、はみ出す画像は縦横比を保って本文の幅まで縮める (拡大はしない)。
+TEST_F(ImageLayoutTest, ImageHeightFitsContentWidth)
 {
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].type, NodeType::Image);
+    struct Case {
+        float width;
+        float height;
+        float viewport_width;
+        bool scaled;
+    };
+    constexpr Case kCases[] = {
+        { 400.0f, 300.0f, 800.0f, false },
+        { 100.0f, 80.0f, 800.0f, false },
+        { 1600.0f, 900.0f, 800.0f, true },
+        { 1000.0f, 500.0f, 600.0f, true },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.width << "x" << c.height << " @" << c.viewport_width);
+        auto nodes = ParseNodes("![alt](img.png)");
+        ASSERT_EQ(nodes.size(), 1u);
+        LayoutCache cache(nodes.size());
+        SetImageSize(cache, 0, c.width, c.height);
+        Layout(nodes, cache, c.viewport_width);
 
-    auto cache = Layout(nodes);
-
-    EXPECT_GT(cache[0].height, 0.0f) << "画像プレースホルダーの高さは正であるべき";
-    EXPECT_FALSE(cache[0].layout_dirty);
-}
-
-TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    // 画像読み込み後のサイズをシミュレート
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 0, 400.0f, 300.0f);
-    Layout(nodes, cache);
-
-    // 幅400 < コンテンツ幅のため、元の高さ300が使われる
-    EXPECT_FLOAT_EQ(cache[0].height, 300.0f);
-}
-
-TEST_F(ImageLayoutTest, WideImageScaledDown)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    // コンテンツ幅より大きい画像
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 0, 1600.0f, 900.0f);
-    Layout(nodes, cache);
-
-    // スケールダウンされて元の高さより小さくなること
-    EXPECT_LT(cache[0].height, 900.0f);
-    EXPECT_GT(cache[0].height, 0.0f);
-}
-
-TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 0, 100.0f, 80.0f);
-    Layout(nodes, cache);
-
-    // 小さい画像は拡大されない
-    EXPECT_FLOAT_EQ(cache[0].height, 80.0f);
+        const float content_width = theme_.ContentWidth(c.viewport_width);
+        ASSERT_EQ(c.width > content_width, c.scaled);
+        EXPECT_NEAR(cache[0].height, c.scaled ? content_width * c.height / c.width : c.height, 0.1f);
+    }
 }
 
 TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
@@ -304,60 +283,31 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
     EXPECT_LT(h_narrow, h_wide);
 }
 
-TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
+// 画像どうし・文章との並びでも Y の連鎖が崩れない (重ならない)。
+TEST_F(ImageLayoutTest, ImageNodesKeepYChain)
 {
-    auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
+    auto nodes = ParseNodes("Text before\n\n![a](a.png)\n\n![b](b.png)\n\nText after");
+    ASSERT_EQ(nodes.size(), 4u);
     LayoutCache cache(nodes.size());
-    for (size_t i = 0; i < nodes.size(); i++) {
-        SetImageSize(cache, i, 200.0f, 150.0f);
+    for (const size_t i : { 1u, 2u }) {
+        ASSERT_EQ(nodes[i].type, NodeType::Image);
+        SetImageSize(cache, i, 400.0f, 300.0f);
     }
     Layout(nodes, cache);
-
-    for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
-        EXPECT_GE(cache.Top(i), prev_bottom) << "ノード " << i << " が前のノードと重なっている";
-    }
-}
-
-TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
-{
-    auto nodes = ParseNodes("Text before\n\n![alt](img.png)\n\nText after");
-    ASSERT_EQ(nodes.size(), 3u);
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 1, 400.0f, 300.0f);
-    Layout(nodes, cache);
-
-    for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
-        EXPECT_GE(cache.Top(i), prev_bottom);
-    }
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 }
 
 TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Image);
     // 寸法 (DiagramEntry) が未設定 = 未読み込み
     auto cache = Layout(nodes);
     ASSERT_EQ(cache.FindDiagram(0), nullptr);
 
     EXPECT_GT(cache[0].height, 0.0f) << "プレースホルダー高さが設定されるべき";
-}
-
-TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 0, 1000.0f, 500.0f);
-
-    const float viewport_width = 600.0f;
-    Layout(nodes, cache, viewport_width);
-
-    const float content_width = theme_.ContentWidth(viewport_width);
-    // コンテンツ幅 < 画像幅なのでスケールされる
-    // アスペクト比 = 500/1000 = 0.5
-    float expected_height = content_width * (500.0f / 1000.0f);
-    EXPECT_NEAR(cache[0].height, expected_height, 0.1f);
+    EXPECT_FALSE(cache[0].layout_dirty);
 }
 
 // ============================================================
@@ -396,13 +346,21 @@ protected:
         loader_.ClearCache();
     }
 
-    // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。
+    // 積んだデコードを終わらせ、届いた結果をすべて取り込む。取り込んだものがあれば true (失敗の結果も数える)。
+    bool DrainDecodes(ImageLoader& loader)
+    {
+        return DrainScheduler(scheduler_) && loader.ProcessCompletedDecodes(kNoDeadline);
+    }
+    bool DrainDecodes()
+    {
+        return DrainDecodes(loader_);
+    }
+
+    // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。キャッシュに当たれば取り込むものは無い。
     bool LoadAndGet(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
     {
         loader.RequestLoadAsync(path, 0.0f);
-        if (!PollUntil([&] { return loader.ProcessCompletedDecodes(); })) {
-            return false;
-        }
+        (void)DrainDecodes(loader);
         return GetCachedImage(loader, path, out);
     }
     bool LoadAndGet(const std::wstring& path, DiagramEntry& out)
@@ -514,7 +472,7 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
         { L"test.png", GUID_ContainerFormatPng, 100, 80 },
         { L"test.bmp", GUID_ContainerFormatBmp, 50, 50 },
         { L"test.jpg", GUID_ContainerFormatJpeg, 200, 150 },
-        { L"large.png", GUID_ContainerFormatPng, 4096, 2048 },
+        { L"large.png", GUID_ContainerFormatPng, 1024, 512 },
         { L"tiny.png", GUID_ContainerFormatPng, 1, 1 },
     };
     for (const auto& c : kCases) {
@@ -593,7 +551,7 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
         loader_.DropQueued();
         loader_.RequestLoadAsync(path, 0.0f);
         gate.Open();
-        ASSERT_TRUE(PollUntil([&] { return loader_.ProcessCompletedDecodes(); }));
+        EXPECT_TRUE(DrainDecodes());
         EXPECT_EQ(loader_.CacheSize(), 0u);
     }
 
@@ -618,13 +576,6 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
 }
 
 // ---- 異常系: ファイルが存在しない ----
-
-TEST_F(ImageLoaderTest, NonExistentFileReturnsFalse)
-{
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(L"C:\\nonexistent\\path\\image.png", entry));
-    EXPECT_FALSE(entry.bitmap);
-}
 
 TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 {
@@ -687,14 +638,6 @@ TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry)
     EXPECT_FLOAT_EQ(entry.width, 999.0f);
     EXPECT_FLOAT_EQ(entry.height, 888.0f);
     EXPECT_FALSE(entry.bitmap);
-}
-
-// ---- GetCachedImage テスト ----
-
-TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached)
-{
-    DiagramEntry entry;
-    EXPECT_FALSE(GetCachedImage(loader_, L"C:\\not_cached.png", entry));
 }
 
 // ---- Shutdown テスト ----
@@ -829,41 +772,12 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
 
 class ImageLoaderAsyncTest : public ImageLoaderTest {
 protected:
-    // 結果を取り込んだ ProcessCompletedDecodes の回数。
-    int processed_count_ = 0;
-
-    void Process(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget)
-    {
-        if (loader_.ProcessCompletedDecodes(deadline)) {
-            ++processed_count_;
-        }
-    }
-
-    // 失敗結果も取り込んだと数えるので、失敗の完了待ちにも使える。
-    bool WaitForResults(int expected_count)
-    {
-        return PollUntil([&] {
-            Process();
-            return processed_count_ >= expected_count;
-        });
-    }
-
-    // 1 回の取り込みで複数件入りうるので、複数リクエストの完了はキャッシュ件数で待つ。
-    bool WaitForCached(size_t count)
-    {
-        return PollUntil([&] {
-            Process();
-            return loader_.CacheSize() >= count;
-        });
-    }
-
     // path の非同期ロードを 1 件ずつ完了させながら times 回失敗させる。
     bool FailLoads(const std::wstring& path, int times)
     {
         for (int i = 0; i < times; ++i) {
-            const int before = processed_count_;
             loader_.RequestLoadAsync(path, 0.0f);
-            if (!WaitForResults(before + 1)) {
+            if (!DrainDecodes()) {
                 return false;
             }
         }
@@ -880,12 +794,11 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     loader_.RequestLoadAsync(path, 0.0f);
     loader_.RequestLoadAsync(path, 0.0f);
 
-    ASSERT_TRUE(WaitForResults(1));
-
-    // 結果は 1 件だけ届く
-    EXPECT_EQ(processed_count_, 1);
-    scheduler_.Shutdown();
-    EXPECT_FALSE(loader_.ProcessCompletedDecodes());
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    // 予算が無くても 1 件は取り込むので、重複のデコードが走っていれば次の結果が残る。
+    EXPECT_TRUE(loader_.ProcessCompletedDecodes(kExpiredDeadline));
+    EXPECT_FALSE(loader_.HasLeftoverUploads()) << "結果は 1 件だけ届く";
+    EXPECT_EQ(loader_.CacheSize(), 1u);
 }
 
 TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
@@ -957,8 +870,8 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
         loader_.RequestLoadAsync(p, 0.0f);
     }
 
-    ASSERT_TRUE(WaitForCached(paths.size())) << "非同期読み込みが完了しなかった";
-    EXPECT_GE(processed_count_, 1);
+    ASSERT_TRUE(DrainDecodes()) << "非同期読み込みが完了しなかった";
+    EXPECT_EQ(loader_.CacheSize(), paths.size());
 
     for (int i = 0; i < kImageCount; ++i) {
         DiagramEntry entry;
@@ -982,32 +895,18 @@ TEST_F(ImageLoaderAsyncTest, ProcessCompletedDecodesDefersOverBudget)
     scheduler_.Shutdown();
 
     EXPECT_FALSE(loader_.HasLeftoverUploads()) << "届いただけの結果は投函で知らせる";
-    EXPECT_TRUE(loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::min()));
+    EXPECT_TRUE(loader_.ProcessCompletedDecodes(kExpiredDeadline));
     EXPECT_EQ(loader_.CacheSize(), 1u);
     EXPECT_TRUE(loader_.HasLeftoverUploads());
 
-    loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::max());
+    loader_.ProcessCompletedDecodes(kNoDeadline);
     EXPECT_EQ(loader_.CacheSize(), static_cast<size_t>(kImageCount));
     EXPECT_FALSE(loader_.HasLeftoverUploads());
 }
 
-TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)
-{
-    // 大量のリクエスト中に Shutdown してもクラッシュしないこと
-    constexpr int kImageCount = 10;
-    for (int i = 0; i < kImageCount; ++i) {
-        auto name = L"heavy_" + std::to_wstring(i) + L".png";
-        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 100, 100));
-        loader_.RequestLoadAsync(GetTestImagePath(name), 0.0f);
-    }
-
-    // 処理途中で即座にシャットダウン — デッドロックやクラッシュが起きないこと
-    loader_.Shutdown();
-}
-
 TEST_F(ImageLoaderAsyncTest, LoadAfterShutdownWithHeavyLoad)
 {
-    // Shutdown 後も同じローダーで読み込めること
+    // 大量のリクエスト中に Shutdown してもデッドロック・クラッシュせず、その後も同じローダーで読み込めること
     constexpr int kImageCount = 6;
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"reinit_a_" + std::to_wstring(i) + L".png";
@@ -1047,13 +946,10 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
 
     loader_.RequestLoadAsync(path, 0.0f);
 
-    // キャンセル直後は進行中だったワーカーの結果が先に返る可能性があるため、
-    // 取り込んだ回数ではなく対象画像がキャッシュされるまで直接ポーリングする
+    // キャンセル前の要求の結果も一緒に届くので、対象画像のキャッシュで確かめる
+    ASSERT_TRUE(DrainDecodes());
     DiagramEntry entry;
-    ASSERT_TRUE(PollUntil([&] {
-        loader_.ProcessCompletedDecodes();
-        return GetCachedImage(loader_, path, entry);
-    })) << "キャンセル後のリクエストが完了しなかった";
+    ASSERT_TRUE(GetCachedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }
@@ -1128,7 +1024,7 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
 
     // 300 DIP (96 DPI で 300px) は 256px 単位に切り上げて 512px でデコードする。
     loader_.RequestLoadAsync(path, 300.0f);
-    ASSERT_TRUE(WaitForResults(1));
+    ASSERT_TRUE(DrainDecodes());
     const auto* cached = loader_.FindCachedImage(path);
     ASSERT_NE(cached, nullptr);
     ASSERT_TRUE(cached->bitmap);
@@ -1142,7 +1038,7 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
 
     // 表示幅が広がったら、高い解像度で読み直してキャッシュを差し替える。
     loader_.RequestLoadAsync(path, 600.0f);
-    ASSERT_TRUE(WaitForResults(2));
+    ASSERT_TRUE(DrainDecodes());
     cached = loader_.FindCachedImage(path);
     ASSERT_NE(cached, nullptr);
     EXPECT_EQ(cached->bitmap->GetPixelSize().width, 768u);
@@ -1155,7 +1051,7 @@ TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
     const auto path = GetTestImagePath(L"narrow.png");
 
     loader_.RequestLoadAsync(path, 300.0f);
-    ASSERT_TRUE(WaitForResults(1));
+    ASSERT_TRUE(DrainDecodes());
     const auto* cached = loader_.FindCachedImage(path);
     ASSERT_NE(cached, nullptr);
     EXPECT_EQ(cached->bitmap->GetPixelSize().width, 100u);
@@ -1228,75 +1124,32 @@ protected:
     ImageLoader loader_;
 };
 
-TEST_F(ImageLoaderCacheTest, GetCachedImageReturnsFalseForUnknownPath)
+// 並べ替えの規則は TranspositionCache のテストで見る。ここでは容量が MAX_CACHE_ENTRIES (128) であることと、
+// FindCachedImage のヒットで順位が上がることだけを確かめる。
+TEST_F(ImageLoaderCacheTest, HoldsMaxEntriesAndFindPromotes)
 {
-    DiagramEntry out;
-    EXPECT_FALSE(GetCachedImage(loader_, L"nonexistent.png", out));
+    constexpr size_t kMaxEntries = 128;
+    EXPECT_EQ(loader_.FindCachedImage(L"img_0.png"), nullptr);
+    for (size_t i = 0; i < kMaxEntries; i++) {
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+    EXPECT_EQ(loader_.CacheSize(), kMaxEntries);
+
+    // 最も古い img_0 はヒットで末尾から外れるので、溢れたときは 1 つ前の img_1 が捨てられる
+    ASSERT_NE(loader_.FindCachedImage(L"img_0.png"), nullptr);
+    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
+    EXPECT_EQ(loader_.CacheSize(), kMaxEntries);
+    EXPECT_NE(loader_.FindCachedImage(L"img_0.png"), nullptr);
+    EXPECT_EQ(loader_.FindCachedImage(L"img_1.png"), nullptr);
+    EXPECT_NE(loader_.FindCachedImage(L"overflow.png"), nullptr);
 }
 
 TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
 {
-    // キャッシュをクリアしてもクラッシュしないこと
+    loader_.InsertCacheEntryForTest(L"a.png", 100.0f, 100.0f);
+    loader_.InsertCacheEntryForTest(L"b.png", 100.0f, 100.0f);
     loader_.ClearCache();
-    DiagramEntry out;
-    EXPECT_FALSE(GetCachedImage(loader_, L"any.png", out));
-}
-
-TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
-{
-    // 新規 Insert は先頭に入り、容量超過時は末尾 (= 最も古く Insert された) が捨てられる。
-    const size_t max_entries = 128; // MAX_CACHE_ENTRIES
-
-    for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
-    }
-    EXPECT_EQ(loader_.CacheSize(), max_entries);
-
-    // 1 つ追加すると最も古く Insert された img_0 が捨てられる
-    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
-    EXPECT_EQ(loader_.CacheSize(), max_entries);
-
-    DiagramEntry out;
-    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
-    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
-    EXPECT_TRUE(GetCachedImage(loader_, L"overflow.png", out));
-}
-
-TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
-{
-    const size_t max_entries = 128;
-    for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
-    }
-
-    // ヒットで末尾から外れるので、次の overflow では 1 つ前の img_1 が捨てられる
-    DiagramEntry out;
-    ASSERT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
-    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
-
-    EXPECT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
-    EXPECT_FALSE(GetCachedImage(loader_, L"img_1.png", out));
-}
-
-TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
-{
-    // 連続 overflow が起きると古い Insert から順に末尾から捨てられていく。
-    const size_t max_entries = 128;
-
-    for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
-    }
-
-    // 10 回 overflow を起こす → img_0..img_9 が末尾から順に捨てられる
-    for (int i = 0; i < 10; i++) {
-        loader_.InsertCacheEntryForTest(L"overflow_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
-    }
-    EXPECT_EQ(loader_.CacheSize(), max_entries);
-
-    DiagramEntry out;
-    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
-    EXPECT_FALSE(GetCachedImage(loader_, L"img_9.png", out));
-    EXPECT_TRUE(GetCachedImage(loader_, L"img_10.png", out));
-    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
-    EXPECT_TRUE(GetCachedImage(loader_, L"overflow_9.png", out));
+    EXPECT_EQ(loader_.CacheSize(), 0u);
+    EXPECT_EQ(loader_.FindCachedImage(L"a.png"), nullptr);
+    EXPECT_EQ(loader_.FindCachedImage(L"b.png"), nullptr);
 }

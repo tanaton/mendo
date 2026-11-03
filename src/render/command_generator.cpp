@@ -1,7 +1,6 @@
 #include "command_generator.h"
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
-#include "hit_test_service.h"
 #include "i18n.h"
 #include "layout_computer.h"
 #include "pane_layout.h"
@@ -19,7 +18,6 @@
 using layout::NodeBoxPadBottom;
 using layout::NodeBoxPadTop;
 using layout::NodeContentWidth;
-using layout::NodeIndent;
 using layout::NodeTextXOffset;
 
 #ifdef MENDO_USE_TRACY

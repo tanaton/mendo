@@ -265,10 +265,7 @@ TEST(InlineMathTex, ExtractsTexAndRejectsUnbalancedRuns)
 // 長くて区切った $$..$$ は数式にしない (どのノードも原文のまま)。
 TEST_F(DWriteInlineMathTest, SplitDisplayMathStaysAsText)
 {
-    std::string md = "a $$";
-    while (md.size() < kTextChunkTarget * 2) {
-        md += "x + ";
-    }
+    std::string md = RepeatTo("x + ", kTextChunkTarget * 2, "a $$");
     md += "y$$ b";
     auto [nodes, cache] = ParseAndLayout(md);
     ASSERT_GT(nodes.size(), 1u);
@@ -727,24 +724,17 @@ protected:
     }
 };
 
-// HorizontalRule: 両計測とも定数の正の高さを返すこと。
-TEST_F(MeasurerParityTest, HorizontalRuleIsPositive)
+// テキストの無い水平線と空の段落も、両計測とも正の高さを返すこと (空の段落はマージン確保のため)。
+TEST_F(MeasurerParityTest, TextlessNodesArePositive)
 {
-    Node node;
-    node.type = NodeType::HorizontalRule;
-    const auto h = MeasureBoth(node, 600.0f);
-    EXPECT_GT(h.mock, 0.0f);
-    EXPECT_GT(h.dwrite, 0.0f);
-}
-
-// 空の段落: マージン確保のため両計測とも正の高さを返すこと。
-TEST_F(MeasurerParityTest, EmptyParagraphIsPositive)
-{
-    Node node;
-    node.type = NodeType::Paragraph;
-    const auto h = MeasureBoth(node, 600.0f);
-    EXPECT_GT(h.mock, 0.0f);
-    EXPECT_GT(h.dwrite, 0.0f);
+    for (const NodeType type : { NodeType::HorizontalRule, NodeType::Paragraph }) {
+        SCOPED_TRACE(static_cast<int>(type));
+        Node node;
+        node.type = type;
+        const auto h = MeasureBoth(node, 600.0f);
+        EXPECT_GT(h.mock, 0.0f);
+        EXPECT_GT(h.dwrite, 0.0f);
+    }
 }
 
 // 見出しと段落の順序性: 同じテキストに対し、両計測とも見出し > 段落 となること。

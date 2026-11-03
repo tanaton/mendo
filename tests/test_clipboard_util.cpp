@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "clipboard_util.h"
+#include "string_convert.h"
 #include <charconv>
 #include <cstdint>
 #include <string>
@@ -35,16 +36,25 @@ std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
 
 } // namespace
 
-TEST(BuildCfHtmlPayload, EmptyFragmentStillProducesValidHeader)
+// ヘッダは CRLF 区切りで、オフセットは 10 桁ゼロ埋め。本体は <html><body> で fragment を挟む。
+TEST(BuildCfHtmlPayload, MatchesExpectedPayload)
 {
-    const auto p = BuildCfHtmlPayload("");
-    EXPECT_TRUE(p.contains("Version:0.9"));
-    EXPECT_TRUE(p.contains("StartHTML:"));
-    EXPECT_TRUE(p.contains("EndHTML:"));
-    EXPECT_TRUE(p.contains("StartFragment:"));
-    EXPECT_TRUE(p.contains("EndFragment:"));
-    EXPECT_TRUE(p.contains("<!--StartFragment-->"));
-    EXPECT_TRUE(p.contains("<!--EndFragment-->"));
+    struct Case {
+        std::string_view fragment;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "",
+          "Version:0.9\r\nStartHTML:0000000105\r\nEndHTML:0000000177\r\nStartFragment:0000000141\r\nEndFragment:0000000141\r\n"
+          "<html>\r\n<body>\r\n<!--StartFragment--><!--EndFragment-->\r\n</body>\r\n</html>" },
+        { "<p>x</p>",
+          "Version:0.9\r\nStartHTML:0000000105\r\nEndHTML:0000000185\r\nStartFragment:0000000141\r\nEndFragment:0000000149\r\n"
+          "<html>\r\n<body>\r\n<!--StartFragment--><p>x</p><!--EndFragment-->\r\n</body>\r\n</html>" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.fragment);
+        EXPECT_EQ(BuildCfHtmlPayload(c.fragment), c.expected);
+    }
 }
 
 TEST(BuildCfHtmlPayload, OffsetsArePositionsOfMarkers)
@@ -72,64 +82,12 @@ TEST(BuildCfHtmlPayload, OffsetsArePositionsOfMarkers)
     EXPECT_EQ(end_html, p.size());
 }
 
-TEST(BuildCfHtmlPayload, OffsetsAreOrderedAscending)
-{
-    const auto p = BuildCfHtmlPayload("body");
-    const size_t sh = ParseOffset(p, "StartHTML:");
-    const size_t sf = ParseOffset(p, "StartFragment:");
-    const size_t ef = ParseOffset(p, "EndFragment:");
-    const size_t eh = ParseOffset(p, "EndHTML:");
-    EXPECT_LT(sh, sf);
-    EXPECT_LT(sf, ef);
-    EXPECT_LT(ef, eh);
-}
-
 TEST(BuildCfHtmlPayload, FragmentContentPreservedExactly)
 {
     // HTMLエスケープや変換を行わない (呼び出し側で済んでいる前提)
     const std::string fragment = "<p>a &amp; b &lt; c</p>";
     const auto p = BuildCfHtmlPayload(fragment);
     EXPECT_TRUE(p.contains(fragment));
-}
-
-TEST(BuildCfHtmlPayload, OffsetDigitsAreTenZeroPadded)
-{
-    const auto p = BuildCfHtmlPayload("x");
-    const auto pos = p.find("StartHTML:");
-    ASSERT_NE(pos, std::string::npos);
-    for (size_t i = 0; i < kCfHtmlOffsetDigits; ++i) {
-        const char c = p[pos + std::string_view{ "StartHTML:" }.size() + i];
-        EXPECT_GE(c, '0');
-        EXPECT_LE(c, '9');
-    }
-}
-
-TEST(BuildCfHtmlPayload, HeaderContainsCRLFSeparators)
-{
-    const auto p = BuildCfHtmlPayload("x");
-    // 各 keyword は \r\n で区切られる
-    EXPECT_TRUE(p.contains("\r\nStartHTML:"));
-    EXPECT_TRUE(p.contains("\r\nEndHTML:"));
-    EXPECT_TRUE(p.contains("\r\nStartFragment:"));
-    EXPECT_TRUE(p.contains("\r\nEndFragment:"));
-}
-
-TEST(BuildCfHtmlPayload, HtmlBodyWrapperPresent)
-{
-    const auto p = BuildCfHtmlPayload("X");
-    EXPECT_TRUE(p.contains("<html>\r\n<body>\r\n<!--StartFragment-->"));
-    EXPECT_TRUE(p.contains("<!--EndFragment-->\r\n</body>\r\n</html>"));
-}
-
-TEST(BuildCfHtmlPayload, LongFragmentOffsetWithinTenDigitRange)
-{
-    // 10 桁ゼロ埋めの上限 (10^10 - 1) を fragment 長で踏まないことの確認。
-    // 1KB 規模でも %010zu の桁あふれは検出できる。
-    const std::string fragment(1024, 'A');
-    const auto p = BuildCfHtmlPayload(fragment);
-    const size_t end_html = ParseOffset(p, "EndHTML:");
-    EXPECT_EQ(end_html, p.size());
-    EXPECT_LT(end_html, 10ULL * 1000ULL * 1000ULL * 1000ULL);
 }
 
 // ---- DibTotalBytes / WriteDibHeader (CF_DIB 用ビットマップ構築の部品) ----
@@ -183,6 +141,16 @@ TEST(BuildGlobalWideFromUtf8, MatchesUtf8ToWide)
     ASSERT_TRUE(mem);
     EXPECT_EQ(ReadGlobal<wchar_t>(mem), std::wstring(string_convert::Utf8ToWide(utf8)));
     EXPECT_FALSE(BuildGlobalWideFromUtf8(""));
+}
+
+// UTF-16 → UTF-8 を GlobalAlloc 先へ直接変換し、中間 string 版と同じ結果になる。
+TEST(BuildGlobalUtf8FromWide, MatchesWideToUtf8)
+{
+    const std::wstring_view wide = L"abc あ\U0001F600 xyz";
+    const auto mem = BuildGlobalUtf8FromWide(wide);
+    ASSERT_TRUE(mem);
+    EXPECT_EQ(ReadGlobal<char>(mem), string_convert::WideToUtf8(wide));
+    EXPECT_FALSE(BuildGlobalUtf8FromWide(L""));
 }
 
 TEST(BuildGlobalCfHtml, MatchesBuildCfHtmlPayload)

@@ -748,9 +748,8 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
 
 std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
 {
-    const auto [runs, local_pos] = FindRunsAt(node, text_pos);
     const auto link_urls = node.view_link_urls();
-    const TextRun* run = FindRunAt(runs, local_pos);
+    const TextRun* run = FindRunAt(node, text_pos).run;
     if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }

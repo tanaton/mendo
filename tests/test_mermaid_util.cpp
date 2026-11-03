@@ -55,29 +55,32 @@ TEST(PageMessage, MathBatchPrefixesUtf16Length)
 // QuantizeWidth
 // ═══════════════════════════════════════════════
 
-TEST(QuantizeWidth, RoundsUpToNearest32)
+// 32 の倍数へ切り上げ、倍数はそのまま。0 以下は最小の 32。
+TEST(QuantizeWidth, RoundsUpToMultipleOf32)
 {
-    EXPECT_EQ(mermaid_util::QuantizeWidth(750.0f), 768);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(801.0f), 832);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1.0f), 32);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(31.0f), 32);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1920.0f), 1920);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1921.0f), 1952);
-}
-
-TEST(QuantizeWidth, ExactMultiplesUnchanged)
-{
-    EXPECT_EQ(mermaid_util::QuantizeWidth(32.0f), 32);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(64.0f), 64);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(800.0f), 800);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(1024.0f), 1024);
-}
-
-TEST(QuantizeWidth, ZeroAndNegativeReturnMinimum)
-{
-    EXPECT_EQ(mermaid_util::QuantizeWidth(0.0f), 32);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(-1.0f), 32);
-    EXPECT_EQ(mermaid_util::QuantizeWidth(-100.0f), 32);
+    struct Case {
+        float width;
+        int expected;
+    };
+    constexpr Case kCases[] = {
+        { 750.0f, 768 },
+        { 801.0f, 832 },
+        { 1.0f, 32 },
+        { 31.0f, 32 },
+        { 1920.0f, 1920 },
+        { 1921.0f, 1952 },
+        { 32.0f, 32 },
+        { 64.0f, 64 },
+        { 800.0f, 800 },
+        { 1024.0f, 1024 },
+        { 0.0f, 32 },
+        { -1.0f, 32 },
+        { -100.0f, 32 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.width);
+        EXPECT_EQ(mermaid_util::QuantizeWidth(c.width), c.expected);
+    }
 }
 
 // ============================================================
@@ -169,14 +172,6 @@ TEST(MathBoxesChunk, RejectsMissingCorruptOrMismatched)
 
     const std::vector<uint8_t> not_png(64, 0);
     EXPECT_TRUE(mermaid_util::AppendMathBoxesChunk(not_png, SampleLayout()).empty());
-}
-
-TEST(ParseWebMessage, RecognizesMathResult)
-{
-    const auto parsed = mermaid_util::ParseWebMessage(L"math-result:7:100:40:1|e");
-    EXPECT_EQ(parsed.kind, mermaid_util::WebMessageKind::MathResult);
-    EXPECT_EQ(parsed.request.id, 7u);
-    EXPECT_EQ(parsed.request.payload, L"100:40:1|e");
 }
 
 TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
@@ -330,6 +325,7 @@ TEST(ParseWebMessage, ClassifiesMessagesAndParsesRequest)
         { L"render-error:9:Parse error on line 2"sv, Kind::RenderError, true, 9, L"Parse error on line 2"sv },
         { L"svg-result:3:<svg/>"sv, Kind::SvgResult, true, 3, L"<svg/>"sv },
         { L"capture-ready:5"sv, Kind::CaptureReady, true, 5, L""sv },
+        { L"math-result:7:100:40:1|e"sv, Kind::MathResult, true, 7, L"100:40:1|e"sv },
         { L"render-error:9"sv, Kind::RenderError, true, 9, L""sv },
         { L"mermaid-failed"sv, Kind::Failed, false, 0, L""sv },
         // ID が数字でなければ kind は決まるが request は無効 (呼び出し側で破棄する)

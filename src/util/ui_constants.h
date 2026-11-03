@@ -93,6 +93,21 @@ inline constexpr float NAV_BTN_MARGIN = 16.0f;
 inline constexpr float NAV_BTN_GAP = 2.0f;
 inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
 
+// 描画とヒットテスト (NavButtonHitTest) が共有するナビボタン矩形。テストもこの API で座標を得る。
+inline D2D1_RECT_F NavBackButtonRect(const PaneRect& md_rect) noexcept
+{
+    const float x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
+    const float y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
+    return D2D1::RectF(x, y, x + NAV_BTN_SIZE, y + NAV_BTN_SIZE);
+}
+
+inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
+{
+    const D2D1_RECT_F back = NavBackButtonRect(md_rect);
+    const float x = back.right + NAV_BTN_GAP;
+    return D2D1::RectF(x, back.top, x + NAV_BTN_SIZE, back.bottom);
+}
+
 // コードブロック コピーボタンの定数（DIP単位）。
 // CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline constexpr float COPY_BTN_SIZE = 28.0f;

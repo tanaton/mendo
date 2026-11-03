@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "document.h"
 #include "document_test_helpers.h"
+#include "test_helpers.h"
 #include "document_utils.h"
 #include "parse_invariants.h"
 #include "parser.h"
@@ -339,16 +340,23 @@ TEST(Parser, TightListInBlockquoteTextAfterHeadingStaysQuoted)
 
 // ---- バグ #10: ネストされた引用ブロック ----
 
-TEST(Parser, NestedBlockquotePreservesOuterStyle)
+// 内側の引用を出た後も引用の段落のまま。group はネストの内外を問わず最外側のものを共有する
+// (PR #156 で blockquote_group をネスト中も最外側で共有する設計に変更)。
+TEST(Parser, NestedBlockquotePreservesOuterStyleAndGroup)
 {
     auto nodes = ParseNodes("> outer\n>\n> > inner\n>\n> still outer");
-    // 内側の引用ブロックが終了した後、"still outer"はまだ引用の段落であるべき
+    ASSERT_GE(nodes.size(), 3u);
+    const int group = nodes[0].blockquote_group;
+    EXPECT_GE(group, 0);
     bool found_still_outer = false;
     for (const auto& node : nodes) {
         if (node.GetText().contains("still outer")) {
             EXPECT_TRUE(IsQuoteParagraph(node))
                 << "内側の引用ブロック後のテキストは引用の段落のままであるべき";
             found_still_outer = true;
+        }
+        if (IsQuoteParagraph(node)) {
+            EXPECT_EQ(node.blockquote_group, group);
         }
     }
     EXPECT_TRUE(found_still_outer) << "ノード内に'still outer'が見つかるべき";
@@ -364,22 +372,7 @@ TEST(Parser, SingleBlockquoteIsQuoteParagraph)
     EXPECT_EQ(nodes[0].alert_label_length(), 0u);
 }
 
-// ネスト blockquote の group/quote_depth 設計回帰防止
-// (PR #156 で blockquote_group をネスト中も最外側で共有する設計に変更)
-
-TEST(Parser, NestedBlockquote_SharesSameGroup)
-{
-    auto nodes = ParseNodes("> outer\n>\n> > inner\n>\n> still outer");
-    ASSERT_GE(nodes.size(), 3u);
-    const int group = nodes[0].blockquote_group;
-    EXPECT_GE(group, 0);
-    for (const auto& n : nodes) {
-        if (IsQuoteParagraph(n)) {
-            EXPECT_EQ(n.blockquote_group, group)
-                << "ネストの内外を問わず最外側 group を共有する";
-        }
-    }
-}
+// ネスト blockquote の quote_depth 設計回帰防止
 
 TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
 {
@@ -483,27 +476,41 @@ TEST(Parser, ListIndentLevel)
 }
 
 // 記号と番号の書式はリストの段で決まる。番号付きと順序なしは混ぜて数え、引用は数えない (issue#365)。
+// 項目の深さはリストの入れ子だけを数え、深い項目ほど字下げする。番号は箇条書きなら 0。
 TEST(Parser, ListDepthCountsOnlyListNesting)
 {
     struct Case {
         std::string_view md;
         std::vector<int> depths;
+        std::vector<int> numbers;
     };
     const Case kCases[] = {
-        { "- a\n  - b\n    - c\n      - d", { 1, 2, 3, 4 } },
-        { "1. a\n   - b\n     1. c", { 1, 2, 3 } },
-        { "> - a\n>   - b", { 1, 2 } },
-        { "- a\n\n  > - b", { 1, 2 } },
+        { "- a\n  - b\n    - c\n      - d", { 1, 2, 3, 4 }, { 0, 0, 0, 0 } },
+        { "1. a\n   1. b\n      1. c", { 1, 2, 3 }, { 1, 1, 1 } },
+        { "1. a\n   - b\n     1. c", { 1, 2, 3 }, { 1, 0, 1 } },
+        { "1. ordered\n   - unordered\n   - unordered2", { 1, 2, 2 }, { 1, 0, 0 } },
+        { "> - a\n>   - b", { 1, 2 }, { 0, 0 } },
+        { "- a\n\n  > - b", { 1, 2 }, { 0, 0 } },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
         std::vector<int> depths;
+        std::vector<int> numbers;
+        std::vector<int> indents;
         for (const auto& node : ParseNodes(c.md)) {
             if (node.type == NodeType::ListItem) {
                 depths.push_back(node.list_depth());
+                numbers.push_back(node.list_number());
+                indents.push_back(node.indent_level);
             }
         }
         EXPECT_EQ(depths, c.depths);
+        EXPECT_EQ(numbers, c.numbers);
+        for (size_t i = 1; i < indents.size(); ++i) {
+            if (depths[i] > depths[i - 1]) {
+                EXPECT_LT(indents[i - 1], indents[i]) << "i=" << i;
+            }
+        }
     }
 }
 
@@ -746,36 +753,6 @@ TEST(Parser, PlainParagraphAndCodeBlockHaveNoRuns)
     EXPECT_EQ(nodes[1].GetText(), "int x;");
 }
 
-// ---- ネストされたリスト ----
-
-TEST(Parser, NestedUnorderedList)
-{
-    auto nodes = ParseNodes("- a\n  - b\n    - c\n      - d");
-    ASSERT_GE(nodes.size(), 4u);
-    for (size_t i = 1; i < 4; ++i) {
-        EXPECT_LT(nodes[i - 1].indent_level, nodes[i].indent_level) << "i=" << i;
-    }
-}
-
-TEST(Parser, NestedOrderedList)
-{
-    auto nodes = ParseNodes("1. a\n   1. b\n      1. c");
-    ASSERT_GE(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].list_number(), 1);
-    EXPECT_EQ(nodes[1].list_number(), 1);
-    EXPECT_EQ(nodes[2].list_number(), 1);
-    EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
-}
-
-TEST(Parser, MixedListNesting)
-{
-    auto nodes = ParseNodes("1. ordered\n   - unordered\n   - unordered2");
-    ASSERT_GE(nodes.size(), 3u);
-    EXPECT_GT(nodes[0].list_number(), 0);
-    EXPECT_EQ(nodes[1].list_number(), 0);
-    EXPECT_EQ(nodes[2].list_number(), 0);
-}
-
 // ---- インライン書式付きテーブル ----
 
 TEST(Parser, TableCellWithBold)
@@ -870,24 +847,8 @@ TEST(Parser, LatexDisplayMathOnlyParagraphIsBlockMath)
     EXPECT_TRUE(result.indices.diagram_indices.empty());
 }
 
-TEST(Parser, LatexDisplayMathWithOtherContentIsNotBlockMath)
-{
-    auto nodes = ParseNodes("before $$x+y$$ after");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_TRUE(nodes[0].GetText().contains("$$x+y$$"));
-    EXPECT_FALSE(IsBlockMath(nodes[0]));
-}
-
-TEST(Parser, LatexMultipleDisplayMathInOneParagraphIsNotBlockMath)
-{
-    auto nodes = ParseNodes("$$a$$ $$b$$");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_FALSE(IsBlockMath(nodes[0]));
-}
-
 // 数式以外のテキストの種別ごとに、$$..$$ だけの段落かを判定する。HTML は表示しないので数えない。
+// $$..$$ が複数ある段落もブロック数式にしない。
 TEST(Parser, LatexBlockMathDependsOnOtherTextType)
 {
     struct Case {
@@ -895,6 +856,8 @@ TEST(Parser, LatexBlockMathDependsOnOtherTextType)
         bool block;
     };
     for (const auto& c : {
+             Case{ "before $$x+y$$ after", false },
+             Case{ "$$a$$ $$b$$", false },
              Case{ "$$x$$ &amp;", false },
              Case{ "$$x$$&amp;", false },
              Case{ "$$x$$  \nnext", false },
@@ -904,7 +867,8 @@ TEST(Parser, LatexBlockMathDependsOnOtherTextType)
          }) {
         SCOPED_TRACE(c.md);
         auto nodes = ParseNodes(c.md);
-        ASSERT_FALSE(nodes.empty());
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
         EXPECT_EQ(IsBlockMath(nodes[0]), c.block);
     }
 }
@@ -912,10 +876,7 @@ TEST(Parser, LatexBlockMathDependsOnOtherTextType)
 // 長くて区切った $$..$$ はブロック数式にせず、本文のまま続きのノードに並べる。
 TEST(Parser, LatexDisplayMathSplitIntoChunksIsNotBlockMath)
 {
-    std::string md = "$$";
-    while (md.size() < kTextChunkTarget * 2) {
-        md += "x + ";
-    }
+    std::string md = RepeatTo("x + ", kTextChunkTarget * 2, "$$");
     md += "y$$";
     auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 1u);
@@ -982,14 +943,9 @@ TEST(Parser, LatexInlineMathInTableCellMarksCellRun)
 // 長い本文の途中で区切っても、インライン数式は 1 つのノードに収め、$ が片側だけの数式を作らない。
 TEST(Parser, LatexInlineMathNotSplitAcrossChunks)
 {
-    std::string md;
-    while (md.size() < kTextChunkTarget + kTextChunkWindow - 64) {
-        md += "word ";
-    }
+    std::string md = RepeatTo("word ", kTextChunkTarget + kTextChunkWindow - 64);
     md += "$";
-    while (md.size() < kTextChunkTarget + kTextChunkWindow * 3) {
-        md += "x + ";
-    }
+    md = RepeatTo("x + ", kTextChunkTarget + kTextChunkWindow * 3, std::move(md));
     md += "y$ tail";
     auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 1u);
@@ -1036,15 +992,6 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     EXPECT_TRUE(nodes[0].GetText().contains("$10"));
 }
 
-TEST(Parser, LatexDisplayMathMultilineIsBlockMath)
-{
-    auto nodes = ParseNodes("$$\nE = mc^2\n$$");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_TRUE(IsBlockMath(nodes[0]));
-    EXPECT_TRUE(nodes[0].GetText().contains("E = mc^2"));
-}
-
 TEST(Parser, LatexBlockMathLineCountMatchesNewlines)
 {
     const std::string_view sources[] = {
@@ -1057,6 +1004,7 @@ TEST(Parser, LatexBlockMathLineCountMatchesNewlines)
         SCOPED_TRACE(std::string{ src });
         auto nodes = ParseNodes(src);
         ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
         ASSERT_TRUE(IsBlockMath(nodes[0]));
         const auto text = nodes[0].GetText();
         EXPECT_EQ(nodes[0].line_count, static_cast<int>(std::ranges::count(text, '\n')));
@@ -1941,14 +1889,8 @@ TEST(ParserChunks, LongRunOfBlankLinesKeepsOrder)
 // (折り返さないコードで、無い改行が入って見えないように)。
 TEST(ParserChunks, CodeLineThatWouldOverflowStartsNextChunk)
 {
-    std::string code;
-    while (code.size() < 13 * 1024) {
-        code += "short line\n";
-    }
-    std::string long_line = "    ";
-    while (long_line.size() < 6 * 1024) {
-        long_line += "tok ";
-    }
+    std::string code = RepeatTo("short line\n", 13 * 1024);
+    std::string long_line = RepeatTo("tok ", 6 * 1024, "    ");
     code += long_line + "\nend\n";
     const std::string md = "```cpp\n" + code + "```\n";
     const auto nodes = ParseNodes(md);
@@ -1966,10 +1908,7 @@ TEST(ParserChunks, CodeLineThatWouldOverflowStartsNextChunk)
 // ノード 1 つに収まらない長い行だけは、行の途中で区切る。
 TEST(ParserChunks, CodeLineLongerThanChunkSplitsInsideLine)
 {
-    std::string line;
-    while (line.size() < 40 * 1024) {
-        line += "tok ";
-    }
+    std::string line = RepeatTo("tok ", 40 * 1024);
     const std::string md = "```cpp\nhead\n" + line + "\n```\n";
     const auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 2u);

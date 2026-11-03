@@ -83,29 +83,11 @@ inline __m128i AsciiUpperToLowerAdd(__m128i c) noexcept
 
 } // namespace detail
 
-// シンタックスハイライタの ASCII キーワード正規化用 (locale 動作は不要)。
-// UTF-8 の continuation byte (10xxxxxx) は signed 比較で必ず弾かれるため multi-byte シーケンスを破壊しない。
-inline void AsciiToLowerOnly(const char* src, char* dst, size_t n) noexcept
-{
-    size_t i = 0;
-    while (i + detail::kSimdStep <= n) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src + i));
-        _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + i), _mm_add_epi8(c, detail::AsciiUpperToLowerAdd(c)));
-        i += detail::kSimdStep;
-    }
-    for (; i < n; ++i) {
-        dst[i] = ToLowerAscii(src[i]);
-    }
-}
-
 // ASCII の英字だけを小文字にした写し。
 inline std::string ToLowerAsciiCopy(std::string_view text)
 {
-    std::string result;
-    result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {
-        AsciiToLowerOnly(text.data(), buf, count);
-        return count;
-    });
+    std::string result(text);
+    std::ranges::transform(result, result.begin(), ToLowerAscii);
     return result;
 }
 

@@ -67,15 +67,11 @@ protected:
 
 TaskScheduler AsyncLoadCoordinatorTest::scheduler_{ 1 };
 
-// 結果が出るまで待って取り出す。時間切れなら nullopt。
-std::optional<AsyncLoadOutcome> WaitForOutcome(AsyncLoadCoordinator& c)
+// Start が積むタスクは 1 つだけなので、scheduler を空にすれば結果が出ている。
+std::optional<AsyncLoadOutcome> WaitForOutcome(TaskScheduler& scheduler, AsyncLoadCoordinator& c)
 {
-    std::optional<AsyncLoadOutcome> outcome;
-    PollUntil([&] {
-        outcome = c.Take();
-        return outcome.has_value();
-    });
-    return outcome;
+    EXPECT_TRUE(DrainScheduler(scheduler));
+    return c.Take();
 }
 
 } // namespace
@@ -103,7 +99,7 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
     } };
     c.Start(std::wstring(L"unused.md"), GetLightTheme());
 
-    auto outcome = WaitForOutcome(c);
+    auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_FALSE(outcome->has_value());
     EXPECT_EQ(outcome->error(), FileLoadError::TooLarge);
@@ -116,7 +112,7 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(tmp.native(), GetLightTheme());
 
-    auto outcome = WaitForOutcome(c);
+    auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     const AsyncLoadResult& result = **outcome;
@@ -131,7 +127,7 @@ TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(std::wstring(L"C:\\__mendo_no_such_file__.md"), GetLightTheme());
 
-    auto outcome = WaitForOutcome(c);
+    auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_FALSE(outcome->has_value());
     EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
@@ -157,7 +153,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const std::fi
     std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string(old_text), L"old.md").ShareData();
     AsyncLoadCoordinator c{ scheduler };
     c.Start(tmp.native(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
-    auto outcome = WaitForOutcome(c);
+    auto outcome = WaitForOutcome(scheduler, c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
         result = std::move(**outcome);
@@ -232,7 +228,7 @@ TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
     const auto tmp = WriteTempFile(L"aload_watch", "# Title\n\nbody\n");
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(tmp.native(), GetLightTheme());
-    const auto outcome = WaitForOutcome(c);
+    const auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     EXPECT_TRUE((*outcome)->watch.dir);
@@ -257,7 +253,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
         }
         AsyncLoadCoordinator c{ scheduler_ };
         c.Start(tmp.native(), GetLightTheme(), 0.0f, std::move(base));
-        const auto outcome = WaitForOutcome(c);
+        const auto outcome = WaitForOutcome(scheduler_, c);
         ASSERT_TRUE(outcome.has_value());
         ASSERT_TRUE(outcome->has_value());
         const auto& reload = (*outcome)->reload;
@@ -285,7 +281,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
         return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(tmp.native(), GetLightTheme(), 0.0f, ReloadBase{ base });
-    const auto outcome = WaitForOutcome(c);
+    const auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     const auto& result = **outcome;
@@ -303,7 +299,7 @@ TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseOpensEvenWhileGrowing)
         return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(tmp.native(), GetLightTheme());
-    const auto outcome = WaitForOutcome(c);
+    const auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     EXPECT_FALSE((*outcome)->reload.has_value());
@@ -320,7 +316,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
         SCOPED_TRACE(accept ? "accept" : "defer");
         AsyncLoadCoordinator c{ scheduler_ };
         c.Start(tmp.native(), GetLightTheme(), 0.0f, ReloadBaseFor(current, tmp.native(), accept));
-        const auto outcome = WaitForOutcome(c);
+        const auto outcome = WaitForOutcome(scheduler_, c);
         ASSERT_EQ(PlanParseComplete(outcome, current), accept ? ParseCompleteStep::ApplyReload : ParseCompleteStep::DeferPrefixShrink);
         const auto& decision = (*outcome)->reload->decision;
         EXPECT_EQ(decision.op, accept ? ReloadOp::Replace : ReloadOp::DeferPrefixShrink);
@@ -335,7 +331,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
     const auto other = WriteTempFile(L"aload_reopen_other", "# Title\n");
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(other.native(), GetLightTheme(), 0.0f, ReloadBaseFor(current, other.native(), false));
-    EXPECT_EQ(PlanParseComplete(WaitForOutcome(c), current), ParseCompleteStep::ReplaceWithResult);
+    EXPECT_EQ(PlanParseComplete(WaitForOutcome(scheduler_, c), current), ParseCompleteStep::ReplaceWithResult);
 }
 
 // ---- 世代 / キャンセルの決定的検証 ----
@@ -345,17 +341,6 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
 namespace {
 
 constexpr UINT kParseCompleteMsg = WM_APP + 1;
-
-// 単一 worker は FIFO なので、番兵の完了はそれ以前に積んだタスク (PostMessage 含む) の完了を意味する。
-[[nodiscard]] bool DrainScheduler(TaskScheduler& scheduler)
-{
-    auto done = std::make_shared<std::promise<void>>();
-    auto finished = done->get_future();
-    if (!scheduler.Post([done] { done->set_value(); })) {
-        return false;
-    }
-    return finished.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
-}
 
 // AsyncLoadCoordinator に差し込むローダ。1 回目の呼び出しだけ Open まで worker を止めて
 // 指定結果を返し、2 回目以降は実ファイルを読む。関数ポインタで渡すため状態は static に置く。

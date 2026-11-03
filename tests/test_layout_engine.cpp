@@ -38,14 +38,7 @@ TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
     EXPECT_FALSE(cache.HasDirtyNodes());
 }
 
-TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
-{
-    // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
-    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
-    // ビューポート外のノードはダーティであるべき
-    EXPECT_TRUE(cache.HasDirtyNodes());
-}
-
+// 部分レイアウト (ビューポート [0, 1) のみ) は外のノードを dirty で残し、ProcessDirtyBatch が片付ける。
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
@@ -72,26 +65,6 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
-}
-
-// ---- テーブルモック ----
-
-TEST_F(MockLayoutTest, TableHasPositiveHeight)
-{
-    auto [nodes, cache] = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |");
-    const int idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    EXPECT_GT(cache[idx].height, 0.0f);
-}
-
-// ---- 水平線モック ----
-
-TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
-{
-    auto [nodes, cache] = ParseAndLayout("Above\n\n---\n\nBelow");
-    const int idx = FindFirstNodeIndexByType(nodes, NodeType::HorizontalRule);
-    ASSERT_GE(idx, 0);
-    EXPECT_GT(cache[idx].height, 0.0f);
 }
 
 // ---- Mermaidブロックのズーム耐性 ----

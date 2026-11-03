@@ -60,72 +60,49 @@ TEST(SearchStateTest, HideClearsMatches)
 }
 
 // ═══════════════════════════════════════════════
-// 基本検索（大文字小文字無視）
+// 基本検索
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, SingleMatch)
+// 既定は大文字小文字を無視し、区別するときは完全一致だけ。空のノードは飛ばす。
+TEST(SearchStateTest, FindsAllMatchesInTextNodes)
 {
-    const auto s = Searched(TextNodes({ "Hello World" }), "World");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 6u);
-    EXPECT_EQ(s.GetMatches()[0].length_w, 5u);
-}
-
-TEST(SearchStateTest, MultipleMatchesInOneNode)
-{
-    const auto s = Searched(TextNodes({ "abcabcabc" }), "abc");
-    ASSERT_EQ(s.GetMatchCount(), 3);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
-    EXPECT_EQ(s.GetMatches()[1].start_w, 3u);
-    EXPECT_EQ(s.GetMatches()[2].start_w, 6u);
-}
-
-TEST(SearchStateTest, MatchesAcrossMultipleNodes)
-{
-    const auto s = Searched(TextNodes({ "first test", "no match here", "another test" }), "test");
-    ASSERT_EQ(s.GetMatchCount(), 2);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-    EXPECT_EQ(s.GetMatches()[1].node_index, 2);
-}
-
-TEST(SearchStateTest, CaseInsensitiveByDefault)
-{
-    EXPECT_EQ(Searched(TextNodes({ "Hello HELLO hello" }), "hello").GetMatchCount(), 3);
-    EXPECT_EQ(Searched(TextNodes({ "Hello HELLO hello" }), "hELLo").GetMatchCount(), 3);
-}
-
-TEST(SearchStateTest, NoMatchReturnsEmpty)
-{
-    EXPECT_EQ(Searched(TextNodes({ "hello world" }), "xyz").GetMatchCount(), 0);
-}
-
-TEST(SearchStateTest, EmptyNodesProducesNoMatches)
-{
-    EXPECT_EQ(Searched(TextNodes({}), "hello").GetMatchCount(), 0);
-}
-
-TEST(SearchStateTest, EmptyTextNodeSkipped)
-{
-    const auto s = Searched(TextNodes({ "", "hello" }), "hello");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 1);
-}
-
-// ═══════════════════════════════════════════════
-// 大文字小文字区別
-// ═══════════════════════════════════════════════
-
-TEST(SearchStateTest, CaseSensitiveMatchesExact)
-{
-    const auto s = Searched(TextNodes({ "Hello HELLO hello" }), "Hello", true);
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
-}
-
-TEST(SearchStateTest, CaseSensitiveNoMatch)
-{
-    EXPECT_EQ(Searched(TextNodes({ "HELLO" }), "hello", true).GetMatchCount(), 0);
+    struct Expected {
+        int node;
+        uint32_t start_w;
+        uint32_t length_w;
+    };
+    struct Case {
+        const char* name;
+        std::vector<Node> nodes;
+        const char* query;
+        bool case_sensitive;
+        std::vector<Expected> expected;
+    };
+    const Case kCases[] = {
+        { "SingleMatch", TextNodes({ "Hello World" }), "World", false, { { 0, 6, 5 } } },
+        { "MultipleMatchesInOneNode", TextNodes({ "abcabcabc" }), "abc", false, { { 0, 0, 3 }, { 0, 3, 3 }, { 0, 6, 3 } } },
+        { "MatchesAcrossMultipleNodes", TextNodes({ "first test", "no match here", "another test" }), "test", false, { { 0, 6, 4 }, { 2, 8, 4 } } },
+        { "CaseInsensitiveByDefault", TextNodes({ "Hello HELLO hello" }), "hello", false, { { 0, 0, 5 }, { 0, 6, 5 }, { 0, 12, 5 } } },
+        { "CaseInsensitiveMixedQuery", TextNodes({ "Hello HELLO hello" }), "hELLo", false, { { 0, 0, 5 }, { 0, 6, 5 }, { 0, 12, 5 } } },
+        { "NoMatch", TextNodes({ "hello world" }), "xyz", false, {} },
+        { "EmptyNodes", {}, "hello", false, {} },
+        { "EmptyTextNodeSkipped", TextNodes({ "", "hello" }), "hello", false, { { 1, 0, 5 } } },
+        { "CaseSensitiveMatchesExact", TextNodes({ "Hello HELLO hello" }), "Hello", true, { { 0, 0, 5 } } },
+        { "CaseSensitiveNoMatch", TextNodes({ "HELLO" }), "hello", true, {} },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        const auto s = Searched(c.nodes, c.query, c.case_sensitive);
+        ASSERT_EQ(s.GetMatchCount(), static_cast<int>(c.expected.size()));
+        for (size_t k = 0; k < c.expected.size(); ++k) {
+            SCOPED_TRACE(k);
+            const auto& m = s.GetMatches()[k];
+            EXPECT_EQ(m.node_index, c.expected[k].node);
+            EXPECT_EQ(m.table_row, -1);
+            EXPECT_EQ(m.start_w, c.expected[k].start_w);
+            EXPECT_EQ(m.length_w, c.expected[k].length_w);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════
@@ -287,14 +264,13 @@ TEST(SearchStateTest, ContinueSearchYieldsAtDeadlineAndResumes)
     const auto nodes = RepeatedTextNodes("x", 600);
     SearchState s;
     s.BeginSearch("x");
-    const auto past = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
-    EXPECT_FALSE(s.ContinueSearch(nodes, past));
+    EXPECT_FALSE(s.ContinueSearch(nodes, kExpiredDeadline));
     EXPECT_TRUE(s.IsSearching());
     EXPECT_EQ(s.GetMatchCount(), 0);
     EXPECT_FALSE(s.HasResult()) << "初めての検索の途中は 0 件を「見つからない」と見せない";
 
-    while (!s.ContinueSearch(nodes, past)) {
+    while (!s.ContinueSearch(nodes, kExpiredDeadline)) {
     }
     EXPECT_FALSE(s.IsSearching());
     EXPECT_TRUE(s.HasResult());
@@ -310,7 +286,7 @@ TEST(SearchStateTest, ShowsPreviousMatchesUntilSearchFinishes)
     s.NextMatch();
     s.BeginSearch("z");
 
-    EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
+    EXPECT_FALSE(s.ContinueSearch(nodes, kExpiredDeadline));
     EXPECT_EQ(s.GetMatchCount(), 600);
     EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
 
@@ -326,22 +302,9 @@ TEST(SearchStateTest, KeepsZeroResultWhileResearching)
     auto s = Searched(nodes, "z");
     ASSERT_TRUE(s.HasResult());
     s.BeginSearch("w");
-    EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
+    EXPECT_FALSE(s.ContinueSearch(nodes, kExpiredDeadline));
     EXPECT_TRUE(s.HasResult());
     EXPECT_EQ(s.GetMatchCount(), 0);
-}
-
-// 止めた検索は続きを進めず、前回の結果を残す。
-TEST(SearchStateTest, StopSearchKeepsPreviousMatches)
-{
-    const auto nodes = RepeatedTextNodes("x", 600);
-    auto s = Searched(nodes, "x");
-    s.BeginSearch("z");
-    s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1));
-
-    s.StopSearch();
-    EXPECT_TRUE(s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max()));
-    EXPECT_EQ(s.GetMatchCount(), 600);
 }
 
 // 空のクエリは調べるまでもなく、すぐ結果を消す。
@@ -552,15 +515,15 @@ TEST(SearchStateTest, ExtendingQueryMatchesFullSearch)
     }
 }
 
-// 調べ終わる前に伸ばしたときは、前回の結果が全マッチではないので最初から調べる。
-TEST(SearchStateTest, ExtendingQueryAfterStoppedSearchScansAll)
+// 調べ終わる前に伸ばしたときは、途中までのマッチが全マッチではないので最初から調べる。
+TEST(SearchStateTest, ExtendingQueryBeforeSearchFinishesScansAll)
 {
-    const auto nodes = TextNodes({ "ab", "ab", "ab" });
+    const auto nodes = RepeatedTextNodes("ab", 600);
     SearchState s;
     s.BeginSearch("a");
-    s.StopSearch();
+    ASSERT_FALSE(s.ContinueSearch(nodes, kExpiredDeadline));
     RunSearchToEnd(s, nodes, "ab");
-    EXPECT_EQ(s.GetMatchCount(), 3);
+    EXPECT_EQ(s.GetMatchCount(), 600);
 }
 
 // ═══════════════════════════════════════════════

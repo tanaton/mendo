@@ -21,7 +21,8 @@ void NavHistory::Push(NavEntry current)
 void NavHistory::PushPending(NavEntry current)
 {
     RollbackPending();
-    saved_.emplace(back_stack_, forward_stack_);
+    // 進む履歴はこの後空にするので、写さずに渡す。
+    saved_.emplace(back_stack_, std::move(forward_stack_));
     PushCapped(back_stack_, std::move(current));
     forward_stack_.clear();
 }

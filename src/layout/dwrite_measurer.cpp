@@ -369,6 +369,11 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         layout->SetDrawingEffect(BrushEffect::For(BrushId::Link), r);
     } };
 
+    // 数式ごとにインラインオブジェクトを作る。数式 1 個あたり約 135ns 以下で、数式 12000 個の文書を組む時間
+    // (直列 113ms) の約 1.4% にとどまる (BM_InlineMathLayout)。オブジェクトは表に持たせて使い回さない。同じオブジェクトを
+    // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
+    // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
+    bool math_pending = false;
     // runs は start 昇順・非重複なので、境界の UTF-16 位置は前方への 1 回の走査で求まる。
     Utf16OffsetCursor cursor{ text };
     for (const auto& r : runs) {
@@ -381,37 +386,14 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         }
         strike.Update(r.strikethrough(), wr);
         link.Update(r.has_link(), wr);
-    }
-
-    bold.Flush();
-    italic.Flush();
-    code.Flush();
-    strike.Flush();
-    link.Flush();
-    return ApplyInlineMath(layout, runs, text, math_font_size, fit_width);
-}
-
-bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, float font_size, float fit_width) const
-{
-    if (!inline_math_) {
-        return false;
-    }
-    bool pending = false;
-    // 数式ごとにインラインオブジェクトを作る。数式 1 個あたり約 135ns 以下で、数式 12000 個の文書を組む時間
-    // (直列 113ms) の約 1.4% にとどまる (BM_InlineMathLayout)。オブジェクトは表に持たせて使い回さない。同じオブジェクトを
-    // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
-    // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
-    Utf16OffsetCursor cursor{ text };
-    for (const auto& r : runs) {
-        if (!r.math()) {
+        if (!inline_math_ || !r.math()) {
             continue;
         }
         const auto tex = InlineMathTex(text, r);
         if (!tex) {
             continue;
         }
-        const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
-        const uint64_t key = InlineMathKey(*tex, font_size);
+        const uint64_t key = InlineMathKey(*tex, math_font_size);
         if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
                 const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
@@ -419,10 +401,16 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
             }
         }
         else {
-            pending = true;
+            math_pending = true;
         }
     }
-    return pending;
+
+    bold.Flush();
+    italic.Flush();
+    code.Flush();
+    strike.Flush();
+    link.Flush();
+    return math_pending;
 }
 
 std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const

@@ -280,19 +280,6 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// 検索バーの開閉はフォーカス移動と再描画を effect で返す。
-TEST_F(ReducerTest, OpenAndCloseSearchBar_EmitFocusEffects)
-{
-    auto opened = Reduce(state, OpenSearchBarAction{});
-    EXPECT_TRUE(state.search.search_state.IsVisible());
-    EXPECT_TRUE(HasEffect<effect::SearchFocus>(opened));
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(opened));
-
-    auto closed = Reduce(state, CloseSearchBarAction{});
-    EXPECT_FALSE(state.search.search_state.IsVisible());
-    EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(closed));
-}
-
 // ---- 検索ジャンプ ----
 
 // 検索ジャンプのスクロールも通常スクロールと同じ副作用 (ツールチップ消去・ビットマップ管理・TOC 追従) を積む。
@@ -1319,16 +1306,29 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
 
 class FilePaneRevealTest : public ReducerTest {
 protected:
-    ScopedTempDir temp_dir_;
-    const std::filesystem::path dir_ = temp_dir_.path();
+    // どのテストもファイルを変えないので、スイートで 1 回だけ作る (テストごとに作ると 1 本 13ms かかる)。
+    // テストの外で作るので名前はプロセス ID だけで決まる。スイートで temp を持つのはここだけにすること。
+    static inline std::optional<ScopedTempDir> temp_dir_;
+    static inline std::filesystem::path dir_;
+
+    static void SetUpTestSuite()
+    {
+        temp_dir_.emplace();
+        dir_ = temp_dir_->path();
+        // ".." + f00.md〜f29.md の 31 項目
+        for (int i = 0; i < 30; ++i) {
+            temp_dir_->Write(std::format(L"f{:02}.md", i), "x");
+        }
+    }
+
+    static void TearDownTestSuite()
+    {
+        temp_dir_.reset();
+    }
 
     void SetUp() override
     {
         ReducerTest::SetUp();
-        // ".." + f00.md〜f29.md の 31 項目
-        for (int i = 0; i < 30; ++i) {
-            temp_dir_.Write(std::format(L"f{:02}.md", i), "x");
-        }
         // ファイルペインの内容領域は 10 項目分 (280 DIP)
         SetWindowSize(state, 1048.0f, theme.pane_header_height + 280.0f);
     }

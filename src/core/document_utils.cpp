@@ -1,6 +1,5 @@
 #include "document_utils.h"
 #include "ascii_util.h"
-#include "file_io.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
@@ -113,7 +112,9 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
     return FindWordBoundariesImpl(text, pos);
 }
 
-const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept
+namespace {
+// runs は start 昇順で重ならない。
+const TextRun* RunContaining(std::span<const TextRun> runs, uint32_t pos) noexcept
 {
     // pos を含みうるのは start <= pos の最後の run だけ。
     const auto it = std::ranges::upper_bound(runs, pos, {}, &TextRun::start);
@@ -123,12 +124,13 @@ const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept
     const TextRun& run = *std::prev(it);
     return pos < run.start + run.length ? &run : nullptr;
 }
+} // namespace
 
-NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept
+NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
 {
     const auto* tbl = node.table_data();
     if (!tbl) {
-        return { node.runs(), pos };
+        return { RunContaining(node.runs(), pos), 0 };
     }
     const size_t idx = tbl->CellIndexAt(pos);
     const size_t col_count = tbl->col_count;
@@ -141,15 +143,15 @@ NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept
     if (pos >= tbl->CellTextEnd(r, c)) {
         return {};
     }
-    return { tbl->GetCellRuns(r, c), pos - tbl->CellTextStart(r, c) };
+    const uint32_t base = tbl->CellTextStart(r, c);
+    return { RunContaining(tbl->GetCellRuns(r, c), pos - base), base };
 }
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
 {
     // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
-    const auto [runs, local_pos] = FindRunsAt(nodes[node], pos);
-    if (const auto* run = FindRunAt(runs, local_pos); run && run->math()) {
-        const uint32_t start = pos - local_pos + run->start;
+    if (const auto [run, base] = FindRunAt(nodes[node], pos); run && run->math()) {
+        const uint32_t start = base + run->start;
         return { node, start, node, start + run->length, true };
     }
     const std::string_view text = nodes[node].GetText();
@@ -313,6 +315,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     // 語を飛ばせない言語は全トークンを作るので、16MB で HTML 45ms、YAML 100ms、Lisp 130ms ほどかかるが、並列にするほど現れない。
     constexpr size_t kWindowNodes = 8;
     std::string seg;
+    std::vector<size_t> boundaries;
     // next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
     // (トークンの先頭か、どのトークンにも入らない位置)。
     size_t next = 1;
@@ -327,7 +330,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         for (size_t j = next; j < last; ++j) {
             seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
         }
-        std::vector<size_t> boundaries;
+        boundaries.clear();
         for (size_t k = next; k < last; ++k) {
             boundaries.push_back(begins[k] - restart);
         }

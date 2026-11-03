@@ -16,11 +16,6 @@
 
 namespace {
 
-std::wstring ExeDirectory()
-{
-    return path_util::ParentDirectory(ExePath());
-}
-
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。
 // MSVC の absolute は GetFullPathNameW 経由で "." / ".." も解決する。
 std::wstring ToAbsolutePath(std::wstring_view path)
@@ -46,7 +41,7 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
     const std::wstring ignored_cwds[]{
         QueryPath(GetSystemDirectoryW),
         QueryPath(GetWindowsDirectoryW),
-        ExeDirectory(),
+        path_util::ParentDirectory(ExePath()),
     };
     const std::wstring_view ignored_cwd_views[]{ ignored_cwds[0], ignored_cwds[1], ignored_cwds[2] };
     StartupContext ctx{

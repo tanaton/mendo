@@ -3,96 +3,74 @@
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
 
+namespace {
+
+void ExpectIdle(const MouseGesture& g)
+{
+    EXPECT_EQ(g.GetPhase(), GesturePhase::Idle);
+    EXPECT_EQ(g.GetDirection(), NavDirection::None);
+    EXPECT_FALSE(g.IsGestureActive());
+    EXPECT_FALSE(g.IsOverlayVisible());
+    EXPECT_TRUE(g.GetTrailPoints().empty());
+}
+
+} // namespace
+
 class MouseGestureTest : public ::testing::Test {
 protected:
     MouseGesture gesture_;
 };
 
-// ─── 初期状態 ───
+// ─── Idle では移動も離すのも無視する ───
 
-TEST_F(MouseGestureTest, InitiallyIdle)
+TEST_F(MouseGestureTest, IdleIgnoresMoveAndRelease)
 {
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
-    EXPECT_FALSE(gesture_.IsGestureActive());
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-    EXPECT_TRUE(gesture_.GetTrailPoints().empty());
+    ExpectIdle(gesture_);
+    EXPECT_FALSE(gesture_.OnMouseMove(100.0f, 100.0f));
+    ExpectIdle(gesture_);
+    EXPECT_EQ(gesture_.OnRButtonUp(), GestureResult::None);
 }
 
-// ─── 小さな移動 → コンテキストメニュー ───
+// ─── 押して動かして離す ───
 
-TEST_F(MouseGestureTest, SmallMoveThenReleaseShowsContextMenu)
+// 閾値未満の移動は右クリック扱いでメニューを出す。閾値を超えると追跡に入り、
+// 横向きが勝てば戻る/進む、縦向きが勝てば方向なしでメニューを出す (イベントを握り潰してメニューを失わない)。
+// 離したら Idle に戻り、オーバーレイも消える。
+TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
 {
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Pressed);
+    struct Case {
+        const char* name;
+        float down_x;
+        float move_x;
+        float move_y;
+        GesturePhase phase;
+        NavDirection direction;
+        GestureResult result;
+    };
+    constexpr Case kCases[] = {
+        { "NoMove", 100.0f, 100.0f, 100.0f, GesturePhase::Pressed, NavDirection::None, GestureResult::ShowContextMenu },
+        { "SmallMove", 100.0f, 105.0f, 102.0f, GesturePhase::Pressed, NavDirection::None, GestureResult::ShowContextMenu },
+        { "Right", 100.0f, 200.0f, 100.0f, GesturePhase::Tracking, NavDirection::Forward, GestureResult::Forward },
+        { "Left", 200.0f, 50.0f, 100.0f, GesturePhase::Tracking, NavDirection::Back, GestureResult::Back },
+        { "Vertical", 100.0f, 100.0f, 200.0f, GesturePhase::Tracking, NavDirection::None, GestureResult::ShowContextMenu },
+        // 右に 50、下に 20
+        { "DiagonalMoreHorizontal", 100.0f, 150.0f, 120.0f, GesturePhase::Tracking, NavDirection::Forward, GestureResult::Forward },
+        // 右に 20、下に 50
+        { "DiagonalMoreVertical", 100.0f, 120.0f, 150.0f, GesturePhase::Tracking, NavDirection::None, GestureResult::ShowContextMenu },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        gesture_.OnRButtonDown(c.down_x, 100.0f);
+        EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Pressed);
+        gesture_.OnMouseMove(c.move_x, c.move_y);
+        EXPECT_EQ(gesture_.GetPhase(), c.phase);
+        EXPECT_EQ(gesture_.IsGestureActive(), c.phase == GesturePhase::Tracking);
+        EXPECT_EQ(gesture_.GetDirection(), c.direction);
+        EXPECT_EQ(gesture_.IsOverlayVisible(), c.direction != NavDirection::None);
 
-    // ごくわずかに移動（< 閾値）
-    gesture_.OnMouseMove(105.0f, 102.0f);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Pressed);
-    EXPECT_FALSE(gesture_.IsGestureActive());
-
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::ShowContextMenu);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-}
-
-// ─── 移動なし → コンテキストメニュー ───
-
-TEST_F(MouseGestureTest, NoMoveThenReleaseShowsContextMenu)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::ShowContextMenu);
-}
-
-// ─── 右ジェスチャー → 進む ───
-
-TEST_F(MouseGestureTest, RightGestureReturnsForward)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    gesture_.OnMouseMove(200.0f, 100.0f);  // 右に100px
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Forward);
-    EXPECT_TRUE(gesture_.IsOverlayVisible());
-
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::Forward);
-    // アクション発火 → Idleにリセット、オーバーレイ消失
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-}
-
-// ─── 左ジェスチャー → 戻る ───
-
-TEST_F(MouseGestureTest, LeftGestureReturnsBack)
-{
-    gesture_.OnRButtonDown(200.0f, 100.0f);
-    gesture_.OnMouseMove(50.0f, 100.0f);  // 左に150px
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
-    EXPECT_TRUE(gesture_.IsOverlayVisible());
-
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::Back);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-}
-
-// ─── 垂直移動 (方向なし) → ShowContextMenu (右クリック扱いでメニュー表示) ───
-
-TEST_F(MouseGestureTest, VerticalGestureReturnsShowContextMenu)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    gesture_.OnMouseMove(100.0f, 200.0f);  // 下に100px
-    // トラッキングに入るが、方向はNone（|dx| <= |dy|）
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-
-    // 方向が確定しなかった右ドラッグはイベントを握り潰さず、コンテキストメニューを表示する。
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::ShowContextMenu);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
+        EXPECT_EQ(gesture_.OnRButtonUp(), c.result);
+        ExpectIdle(gesture_);
+    }
 }
 
 // ─── トラッキング中の方向変化に合わせてオーバーレイを切り替える ───
@@ -112,28 +90,6 @@ TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
     gesture_.OnMouseMove(0.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
-}
-
-// ─── 斜め移動の閾値 ───
-
-TEST_F(MouseGestureTest, DiagonalWithMoreHorizontalIsDirectional)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    // 右に50px、下に20px → |dx| > |dy|、距離 > 閾値
-    gesture_.OnMouseMove(150.0f, 120.0f);
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Forward);
-    EXPECT_TRUE(gesture_.IsOverlayVisible());
-}
-
-TEST_F(MouseGestureTest, DiagonalWithMoreVerticalIsNone)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    // 右に20px、下に50px → |dx| <= |dy|
-    gesture_.OnMouseMove(120.0f, 150.0f);
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
 }
 
 // ─── 軌跡ポイントの蓄積 ───
@@ -178,29 +134,7 @@ TEST_F(MouseGestureTest, ResetClearsEverything)
     EXPECT_TRUE(gesture_.IsOverlayVisible());
 
     gesture_.Reset();
-
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
-    EXPECT_FALSE(gesture_.IsGestureActive());
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-    EXPECT_TRUE(gesture_.GetTrailPoints().empty());
-}
-
-// ─── Idle状態でRButtonUpするとNoneを返す ───
-
-TEST_F(MouseGestureTest, RButtonUpInIdleReturnsNone)
-{
-    auto result = gesture_.OnRButtonUp();
-    EXPECT_EQ(result, GestureResult::None);
-}
-
-// ─── Idle状態でのMouseMoveは無視される ───
-
-TEST_F(MouseGestureTest, MouseMoveInIdleIsIgnored)
-{
-    gesture_.OnMouseMove(100.0f, 100.0f);
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_TRUE(gesture_.GetTrailPoints().empty());
+    ExpectIdle(gesture_);
 }
 
 // 描画に表れる変化 (点の追加・方向の変化) があったときだけ true を返す。
@@ -237,17 +171,6 @@ TEST(GestureOverlay, TrackingLeft)
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
-TEST(GestureOverlay, TrackingRight)
-{
-    MouseGesture gesture;
-    SwipeDetector swipe;
-    gesture.OnRButtonDown(100.0f, 100.0f);
-    gesture.OnMouseMove(200.0f, 100.0f);
-
-    auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_EQ(gs.direction, NavDirection::Forward);
-}
-
 TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
 {
     MouseGesture gesture;
@@ -259,6 +182,7 @@ TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
+// 右へのジェスチャーは、逆向きのスワイプがあってもジェスチャーの向きを出す。
 TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
 {
     MouseGesture gesture;

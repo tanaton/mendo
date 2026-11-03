@@ -12,6 +12,7 @@
 #include "document_test_helpers.h"
 #include "draw_cmd_test_util.h"
 #include "dwrite_test_base.h"
+#include "layout_invariants.h"
 #include "parser.h"
 #include "test_helpers.h"
 #include "test_nodes.h"
@@ -81,38 +82,39 @@ float GapAfter(const LayoutCache& cache, size_t i)
 
 } // namespace
 
-TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
+// 種類の混ざった文書で Y の連鎖が保たれ、種類ごとに要るレイアウトが作られる。
+TEST_F(LayoutTest, MixedDocumentLayout)
 {
-    auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
-    EXPECT_GT(cache[0].height, 0.0f);
-}
+    auto [nodes, cache] = ParseAndLayout(
+        "# Heading\n\nParagraph\n\n```\ncode\n```\n\n---\n\n- List\n\n"
+        "| A | B |\n|---|---|\n| 1 | 2 |\n\nC\n\nD");
+    const std::vector<NodeType> expected_types{
+        NodeType::Heading, NodeType::Paragraph, NodeType::CodeBlock, NodeType::HorizontalRule,
+        NodeType::ListItem, NodeType::Table, NodeType::Paragraph, NodeType::Paragraph,
+    };
+    ASSERT_EQ(nodes | std::views::transform(&Node::type) | std::ranges::to<std::vector>(), expected_types);
+    constexpr size_t kTable = 5;
 
-TEST_F(LayoutTest, HeadingIsTallerThanParagraph)
-{
-    const auto heading = ParseAndLayout("# Big Title");
-    const auto para = ParseAndLayout("Small text");
-    EXPECT_GT(heading.cache[0].height, para.cache[0].height);
-}
-
-TEST_F(LayoutTest, YPositionsIncreaseMonotonically)
-{
-    auto [nodes, cache] = ParseAndLayout("# A\n\nB\n\nC\n\nD");
-
-    for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache.Top(i), cache.Top(i - 1))
-            << "ノード " << i << " のyはノード " << (i - 1) << " より大きいこと";
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
+    for (size_t i = 0; i < nodes.size(); i++) {
+        SCOPED_TRACE(i);
+        EXPECT_GT(cache[i].height, 0.0f);
+        const bool has_text = nodes[i].type != NodeType::HorizontalRule && nodes[i].type != NodeType::Table;
+        EXPECT_EQ(cache[i].text_layout() != nullptr, has_text);
     }
-}
+    EXPECT_GT(cache[0].height, cache[1].height) << "見出しは段落より高い";
+    EXPECT_LE(cache.Bottom(nodes.size() - 1), ComputeTotalContentHeight(cache, theme_.margin_bottom));
 
-TEST_F(LayoutTest, NodesDoNotOverlap)
-{
-    auto [nodes, cache] = ParseAndLayout("# Heading\n\nParagraph\n\n---\n\n- List");
-
-    for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
-        EXPECT_LE(prev_bottom, cache.Top(i))
-            << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
+    const auto* tl = cache[kTable].table_layout();
+    ASSERT_NE(tl, nullptr);
+    EXPECT_FALSE(tl->col_widths.empty());
+    const auto* tbl = nodes[kTable].table_data();
+    for (size_t r = 0; r < tbl->row_count; r++) {
+        for (size_t c = 0; c < tbl->col_count; c++) {
+            if (!tbl->GetCellText(r, c).empty()) {
+                EXPECT_NE(tl->GetCellLayout(r, c), nullptr) << r << "," << c;
+            }
+        }
     }
 }
 
@@ -123,56 +125,6 @@ TEST_F(LayoutTest, LayoutDirtyFlagCleared)
     EXPECT_TRUE(cache[0].layout_dirty);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].layout_dirty);
-}
-
-TEST_F(LayoutTest, TextLayoutCreated)
-{
-    auto [nodes, cache] = ParseAndLayout("Test paragraph");
-    EXPECT_NE(cache[0].text_layout(), nullptr);
-}
-
-TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout)
-{
-    auto [nodes, cache] = ParseAndLayout("---");
-    EXPECT_EQ(cache[0].text_layout(), nullptr);
-    EXPECT_GT(cache[0].height, 0.0f);
-}
-
-TEST_F(LayoutTest, CodeBlockTextLayout)
-{
-    auto [nodes, cache] = ParseAndLayout("```\ncode\n```");
-    EXPECT_NE(cache[0].text_layout(), nullptr);
-}
-
-TEST_F(LayoutTest, TableLayout)
-{
-    auto [nodes, cache] = ParseAndLayout(
-        "| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Table);
-    EXPECT_GT(cache[0].height, 0.0f);
-    ASSERT_NE(cache[0].table_layout(), nullptr);
-    EXPECT_FALSE(cache[0].table_layout()->col_widths.empty());
-}
-
-TEST_F(LayoutTest, TableCellLayoutsCreated)
-{
-    auto [nodes, cache] = ParseAndLayout(
-        "| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |");
-    ASSERT_NE(cache[0].table_layout(), nullptr);
-    const auto& tl = *cache[0].table_layout();
-    const auto* tbl = nodes[0].table_data();
-    for (size_t r = 0; r < tbl->row_count; r++) {
-        for (size_t c = 0; c < tbl->col_count; c++) {
-            if (!tbl->GetCellText(r, c).empty()) {
-                EXPECT_NE(tl.GetCellLayout(r, c), nullptr);
-            }
-        }
-    }
 }
 
 TEST_F(LayoutTest, TableCellLinkHasUnderline)
@@ -212,18 +164,6 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
     // H1はH2より高く、H2はH3以上であること
     EXPECT_GT(cache[0].height, cache[1].height);
     EXPECT_GE(cache[1].height, cache[2].height);
-}
-
-TEST_F(LayoutTest, TotalHeightWithManyNodes)
-{
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
-
-    float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
-    EXPECT_GT(total, 1000.0f); // 100段落あればかなり高くなるはず
-
-    // 最後のノードの下端が全体の高さ以内であること
-    size_t last = nodes.size() - 1;
-    EXPECT_LE(cache.Top(last) + cache[last].height, total);
 }
 
 // ---- ProcessDirtyBatch テスト ----
@@ -484,11 +424,13 @@ TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
 
 // ---- RecomputeYPositions テスト ----
 
+// 空の文書は推定も位置の計算も何もしない。
 TEST(RecomputeYPositionsTest, EmptyNodes)
 {
     std::vector<Node> nodes;
     LayoutCache cache;
     const Theme& theme = GetLightTheme();
+    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     RecomputeYPositions(nodes, cache, theme);
     EXPECT_EQ(cache.size(), 0u);
 }
@@ -523,60 +465,21 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes)
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 10.0f), 115.0f);
 }
 
-TEST(RecomputeYPositionsTest, SingleParagraph)
+// 先頭ノードは margin_top から、見出しならその上の間隔を足した位置に置く。
+TEST(RecomputeYPositionsTest, FirstNodeTop)
 {
-    auto nodes = MakeNodes({ { .type = NodeType::Paragraph } });
-    auto cache = MakeMeasuredCache({ 20.0f });
     const Theme theme = GetLightTheme();
-
-    RecomputeYPositions(nodes, cache, theme);
-    EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top);
-}
-
-TEST(RecomputeYPositionsTest, HeadingSpacing)
-{
-    auto nodes = MakeNodes({
-        { .type = NodeType::Paragraph },
-        { .type = NodeType::Heading, .heading_level = 3 }, // h3はheading_spacing_below（下線なし）を使う
-        { .type = NodeType::Paragraph },
-    });
-    auto cache = MakeMeasuredCache({ 20.0f, 30.0f, 20.0f });
-    const Theme theme = GetLightTheme();
-
-    RecomputeYPositions(nodes, cache, theme);
-
-    // 見出しの上に追加の間隔があること
-    float para_bottom = cache.Top(0) + cache[0].height + theme.paragraph_spacing;
-    float heading_y = cache.Top(1);
-    EXPECT_FLOAT_EQ(heading_y, para_bottom + theme.heading_spacing_above);
-
-    // 見出しの後: paragraph_spacingではなくheading_spacing_below
-    float heading_bottom = cache.Top(1) + cache[1].height + theme.heading_spacing_below;
-    EXPECT_FLOAT_EQ(cache.Top(2), heading_bottom);
-}
-
-TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
-{
-    // h1/h2 は下線を描くため heading_spacing_below_h1h2 が使われ、
-    // h3以降は heading_spacing_below が使われることを検証する。
-    auto nodes = MakeNodes({
-        { .type = NodeType::Heading, .heading_level = 1 },
-        { .type = NodeType::Paragraph },
-        { .type = NodeType::Heading, .heading_level = 3 },
-        { .type = NodeType::Paragraph },
-    });
-    auto cache = MakeMeasuredCache({ 40.0f, 20.0f, 30.0f, 20.0f });
-    const Theme theme = GetLightTheme();
-    RecomputeYPositions(nodes, cache, theme);
-
-    // h1 の後: heading_spacing_below_h1h2 が使われる
-    EXPECT_FLOAT_EQ(GapAfter(cache, 0), theme.heading_spacing_below_h1h2);
-
-    // h3 の後: heading_spacing_below（h3以降用）が使われる
-    EXPECT_FLOAT_EQ(GapAfter(cache, 2), theme.heading_spacing_below);
-
-    // 両者は実際に異なる値であること（テスト対象の分岐が意味を持つ前提）
-    EXPECT_GT(theme.heading_spacing_below_h1h2, theme.heading_spacing_below);
+    const std::pair<NodeSpec, float> cases[] = {
+        { { .type = NodeType::Paragraph }, theme.margin_top },
+        { { .type = NodeType::Heading, .heading_level = 3 }, theme.margin_top + theme.heading_spacing_above },
+    };
+    for (const auto& [spec, expected_top] : cases) {
+        SCOPED_TRACE(static_cast<int>(spec.type));
+        auto nodes = MakeNodes({ spec });
+        auto cache = MakeMeasuredCache({ 20.0f });
+        RecomputeYPositions(nodes, cache, theme);
+        EXPECT_FLOAT_EQ(cache.Top(0), expected_top);
+    }
 }
 
 // ---- EnsureVisibleLayout テスト ----
@@ -652,25 +555,6 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 
 // ---- RecomputeYPositions 追加テスト ----
 
-TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
-{
-    const Theme theme = GetLightTheme();
-    auto nodes = MakeNodes({
-        { .type = NodeType::Heading, .heading_level = 3 },
-        { .type = NodeType::Heading, .heading_level = 3 },
-    });
-    auto cache = MakeMeasuredCache({ 40.0f, 30.0f });
-
-    RecomputeYPositions(nodes, cache, theme);
-
-    // 最初の見出し: margin_top + heading_spacing_above
-    EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top + theme.heading_spacing_above);
-
-    // 2番目の見出し: 最初の見出しの後 + heading_spacing_below + heading_spacing_above
-    float expected_y = cache.Top(0) + cache[0].height + theme.heading_spacing_below + theme.heading_spacing_above;
-    EXPECT_FLOAT_EQ(cache.Top(1), expected_y);
-}
-
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 {
     const Theme theme = GetLightTheme();
@@ -686,11 +570,7 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
     auto cache = MakeMeasuredCache({ 20.0f, 30.0f, 50.0f, 5.0f, 18.0f, 25.0f, 60.0f });
 
     RecomputeYPositions(nodes, cache, theme);
-
-    // すべての位置が単調増加であること
-    for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
-    }
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme));
 }
 
 // ---- FindFirstVisibleNodeIndex テスト（layout_cache.h のフリー関数） ----
@@ -741,8 +621,19 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
     };
     const auto code_gap = [](const Theme& t) static { return t.paragraph_spacing + t.code_block_spacing_above; };
     const auto list_gap = [](const Theme& t) static { return t.list_item_spacing; };
+    const auto above_heading = [](const Theme& t) static { return t.paragraph_spacing + t.heading_spacing_above; };
+    const auto below_h3 = [](const Theme& t) static { return t.heading_spacing_below; };
+    const auto below_h1 = [](const Theme& t) static { return t.heading_spacing_below_h1h2; };
+    const auto heading_to_heading = [](const Theme& t) static { return t.heading_spacing_below + t.heading_spacing_above; };
+    constexpr NodeSpec kH1{ .type = NodeType::Heading, .heading_level = 1 };
+    constexpr NodeSpec kH3{ .type = NodeType::Heading, .heading_level = 3 };
     // 空テキスト LI は issue#237 の修正で sb=0 (loose 扱い)。tight LI 間隔の検証には HasText() が要る。
+    // h1/h2 は下線を描くので下の間隔が h3 以降より広い。
     const Case cases[] = {
+        { "ParagraphToHeading", { .type = NodeType::Paragraph }, kH3, 20.0f, 30.0f, above_heading },
+        { "H3UsesHeadingSpacingBelow", kH3, { .type = NodeType::Paragraph }, 30.0f, 20.0f, below_h3 },
+        { "H1UsesH1H2SpacingBelow", kH1, { .type = NodeType::Paragraph }, 40.0f, 20.0f, below_h1 },
+        { "HeadingToHeading", kH3, kH3, 40.0f, 30.0f, heading_to_heading },
         { "CodeBlockHasSpacingAbove", { .type = NodeType::Paragraph }, { .type = NodeType::CodeBlock }, 20.0f, 50.0f, code_gap },
         { "CodeBlockHasSpacingBelow", { .type = NodeType::CodeBlock }, { .type = NodeType::Paragraph }, 50.0f, 20.0f, code_gap },
         { "BlockQuoteHasSpacingAbove", { .type = NodeType::Paragraph }, { .quote_depth = 1 }, 20.0f, 30.0f, code_gap },
@@ -750,6 +641,7 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
         { "TaskListItemUsesListItemSpacing", { NodeType::TaskListItem, "a" }, { NodeType::TaskListItem, "b" }, 18.0f, 18.0f, list_gap },
     };
     const Theme theme = GetLightTheme();
+    ASSERT_GT(theme.heading_spacing_below_h1h2, theme.heading_spacing_below);
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
         auto nodes = MakeNodes({ c.first, c.second });
@@ -780,73 +672,27 @@ TEST(RecomputeYPositionsTest, FromIndexMatchesFullRecompute)
 
 // ---- 見出し内インラインコードのフォントサイズ ----
 
-TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
+// インラインコードは見出しでは見出しの大きさ、段落では font_size_code。字体はどちらも等幅。
+TEST_F(LayoutTest, InlineCodeFontFollowsBlock)
 {
+    std::vector<std::pair<std::string, float>> cases{ { "Hello `code` world", theme_.font_size_code } };
     for (int level = 1; level <= 6; ++level) {
-        std::string md(level, '#');
-        md += " Test `code`";
-
+        cases.emplace_back(std::string(level, '#') + " Test `code`", theme_.font_size_h[level - 1]);
+    }
+    for (const auto& [md, expected_size] : cases) {
+        SCOPED_TRACE(md);
         auto [nodes, cache] = ParseAndLayout(md);
-
         ASSERT_EQ(nodes.size(), 1u);
-        ASSERT_EQ(nodes[0].type, NodeType::Heading);
-        ASSERT_NE(cache[0].text_layout(), nullptr);
-
-        bool found_code_run = false;
-        for (const auto& run : nodes[0].runs()) {
-            if (run.code()) {
-                found_code_run = true;
-                float code_font_size = 0.0f;
-                DWRITE_TEXT_RANGE range{};
-                cache[0].text_layout()->GetFontSize(run.start, &code_font_size, &range);
-                EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_h[level - 1])
-                    << "H" << level << " 内のインラインコードのフォントサイズが不一致";
-            }
-        }
-        EXPECT_TRUE(found_code_run)
-            << "H" << level << " のインラインコード TextRun が見つからない";
-    }
-}
-
-TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
-{
-    // 段落内のインラインコードは従来通り font_size_code を使うこと
-    auto [nodes, cache] = ParseAndLayout("Hello `code` world");
-
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].type, NodeType::Paragraph);
-    ASSERT_NE(cache[0].text_layout(), nullptr);
-    ASSERT_TRUE(std::ranges::any_of(nodes[0].runs(), &TextRun::code));
-
-    for (const auto& run : nodes[0].runs()) {
-        if (run.code()) {
-            float code_font_size = 0.0f;
-            DWRITE_TEXT_RANGE range{};
-            cache[0].text_layout()->GetFontSize(run.start, &code_font_size, &range);
-            EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_code)
-                << "段落内のインラインコードは font_size_code を使うべき";
-        }
-    }
-}
-
-TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
-{
-    // 見出し内のインラインコードはフォントサイズは見出しと同じだが、フォントファミリーはモノスペースであること
-    auto [nodes, cache] = ParseAndLayout("# Hello `code`");
-
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_NE(cache[0].text_layout(), nullptr);
-    ASSERT_TRUE(std::ranges::any_of(nodes[0].runs(), &TextRun::code));
-
-    for (const auto& run : nodes[0].runs()) {
-        if (run.code()) {
-            WCHAR font_name[256] = {};
-            DWRITE_TEXT_RANGE range{};
-            HRESULT hr = cache[0].text_layout()->GetFontFamilyName(
-                run.start, font_name, 256, &range);
-            ASSERT_TRUE(SUCCEEDED(hr));
-            EXPECT_EQ(std::wstring(font_name), theme_.monospace_font)
-                << "見出し内のインラインコードはモノスペースフォントを使うべき";
+        IDWriteTextLayout* layout = cache[0].text_layout();
+        ASSERT_NE(layout, nullptr);
+        ASSERT_TRUE(std::ranges::any_of(nodes[0].runs(), &TextRun::code));
+        for (const auto& run : nodes[0].runs() | std::views::filter(&TextRun::code)) {
+            float size = 0.0f;
+            ASSERT_HRESULT_SUCCEEDED(layout->GetFontSize(run.start, &size));
+            EXPECT_FLOAT_EQ(size, expected_size);
+            WCHAR family[256] = {};
+            ASSERT_HRESULT_SUCCEEDED(layout->GetFontFamilyName(run.start, family, 256));
+            EXPECT_EQ(std::wstring(family), theme_.monospace_font);
         }
     }
 }
@@ -855,46 +701,26 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
 // EstimateNodeHeights テスト
 // ========================================================
 
-TEST(EstimateNodeHeightsTest, EmptyNodes)
+// 見出しの段・行数・表の行数が増えると推定の高さも増える。
+TEST(EstimateNodeHeightsTest, HeightGrowsWithContent)
 {
-    std::vector<Node> nodes;
-    LayoutCache cache;
-    const Theme& theme = GetLightTheme();
-    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
-    // 空でもクラッシュしないこと
-}
-
-TEST(EstimateNodeHeightsTest, SingleParagraph)
-{
-    const Theme theme = GetLightTheme();
-    const auto nodes = MakeNodes({ { .text = "Hello world" } });
-    const auto cache = EstimateHeights(nodes, theme);
-
-    EXPECT_GT(cache[0].height, 0.0f);
-    EXPECT_GE(cache.Top(0), theme.margin_top);
-}
-
-TEST(EstimateNodeHeightsTest, HeadingHeightScalesWithLevel)
-{
-    // H1とH3を推定して、H1の方が高いことを確認
-    const auto nodes = MakeNodes({
-        { NodeType::Heading, "Title", 1 },
-        { NodeType::Heading, "Title", 3 },
-    });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
-
-    EXPECT_GT(cache[0].height, cache[1].height);
-}
-
-TEST(EstimateNodeHeightsTest, CodeBlockScalesWithLineCount)
-{
-    const auto nodes = MakeNodes({
-        { NodeType::CodeBlock, "line1" },
-        { NodeType::CodeBlock, "line1\nline2\nline3\nline4\nline5" },
-    });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
-
-    EXPECT_GT(cache[1].height, cache[0].height);
+    struct Case {
+        const char* name;
+        NodeSpec smaller;
+        NodeSpec larger;
+    };
+    const Case cases[] = {
+        { "HeadingLevel", { NodeType::Heading, "Title", 3 }, { NodeType::Heading, "Title", 1 } },
+        { "CodeBlockLines", { NodeType::CodeBlock, "line1" }, { NodeType::CodeBlock, "line1\nline2\nline3\nline4\nline5" } },
+        { "TableRows", { .type = NodeType::Table, .table_rows = 1 }, { .type = NodeType::Table, .table_rows = 3 } },
+        { "ParagraphLines", { .text = "one line" }, { .text = "line1\nline2\nline3" } },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        const auto nodes = MakeNodes({ c.smaller, c.larger });
+        const auto cache = EstimateHeights(nodes, GetLightTheme());
+        EXPECT_GT(cache[1].height, cache[0].height);
+    }
 }
 
 TEST(EstimateNodeHeightsTest, HorizontalRuleHasFixedHeight)
@@ -914,17 +740,6 @@ TEST(EstimateNodeHeightsTest, ImageHasMinimumHeight)
     EXPECT_GE(cache[0].height, 60.0f);
 }
 
-TEST(EstimateNodeHeightsTest, TableScalesWithRowCount)
-{
-    const auto nodes = MakeNodes({
-        { .type = NodeType::Table, .table_rows = 1 },
-        { .type = NodeType::Table, .table_rows = 3 },
-    });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
-
-    EXPECT_GT(cache[1].height, cache[0].height);
-}
-
 TEST(EstimateNodeHeightsTest, EmptyTextNodeUsesSpacing)
 {
     const Theme theme = GetLightTheme();
@@ -932,14 +747,6 @@ TEST(EstimateNodeHeightsTest, EmptyTextNodeUsesSpacing)
     const auto cache = EstimateHeights(nodes, theme);
 
     EXPECT_FLOAT_EQ(cache[0].height, theme.paragraph_spacing);
-}
-
-TEST(EstimateNodeHeightsTest, MultilineParagraphScalesWithLines)
-{
-    const auto nodes = MakeNodes({ { .text = "one line" }, { .text = "line1\nline2\nline3" } });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
-
-    EXPECT_GT(cache[1].height, cache[0].height);
 }
 
 TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
@@ -992,8 +799,10 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
         { NodeType::TaskListItem, "content" },
         { NodeType::Image },
     });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
+    const Theme theme = GetLightTheme();
+    const auto cache = EstimateHeights(nodes, theme);
 
+    EXPECT_GE(cache.Top(0), theme.margin_top);
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].height, 0.0f)
             << "ノードタイプ " << static_cast<int>(nodes[i].type) << " の高さが正であること";

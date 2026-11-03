@@ -3,62 +3,6 @@
 #include <string>
 #include <string_view>
 
-namespace {
-
-std::string ScalarAsciiToLower(std::string_view s)
-{
-    std::string r;
-    r.reserve(s.size());
-    for (char ch : s) {
-        r.push_back((ch >= 'A' && ch <= 'Z')
-            ? static_cast<char>(ch - 'A' + 'a')
-            : ch);
-    }
-    return r;
-}
-
-} // namespace
-
-// ── AsciiToLowerOnly ───────────────────────────────────────────
-
-TEST(SimdAsciiAsciiToLowerOnlyTest, Mixed)
-{
-    const std::string src = "HELLO_World 123 \xE3\x81\x82"; // UTF-8 の「あ」を含む
-    std::string dst(src.size(), '\0');
-    ascii_util::AsciiToLowerOnly(src.data(), dst.data(), src.size());
-    EXPECT_EQ(dst, ScalarAsciiToLower(src));
-    // 非 ASCII (UTF-8 multi-byte) はそのまま
-    EXPECT_EQ(dst.substr(dst.size() - 3), "\xE3\x81\x82");
-}
-
-TEST(SimdAsciiAsciiToLowerOnlyTest, VariousLengths)
-{
-    // SSE2 16 byte 境界・端数の両方を網羅する
-    const std::string_view base = "ZyxWvuTsrQpoNmlKjiHgfEdcBa_KEYWORD";
-    for (size_t n = 0; n <= base.size(); ++n) {
-        std::string src(base.substr(0, n));
-        std::string dst(n, '\0');
-        ascii_util::AsciiToLowerOnly(src.data(), dst.data(), n);
-        EXPECT_EQ(dst, ScalarAsciiToLower(src)) << "n=" << n;
-    }
-}
-
-TEST(SimdAsciiAsciiToLowerOnlyTest, KeepsBytesOutsideUppercase)
-{
-    constexpr std::string_view kCases[] = {
-        // 「あいうえお一二三四」の UTF-8 (27 byte)。continuation byte を大文字と誤判定しない
-        "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
-        "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B",
-        // 'A' の直前の '@' (0x40) と 'Z' の直後の '[' (0x5B) は範囲外
-        "[]@`{|}~[]@`{|}~[]@",
-    };
-    for (const std::string_view src : kCases) {
-        std::string dst(src.size(), '\0');
-        ascii_util::AsciiToLowerOnly(src.data(), dst.data(), src.size());
-        EXPECT_EQ(dst, src);
-    }
-}
-
 // ── Find ──────────────────────────────────────────────────────
 
 TEST(SimdAsciiFindTest, EmptyQuery)
@@ -188,6 +132,22 @@ TEST(AsciiUtilFind, CaseInsensitiveDoesNotFoldNonAscii)
     // 'Ä' (C3 84) と 'ä' (C3 A4) は ASCII 畳み込みの対象外
     EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84y", "\xC3\xA4", 0), ascii_util::npos);
     EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84Y", "\xC3\x84y", 0), 1u);
+}
+
+// SIMD の大文字の範囲の境目と UTF-8 の継続バイトを畳まない。1 バイトのクエリは先頭の比較を SIMD だけで決める。
+TEST(AsciiUtilFind, CaseInsensitiveFoldsOnlyUppercaseRange)
+{
+    const std::string at_signs(32, '@');
+    const std::string after_z(32, '[');
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(at_signs, "`", 0), ascii_util::npos);
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(after_z, "{", 0), ascii_util::npos);
+    // 「あいうえお一二三四」。継続バイト 0x81〜0x8C に 0x20 を足した値と一致させない
+    const std::string_view kana = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
+                                  "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B";
+    for (const std::string_view q : { "\xA1", "\xA2", "\xA4", "\xAC" }) {
+        EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(kana, q, 0), ascii_util::npos);
+    }
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(after_z + "Z", "z", 0), 32u);
 }
 
 TEST(AsciiUtilFind, HasAsciiLetter)

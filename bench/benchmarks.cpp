@@ -214,11 +214,7 @@ BENCHMARK(BM_ParseGiantText)->UseManualTime()->Unit(benchmark::kMillisecond);
 // 改行も空白も無い 16MB の 1 行の段落。区切る位置を探す窓 (前後 2KB) を毎回調べ切る最悪の場合。
 void BM_ParseLongLine(benchmark::State& state, std::string_view unit)
 {
-    std::string md;
-    md.reserve(16 * 1024 * 1024 + unit.size());
-    while (md.size() < 16 * 1024 * 1024) {
-        md += unit;
-    }
+    std::string md = RepeatTo(unit, 16 * 1024 * 1024);
     md += '\n';
     RunParse(state, md);
 }
@@ -236,22 +232,14 @@ BENCHMARK(BM_ParseGiantCode)->UseManualTime()->Unit(benchmark::kMillisecond);
 // 40KB 程度 (区切ったノード 3 つ前後) のコードブロックが 16MB 分並ぶ。
 void BM_ParseManyCodeBlocks(benchmark::State& state)
 {
-    const std::string block = LogLines(500, "```cpp\n", "```\n\n");
-    std::string md;
-    while (md.size() < 16 * 1024 * 1024) {
-        md += block;
-    }
-    RunParse(state, md);
+    RunParse(state, RepeatTo(LogLines(500, "```cpp\n", "```\n\n"), 16 * 1024 * 1024));
 }
 BENCHMARK(BM_ParseManyCodeBlocks)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // unit を 16MB まで繰り返した 1 つのコードブロック。
 std::string RepeatedCodeBlock(std::string_view language, std::string_view unit)
 {
-    std::string md = std::format("```{}\n", language);
-    while (md.size() < 16 * 1024 * 1024) {
-        md += unit;
-    }
+    std::string md = RepeatTo(unit, 16 * 1024 * 1024, std::format("```{}\n", language));
     md += "\n```\n";
     return md;
 }
@@ -286,11 +274,7 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTi
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {
-    std::string src;
-    src.reserve(kLargeBytes + 64);
-    while (src.size() < kLargeBytes) {
-        src += "The quick brown fox jumps over the lazy dog 1234\r\n";
-    }
+    const std::string src = RepeatTo("The quick brown fox jumps over the lazy dog 1234\r\n", kLargeBytes);
     for (auto _ : state) {
         std::string s = src;
         state.SetIterationTime(SecondsOf([&] { NormalizeNewlines(s); }));
@@ -302,10 +286,7 @@ BENCHMARK(BM_NormalizeNewlines)->UseManualTime()->Unit(benchmark::kMillisecond);
 // 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
 void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)
 {
-    std::string src;
-    while (src.size() < 16 * 1024) {
-        src += unit;
-    }
+    const std::string src = RepeatTo(unit, 16 * 1024);
     std::wstring out;
     for (auto _ : state) {
         DecodeForDWrite(src, out);
@@ -401,11 +382,7 @@ BENCHMARK(BM_RecomputeYPositionsTailShift)->Unit(benchmark::kNanosecond);
 // 100MB の単一コードブロック (区切ったノードの並び) の横スクロール幅。並び全体を走査する。
 void BM_CodeRunHScroll(benchmark::State& state)
 {
-    std::string md = "```cpp\n";
-    md.reserve(kLargeBytes + 256);
-    while (md.size() < kLargeBytes) {
-        md += "    int value = compute(argument_one, argument_two, argument_three); // comment\n";
-    }
+    std::string md = RepeatTo("    int value = compute(argument_one, argument_two, argument_three); // comment\n", kLargeBytes, "```cpp\n");
     md += "```\n";
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const auto& nodes = doc.GetNodes();
@@ -484,6 +461,16 @@ void WorkerCounts(benchmark::Benchmark* b)
     b->ArgName("workers")->UseManualTime()->Unit(benchmark::kMillisecond);
 }
 
+// 文書の大きさのキャッシュを確保するところから全ノードを組む秒数。キャッシュの破棄は測らない。
+double FullLayoutSeconds(LayoutEngine& engine, const std::vector<Node>& nodes)
+{
+    LayoutCache cache;
+    return SecondsOf([&] {
+        cache = LayoutCache(nodes.size());
+        ComputeLayout(engine, nodes, cache, 1200.0f);
+    });
+}
+
 // 初回はワーカーのファクトリと書式の作成を含む。
 void BM_ComputeLayoutCold(benchmark::State& state)
 {
@@ -497,18 +484,13 @@ void BM_ComputeLayoutCold(benchmark::State& state)
         if (l.SkipIfFailed(state)) {
             break;
         }
-        // 文書の大きさのキャッシュを確保するところから測る。
-        LayoutCache cache;
-        state.SetIterationTime(SecondsOf([&] {
-            cache = LayoutCache(doc.GetNodes().size());
-            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-        }));
+        state.SetIterationTime(FullLayoutSeconds(l.engine, doc.GetNodes()));
     }
     state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
 }
 BENCHMARK(BM_ComputeLayoutCold)->Apply(WorkerCounts);
 
-// 同じワーカーで 2 回目以降。キャッシュの破棄は測らない。
+// 同じワーカーで 2 回目以降。
 void BM_ComputeLayoutWarm(benchmark::State& state)
 {
     const auto opened = OpenDoc(state, RepeatTestMd(state, 8), static_cast<int>(state.range(0)));
@@ -516,17 +498,9 @@ void BM_ComputeLayoutWarm(benchmark::State& state)
         return;
     }
     auto& [doc, l] = *opened;
-    {
-        LayoutCache warmup(doc.GetNodes().size());
-        ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
-    }
+    FullLayoutSeconds(l.engine, doc.GetNodes());
     for (auto _ : state) {
-        // 文書の大きさのキャッシュを確保するところから測る。
-        LayoutCache cache;
-        state.SetIterationTime(SecondsOf([&] {
-            cache = LayoutCache(doc.GetNodes().size());
-            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-        }));
+        state.SetIterationTime(FullLayoutSeconds(l.engine, doc.GetNodes()));
     }
 }
 BENCHMARK(BM_ComputeLayoutWarm)->Apply(WorkerCounts)->Iterations(3);
@@ -554,19 +528,12 @@ void BM_InlineMathLayout(benchmark::State& state)
     auto& [doc, l] = *opened;
     InlineMathTable table;
     l.measurer.SetInlineMath(&table);
-    {
-        LayoutCache warmup(doc.GetNodes().size());
-        ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
-        for (const uint64_t key : table.TakeRequests()) {
-            table.Resolve(key, { 40.0f, 18.0f, 13.0f });
-        }
+    FullLayoutSeconds(l.engine, doc.GetNodes());
+    for (const uint64_t key : table.TakeRequests()) {
+        table.Resolve(key, { 40.0f, 18.0f, 13.0f });
     }
     for (auto _ : state) {
-        LayoutCache cache;
-        state.SetIterationTime(SecondsOf([&] {
-            cache = LayoutCache(doc.GetNodes().size());
-            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-        }));
+        state.SetIterationTime(FullLayoutSeconds(l.engine, doc.GetNodes()));
     }
     l.measurer.SetInlineMath(nullptr);
 }
@@ -740,10 +707,7 @@ BENCHMARK(BM_FirstEvictAfterOpen)->Arg(10'000)->Arg(300'000)->Iterations(20)->Us
 // C 系以外の字句解析。区切ったノードと同じ 16KB 程度になるまで snippet を繰り返す。
 void BM_TokenizeLanguage(benchmark::State& state, SyntaxLanguage language, std::string_view snippet)
 {
-    std::string text;
-    while (text.size() < kTextChunkTarget) {
-        text += snippet;
-    }
+    const std::string text = RepeatTo(snippet, kTextChunkTarget);
     for (auto _ : state) {
         benchmark::DoNotOptimize(Tokenize(text, language));
     }
@@ -951,10 +915,7 @@ void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, flo
 // 1 段落が 15KB の unit の繰り返し。
 std::string RepeatedParagraphs(std::string_view unit)
 {
-    std::string paragraph;
-    while (paragraph.size() < 15'000) {
-        paragraph += unit;
-    }
+    const std::string paragraph = RepeatTo(unit, 15'000);
     std::string md;
     for (int i = 0; i < 40; ++i) {
         md += paragraph;
@@ -974,6 +935,8 @@ BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_none_static, LongJapaneseParagraphs(
 BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_static, LongJapaneseParagraphs(), true, 0.0f)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_scroll, LongJapaneseParagraphs(), true, 3.0f)->Unit(benchmark::kMicrosecond);
 
+constexpr PaneRect kTocPane{ .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight };
+
 // 2000 見出しの目次の 1 フレーム。書式が無いのでレイアウトは作らず、項目の文字列の手間だけを測る。
 void BM_TocFrame(benchmark::State& state)
 {
@@ -983,14 +946,7 @@ void BM_TocFrame(benchmark::State& state)
     }
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const Theme theme = GetLightTheme();
-    const std::vector<FileEntry> files;
-    SidePaneState sp{
-        .panes = { {}, SidePaneInstance{ .rect = { .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight }, .show = true, .zoom = 1.0f, .item_height = 24.0f } },
-        .file_entries = files,
-        .toc_entries = doc.GetToc(),
-        .nodes = doc.GetNodes(),
-        .active_toc_index = 3,
-    };
+    const SidePaneState sp = TocOnlySidePane(kTocPane, 24.0f, doc.GetToc(), doc.GetNodes(), 3);
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
     for (auto _ : state) {
@@ -1011,14 +967,7 @@ void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
     auto* const factory = opened->l.factory.Get();
     const Theme& theme = opened->l.theme;
     const auto item = CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
-    const std::vector<FileEntry> files;
-    const SidePaneState sp{
-        .panes = { {}, SidePaneInstance{ .rect = { .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight }, .show = true, .zoom = 1.0f, .item_height = theme.pane_item_height } },
-        .file_entries = files,
-        .toc_entries = opened->doc.GetToc(),
-        .nodes = opened->doc.GetNodes(),
-        .active_toc_index = 3,
-    };
+    const SidePaneState sp = TocOnlySidePane(kTocPane, theme.pane_item_height, opened->doc.GetToc(), opened->doc.GetNodes(), 3);
     const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = explicit_fonts ? &opened->l.measurer.BodyFonts() : nullptr };
     DrawCommandList cmds;
     for (auto _ : state) {
@@ -1156,10 +1105,9 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
 std::string JsonCodeBlock(int lines, size_t line_bytes, std::string_view lang = "json")
 {
     std::string md = std::format("```{}\n", lang);
+    const std::string line = RepeatTo("\"k\":\"v\",1,", line_bytes);
     for (int i = 0; i < lines; ++i) {
-        for (size_t start = md.size(); md.size() - start < line_bytes;) {
-            md += "\"k\":\"v\",1,";
-        }
+        md += line;
         md += '\n';
     }
     md += "```\n";

@@ -163,14 +163,6 @@ TEST(DocumentTest, OwnedAndViewModesCoexist)
 
 // ---- 索引 ----
 
-TEST(DocumentTest, FindAnchorIndexFindsHeadings)
-{
-    auto doc = Document::FromMarkdown("# First\n\n## Second\n\ntext", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex("first"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex("second"), 1);
-    EXPECT_EQ(doc.FindAnchorIndex("nonexistent"), -1);
-}
-
 // 脚注のリンク URL ("#..." ) を辿ると、参照から定義へ、定義の "↩" から参照へ移れる。
 TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
 {
@@ -202,18 +194,6 @@ TEST(DocumentTest, DiagramNodeIndices)
     // cppコードブロックはダイアグラムインデックスに含まれない
     const auto& nodes = doc.GetNodes();
     EXPECT_EQ(nodes[diagrams[0]].code_language, SyntaxLanguage::Mermaid);
-}
-
-TEST(DocumentTest, TocEntriesResolveByAnchor)
-{
-    auto doc = Document::FromMarkdown("# A\n\n## B\n\n### C", L"test.md");
-    const auto& toc = doc.GetToc();
-    ASSERT_EQ(toc.size(), 3u);
-    // TOCエントリのnode_indexがアンカーインデックスと一致
-    const auto anchors = HeadingAnchors(doc.GetNodes());
-    for (const auto& entry : toc) {
-        EXPECT_EQ(doc.FindAnchorIndex(anchors[entry.node_index]), entry.node_index);
-    }
 }
 
 TEST(DocumentTest, NoSpecialNodeIndices)
@@ -277,24 +257,4 @@ TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
     Document moved = std::move(doc);
     EXPECT_EQ(moved.FindAnchorIndex("alpha"), 0);
     EXPECT_EQ(moved.FindAnchorIndex("beta"), 1);
-}
-
-TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
-{
-    // 1000 見出しの合成 Markdown で全 anchor が hit すること（string_view 化のスケール耐性検証）。
-    std::string md;
-    md.reserve(40 * 1000);
-    for (int i = 0; i < 1000; ++i) {
-        md += "# Heading-";
-        md += std::to_string(i);
-        md += "\n\n";
-    }
-    auto doc = Document::FromMarkdown(std::move(md), L"big.md");
-    const auto& toc = doc.GetToc();
-    ASSERT_EQ(toc.size(), 1000u);
-    const auto anchors = HeadingAnchors(doc.GetNodes());
-    for (const auto& entry : toc) {
-        EXPECT_EQ(doc.FindAnchorIndex(anchors[entry.node_index]), entry.node_index);
-    }
-    EXPECT_EQ(doc.FindAnchorIndex("heading-not-present"), -1);
 }

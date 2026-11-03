@@ -162,15 +162,8 @@ TEST_F(SearchInputTest, TocRowsDrawHeadingText)
 {
     const Theme theme = GetLightTheme();
     const auto nodes = ParseNodes("# A\n\n## B");
-    const std::vector<FileEntry> files;
     const std::vector<TocEntry> toc{ { 0 }, { 1 } };
-    const SidePaneState sp{
-        .panes = { {}, SidePaneInstance{ .rect = kPane, .show = true, .zoom = 1.0f, .item_height = 24.0f } },
-        .file_entries = files,
-        .toc_entries = toc,
-        .nodes = nodes,
-        .active_toc_index = -1,
-    };
+    const SidePaneState sp = TocOnlySidePane(kPane, 24.0f, toc, nodes);
     chrome::SidePaneFormats fmts;
     fmts.toc_item = fmt_.Get();
     DrawCommandList cmds;
@@ -188,15 +181,8 @@ TEST_F(SearchInputTest, PaneItemFontsApplyToItemsButNotHeader)
     }
 
     const auto nodes = ParseNodes("# 漢字");
-    const std::vector<FileEntry> files;
     const std::vector<TocEntry> toc{ { 0 } };
-    const SidePaneState sp{
-        .panes = { {}, SidePaneInstance{ .rect = kPane, .show = true, .zoom = 1.0f, .item_height = 24.0f } },
-        .file_entries = files,
-        .toc_entries = toc,
-        .nodes = nodes,
-        .active_toc_index = -1,
-    };
+    const SidePaneState sp = TocOnlySidePane(kPane, 24.0f, toc, nodes);
     const auto header_fmt = CreateThemeFormat(13.0f);
     chrome::SidePaneFormats fmts;
     fmts.header = header_fmt.Get();

@@ -3,6 +3,8 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "example_files.h"
+#include "parallel_for.h"
+#include "task_scheduler.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "ui_constants.h"
@@ -10,10 +12,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 #include <iostream>
 #include <memory>
 #include <ranges>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -237,7 +242,7 @@ using Microsoft::WRL::ComPtr;
 
 // ランの切れ目の違いは見ないよう、グリフごとに平らにして持つ。
 struct DrawnGlyph {
-    std::string face;
+    uint32_t face_id = 0;
     UINT16 index = 0;
     float x = 0.0f;
     float y = 0.0f;
@@ -247,6 +252,7 @@ struct DrawnGlyph {
 class GlyphCollector final : public UncountedCom<IDWriteTextRenderer> {
 public:
     std::vector<DrawnGlyph> glyphs;
+    std::vector<std::string> faces;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** object) override
     {
@@ -290,6 +296,10 @@ public:
         file->GetReferenceKey(&key, &key_size);
         std::string face(static_cast<const char*>(key), key_size);
         face += std::to_string(run->fontFace->GetIndex()) + ":" + std::to_string(static_cast<int>(run->fontFace->GetSimulations()));
+        const auto face_id = static_cast<uint32_t>(std::ranges::find(faces, face) - faces.begin());
+        if (face_id == faces.size()) {
+            faces.push_back(std::move(face));
+        }
         // 右から左のランは x が右端で、ペンは左へ進む。advanceOffset も進む向きに掛かる。
         const bool rtl = (run->bidiLevel & 1) != 0;
         float pen = x;
@@ -297,7 +307,7 @@ public:
             const float advance = run->glyphAdvances[i];
             const DWRITE_GLYPH_OFFSET offset = run->glyphOffsets ? run->glyphOffsets[i] : DWRITE_GLYPH_OFFSET{};
             const float origin = rtl ? pen - advance - offset.advanceOffset : pen + offset.advanceOffset;
-            glyphs.push_back({ face, run->glyphIndices[i], origin, y - offset.ascenderOffset, run->fontEmSize });
+            glyphs.push_back({ face_id, run->glyphIndices[i], origin, y - offset.ascenderOffset, run->fontEmSize });
             pen += rtl ? -advance : advance;
         }
         return S_OK;
@@ -309,6 +319,37 @@ struct Style {
     bool italic = false;
 };
 
+std::string Quote(std::wstring_view text)
+{
+    return testing::PrintToString(std::wstring(text));
+}
+
+// [0, count) の組を worker と分けて調べる。gtest のアサーションは worker から呼ばず、fn(i) が返す失敗の文言を
+// 組ごとの枠に受けて、最後にメインスレッドで組の順に出す。
+template <class Fn>
+void ExpectAllInParallel(size_t count, Fn&& fn)
+{
+    std::vector<std::vector<std::string>> failures(count);
+    {
+        // アプリの計測と同じ本数。16 本にしても 1 割ほどしか縮まない (短いレイアウトは DirectWrite の内部で競合する)。
+        TaskScheduler scheduler{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
+        ParallelFor(&scheduler, count, 1, [&](size_t begin, size_t end) {
+            for (size_t i = begin; i < end; ++i) {
+                try {
+                    failures[i] = fn(i);
+                } catch (...) {
+                    failures[i] = { std::format("item {} threw", i) };
+                }
+            }
+        });
+    }
+    for (const auto& item : failures) {
+        for (const auto& message : item) {
+            ADD_FAILURE() << message;
+        }
+    }
+}
+
 class FallbackFontMapTest : public ::testing::Test {
 protected:
     void SetUp() override
@@ -319,7 +360,7 @@ protected:
     ComPtr<IDWriteTextLayout> Build(std::wstring_view text, IDWriteTextFormat* format, const Style& style, const FallbackFontMap* fonts) const
     {
         ComPtr<IDWriteTextLayout> layout;
-        factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), format, 300.0f, 1.0e7f, &layout);
+        Factory()->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), format, 300.0f, 1.0e7f, &layout);
         if (fonts) {
             ApplyFallbackFonts(layout.Get(), text, *fonts);
         }
@@ -361,7 +402,7 @@ protected:
         for (size_t i = 0; i < a.glyphs.size(); ++i) {
             const auto& x = a.glyphs[i];
             const auto& y = b.glyphs[i];
-            if (x.face != y.face || x.index != y.index || x.size != y.size || std::abs(x.x - y.x) > 0.01f || std::abs(x.y - y.y) > 0.01f) {
+            if (a.faces[x.face_id] != b.faces[y.face_id] || x.index != y.index || x.size != y.size || std::abs(x.x - y.x) > 0.01f || std::abs(x.y - y.y) > 0.01f) {
                 return ::testing::AssertionFailure() << "glyph " << i << " differs (index " << x.index << " / " << y.index << ", x " << x.x << " / " << y.x << ")";
             }
         }
@@ -370,17 +411,32 @@ protected:
 
     ComPtr<IDWriteTextFormat> Format(const wchar_t* family, const wchar_t* locale, float line_height_factor = BODY_LINE_HEIGHT_FACTOR) const
     {
-        return CreateTextFormat(factory_.Get(), { .family = family, .size = 16.0f, .locale = locale, .line_height_factor = line_height_factor });
+        return CreateTextFormat(Factory(), { .family = family, .size = 16.0f, .locale = locale, .line_height_factor = line_height_factor });
     }
 
     std::unique_ptr<FallbackFontMap> Map(const wchar_t* family, const wchar_t* locale) const
     {
         auto map = std::make_unique<FallbackFontMap>();
-        map->Reset(factory_.Get(), family, locale);
+        map->Reset(Factory(), family, locale);
         return map;
     }
 
+    // 書式を作ったスレッドは共有ファクトリ、worker は専用の ISOLATED ファクトリで組む (DWriteTextMeasurer と同じ)。
+    // 共有ファクトリを全スレッドで使うと内部の競合で 4 本を超えると遅くなり、test.md の比較が 8 本で 4 本より遅い。
+    IDWriteFactory* Factory() const
+    {
+        if (std::this_thread::get_id() == owner_) {
+            return factory_.Get();
+        }
+        thread_local ComPtr<IDWriteFactory> isolated;
+        if (!isolated) {
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(isolated.GetAddressOf()));
+        }
+        return isolated ? isolated.Get() : factory_.Get();
+    }
+
     ComPtr<IDWriteFactory> factory_;
+    std::thread::id owner_ = std::this_thread::get_id();
 };
 
 // 本文の主フォントと、コードの主フォントになりうる候補。
@@ -490,13 +546,19 @@ TEST_F(FallbackFontMapTest, BaseFontIsNotNamed)
 
 TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForEveryLanguage)
 {
-    for (const auto [base, locale] : std::views::cartesian_product(kBases, kLocales)) {
+    const auto pairs = std::views::cartesian_product(kBases, kLocales);
+    ExpectAllInParallel(pairs.size(), [&](size_t i) {
+        const auto [base, locale] = pairs[i];
         const auto format = Format(base, locale);
         const auto map = Map(base, locale);
+        std::vector<std::string> failures;
         for (const auto [text, style] : std::views::cartesian_product(kCorpus, kStyles)) {
-            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map, style)) << "base=" << testing::PrintToString(std::wstring(base)) << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text)) << " weight=" << style.weight << " italic=" << style.italic;
+            if (const auto same = SameAsFallback(text, format.Get(), *map, style); !same) {
+                failures.push_back(std::format("base={} locale={} text={} weight={} italic={}: {}", Quote(base), Quote(locale), Quote(text), static_cast<int>(style.weight), style.italic, same.message()));
+            }
         }
-    }
+        return failures;
+    });
 }
 
 // ファイル一覧と目次の項目は、本文の対応を本文と違う大きさと NO_WRAP の書式に掛ける。大きさはペインのズームの両端と等倍。
@@ -509,7 +571,7 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForPaneItems)
         const auto format = CreateTextFormat(factory_.Get(), { .family = L"Segoe UI", .size = size, .locale = locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
         const auto map = Map(L"Segoe UI", locale);
         for (const wchar_t* const text : kCorpus) {
-            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map)) << "size=" << size << " locale=" << testing::PrintToString(std::wstring(locale)) << " text=" << testing::PrintToString(std::wstring(text));
+            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map)) << "size=" << size << " locale=" << Quote(locale) << " text=" << Quote(text);
         }
     }
 }
@@ -520,16 +582,29 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
     ASSERT_FALSE(bytes.empty());
     std::wstring all;
     DecodeForDWrite(bytes, all);
-    for (const auto* base : kBases) {
-        const auto format = Format(base, L"ja-jp");
-        const auto map = Map(base, L"ja-jp");
-        for (const auto line : all | std::views::split(L'\n')) {
-            const std::wstring_view text(line.begin(), line.end());
-            if (!text.empty()) {
-                ASSERT_TRUE(SameAsFallback(text, format.Get(), *map)) << testing::PrintToString(std::wstring(text));
-            }
+    std::vector<std::wstring_view> lines;
+    for (const auto line : all | std::views::split(L'\n')) {
+        if (!line.empty()) {
+            lines.emplace_back(line.begin(), line.end());
         }
     }
+    // 対応は worker から同時に引ける。行の塊ごとに解決し直さないよう、主フォントごとに 1 つを共有する。
+    std::vector<std::unique_ptr<FallbackFontMap>> maps;
+    for (const auto* base : kBases) {
+        maps.push_back(Map(base, L"ja-jp"));
+    }
+    constexpr size_t kLinesPerItem = 64;
+    const size_t items_per_base = (lines.size() + kLinesPerItem - 1) / kLinesPerItem;
+    ExpectAllInParallel(std::size(kBases) * items_per_base, [&](size_t i) {
+        const size_t b = i / items_per_base;
+        const auto format = Format(kBases[b], L"ja-jp");
+        for (const auto text : lines | std::views::drop(i % items_per_base * kLinesPerItem) | std::views::take(kLinesPerItem)) {
+            if (const auto same = SameAsFallback(text, format.Get(), *maps[b]); !same) {
+                return std::vector{ std::format("base={} text={}: {}", Quote(kBases[b]), Quote(text), same.message()) };
+            }
+        }
+        return std::vector<std::string>{};
+    });
 }
 
 // 対応表の全文字を 1 文字ずつ比べる。時間がかかるので、対応表を変えたときに --gtest_also_run_disabled_tests で回す。
@@ -538,10 +613,13 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
 TEST_F(FallbackFontMapTest, DISABLED_GlyphsMatchFallbackForEveryCharacter)
 {
     constexpr std::pair<wchar_t, wchar_t> kNeighbours[]{ { L'a', L'b' }, { L'漢', L'字' } };
-    for (const auto [base, locale] : std::views::cartesian_product(kBases, kLocales)) {
+    const auto pairs = std::views::cartesian_product(kBases, kLocales);
+    std::vector<size_t> mismatches(pairs.size());
+    ExpectAllInParallel(pairs.size(), [&](size_t i) {
+        const auto [base, locale] = pairs[i];
         const auto format = Format(base, locale, 0.0f);
         const auto map = Map(base, locale);
-        size_t mismatches = 0;
+        std::vector<std::string> failures;
         for (UINT32 c = 0x0900; c <= 0xFFEF; ++c) {
             if (!map->FamilyFor(static_cast<wchar_t>(c))) {
                 continue;
@@ -555,12 +633,16 @@ TEST_F(FallbackFontMapTest, DISABLED_GlyphsMatchFallbackForEveryCharacter)
                     if (SameAsFallback({ text, 3 }, format.Get(), *map, style)) {
                         continue;
                     }
-                    if (++mismatches <= 40) {
-                        ADD_FAILURE() << std::hex << "U+" << c << " " << testing::PrintToString(std::wstring(base)) << " " << testing::PrintToString(std::wstring(locale)) << " weight=" << std::dec << style.weight << " italic=" << style.italic;
+                    if (++mismatches[i] <= 40) {
+                        failures.push_back(std::format("U+{:x} {} {} weight={} italic={}", c, Quote(base), Quote(locale), static_cast<int>(style.weight), style.italic));
                     }
                 }
             }
         }
-        std::wcout << base << L" " << locale << L": " << mismatches << L" mismatches\n";
+        return failures;
+    });
+    for (size_t i = 0; i < pairs.size(); ++i) {
+        const auto [base, locale] = pairs[i];
+        std::wcout << base << L" " << locale << L": " << mismatches[i] << L" mismatches\n";
     }
 }

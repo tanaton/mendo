@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <d2d1.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -15,10 +17,49 @@
 #include <windows.h>
 #include <vector>
 #include "document_types.h"
+#include "i18n.h"
 #include "layout_cache.h"
 #include "task_scheduler.h"
 #include "test_nodes.h"
 #include "theme.h"
+#include "ui_types.h"
+
+// 区切って進める処理 (ContinueSearch など) を、最初の区切りで止める期限。
+inline constexpr auto kExpiredDeadline = std::chrono::steady_clock::time_point::min();
+// 区切らずに最後まで進める期限。
+inline constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
+
+// 表示言語を切り替え、抜けるときに表示中の言語と選んだ言語を元に戻す。ASSERT で抜けても後続のテストへ漏らさない。
+// 既定の構築は切り替えずに戻すだけ (テストの中で Init や SetLanguage を呼ぶフィクスチャ用)。
+class ScopedLanguage {
+public:
+    ScopedLanguage() = default;
+    explicit ScopedLanguage(const i18n::Strings* language) noexcept
+    {
+        i18n::SetLanguage(language);
+    }
+    ~ScopedLanguage()
+    {
+        i18n::g_strings.store(saved_strings_);
+        i18n::g_chosen.store(saved_chosen_);
+    }
+    ScopedLanguage(const ScopedLanguage&) = delete;
+    ScopedLanguage& operator=(const ScopedLanguage&) = delete;
+
+private:
+    const i18n::Strings* saved_strings_ = i18n::g_strings.load();
+    const i18n::Strings* saved_chosen_ = i18n::g_chosen.load();
+};
+
+// prefix の後に、全体が min_bytes 以上になるまで unit を繰り返す。
+inline std::string RepeatTo(std::string_view unit, size_t min_bytes, std::string prefix = {})
+{
+    prefix.reserve(min_bytes + unit.size());
+    while (prefix.size() < min_bytes) {
+        prefix += unit;
+    }
+    return prefix;
+}
 
 // 重なりを許さず needle の出現回数を数える。
 inline size_t CountOccurrences(std::string_view s, std::string_view needle)
@@ -298,39 +339,49 @@ protected:
 
 // 条件 pred が true になるまで短時間ポーリングする。timeout 内に成立すれば true。
 // バックグラウンドワーカー完了の決定論的観測手段が無いケースの最終手段。
+// sleep_for は短く指定してもタイマ分解能 (約 15.6ms) まで寝るので、ふつうの待ちが収まる間は yield で回す。
 template <class Pred>
 inline bool PollUntil(Pred pred, std::chrono::milliseconds timeout = std::chrono::seconds(5))
 {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (std::chrono::steady_clock::now() < deadline) {
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + timeout;
+    const auto spin_until = start + std::chrono::milliseconds(50);
+    while (true) {
         if (pred()) {
             return true;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
+        }
+        if (now < spin_until) {
+            std::this_thread::yield();
+        }
+        else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
-    return false;
 }
 
 // worker を workers 本塞ぎ、以降に積んだタスクを待たせる。Open で走り出す。破棄時にも開くので、ASSERT で抜けても
 // 後続テストを道連れにしない。タスクが待ちから抜けるのは Open より後になりうるので、状態はタスクと共有する。
 class WorkerGate {
 public:
-    explicit WorkerGate(TaskScheduler& scheduler, int workers = 1)
+    explicit WorkerGate(TaskScheduler& scheduler, int workers = 1, std::chrono::milliseconds timeout = std::chrono::seconds(5))
     {
-        for (int i = 0; i < workers; ++i) {
-            const bool posted = scheduler.Post([state = state_] {
-                state->entered.fetch_add(1);
-                state->entered.notify_all();
-                state->open.wait(false);
-            });
-            EXPECT_TRUE(posted);
-            if (!posted) {
-                return;
+        int posted = 0;
+        while (posted < workers && scheduler.Post([state = state_, workers] {
+            std::unique_lock lock(state->mutex);
+            if (++state->entered == workers) {
+                state->cv.notify_all();
             }
+            state->cv.wait(lock, [&] { return state->open; });
+        })) {
+            ++posted;
         }
-        for (int n = state_->entered.load(); n < workers; n = state_->entered.load()) {
-            state_->entered.wait(n);
-        }
+        std::unique_lock lock(state_->mutex);
+        ready_ = posted == workers && state_->cv.wait_for(lock, timeout, [&] { return state_->entered == workers; });
+        EXPECT_TRUE(ready_) << "worker を塞げなかった (積めない・時間切れ)";
     }
     ~WorkerGate()
     {
@@ -339,19 +390,38 @@ public:
     WorkerGate(const WorkerGate&) = delete;
     WorkerGate& operator=(const WorkerGate&) = delete;
 
-    void Open() noexcept
+    // 塞ぐ worker がすべて待ちに入ったか。
+    bool ready() const noexcept
     {
-        state_->open.store(true);
-        state_->open.notify_all();
+        return ready_;
+    }
+    void Open()
+    {
+        const std::lock_guard lock(state_->mutex);
+        state_->open = true;
+        state_->cv.notify_all();
     }
 
 private:
     struct State {
-        std::atomic<int> entered{ 0 };
-        std::atomic<bool> open{ false };
+        std::mutex mutex;
+        std::condition_variable cv;
+        int entered = 0;
+        bool open = false;
     };
     std::shared_ptr<State> state_ = std::make_shared<State>();
+    bool ready_ = false;
 };
+
+// 呼ぶ前に積んだタスク (PostFront も含む) がすべて終わるまで待つ。時間切れや Shutdown 後は false。
+// 全 worker を塞げた時点で、キューの先頭から取るのでそれより前のタスクはどの worker でも終わっている。
+// 1 本ずつ塞いで返すと、空いた worker が残りを拾い、別の worker が走らせているタスクを見逃す。
+// 実行中のタスクが後から Post した続きは待たない。
+[[nodiscard]] inline bool DrainScheduler(TaskScheduler& scheduler)
+{
+    const WorkerGate gate(scheduler, static_cast<int>(scheduler.WorkerCount()));
+    return scheduler.WorkerCount() > 0 && gate.ready();
+}
 
 // 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
 // AddRef/Release は no-op (static instance で寿命管理は不要)。

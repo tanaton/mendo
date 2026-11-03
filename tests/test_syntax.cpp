@@ -10,6 +10,7 @@
 #include <vector>
 #include "syntax.h"
 #include "parser.h"
+#include "test_helpers.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
 
@@ -1094,16 +1095,14 @@ TEST(TokensCrossing, MatchesFullTokenizeOnRandomCode)
 }
 
 // 空白の無い長い行。語を飛ばす先が無く、区切りをまたぐ語の分類も要る。
+// 区切りの間隔 1003 は単位の長さ (8, 9, 14) と互いに素なので、14 個目までに単位のどの位置にも区切りが当たる。30KB で 29 個ある。
 TEST(TokensCrossing, MatchesFullTokenizeOnLinesWithoutBlanks)
 {
     constexpr std::string_view kUnits[] = { "1,22,333,", "a.b(c,d);", "\"k\":\"v\",", "if(x){return;}" };
     constexpr SyntaxLanguage kLanguages[] = { SyntaxLanguage::Json, SyntaxLanguage::JavaScript, SyntaxLanguage::Cpp, SyntaxLanguage::Python };
     for (const SyntaxLanguage language : kLanguages) {
         for (const std::string_view unit : kUnits) {
-            std::string text;
-            while (text.size() < 300000) {
-                text += unit;
-            }
+            std::string text = RepeatTo(unit, 30000);
             std::vector<size_t> boundaries;
             for (size_t b = 1003; b < text.size(); b += 1003) {
                 boundaries.push_back(b);

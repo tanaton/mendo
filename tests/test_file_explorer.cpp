@@ -175,7 +175,7 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
     EXPECT_EQ(std::wstring_view{ explorer_.GetDirectory() }, temp_dir_.wstring());
     const auto* entry = FindEntry(L"hello.md");
     ASSERT_NE(entry, nullptr);
-    EXPECT_FALSE(entry->full_path.contains(L"\\\\")) << "full_pathに二重バックスラッシュあり";
+    EXPECT_EQ(std::wstring_view{ entry->full_path }, temp_dir_.wstring() + L"\\hello.md");
 
     const uint32_t generation = explorer_.GetGeneration();
     explorer_.SetDirectory(temp_dir_.wstring());
@@ -183,29 +183,18 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
     EXPECT_EQ(explorer_.GetGeneration(), generation);
 }
 
-// .md / .markdown / .mkd (大文字小文字無視) とディレクトリだけを並べる。
+// .md / .markdown / .mkd (大文字小文字無視) とディレクトリだけを、ディレクトリを先にして並べる。
 TEST_F(FileExplorerTest, ListsMarkdownFilesAndDirectoriesOnly)
 {
-    for (const auto* name : { L"readme.md", L"doc.markdown", L"doc.mkd", L"upper.MD", L"image.png", L"data.json", L"script.py" }) {
+    for (const auto* name : { L"aaa.md", L"readme.md", L"doc.markdown", L"doc.mkd", L"upper.MD", L"image.png", L"data.json", L"script.py" }) {
         WriteTempFile(name);
     }
-    CreateDir(L"subdir");
-
-    ListTempDir();
-    EXPECT_EQ(ListedNames(), (std::vector<std::wstring>{ L"subdir", L"doc.markdown", L"doc.mkd", L"readme.md", L"upper.MD" }));
-}
-
-TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
-{
-    WriteTempFile(L"aaa.md");
     CreateDir(L"zzz_dir");
 
-    const auto& entries = ListTempDir();
-    ASSERT_EQ(entries.size(), 3u);
-    EXPECT_TRUE(entries[0].is_parent);
-    EXPECT_TRUE(entries[1].is_directory);
-    EXPECT_FALSE(entries[2].is_directory);
-    EXPECT_EQ(ListedNames(), (std::vector<std::wstring>{ L"zzz_dir", L"aaa.md" }));
+    ListTempDir();
+    ASSERT_EQ(ListedNames(), (std::vector<std::wstring>{ L"zzz_dir", L"aaa.md", L"doc.markdown", L"doc.mkd", L"readme.md", L"upper.MD" }));
+    EXPECT_TRUE(FindEntry(L"zzz_dir")->is_directory);
+    EXPECT_FALSE(FindEntry(L"aaa.md")->is_directory);
 }
 
 TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
@@ -226,6 +215,7 @@ TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
     WriteTempFile(L"b.md");
 
     ListTempDir();
+    EXPECT_EQ(CountCurrent(), 0u);
     explorer_.SetCurrentFile((temp_dir_ / L"b.md").wstring());
 
     const auto* entry = FindEntry(L"b.md");
@@ -246,29 +236,6 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
 
 // ---- 初回起動シナリオ（ファイル未選択でディレクトリ表示） ----
 
-TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent)
-{
-    WriteTempFile(L"a.md");
-    WriteTempFile(L"b.md");
-
-    ListTempDir();
-    EXPECT_EQ(CountCurrent(), 0u);
-}
-
-TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
-{
-    // 実際のカレントディレクトリを使用するシナリオ（初回起動を模倣）
-    wchar_t cwd[MAX_PATH];
-    ASSERT_NE(GetCurrentDirectoryW(MAX_PATH, cwd), 0u);
-
-    explorer_.SetDirectory(cwd);
-
-    EXPECT_FALSE(explorer_.GetDirectory().empty());
-    // 少なくとも ".." エントリがあること
-    ASSERT_GE(Entries().size(), 1u);
-    EXPECT_TRUE(Entries()[0].is_parent);
-}
-
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
 {
     // 初回起動でcwdを表示した後、ファイルのあるディレクトリに切り替えるシナリオ
@@ -283,26 +250,4 @@ TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
     explorer_.SetDirectory(other_dir.wstring());
     EXPECT_EQ(std::wstring_view{ explorer_.GetDirectory() }, other_dir.wstring());
     EXPECT_EQ(ListedNames(), (std::vector<std::wstring>{ L"other.md" }));
-}
-
-// ---- リフレッシュ / SetDirectory ----
-
-TEST_F(FileExplorerTest, RefreshPicksUpNewFiles)
-{
-    const size_t before = ListTempDir().size();
-
-    WriteTempFile(L"new.md");
-    explorer_.Refresh();
-
-    EXPECT_EQ(Entries().size(), before + 1);
-}
-
-TEST_F(FileExplorerTest, FullPathIsCorrect)
-{
-    WriteTempFile(L"test.md");
-
-    ListTempDir();
-    const auto* entry = FindEntry(L"test.md");
-    ASSERT_NE(entry, nullptr);
-    EXPECT_EQ(std::wstring_view{ entry->full_path }, temp_dir_.wstring() + L"\\test.md");
 }

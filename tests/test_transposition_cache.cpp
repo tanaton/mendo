@@ -2,18 +2,50 @@
 #include <gtest/gtest.h>
 #include <string>
 
-TEST(TranspositionCache, InsertAndFind)
+namespace {
+
+// [5, 4, 3, 2, 1] の末尾の 1 を promote で 4 回昇らせると先頭に来て、次の Insert で 2 が捨てられる。
+template <class Promote>
+void ExpectTailClimbsToFront(Promote promote)
+{
+    TranspositionCache<int, int, 5> cache;
+    for (int k = 1; k <= 5; k++) {
+        cache.Insert(k, k * 10);
+    }
+    for (int i = 0; i < 4; i++) {
+        promote(cache, i);
+    }
+    EXPECT_EQ(cache.Size(), 5u);
+
+    cache.Insert(6, 60);
+    EXPECT_NE(cache.Find(1), nullptr);
+    EXPECT_EQ(cache.Find(2), nullptr);
+    EXPECT_NE(cache.Find(5), nullptr);
+}
+
+} // namespace
+
+// 作った直後は空。満杯でなくても無いキーは null。Clear 後は前のキーを引かず、続けて使える。
+TEST(TranspositionCache, InsertFindAndClear)
 {
     TranspositionCache<int, std::string, 3> cache;
+    EXPECT_EQ(cache.Size(), 0u);
     cache.Insert(1, "one");
+    EXPECT_EQ(cache.Find(999), nullptr);
     cache.Insert(2, "two");
     cache.Insert(3, "three");
-
+    EXPECT_EQ(cache.Size(), 3u);
     auto* v = cache.Find(1);
     ASSERT_NE(v, nullptr);
     EXPECT_EQ(*v, "one");
 
-    EXPECT_EQ(cache.Size(), 3u);
+    cache.Clear();
+    EXPECT_EQ(cache.Size(), 0u);
+    cache.Insert(4, "four");
+    EXPECT_EQ(cache.Size(), 1u);
+    EXPECT_EQ(cache.Find(1), nullptr);
+    EXPECT_EQ(cache.Find(2), nullptr);
+    EXPECT_NE(cache.Find(4), nullptr);
 }
 
 TEST(TranspositionCache, EvictsLeastRecentlyInserted)
@@ -75,16 +107,6 @@ TEST(TranspositionCache, InsertExistingKeyUpdatesValueAndPromotes)
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
-TEST(TranspositionCache, Clear)
-{
-    TranspositionCache<int, std::string, 3> cache;
-    cache.Insert(1, "one");
-    cache.Insert(2, "two");
-
-    cache.Clear();
-    EXPECT_EQ(cache.Size(), 0u);
-}
-
 TEST(TranspositionCache, SizeOne)
 {
     TranspositionCache<int, int, 1> cache;
@@ -97,12 +119,6 @@ TEST(TranspositionCache, SizeOne)
     auto* v = cache.Find(2);
     ASSERT_NE(v, nullptr);
     EXPECT_EQ(*v, 200);
-}
-
-TEST(TranspositionCache, EmptyAfterConstruction)
-{
-    TranspositionCache<int, int, 10> cache;
-    EXPECT_EQ(cache.Size(), 0u);
 }
 
 TEST(TranspositionCache, StressInsertManyKeepsLatest)
@@ -124,27 +140,6 @@ TEST(TranspositionCache, StressInsertManyKeepsLatest)
     }
 }
 
-TEST(TranspositionCache, ClearAndReuse)
-{
-    TranspositionCache<int, int, 3> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    cache.Clear();
-
-    cache.Insert(3, 30);
-    EXPECT_EQ(cache.Size(), 1u);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(3), nullptr);
-}
-
-TEST(TranspositionCache, FindMissingReturnsNull)
-{
-    TranspositionCache<int, int, 5> cache;
-    cache.Insert(1, 10);
-    EXPECT_EQ(cache.Find(999), nullptr);
-}
-
 TEST(TranspositionCache, ModifyValueThroughFind)
 {
     TranspositionCache<int, std::string, 3> cache;
@@ -158,47 +153,12 @@ TEST(TranspositionCache, ModifyValueThroughFind)
 
 TEST(TranspositionCache, RepeatedFindClimbsToFront)
 {
-    TranspositionCache<int, int, 5> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    cache.Insert(3, 30);
-    cache.Insert(4, 40);
-    cache.Insert(5, 50);
-    // 内部 [5, 4, 3, 2, 1]
-
-    // 末尾 (1) を 4 回 Find すると先頭まで昇る → [1, 5, 4, 3, 2]
-    for (int i = 0; i < 4; i++) {
-        ASSERT_NE(cache.Find(1), nullptr);
-    }
-
-    // Insert(6) で末尾 (2) が捨てられる
-    cache.Insert(6, 60);
-    EXPECT_NE(cache.Find(1), nullptr);
-    EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(5), nullptr);
+    ExpectTailClimbsToFront([](auto& cache, int) { EXPECT_NE(cache.Find(1), nullptr); });
 }
 
 TEST(TranspositionCache, RepeatedInsertExistingKeyClimbsToFront)
 {
-    TranspositionCache<int, int, 5> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    cache.Insert(3, 30);
-    cache.Insert(4, 40);
-    cache.Insert(5, 50);
-    // 内部 [5, 4, 3, 2, 1]
-
-    // 末尾 (1) を 4 回 Insert すると先頭まで昇る → [1, 5, 4, 3, 2]
-    for (int i = 0; i < 4; i++) {
-        cache.Insert(1, 100 + i);
-    }
-    EXPECT_EQ(cache.Size(), 5u);
-
-    // Insert(6) で末尾 (2) が捨てられる
-    cache.Insert(6, 60);
-    EXPECT_NE(cache.Find(1), nullptr);
-    EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(5), nullptr);
+    ExpectTailClimbsToFront([](auto& cache, int i) { cache.Insert(1, 100 + i); });
 }
 
 TEST(TranspositionCache, TrimToBudgetEvictsFromTail)

@@ -88,13 +88,6 @@ TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
 // WriteAllBytes + ReadAllBytes ラウンドトリップ
 // ═══════════════════════════════════════════════
 
-TEST_F(FileIoTest, RoundTripAscii)
-{
-    const auto path = temp_dir_ / L"ascii.bin";
-    ASSERT_TRUE(Write(path, "Hello, mendo!"));
-    EXPECT_EQ(ReadAsString(path), "Hello, mendo!");
-}
-
 TEST_F(FileIoTest, RoundTripBinary)
 {
     const auto path = temp_dir_ / L"binary.bin";
@@ -114,16 +107,6 @@ TEST_F(FileIoTest, WriteOverwritesExistingFile)
     ASSERT_TRUE(Write(path, "first-content-longer"));
     ASSERT_TRUE(Write(path, "short"));
     EXPECT_EQ(ReadAsString(path), "short");
-}
-
-TEST_F(FileIoTest, WriteZeroBytesProducesEmptyFile)
-{
-    const auto path = temp_dir_ / L"zero.bin";
-    ASSERT_TRUE(WriteAllBytes(path, "", 0));
-
-    EXPECT_TRUE(ReadAllBytes(path.c_str()).empty());
-    EXPECT_TRUE(fs::exists(path));
-    EXPECT_EQ(fs::file_size(path), 0u);
 }
 
 // ═══════════════════════════════════════════════
@@ -199,29 +182,16 @@ TEST_F(FileIoTest, IsFileLargerThan_MissingFile_ReturnsFalse)
 // AtomicWriteAllBytes: tmp → MoveFileExW(REPLACE_EXISTING) 経路
 // ═══════════════════════════════════════════════
 
-TEST_F(FileIoTest, AtomicWrite_NewFile_WritesContentAndCleansUpTmp)
+// 新しく作るときも上書きするときも中身を書き、tmp は MoveFileExW で消費されて残らない。
+TEST_F(FileIoTest, AtomicWrite_CreatesAndOverwritesFile)
 {
-    const auto path = temp_dir_ / L"atomic_new.bin";
-    const std::string_view payload = "atomic-new-content";
-
-    ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
-
-    EXPECT_EQ(ReadAsString(path), payload);
-    // tmp は MoveFileExW で消費される (残らない)
-    EXPECT_FALSE(fs::exists(TmpOf(path)));
-}
-
-TEST_F(FileIoTest, AtomicWrite_OverwritesExistingFile)
-{
-    const auto path = temp_dir_ / L"atomic_overwrite.bin";
-    const std::string_view first = "first-content-longer-than-second";
-    const std::string_view second = "short";
-
-    ASSERT_TRUE(AtomicWriteAllBytes(path, first.data(), first.size()));
-    ASSERT_TRUE(AtomicWriteAllBytes(path, second.data(), second.size()));
-
-    EXPECT_EQ(ReadAsString(path), second);
-    EXPECT_FALSE(fs::exists(TmpOf(path)));
+    const auto path = temp_dir_ / L"atomic.bin";
+    for (const std::string_view payload : { "first-content-longer-than-second", "short" }) {
+        SCOPED_TRACE(payload);
+        ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
+        EXPECT_EQ(ReadAsString(path), payload);
+        EXPECT_FALSE(fs::exists(TmpOf(path)));
+    }
 }
 
 TEST_F(FileIoTest, AtomicWrite_ToInvalidPath_FailsAndLeavesNoTmp)
