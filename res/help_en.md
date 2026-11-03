@@ -7,6 +7,8 @@ A lightweight, high-speed Markdown viewer.
 - Drag & drop a file onto the window
 - Press `Ctrl+O` or click the open file button in the title bar to open a file dialog
 - Click a file in the left file pane
+- Press `Ctrl+N` or choose "New Window" from the right-click menu to open the current file in a new window
+- Middle-click or `Ctrl+click` an item in the file pane, or choose "Open in New Window" from its right-click menu, to open it in a new window
 
 ## Scrolling
 
@@ -37,6 +39,7 @@ A lightweight, high-speed Markdown viewer.
 | Key | Action |
 |---|---|
 | `Ctrl+O` | Open file |
+| `Ctrl+N` | Open a new window |
 | `Ctrl+C` | Copy selected text |
 | `Ctrl+Shift+C` | Copy selected text as formatted (HTML) |
 | `Ctrl+A` | Select all |

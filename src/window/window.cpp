@@ -118,6 +118,9 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
+    // 新しいウィンドウとして起動されたら、保存した配置より渡された位置と大きさを優先する。幅に CW_USEDEFAULT を渡すと
+    // STARTUPINFO の値で作られる。作った後に動かすと別の DPI の画面へ移ったときに大きさが変わるので、最初からその位置に作る。
+    const bool startup_placement = HasStartupPlacement();
     // 描画はフリップモデルのスワップチェーンが全面を覆うので、DWM のリダイレクト面 (クライアント領域分) は要らない。
     hwnd_ = CreateWindowExW(
         WS_EX_ACCEPTFILES | WS_EX_NOREDIRECTIONBITMAP,
@@ -125,7 +128,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         L"mendo",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
+        startup_placement ? CW_USEDEFAULT : DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
         nullptr, nullptr, hInstance, this);
 
     if (!hwnd_) {
@@ -146,7 +149,8 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 
     // 描画デバイスが無い間はクライアント領域が透けるので、最初のフレームを出すまで DWM に隠させる。
     SetCloaked(hwnd_, TRUE);
-    if (!RestoreWindowPlacement(nCmdShow)) {
+    // 新しいウィンドウの最大化は nCmdShow (STARTUPINFO の wShowWindow) で届く。
+    if (startup_placement || !RestoreWindowPlacement(nCmdShow)) {
         ShowWindow(hwnd_, nCmdShow);
     }
     app_->LoadInitialDocument();
@@ -409,6 +413,10 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         app_->OnLButtonUp(x, y);
         return 0;
 
+    case WM_MBUTTONDOWN:
+        app_->OnMButtonDown(x, y);
+        return 0;
+
     case WM_MOUSEMOVE:
         if (!tracking_mouse_) {
             TRACKMOUSEEVENT tme{};
@@ -581,12 +589,12 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_KEYDOWN:
-        app_->OnKeyDown(wParam);
+        app_->OnKeyDown(wParam, lParam);
         return 0;
 
     case WM_SYSKEYDOWN:
         // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。割り当ての無いキーは Alt+F4 等のシステム処理に回す。
-        if (app_->OnKeyDown(wParam)) {
+        if (app_->OnKeyDown(wParam, lParam)) {
             return 0;
         }
         break;
@@ -820,7 +828,7 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     // 検索欄を閉じたときのフォーカスは、閉じる副作用 (UnfocusSearch) が本体へ戻す。
-    if (app_->OnSearchEditKeyDown(wParam)) {
+    if (app_->OnSearchEditKeyDown(wParam, lParam)) {
         return 0;
     }
     const LRESULT result = DefSubclassProc(edit, msg, wParam, lParam);

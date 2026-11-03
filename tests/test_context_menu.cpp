@@ -26,6 +26,8 @@ struct ExpectedItem {
 constexpr ExpectedItem kMdPaneItems[] = {
     { ItemType::NavRow, 0 },
     { ItemType::Separator, 0 },
+    { ItemType::Text, IDM_NEW_WINDOW },
+    { ItemType::Separator, 0 },
     { ItemType::Text, IDM_EDIT_FILE },
     { ItemType::Text, IDM_COPY },
     { ItemType::Text, IDM_COPY_FORMATTED },
@@ -39,11 +41,14 @@ constexpr ExpectedItem kMdPaneItems[] = {
 constexpr ExpectedItem kNonMdPaneItems[] = {
     { ItemType::NavRow, 0 },
     { ItemType::Separator, 0 },
+    { ItemType::Text, IDM_NEW_WINDOW },
+    { ItemType::Separator, 0 },
     { ItemType::Text, IDM_TOGGLE_DARK_MODE },
     { ItemType::Separator, 0 },
     { ItemType::Text, IDM_TOGGLE_FILE_PANE },
     { ItemType::Text, IDM_TOGGLE_TOC_PANE },
 };
+
 
 struct Point {
     float x;
@@ -116,6 +121,21 @@ TEST_F(ContextMenuTest, ItemSequenceDependsOnPane)
             EXPECT_EQ(items[i].type, c.expected[i].type);
             EXPECT_EQ(items[i].id, c.expected[i].id);
         }
+    }
+}
+
+// ファイル一覧の項目の上では、同じ項目がその項目を開く文言になる。
+TEST_F(ContextMenuTest, NewWindowLabelFollowsFileEntry)
+{
+    const auto& ls = i18n::S();
+    for (const bool on_entry : { false, true }) {
+        SCOPED_TRACE(on_entry);
+        auto p = MakeParams(false);
+        p.on_file_entry = on_entry;
+        Build(p);
+        const auto* item = FindItem(IDM_NEW_WINDOW);
+        ASSERT_NE(item, nullptr);
+        EXPECT_EQ(item->text, on_entry ? ls.menu_open_in_new_window : ls.menu_new_window);
     }
 }
 

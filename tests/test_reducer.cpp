@@ -521,6 +521,33 @@ TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog)
     EXPECT_TRUE(HasEffect<effect::OpenFileDialog>(effects));
 }
 
+// 開く先が無ければ表示中の文書、ヘルプのようにファイルが無ければファイル一覧のフォルダを渡す。
+TEST_F(ReducerTest, NewWindowAction_ChoosesPathToOpen)
+{
+    struct Case {
+        const char* name;
+        std::wstring_view doc_path;
+        std::wstring_view action_path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "ExplicitPath", L"C:\\docs\\a.md", L"C:\\docs\\b.md", L"C:\\docs\\b.md" },
+        { "CurrentFile", L"C:\\docs\\a.md", L"", L"C:\\docs\\a.md" },
+        { "HelpUsesPaneDirectory", HELP_PATH, L"", L"C:\\pane" },
+        { "NoFileUsesPaneDirectory", L"", L"", L"C:\\pane" },
+    };
+    state.file_explorer.SetDirectory(L"C:\\pane");
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        SetDocument(state, "Hello", c.doc_path);
+        auto effects = Reduce(state, NewWindowAction{ std::wstring{ c.action_path } });
+        EXPECT_EQ(effects.size(), 1u);
+        const auto* launch = FindEffect<effect::LaunchNewWindow>(effects);
+        ASSERT_NE(launch, nullptr);
+        EXPECT_EQ(launch->path, c.expected);
+    }
+}
+
 // 隠したペインを再び表示したとき、隠す前のホバー強調が残らない。
 TEST_F(ReducerTest, TogglePane_ClearsThatPaneHover)
 {

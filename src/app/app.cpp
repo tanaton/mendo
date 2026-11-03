@@ -36,9 +36,11 @@ bool IsEditableTextFile(std::wstring_view path)
     return path_util::IsMarkdownFile(path) || ascii_util::iequal(path_util::ExtensionView(path), L".txt");
 }
 
-KeyDownEvent CurrentKeyDownEvent(WPARAM key) noexcept
+// flags は WM_KEYDOWN の lParam。
+KeyDownEvent CurrentKeyDownEvent(WPARAM key, LPARAM flags) noexcept
 {
-    return { static_cast<int>(key), IsKeyDown(VK_CONTROL), IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU) };
+    constexpr LPARAM kPreviousKeyState = 1 << 30;
+    return { static_cast<int>(key), IsKeyDown(VK_CONTROL), IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), (flags & kPreviousKeyState) != 0 };
 }
 
 // ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
@@ -501,14 +503,14 @@ void App::OnFileListed()
     Invalidate();
 }
 
-bool App::OnKeyDown(WPARAM key)
+bool App::OnKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key)));
+    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
-bool App::OnSearchEditKeyDown(WPARAM key)
+bool App::OnSearchEditKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key)));
+    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
 bool App::DispatchKeyAction(const std::optional<AppAction>& action)
@@ -1073,6 +1075,10 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::OpenFileDialog&) {
             OpenFileDialog();
         },
+        [this](const effect::LaunchNewWindow& e) {
+            // 元のウィンドウのタイトルバーが隠れないだけずらす。
+            LaunchSelfInNewWindow(hwnd_, e.path, static_cast<int>(TitleBar::BASE_HEIGHT * state_.window.cached_dpi_scale));
+        },
         [this](const effect::CancelOtherFileLoad&) {
             CancelOtherFileLoad();
         },
@@ -1222,6 +1228,14 @@ void App::OnLButtonDown(int px, int py, bool is_double_click)
         return;
     }
     std::unreachable();
+}
+
+void App::OnMButtonDown(int px, int py)
+{
+    const auto dip = PixelToDip(px, py);
+    if (const FileEntry* entry = FileEntryAt(dip.x, dip.y)) {
+        Dispatch(NewWindowAction{ entry->full_path });
+    }
 }
 
 void App::OnLButtonUp(int px, int py)
@@ -1510,6 +1524,18 @@ void App::HandleFileEntryClick(const FileEntry& entry)
     Dispatch(OpenPathAction{ entry.full_path });
 }
 
+const FileEntry* App::FileEntryAt(float dip_x, float dip_y)
+{
+    if (PaneAtPoint(dip_x) != PaneZone::FilePane) {
+        return nullptr;
+    }
+    const auto hit = app_controller::ResolveSidePaneHit(state_, PaneTarget::File, ComputePaneLayout(state_), dip_x, dip_y);
+    if (hit.in_header || hit.scrollbar || hit.item < 0) {
+        return nullptr;
+    }
+    return &state_.file_explorer.GetEntries()[hit.item];
+}
+
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool is_double_click)
 {
     const auto hit = app_controller::ResolveSidePaneHit(state_, target, ComputePaneLayout(state_), dip_x, dip_y);
@@ -1538,7 +1564,13 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool 
         return;
     }
     if (target == PaneTarget::File) {
-        HandleFileEntryClick(state_.file_explorer.GetEntries()[hit.item]);
+        const FileEntry& entry = state_.file_explorer.GetEntries()[hit.item];
+        // ブラウザのリンクと同じく Ctrl+クリックは新しいウィンドウ。
+        if (IsKeyDown(VK_CONTROL)) {
+            Dispatch(NewWindowAction{ entry.full_path });
+            return;
+        }
+        HandleFileEntryClick(entry);
     }
     else {
         Dispatch(TocItemClickedAction{ state_.document.doc.GetToc()[hit.item].node_index });
@@ -1588,6 +1620,11 @@ void App::OnContextMenu(int screen_x, int screen_y)
     const auto& panes = state_.view.panes;
     const PaneZone zone = PaneAtPoint(dip.x);
     const std::optional<PaneTarget> zoom_pane = ToPaneTarget(zone);
+    // メニューを開いている間に一覧が変わりうるので、項目ではなくパスを持っておく。
+    std::wstring entry_path;
+    if (const FileEntry* entry = FileEntryAt(dip.x, dip.y)) {
+        entry_path = entry->full_path;
+    }
     const ContextMenuParams params{
         .env = MakePopupEnv(),
         .screen_x = screen_x,
@@ -1601,11 +1638,16 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
         .show_file_items = zone == PaneZone::MdPane,
+        .on_file_entry = !entry_path.empty(),
         .zoom = &ZoomOf(state_, zoom_pane),
         .on_zoom = [this, zoom_pane](ZoomDirection direction) { Dispatch(ZoomAction{ direction, 1, zoom_pane }); },
     };
 
     switch (const int cmd = ContextMenu::Show(hwnd_, params); cmd) {
+    case IDM_NEW_WINDOW:
+        // 項目の外なら空のまま渡し、表示中の文書を開かせる。
+        Dispatch(NewWindowAction{ std::move(entry_path) });
+        break;
     case IDM_NAV_BACK:
     case IDM_NAV_FORWARD:
         Dispatch(NavigateHistoryAction{ .forward = cmd == IDM_NAV_FORWARD });

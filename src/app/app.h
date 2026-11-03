@@ -84,13 +84,14 @@ public:
     void OnMinimize();
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
     // 割り当ての無いキーは false を返し、ウィンドウ側の既定の処理に回させる。
-    bool OnKeyDown(WPARAM key);
-    bool OnSearchEditKeyDown(WPARAM key);
+    bool OnKeyDown(WPARAM key, LPARAM flags);
+    bool OnSearchEditKeyDown(WPARAM key, LPARAM flags);
     void OnDropFiles(HDROP hDrop);
 
     // is_double_click は WM_LBUTTONDBLCLK (連続クリックの 2 回目)。
     void OnLButtonDown(int px, int py, bool is_double_click);
     void OnLButtonUp(int px, int py);
+    void OnMButtonDown(int px, int py);
     void OnMouseMove(int px, int py);
     void OnContextMenu(int screen_x, int screen_y);
     bool OnRButtonDown(int px, int py);
@@ -233,6 +234,8 @@ private:
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool is_double_click);
     void HandleFileEntryClick(const FileEntry& entry);
+    // 見出し・スクロールバーの上は無し。
+    const FileEntry* FileEntryAt(float dip_x, float dip_y);
     void RefreshFilePane();
 
     // ---- ホバー (判定は app_controller::ResolvePointerHover) ----
