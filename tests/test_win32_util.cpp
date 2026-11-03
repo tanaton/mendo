@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "win32_util.h"
 #include <shellapi.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -62,4 +63,33 @@ TEST(Win32UtilTest, CascadeRect)
         SCOPED_TRACE(c.name);
         EXPECT_EQ(Tie(CascadeRect(c.rect, c.work, 32)), Tie(c.expected));
     }
+}
+
+// 同じウィンドウから続けて開いても、開いているウィンドウと左上が重ならない所まで進める。
+TEST(Win32UtilTest, CascadeRectSkipsOccupiedOrigins)
+{
+    constexpr RECT kWork{ 0, 0, 1000, 800 };
+    constexpr RECT kRect{ 100, 100, 600, 500 };
+    constexpr POINT kOne[] = { { 100, 100 }, { 132, 132 } };
+    constexpr POINT kTwo[] = { { 164, 164 }, { 100, 100 }, { 132, 132 } };
+    constexpr POINT kUnrelated[] = { { 100, 100 }, { 133, 132 } };
+    struct Case {
+        const char* name;
+        RECT rect;
+        std::span<const POINT> occupied;
+        RECT expected;
+    };
+    const Case kCases[] = {
+        { "SkipOne", kRect, kOne, { 164, 164, 664, 564 } },
+        { "SkipChainInAnyOrder", kRect, kTwo, { 196, 196, 696, 596 } },
+        { "OnlyExactOriginCounts", kRect, kUnrelated, { 132, 132, 632, 532 } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        EXPECT_EQ(Tie(CascadeRect(c.rect, kWork, 32, c.occupied)), Tie(c.expected));
+    }
+
+    // 作業領域いっぱいの窓は左上へ戻るたびに同じ所に来る。空きが無くても抜ける。
+    constexpr POINT kFull[] = { { 0, 0 } };
+    EXPECT_EQ(Tie(CascadeRect(kWork, kWork, 32, kFull)), Tie(kWork));
 }
