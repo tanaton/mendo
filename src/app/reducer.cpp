@@ -1100,6 +1100,16 @@ void On(ReduceContext& c, const OpenFileAction&)
     PushEffect(c.effects, effect::OpenFileDialog{});
 }
 
+void On(ReduceContext& c, const NewWindowAction& a)
+{
+    std::wstring path = a.path;
+    if (path.empty()) {
+        const auto& doc = c.state.document.doc;
+        path = doc.HasBackingFile() ? doc.GetFilePath() : c.state.file_explorer.GetDirectory();
+    }
+    PushEffect(c.effects, effect::LaunchNewWindow{ std::move(path) });
+}
+
 void On(ReduceContext& c, const ReloadFileAction&)
 {
     PushEffect(c.effects, effect::ReloadFile{});

@@ -15,6 +15,8 @@ struct KeyDownEvent {
     bool ctrl = false;
     bool shift = false;
     bool alt = false;
+    // 押し続けたときの自動リピート。
+    bool repeat = false;
 };
 
 enum class ScrollType : uint8_t {
@@ -65,6 +67,10 @@ struct ZoomAction {
 
 struct ReloadFileAction {};
 struct OpenFileAction {};
+// path が空なら表示中の文書 (ヘルプならファイル一覧のフォルダ) を新しいウィンドウで開く。
+struct NewWindowAction {
+    std::wstring path;
+};
 struct ToggleDarkModeAction {};
 // 履歴を戻る (forward が false) か進む。
 struct NavigateHistoryAction {
@@ -240,6 +246,7 @@ using AppAction = std::variant<
     ZoomAction,
     ReloadFileAction,
     OpenFileAction,
+    NewWindowAction,
     ToggleDarkModeAction,
     NavigateHistoryAction,
     ShowHelpAction,

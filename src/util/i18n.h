@@ -60,6 +60,8 @@ struct Strings {
     std::wstring_view viewer_fit;
 
     // コンテキストメニュー
+    std::wstring_view menu_new_window;
+    std::wstring_view menu_open_in_new_window;
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
     std::wstring_view menu_copy_formatted;
@@ -145,6 +147,8 @@ inline constexpr Strings kJa = {
     .viewer_zoom_in = L"拡大 (+)",
     .viewer_zoom_out = L"縮小 (-)",
     .viewer_fit = L"全体を表示 (0)",
+    .menu_new_window = L"新しいウィンドウ",
+    .menu_open_in_new_window = L"新しいウィンドウで開く",
     .menu_edit_file = L"エディタで開く",
     .menu_copy = L"コピー",
     .menu_copy_formatted = L"書式付きコピー",
@@ -211,6 +215,8 @@ inline constexpr Strings kEn = {
     .viewer_zoom_in = L"Zoom In (+)",
     .viewer_zoom_out = L"Zoom Out (-)",
     .viewer_fit = L"Fit to Window (0)",
+    .menu_new_window = L"New Window",
+    .menu_open_in_new_window = L"Open in New Window",
     .menu_edit_file = L"Open in Editor",
     .menu_copy = L"Copy",
     .menu_copy_formatted = L"Copy as HTML",
@@ -277,6 +283,8 @@ inline constexpr Strings kZh = {
     .viewer_zoom_in = L"放大 (+)",
     .viewer_zoom_out = L"缩小 (-)",
     .viewer_fit = L"适应窗口 (0)",
+    .menu_new_window = L"新建窗口",
+    .menu_open_in_new_window = L"在新窗口中打开",
     .menu_edit_file = L"在编辑器中打开",
     .menu_copy = L"复制",
     .menu_copy_formatted = L"复制为 HTML",
@@ -343,6 +351,8 @@ inline constexpr Strings kZhHant = {
     .viewer_zoom_in = L"放大 (+)",
     .viewer_zoom_out = L"縮小 (-)",
     .viewer_fit = L"符合視窗 (0)",
+    .menu_new_window = L"新增視窗",
+    .menu_open_in_new_window = L"在新視窗中開啟",
     .menu_edit_file = L"在編輯器中開啟",
     .menu_copy = L"複製",
     .menu_copy_formatted = L"複製為 HTML",
@@ -409,6 +419,8 @@ inline constexpr Strings kKo = {
     .viewer_zoom_in = L"확대 (+)",
     .viewer_zoom_out = L"축소 (-)",
     .viewer_fit = L"창에 맞추기 (0)",
+    .menu_new_window = L"새 창",
+    .menu_open_in_new_window = L"새 창에서 열기",
     .menu_edit_file = L"편집기에서 열기",
     .menu_copy = L"복사",
     .menu_copy_formatted = L"HTML로 복사",

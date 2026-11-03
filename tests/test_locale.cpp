@@ -39,6 +39,8 @@ constexpr std::wstring_view i18n::Strings::* kStringFields[] = {
     &i18n::Strings::viewer_zoom_in,
     &i18n::Strings::viewer_zoom_out,
     &i18n::Strings::viewer_fit,
+    &i18n::Strings::menu_new_window,
+    &i18n::Strings::menu_open_in_new_window,
     &i18n::Strings::menu_edit_file,
     &i18n::Strings::menu_copy,
     &i18n::Strings::menu_copy_formatted,

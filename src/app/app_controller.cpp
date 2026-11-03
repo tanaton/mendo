@@ -66,6 +66,12 @@ std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
             return SelectAllAction{};
         case 'O':
             return OpenFileAction{};
+        case 'N':
+            // 押し続けるとリピートの数だけプロセスが立ち上がる。
+            if (event.repeat) {
+                return std::nullopt;
+            }
+            return NewWindowAction{};
         case 'F':
             return OpenSearchBarAction{};
         case 'G':

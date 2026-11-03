@@ -20,6 +20,8 @@ struct ContextMenuParams {
     bool file_pane_checked = false;
     bool toc_pane_checked = false;
     bool show_file_items = false; // MdPaneの場合のみtrue
+    // ファイル一覧の項目の上。「新しいウィンドウ」をその項目を開く文言に替える。
+    bool on_file_entry = false;
     // 右クリックした領域 (本文・ファイル一覧・目次) の倍率。無ければズームの行を出さない。
     // メニューを開いたまま on_zoom で変わるので、表示中は生きている倍率を指す。
     const ZoomLevel* zoom = nullptr;

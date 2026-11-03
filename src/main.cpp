@@ -7,6 +7,7 @@
 #include "profiler.h"
 #include "startup_plan.h"
 #include "utility.h"
+#include "win32_util.h"
 #include <windows.h>
 #include <cstdlib>
 #include <filesystem>
@@ -15,17 +16,9 @@
 
 namespace {
 
-template <typename GetPathFn>
-std::wstring QueryPath(GetPathFn get_path)
-{
-    wchar_t buf[MAX_PATH];
-    const UINT len = get_path(buf, MAX_PATH);
-    return (len > 0 && len < MAX_PATH) ? std::wstring{ buf, len } : std::wstring{};
-}
-
 std::wstring ExeDirectory()
 {
-    return path_util::ParentDirectory(QueryPath([](wchar_t* b, UINT n) static { return GetModuleFileNameW(nullptr, b, n); }));
+    return path_util::ParentDirectory(ExePath());
 }
 
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。

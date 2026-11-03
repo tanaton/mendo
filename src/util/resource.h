@@ -10,6 +10,7 @@
 #define IDM_TOGGLE_FILE_PANE 206
 #define IDM_TOGGLE_TOC_PANE  207
 #define IDM_COPY_FORMATTED   208
+#define IDM_NEW_WINDOW       209
 
 #define IDR_HELP_MD       302
 #define IDR_HELP_EN_MD    303
