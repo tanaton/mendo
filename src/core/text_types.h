@@ -2,8 +2,8 @@
 #include <cstdint>
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
-// 作るのはパーサだけで、パース後は書き換えない。守る規則 (start 昇順で重ならない、テキストに収まる) は
-// run の並びに対するものなので、1 つの run には隠す状態を持たせず集成体にする。flags は下の定数の OR。
+// 守る規則 (start 昇順で重ならない、テキストに収まる) は run の並びに対するものなので、1 つの run には
+// 隠す状態を持たせず集成体にする。flags は下の定数の OR。
 struct TextRun {
     static constexpr uint8_t kBold = 0x01;
     static constexpr uint8_t kItalic = 0x02;

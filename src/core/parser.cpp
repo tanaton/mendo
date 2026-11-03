@@ -43,6 +43,15 @@ constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
     }
 }
 
+// RunFlagOf が返すフラグのビット位置の数。span_depths はビット位置で引くので、フラグを足しても範囲外に書かない。
+constexpr int kRunFlagBits = [] {
+    int bits = 0;
+    for (int t = 0; t <= MD_SPAN_MARK; ++t) {
+        bits = std::max(bits, std::bit_width(RunFlagOf(static_cast<MD_SPANTYPE>(t))));
+    }
+    return bits;
+}();
+
 // Node の深さ系フィールドは int8_t なので、極端に深い入れ子は最大値で頭打ちにする。
 constexpr int8_t SaturateToInt8(int value) noexcept
 {
@@ -80,7 +89,7 @@ struct ParseContext : NodeStorage {
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
     // link_url_index のみ単純フィールド (-1 = リンク外)。
-    std::array<uint8_t, 6> span_depths{};
+    std::array<uint8_t, kRunFlagBits> span_depths{};
     // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
     // 不変式: bit X が立っている <=> 対応する span_depths > 0。

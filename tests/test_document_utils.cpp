@@ -41,7 +41,6 @@ std::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
     return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
 }
 
-
 } // namespace
 
 // ============================================================

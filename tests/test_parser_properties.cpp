@@ -245,8 +245,7 @@ std::vector<ByteStyle> StylesFrom(const Node& node, size_t from)
     for (const auto& r : node.runs()) {
         for (size_t p = std::max<size_t>(r.start, from); p < static_cast<size_t>(r.start) + r.length && p < text.size(); ++p) {
             auto& s = styles[p - from];
-            s.flags = static_cast<uint8_t>((r.bold() ? TextRun::kBold : 0) | (r.italic() ? TextRun::kItalic : 0) |
-                                           (r.code() ? TextRun::kCode : 0) | (r.strikethrough() ? TextRun::kStrikethrough : 0));
+            s.flags = r.flags;
             s.url = r.has_link() ? std::string{ urls[static_cast<size_t>(r.link_url_index)] } : std::string{};
         }
     }
