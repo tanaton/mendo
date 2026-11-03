@@ -38,22 +38,27 @@ std::wstring QuoteCommandLineArg(std::wstring_view arg)
 
 namespace {
 
-RECT CascadeOnce(const RECT& rect, const RECT& work, int step) noexcept
-{
-    RECT moved = rect;
-    OffsetRect(&moved, step, step);
-    if (moved.right > work.right || moved.bottom > work.bottom) {
-        OffsetRect(&moved, work.left - moved.left, work.top - moved.top);
-    }
-    return moved;
-}
-
 constexpr DWORD kStartupPlacementFlags = STARTF_USEPOSITION | STARTF_USESIZE;
 
-// origin と同じクラスの、通常表示のウィンドウの左上。
-std::vector<POINT> SameClassWindowOrigins(HWND origin)
+// 子はプロセスの初期化が終わるまでウィンドウを作らず、列挙に出てこない。素早く続けて開いても重ならないよう、
+// 渡した位置をこの間は使用中とみなす。
+constexpr ULONGLONG kPendingLaunchMs = 2000;
+
+struct PendingLaunch {
+    POINT origin;
+    ULONGLONG tick;
+};
+// UI スレッドだけが触る。
+std::vector<PendingLaunch> g_pending_launches;
+
+// 最小化は -32000、最大化は枠の分だけ作業領域の外にあり、ずらした先と重ならないので除く。
+std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 {
+    std::erase_if(g_pending_launches, [now](const PendingLaunch& p) { return now - p.tick > kPendingLaunchMs; });
     std::vector<POINT> origins;
+    for (const auto& p : g_pending_launches) {
+        origins.push_back(p.origin);
+    }
     wchar_t cls[256];
     if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
         return origins;
@@ -71,13 +76,16 @@ std::vector<POINT> SameClassWindowOrigins(HWND origin)
 
 RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept
 {
-    const auto is_occupied = [&occupied](const RECT& r) {
-        return std::ranges::any_of(occupied, [&r](const POINT& p) { return p.x == r.left && p.y == r.top; });
-    };
-    RECT moved = CascadeOnce(rect, work, step);
+    RECT moved = rect;
     // 左上へ戻って一巡すると空きが無いこともあるので、回数を区切る。
-    for (size_t i = 0; i < occupied.size() && is_occupied(moved); ++i) {
-        moved = CascadeOnce(moved, work, step);
+    for (size_t i = 0; i <= occupied.size(); ++i) {
+        OffsetRect(&moved, step, step);
+        if (moved.right > work.right || moved.bottom > work.bottom) {
+            OffsetRect(&moved, work.left - moved.left, work.top - moved.top);
+        }
+        if (std::ranges::none_of(occupied, [&moved](const POINT& p) { return p.x == moved.left && p.y == moved.top; })) {
+            break;
+        }
     }
     return moved;
 }
@@ -104,7 +112,9 @@ void LaunchSelfInNewWindow(HWND origin, std::wstring_view arg, int step)
     else if (!GetWindowRect(origin, &rect)) {
         return;
     }
-    rect = CascadeRect(rect, mi.rcWork, step, SameClassWindowOrigins(origin));
+    const ULONGLONG now = GetTickCount64();
+    rect = CascadeRect(rect, mi.rcWork, step, OccupiedOrigins(origin, now));
+    g_pending_launches.push_back({ { rect.left, rect.top }, now });
 
     std::wstring cmd = QuoteCommandLineArg(exe);
     if (!arg.empty()) {

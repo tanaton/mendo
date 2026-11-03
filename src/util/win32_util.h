@@ -91,7 +91,7 @@ void SetCloaked(HWND hwnd, BOOL cloaked);
 std::wstring QuoteCommandLineArg(std::wstring_view arg);
 // rect を step ずつ右下へずらす。work からはみ出すなら work の左上へ戻す。
 // 左上が occupied (開いているウィンドウの左上) のどれかと重なる間は、さらにずらす。
-RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied = {}) noexcept;
+RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept;
 // この exe を origin から step ずらした位置の新しいウィンドウとして起動する。開いている同じクラスのウィンドウとは
 // 左上が重ならないようにする。arg が空なら引数なし。
 // 位置と大きさは STARTUPINFO で渡すので、受け側は CreateWindowExW に CW_USEDEFAULT を渡せば使われる。
