@@ -156,6 +156,12 @@ struct OpenedFile {
 [[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size,
                                                                              DWORD* out_error = nullptr) noexcept;
 
+// 読めなかった理由が、ファイルが無いことか (共有違反などの一時的な失敗と分ける)。
+constexpr bool IsFileMissingError(DWORD error) noexcept
+{
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+}
+
 // 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
 [[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
                                     DWORD share_mode = FILE_SHARE_READ,
@@ -191,11 +197,27 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 // rename が失敗 (クロスボリューム等) した場合は tmp を削除し false を返す。直書きフォールバックは
 // CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
 // tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
-// 呼び出し側で排他制御すること (プロセスをまたぐ settings.ini は ConfigService が名前付きミューテックスで守る)。
+// 呼び出し側で排他制御すること (プロセスをまたぐなら InterProcessFileLock で守る)。
 // 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
 // durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
 // キャッシュ向け (同期書き込みで終了が遅れないようにする)。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);
+
+// 複数のプロセスが同じファイルを読み書きするのを重ねない。後から書く方が先の内容を知らずに消すうえ、
+// AtomicWriteAllBytes の一時ファイルの名前が同じなので片方の書き込みが失敗する。読んでいる間の置き換え (MoveFileExW) も、
+// FILE_SHARE_DELETE を付けても共有違反で失敗するので、読み込みも囲む。
+// 名前付きミューテックスの名前は kind とパスのハッシュから作る (テストは別のフォルダを使うので、パスごとに分ける)。
+class InterProcessFileLock {
+public:
+    InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path);
+    ~InterProcessFileLock();
+    InterProcessFileLock(const InterProcessFileLock&) = delete;
+    InterProcessFileLock& operator=(const InterProcessFileLock&) = delete;
+
+private:
+    UniqueEventHandle mutex_;
+    bool owned_ = false;
+};
 
 // ファイル選択ダイアログ。`<commdlg.h>` は file_io.cpp だけが読む。
 namespace file_dialog {

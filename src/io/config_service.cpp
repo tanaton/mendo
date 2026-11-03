@@ -3,12 +3,10 @@
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "utf8_codec.h"
-#include "utility.h"
 #include "win_handle.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
-#include <format>
 #include <optional>
 #include <shlobj.h>
 #include <windows.h>
@@ -198,7 +196,7 @@ std::optional<ini::IniData> ReadIniFile(const std::filesystem::path& path)
     constexpr LONGLONG kMaxSize = 1 << 20;
     auto opened = OpenFileForReadShared(path.c_str(), FILE_SHARE_READ, kMaxSize, &error);
     if (!opened) {
-        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+        if (IsFileMissingError(error)) {
             return ini::IniData{};
         }
         return std::nullopt;
@@ -215,45 +213,14 @@ std::optional<ini::IniData> ReadIniFile(const std::filesystem::path& path)
     return ini::Parse(content);
 }
 
-// 複数のプロセスの読み書きを重ねない。Flush 同士が重なると、後から書いた方が先の値を知らずに消すうえ、
-// 一時ファイルの名前が同じなので片方の書き込みが失敗する。読んでいる間の置き換え (MoveFileExW) も、
-// FILE_SHARE_DELETE を付けても共有違反で失敗するので、Load も囲む。
-class SettingsFileLock {
-public:
-    explicit SettingsFileLock(const std::filesystem::path& ini_path)
-    {
-        // 名前に '\\' を含められないのでパスはハッシュにする。テストは別のフォルダを使うので、フォルダごとに分ける。
-        const std::wstring& native = ini_path.native();
-        const uint64_t hash = Fnv1a64({ reinterpret_cast<const char*>(native.data()), native.size() * sizeof(wchar_t) });
-        const std::wstring name = std::format(L"Local\\mendo-settings-{:016x}", hash);
-        mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
-        if (!mutex_) {
-            return;
-        }
-        // ログオフ中は待てる時間が限られる。待ちきれなければロックなしで進める。
-        constexpr DWORD kTimeoutMs = 2000;
-        const DWORD result = WaitForSingleObject(mutex_.get(), kTimeoutMs);
-        owned_ = (result == WAIT_OBJECT_0) || (result == WAIT_ABANDONED);
-    }
-    ~SettingsFileLock()
-    {
-        if (owned_) {
-            ReleaseMutex(mutex_.get());
-        }
-    }
-    SettingsFileLock(const SettingsFileLock&) = delete;
-    SettingsFileLock& operator=(const SettingsFileLock&) = delete;
-
-private:
-    UniqueEventHandle mutex_;
-    bool owned_ = false;
-};
+// 前の版と同じミューテックスの名前になるよう "settings" のまま変えない。
+constexpr std::wstring_view kSettingsLockKind = L"settings";
 } // namespace
 
 void ConfigService::Load()
 {
     const auto ini_path = GetConfigPath(kSettingsFile);
-    const SettingsFileLock lock(ini_path);
+    const InterProcessFileLock lock(kSettingsLockKind, ini_path);
     if (auto data = ReadIniFile(ini_path)) {
         data_ = std::move(*data);
     }
@@ -291,7 +258,7 @@ void ConfigService::Flush()
         return;
     }
 
-    const SettingsFileLock lock(ini_path);
+    const InterProcessFileLock lock(kSettingsLockKind, ini_path);
     // 他のウィンドウが先に閉じて書いた値を、起動時に読んだ古い値で戻さない。読めなければ従来どおり丸ごと書く。
     auto merged = ReadIniFile(ini_path).value_or(data_);
     OverlayChanges(merged);

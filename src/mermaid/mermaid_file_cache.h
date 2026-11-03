@@ -15,7 +15,8 @@ class TaskScheduler;
 // Mermaidダイアグラムの描画済みPNGをファイルに永続化するキャッシュ。
 // 幅は mermaid_util::QuantizeWidth で量子化し、コード・テーマの組み合わせごとにPNGを保持する。
 // PNG書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
-// インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。
+// インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
+// 書く直前に読み直して、他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある
 // （StoreAsyncのタスク投入のみスレッドセーフ）。
 class MermaidFileCache {
@@ -100,12 +101,22 @@ private:
         uint64_t total_size = 0;
         // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して順序が付かない。
         int64_t lru_seq = 0;
+        // 読み込んだか書いた時点の lru_seq。last_used がこれより大きいエントリは、その後に足したか使ったもの。
+        int64_t saved_seq = 0;
+        // 読み込んだか書いた後に除いたキー。他のプロセスが書いた索引に重ねるときに、そちらからも除く。
+        std::unordered_set<uint64_t> removed;
         // 終了時に変更の無い索引を書き戻さないためのフラグ。
         bool dirty = false;
 
-        // 変更系はすべて dirty を立てる (読み込み直後だけ LoadIndex が戻す)。
+        // 変更系はすべて dirty を立てる (読み込み直後と書いた直後だけ MarkSaved が戻す)。
         void Add(uint64_t key, IndexEntry entry);
-        void Remove(Map::iterator it) noexcept;
+        void Remove(Map::iterator it);
+        void MarkSaved() noexcept
+        {
+            saved_seq = lru_seq;
+            removed.clear();
+            dirty = false;
+        }
         int64_t NextLruSeq() noexcept
         {
             return ++lru_seq;
@@ -121,9 +132,13 @@ private:
     std::filesystem::path GetIndexPath() const;
     // 初回呼び出しで index.bin を読み込む唯一の入口。
     IndexState& Index();
-    // 違う版か、ヘッダの壊れた索引なら nullopt。索引が無い・短いときは空の索引 (別のインスタンスが書き込み中でもよい)。
-    std::optional<IndexState> LoadIndex() const;
-    void EvictIfNeeded(IndexState& index, uint32_t new_png_size);
+    // 違う版か、ヘッダの壊れた索引なら nullopt。索引が無いときは空の索引。
+    // 読めないか短いときは、strict なら nullopt、そうでなければ空の索引。呼び出し側が InterProcessFileLock を持つ。
+    std::optional<IndexState> LoadIndex(bool strict) const;
+    // 他のプロセスが先に書いた索引を読み直し、このプロセスの変更を重ねる。読めないか使えないなら nullopt。
+    std::optional<IndexState> MergeWithSavedIndex();
+    // new_entries 件・new_png_size バイトを足せるまで、古いものから追い出す。
+    void EvictIfNeeded(IndexState& index, size_t new_entries, uint64_t new_png_size);
     // 前の版の Clear が別名にして消し損ねたフォルダ (<cache_dir_>.deleting-*) を worker で消す。次の版で除く。
     void RemoveDoomedDirsAsync();
     // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。

@@ -36,6 +36,7 @@ static_assert(sizeof(IndexRecord) == 28);
 
 constexpr std::wstring_view kDoomedSuffix = L".deleting-";
 constexpr std::wstring_view kIndexFileName = L"index.bin";
+constexpr std::wstring_view kIndexLockKind = L"mermaid-index";
 
 std::vector<std::filesystem::path> ListEntries(const std::filesystem::path& dir)
 {
@@ -102,7 +103,11 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 MermaidFileCache::IndexState& MermaidFileCache::Index()
 {
     if (!index_) {
-        if (auto loaded = LoadIndex()) {
+        auto loaded = [this] {
+            const InterProcessFileLock lock(kIndexLockKind, GetIndexPath());
+            return LoadIndex(/* strict = */ false);
+        }();
+        if (loaded) {
             index_ = std::move(*loaded);
         }
         else {
@@ -114,12 +119,16 @@ MermaidFileCache::IndexState& MermaidFileCache::Index()
     return *index_;
 }
 
-std::optional<MermaidFileCache::IndexState> MermaidFileCache::LoadIndex() const
+std::optional<MermaidFileCache::IndexState> MermaidFileCache::LoadIndex(bool strict) const
 {
     IndexState index;
-    const auto buf = ReadAllBytes(GetIndexPath().c_str());
+    DWORD read_error = ERROR_SUCCESS;
+    const auto buf = ReadAllBytes(GetIndexPath().c_str(), &read_error);
     const size_t buf_size = buf.size();
     if (buf_size < sizeof(IndexHeader)) {
+        if (strict && !IsFileMissingError(read_error)) {
+            return std::nullopt;
+        }
         return index;
     }
 
@@ -151,21 +160,49 @@ std::optional<MermaidFileCache::IndexState> MermaidFileCache::LoadIndex() const
 
         index.Add(record.key, { record.css_width, record.css_height, record.png_size, record.last_used });
     }
-    index.dirty = false;
+    index.MarkSaved();
     return index;
+}
+
+std::optional<MermaidFileCache::IndexState> MermaidFileCache::MergeWithSavedIndex()
+{
+    auto merged = LoadIndex(/* strict = */ true);
+    if (!merged) {
+        return std::nullopt;
+    }
+    for (const uint64_t key : index_->removed) {
+        if (const auto it = merged->entries.find(key); it != merged->entries.end()) {
+            merged->Remove(it);
+        }
+    }
+    // 2 つのプロセスの last_used は同じ値から数え始めるので、そのまま混ぜると順序が付かない。
+    // このプロセスで足したか使ったエントリは、その順を保ったまま読み直した索引のどれよりも新しくする。
+    const int64_t shift = merged->lru_seq - index_->saved_seq;
+    for (const auto& [key, entry] : index_->entries) {
+        if (entry.last_used > index_->saved_seq) {
+            merged->Add(key, { entry.css_width, entry.css_height, entry.png_size, entry.last_used + shift });
+        }
+    }
+    EvictIfNeeded(*merged, 0, 0);
+    return merged;
 }
 
 void MermaidFileCache::IndexState::Add(uint64_t key, IndexEntry entry)
 {
-    entries.insert_or_assign(key, entry);
+    const auto [it, inserted] = entries.try_emplace(key, entry);
+    if (!inserted) {
+        total_size -= std::min<uint64_t>(total_size, it->second.png_size);
+        it->second = entry;
+    }
     total_size += entry.png_size;
     lru_seq = std::max(lru_seq, entry.last_used);
     dirty = true;
 }
 
-void MermaidFileCache::IndexState::Remove(Map::iterator it) noexcept
+void MermaidFileCache::IndexState::Remove(Map::iterator it)
 {
     total_size -= std::min<uint64_t>(total_size, it->second.png_size);
+    removed.insert(it->first);
     entries.erase(it);
     dirty = true;
 }
@@ -180,7 +217,12 @@ void MermaidFileCache::SaveIndex()
     const auto path = GetIndexPath();
     PrepareWrite(path);
 
-    const uint32_t count = static_cast<uint32_t>(index_->entries.size());
+    const InterProcessFileLock lock(kIndexLockKind, path);
+    // 他のウィンドウが先に閉じて書いた索引を、このプロセスが読んだ古い索引で消さない。読めなければ従来どおり丸ごと書く。
+    auto merged = MergeWithSavedIndex();
+    const IndexState& index = merged ? *merged : *index_;
+
+    const uint32_t count = static_cast<uint32_t>(index.entries.size());
 
     const size_t buf_size = sizeof(IndexHeader) + count * sizeof(IndexRecord);
     auto buf = std::make_unique_for_overwrite<uint8_t[]>(buf_size);
@@ -190,7 +232,7 @@ void MermaidFileCache::SaveIndex()
     std::memcpy(p, &header, sizeof(header));
     p += sizeof(header);
 
-    for (const auto& [key, entry] : index_->entries) {
+    for (const auto& [key, entry] : index.entries) {
         IndexRecord record{ key, entry.css_width, entry.css_height, entry.png_size, entry.last_used };
         std::memcpy(p, &record, sizeof(record));
         p += sizeof(record);
@@ -198,13 +240,16 @@ void MermaidFileCache::SaveIndex()
 
     // 壊れた索引は LoadIndex が検証して捨てるので、durable な書き込みは要らない。
     if (AtomicWriteAllBytes(path, buf.get(), buf_size, /* durable = */ false)) {
-        index_->dirty = false;
+        if (merged) {
+            index_ = std::move(merged);
+        }
+        index_->MarkSaved();
     }
 }
 
 void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
 {
-    if (read_error != ERROR_FILE_NOT_FOUND && read_error != ERROR_PATH_NOT_FOUND) {
+    if (!IsFileMissingError(read_error)) {
         return;
     }
     auto& index = Index();
@@ -260,7 +305,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         index.Remove(it);
     }
 
-    EvictIfNeeded(index, png_size);
+    EvictIfNeeded(index, 1, png_size);
 
     index.Add(key, { css_width, css_height, png_size, index.NextLruSeq() });
 
@@ -300,10 +345,10 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     });
 }
 
-void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
+void MermaidFileCache::EvictIfNeeded(IndexState& index, size_t new_entries, uint64_t new_png_size)
 {
     bool doomed = false;
-    while (!index.entries.empty() && (index.entries.size() >= max_entries_ || index.total_size + new_png_size > max_total_size_)) {
+    while (!index.entries.empty() && (index.entries.size() + new_entries > max_entries_ || index.total_size + new_png_size > max_total_size_)) {
         const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) static noexcept { return kv.second.last_used; });
         // 書き込み中なら着地後に worker が消す。ここで消しても後から書かれて孤立ファイルになる。
         bool pending = false;
@@ -336,12 +381,19 @@ void MermaidFileCache::Clear()
     }
     // 消した索引を終了時に書き戻さないよう、読み込み直後と同じく dirty を落とす。
     index_.emplace();
+    // 索引だけはその場で消す。worker が消すまで残すと、その前の保存が古い索引に重ねてしまい、
+    // 後から消すと他のプロセスがその間に書いた索引まで消す。
+    {
+        const auto index_path = GetIndexPath();
+        const InterProcessFileLock lock(kIndexLockKind, index_path);
+        DeleteFileW(index_path.c_str());
+    }
     // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まるので worker で消す。
     // 索引に載っていない PNG (索引を書き戻す前に落ちたときなど) も残らないよう、フォルダを列挙して控える。
     std::unordered_set<std::wstring> names;
     for (const auto& path : ListEntries(cache_dir_)) {
         auto name = path.filename().native();
-        if (name.ends_with(L".png") || name == kIndexFileName) {
+        if (name.ends_with(L".png")) {
             names.insert(std::move(name));
         }
     }
