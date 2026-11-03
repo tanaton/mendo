@@ -447,14 +447,9 @@ struct ParseContext : NodeStorage {
         }
     }
 
-    TextRun MakeRun(uint32_t start, uint32_t length)
+    TextRun MakeRun(uint32_t start, uint32_t length) const noexcept
     {
-        TextRun run;
-        run.start = start;
-        run.length = length;
-        run.set_raw_flags(current_run_flags);
-        run.link_url_index = current_link_url_index;
-        return run;
+        return { .start = start, .length = length, .link_url_index = current_link_url_index, .flags = current_run_flags };
     }
 
     // ノードを閉じても続きのノードへ登録し直せるよう、開いているリンクの URL を返す。無ければ空。
@@ -733,15 +728,16 @@ void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::spa
                 text += ' ';
             }
             urls.push_back(arena.CopyText(FootnoteRefUrl(id, ref_id)));
-            TextRun link;
-            link.start = static_cast<uint32_t>(text.size());
-            link.link_url_index = static_cast<int16_t>(urls.size() - 1);
+            const auto link_start = static_cast<uint32_t>(text.size());
             text += "↩";
             if (ref_id > 1) {
                 std::format_to(std::back_inserter(text), "{}", ref_id);
             }
-            link.length = static_cast<uint32_t>(text.size()) - link.start;
-            runs.push_back(link);
+            runs.push_back({
+                .start = link_start,
+                .length = static_cast<uint32_t>(text.size()) - link_start,
+                .link_url_index = static_cast<int16_t>(urls.size() - 1),
+            });
         }
         node.SetText(arena.CopyText(text));
         node.SetRuns(arena.Copy(runs));
@@ -767,10 +763,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     if (cn->code_language == SyntaxLanguage::LatexMath && !ctx->current_text.empty()) {
         ctx->current_text.insert(0, "$$");
         ctx->current_text.append("$$");
-        TextRun run;
-        run.length = static_cast<uint32_t>(ctx->current_text.size());
-        run.set_raw_flags(TextRun::kMathDoubleDollar);
-        ctx->current_runs.push_back(run);
+        ctx->current_runs.push_back({ .length = static_cast<uint32_t>(ctx->current_text.size()), .flags = TextRun::kMathDoubleDollar });
         cn->type = NodeType::Paragraph;
         cn->code_language = SyntaxLanguage::None;
     }
@@ -848,11 +841,11 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
     std::vector<TextRun> new_runs;
     new_runs.reserve(node.runs().size() + 1);
     // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
-    TextRun label_run;
-    label_run.start = static_cast<uint32_t>(icon.size());
-    label_run.length = static_cast<uint32_t>(full_label_len - icon.size());
-    label_run.set_raw_flags(TextRun::kBold);
-    new_runs.emplace_back(label_run);
+    new_runs.push_back({
+        .start = static_cast<uint32_t>(icon.size()),
+        .length = static_cast<uint32_t>(full_label_len - icon.size()),
+        .flags = TextRun::kBold,
+    });
 
     // マーカー部分を除外し、残りを新しい本文開始位置へ平行移動する。
     const auto marker = static_cast<uint32_t>(marker_end);

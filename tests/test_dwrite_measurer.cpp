@@ -248,12 +248,8 @@ TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
 // 区切りのそろった run だけを数式にする。長い本文を区切って片側の $$ が無い run は原文のまま組む。
 TEST(InlineMathTex, ExtractsTexAndRejectsUnbalancedRuns)
 {
-    const auto make = [](uint32_t start, uint32_t length, uint8_t flags) {
-        TextRun r;
-        r.start = start;
-        r.length = length;
-        r.set_raw_flags(flags);
-        return r;
+    const auto make = [](uint32_t start, uint32_t length, uint8_t flags) static {
+        return TextRun{ .start = start, .length = length, .flags = flags };
     };
     EXPECT_EQ(InlineMathTex("a $x$ b", make(2, 3, TextRun::kMath)), std::optional<std::string_view>{ "x" });
     EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDoubleDollar)), std::optional<std::string_view>{ "x+y" });

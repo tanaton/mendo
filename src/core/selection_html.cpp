@@ -140,7 +140,7 @@ bool IsSafeImageSrc(std::string_view src)
 // 範囲外の番号と危険なスキームのリンクは外す。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
-    InlineState s{ r.raw_flags(), r.link_url_index };
+    InlineState s{ r.flags, r.link_url_index };
     if (s.link_url_index >= 0 &&
         (static_cast<size_t>(s.link_url_index) >= link_urls.size() || !IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]))) {
         s.link_url_index = -1;

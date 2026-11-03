@@ -41,14 +41,6 @@ std::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
     return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
 }
 
-TextRun MakeRun(uint32_t start, uint32_t length, int16_t link_url_index = -1)
-{
-    TextRun r;
-    r.start = start;
-    r.length = length;
-    r.link_url_index = link_url_index;
-    return r;
-}
 
 } // namespace
 
@@ -915,7 +907,7 @@ TEST(FindLinkHitAtPosition, ReturnsUrlAndIndex)
     node.SetText("link1 link2");
     AddTestLinkUrl(node, "https://a.com");
     AddTestLinkUrl(node, "https://b.com");
-    const TextRun runs[]{ MakeRun(0, 5, 0), MakeRun(6, 5, 1) };
+    const TextRun runs[]{ { .start = 0, .length = 5, .link_url_index = 0 }, { .start = 6, .length = 5, .link_url_index = 1 } };
     node.SetRuns(runs);
 
     const auto first = FindLinkHitAtPosition(node, 2);
@@ -940,9 +932,7 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     const int16_t l1 = AddTestLinkUrl(node, "https://b.com");
     const int16_t l2 = AddTestLinkUrl(node, "https://c.com");
     const auto run = [](uint32_t start, uint32_t length, int16_t link) static {
-        TextRun r = MakeRun(start, length, link);
-        r.set_raw_flags(link < 0 ? TextRun::kBold : 0);
-        return r;
+        return TextRun{ .start = start, .length = length, .link_url_index = link, .flags = link < 0 ? TextRun::kBold : uint8_t{ 0 } };
     };
     const TextRun runs[]{ run(0, 2, l0), run(2, 1, -1), run(3, 2, l1), run(5, 1, l2) };
     SetTestRuns(node, runs);

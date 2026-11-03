@@ -106,11 +106,8 @@ TEST(TextRun, FlagsAreIndependent)
     }
     for (const auto& target : kFlags) {
         SCOPED_TRACE(target.name);
-        TextRun only;
-        only.set_raw_flags(target.bit);
-        TextRun all_but;
-        all_but.set_raw_flags(static_cast<uint8_t>(all & ~target.bit));
-        EXPECT_EQ(only.raw_flags(), target.bit);
+        const TextRun only{ .flags = target.bit };
+        const TextRun all_but{ .flags = static_cast<uint8_t>(all & ~target.bit) };
         for (const auto& f : kFlags) {
             const bool is_target = &f == &target;
             EXPECT_EQ((only.*f.get)(), is_target) << f.name;
@@ -121,11 +118,8 @@ TEST(TextRun, FlagsAreIndependent)
 
 TEST(TextRun, HasLinkWhenIndexIsNonNegative)
 {
-    TextRun run;
-    run.link_url_index = 0;
-    EXPECT_TRUE(run.has_link());
-    run.link_url_index = -1;
-    EXPECT_FALSE(run.has_link());
+    EXPECT_TRUE(TextRun{ .link_url_index = 0 }.has_link());
+    EXPECT_FALSE(TextRun{ .link_url_index = -1 }.has_link());
 }
 
 // ---- AlertColorIndex ----
@@ -145,10 +139,7 @@ TEST(AlertColorIndex, MapsTypesInDeclarationOrder)
 TEST(NodeTest, SetTextAndRunsDoNotCopy)
 {
     static constexpr std::string_view text = "bold text";
-    TextRun run;
-    run.length = 4;
-    run.set_raw_flags(TextRun::kBold);
-    const TextRun runs[]{ run };
+    const TextRun runs[]{ { .length = 4, .flags = TextRun::kBold } };
 
     Node node;
     node.SetText(text);
@@ -281,9 +272,7 @@ TEST(TextArenaTest, CopyKeepsAlignmentAfterOddSizedText)
 {
     TextArena arena;
     (void)arena.CopyText("abc");
-    TextRun run;
-    run.start = 7;
-    run.length = 3;
+    const TextRun run{ .start = 7, .length = 3 };
     const std::vector<TextRun> runs{ run, run };
     const auto copied = arena.Copy(runs);
     ASSERT_EQ(copied.size(), 2u);
