@@ -191,7 +191,7 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 // rename が失敗 (クロスボリューム等) した場合は tmp を削除し false を返す。直書きフォールバックは
 // CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
 // tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
-// 呼び出し側で排他制御すること (現 callsite は UI スレッド単一発火で安全)。
+// 呼び出し側で排他制御すること (プロセスをまたぐ settings.ini は ConfigService が名前付きミューテックスで守る)。
 // 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
 // durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
 // キャッシュ向け (同期書き込みで終了が遅れないようにする)。

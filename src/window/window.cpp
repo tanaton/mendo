@@ -743,6 +743,7 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
+    config_.WriteSectionAsWhole(kSectionWindow);
     config_.SaveInt(kSectionWindow, kKeyWindowX, rc.left);
     config_.SaveInt(kSectionWindow, kKeyWindowY, rc.top);
     config_.SaveInt(kSectionWindow, kKeyWindowWidth, rc.right - rc.left);

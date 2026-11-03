@@ -2,6 +2,7 @@
 #include "config_service.h"
 #include "example_files.h"
 #include "test_helpers.h"
+#include "win_handle.h"
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -152,6 +153,98 @@ TEST_F(ConfigServiceTest, FlushWritesChangedValue)
     config_.Flush();
 
     EXPECT_EQ(MakeFreshLoadedConfig().LoadInt("Window", "X", 0, 0, 100), 43);
+}
+
+// ---- 複数のウィンドウ (プロセス) ----
+
+// 先に閉じたウィンドウが変えた値を、後から閉じたウィンドウが起動時の値で戻さない。
+TEST_F(ConfigServiceTest, FlushKeepsValuesWrittenByOtherInstance)
+{
+    WriteTempFile(L"settings.ini", "[View]\nDarkMode=0\n[General]\nLanguage=ja\n");
+    auto a = MakeFreshLoadedConfig();
+    auto b = MakeFreshLoadedConfig();
+
+    a.SaveBool("View", "DarkMode", true);
+    a.Flush();
+    // 終了時は変えていない値も保存するので、同じ値の保存では記録しないことも確かめる。
+    b.SaveBool("View", "DarkMode", false);
+    b.SaveWString("General", "Language", L"en");
+    b.Flush();
+
+    auto fresh = MakeFreshLoadedConfig();
+    EXPECT_TRUE(fresh.LoadBool("View", "DarkMode", false));
+    EXPECT_EQ(fresh.LoadWString("General", "Language"), L"en");
+}
+
+// ウィンドウの位置と大きさは、最後に書いたウィンドウの組を残す。
+TEST_F(ConfigServiceTest, FlushWritesWindowSectionAsWhole)
+{
+    WriteTempFile(L"settings.ini", "[Window]\nX=0\nY=0\nWidth=800\nHeight=600\n");
+    auto a = MakeFreshLoadedConfig();
+    auto b = MakeFreshLoadedConfig();
+
+    a.WriteSectionAsWhole("Window");
+    a.SaveInt("Window", "Width", 1000);
+    a.Flush();
+    b.WriteSectionAsWhole("Window");
+    b.SaveInt("Window", "X", 50);
+    b.SaveInt("Window", "Width", 800);
+    b.Flush();
+
+    auto fresh = MakeFreshLoadedConfig();
+    EXPECT_EQ(fresh.LoadInt("Window", "X", -1, -100000, 100000), 50);
+    EXPECT_EQ(fresh.LoadInt("Window", "Width", -1, 0, 100000), 800);
+}
+
+// 開いていたファイルとスクロール位置は組で残す。別のファイルに他のウィンドウのスクロール位置を付けない。
+TEST_F(ConfigServiceTest, FlushWritesSessionSectionAsWhole)
+{
+    WriteTempFile(L"settings.ini", "[Session]\nLastFile=C:\\foo.md\nScrollNode=0\nScrollOffset=0\n");
+    auto a = MakeFreshLoadedConfig();
+    auto b = MakeFreshLoadedConfig();
+
+    session::SaveScrollPosition(a, 10, 0.0f);
+    a.Flush();
+    session::SaveLastFilePath(b, L"C:\\bar.md");
+    session::SaveScrollPosition(b, 0, 0.0f);
+    b.Flush();
+
+    auto fresh = MakeFreshLoadedConfig();
+    EXPECT_EQ(fresh.LoadWString("Session", "LastFile"), L"C:\\bar.md");
+    EXPECT_EQ(session::LoadScrollPosition(fresh).node, 0);
+}
+
+// 他のバージョンが書いたキーなど、このインスタンスが知らないキーを消さない。
+TEST_F(ConfigServiceTest, FlushKeepsUnknownKeysInWholeSection)
+{
+    auto a = MakeFreshLoadedConfig();
+    WriteTempFile(L"settings.ini", "[Window]\nX=0\nFuture=1\n");
+
+    a.WriteSectionAsWhole("Window");
+    a.SaveInt("Window", "X", 5);
+    a.Flush();
+
+    auto fresh = MakeFreshLoadedConfig();
+    EXPECT_EQ(fresh.LoadInt("Window", "X", -1, -100000, 100000), 5);
+    EXPECT_EQ(fresh.LoadInt("Window", "Future", -1, 0, 10), 1);
+}
+
+// 他のプログラムが開いていて書けなかった変更は失わず、次の Flush で他の値を消さずに書く。
+TEST_F(ConfigServiceTest, FlushKeepsChangesAfterFailedWrite)
+{
+    const auto path = WriteTempFile(L"settings.ini", "[View]\nDarkMode=0\n[General]\nLanguage=ja\n");
+    config_.Load();
+    config_.SaveBool("View", "DarkMode", true);
+    {
+        const UniqueHandle blocker(CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        ASSERT_TRUE(blocker);
+        config_.Flush();
+    }
+    config_.Flush();
+
+    auto fresh = MakeFreshLoadedConfig();
+    EXPECT_TRUE(fresh.LoadBool("View", "DarkMode", false));
+    EXPECT_EQ(fresh.LoadWString("General", "Language"), L"ja");
 }
 
 // ---- INIファイル破損テスト ----

@@ -3,9 +3,12 @@
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "utf8_codec.h"
+#include "utility.h"
 #include "win_handle.h"
 #include <charconv>
 #include <cmath>
+#include <format>
+#include <optional>
 #include <shlobj.h>
 #include <windows.h>
 
@@ -175,24 +178,99 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
     return config_dir_ / filename;
 }
 
-void ConfigService::Load()
+namespace {
+// 無いファイルは空として返し、読めなかったときだけ nullopt を返す。読めなかったのを空と見なして書くと、他の値を消してしまう。
+std::optional<ini::IniData> ReadIniFile(const std::filesystem::path& path)
 {
-    const auto buf = ReadAllBytes(GetConfigPath(kSettingsFile).c_str());
-    if (buf.empty()) {
-        return;
+    DWORD error = ERROR_SUCCESS;
+    // 壊れた巨大ファイルで確保に失敗しないよう、上限は設定として十分な大きさに抑える。
+    constexpr LONGLONG kMaxSize = 1 << 20;
+    auto opened = OpenFileForReadShared(path.c_str(), FILE_SHARE_READ, kMaxSize, &error);
+    if (!opened) {
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+            return ini::IniData{};
+        }
+        return std::nullopt;
     }
-    std::string_view content(reinterpret_cast<const char*>(buf.data()), buf.size());
+    std::string buf(opened->size, '\0');
+    if (!ReadExact(opened->handle.get(), buf.data(), buf.size())) {
+        return std::nullopt;
+    }
+    std::string_view content = buf;
     // 手編集ツールが付ける UTF-8 BOM を除去しないと先頭セクションが認識されない
     if (content.starts_with(utf8_codec::kBom)) {
         content.remove_prefix(utf8_codec::kBom.size());
     }
-    data_ = ini::Parse(content);
-    dirty_ = false;
+    return ini::Parse(content);
+}
+
+// 複数のプロセスの読み書きを重ねない。Flush 同士が重なると、後から書いた方が先の値を知らずに消すうえ、
+// 一時ファイルの名前が同じなので片方の書き込みが失敗する。読んでいる間の置き換え (MoveFileExW) も、
+// FILE_SHARE_DELETE を付けても共有違反で失敗するので、Load も囲む。
+class SettingsFileLock {
+public:
+    explicit SettingsFileLock(const std::filesystem::path& ini_path)
+    {
+        // 名前に '\\' を含められないのでパスはハッシュにする。テストは別のフォルダを使うので、フォルダごとに分ける。
+        const std::wstring& native = ini_path.native();
+        const uint64_t hash = Fnv1a64({ reinterpret_cast<const char*>(native.data()), native.size() * sizeof(wchar_t) });
+        const std::wstring name = std::format(L"Local\\mendo-settings-{:016x}", hash);
+        mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
+        if (!mutex_) {
+            return;
+        }
+        // ログオフ中は待てる時間が限られる。待ちきれなければロックなしで進める。
+        constexpr DWORD kTimeoutMs = 2000;
+        const DWORD result = WaitForSingleObject(mutex_.get(), kTimeoutMs);
+        owned_ = (result == WAIT_OBJECT_0) || (result == WAIT_ABANDONED);
+    }
+    ~SettingsFileLock()
+    {
+        if (owned_) {
+            ReleaseMutex(mutex_.get());
+        }
+    }
+    SettingsFileLock(const SettingsFileLock&) = delete;
+    SettingsFileLock& operator=(const SettingsFileLock&) = delete;
+
+private:
+    UniqueEventHandle mutex_;
+    bool owned_ = false;
+};
+} // namespace
+
+void ConfigService::Load()
+{
+    const auto ini_path = GetConfigPath(kSettingsFile);
+    const SettingsFileLock lock(ini_path);
+    if (auto data = ReadIniFile(ini_path)) {
+        data_ = std::move(*data);
+    }
+    changed_.clear();
+}
+
+void ConfigService::OverlayChanges(ini::IniData& target) const
+{
+    for (const auto& [section, keys] : changed_) {
+        const auto& mine = data_.find(section)->second;
+        auto& dst = target[section];
+        if (whole_sections_.contains(section)) {
+            // 他のバージョンが足したキーを消さないよう、置き換えずに重ねる。
+            for (const auto& [key, value] : mine) {
+                dst[key] = value;
+            }
+        }
+        else {
+            for (const auto& key : keys) {
+                dst[key] = mine.find(key)->second;
+            }
+        }
+    }
 }
 
 void ConfigService::Flush()
 {
-    if (!dirty_) {
+    if (changed_.empty()) {
         return;
     }
     const auto ini_path = GetConfigPath(kSettingsFile);
@@ -202,9 +280,14 @@ void ConfigService::Flush()
         return;
     }
 
-    const std::string content = ini::Serialize(data_);
+    const SettingsFileLock lock(ini_path);
+    // 他のウィンドウが先に閉じて書いた値を、起動時に読んだ古い値で戻さない。読めなければ従来どおり丸ごと書く。
+    auto merged = ReadIniFile(ini_path).value_or(data_);
+    OverlayChanges(merged);
+    const std::string content = ini::Serialize(merged);
     if (AtomicWriteAllBytes(ini_path, content.data(), content.size())) {
-        dirty_ = false;
+        data_ = std::move(merged);
+        changed_.clear();
     }
 }
 
@@ -227,7 +310,8 @@ void ConfigService::StoreValue(std::string_view section, std::string_view key, s
         return;
     }
     data_[std::string(section)][std::string(key)] = std::move(value);
-    dirty_ = true;
+    // 終了時は変えていない値も Save を呼ぶので、値が変わったときだけ記録する。
+    changed_[std::string(section)].emplace(key);
 }
 
 void ConfigService::SaveBool(std::string_view section, std::string_view key, bool value)
@@ -287,11 +371,17 @@ std::wstring ConfigService::LoadWString(std::string_view section, std::string_vi
     return val ? string_convert::Utf8ToWide(*val) : std::wstring{};
 }
 
+void ConfigService::WriteSectionAsWhole(std::string_view section)
+{
+    whole_sections_.emplace(section);
+}
+
 void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
 {
     if (path.empty()) {
         return;
     }
+    config.WriteSectionAsWhole(kSectionSession);
     config.SaveWString(kSectionSession, kKeyLastFile, path);
 }
 
@@ -358,6 +448,7 @@ void session::LoadPanes(const ConfigService& config, PaneController& panes)
 
 void session::SaveScrollPosition(ConfigService& config, int node, float offset)
 {
+    config.WriteSectionAsWhole(kSectionSession);
     config.SaveInt(kSectionSession, kKeyScrollNode, node);
     config.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
 }

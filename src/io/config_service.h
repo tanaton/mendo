@@ -2,6 +2,7 @@
 #include "ui_types.h"
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -27,6 +28,7 @@ public:
 
     void Load();
     // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。値が変わっていなければ書かない。
+    // 書く直前に読み直し、このインスタンスで変えた値だけを重ねる。
     void Flush();
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
@@ -41,13 +43,20 @@ public:
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
     std::wstring LoadWString(std::string_view section, std::string_view key) const;
 
+    // 組で意味を持つ値のセクション。Flush で 1 つでも変えていたらセクションごと書く。
+    // キーごとに重ねると、別のプロセスの値と混ざる (bar.md に foo.md のスクロール位置が付くなど)。
+    void WriteSectionAsWhole(std::string_view section);
+
 private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
     void StoreValue(std::string_view section, std::string_view key, std::string value);
+    void OverlayChanges(ini::IniData& target) const;
 
     std::filesystem::path config_dir_;
     ini::IniData data_;
-    bool dirty_ = false;
+    // Load (または Flush) の後に値を変えたキー。
+    std::map<std::string, std::set<std::string>> changed_;
+    std::set<std::string, std::less<>> whole_sections_;
 };
 
 class PaneController;
