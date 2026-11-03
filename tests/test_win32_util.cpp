@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "win32_util.h"
 #include <shellapi.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -43,23 +44,34 @@ TEST(Win32UtilTest, QuoteCommandLineArgRoundTrips)
 TEST(Win32UtilTest, CascadeRect)
 {
     constexpr RECT kWork{ 0, 0, 1000, 800 };
+    constexpr RECT kRect{ 100, 100, 600, 500 };
+    // 元のウィンドウ自身 (100, 100) も開いているウィンドウとして渡る。
+    constexpr POINT kChain[] = { { 164, 164 }, { 100, 100 }, { 132, 132 } };
+    constexpr POINT kUnrelated[] = { { 100, 100 }, { 133, 132 } };
+    constexpr POINT kTopLeft[] = { { 0, 0 } };
     struct Case {
         const char* name;
         RECT work;
         RECT rect;
+        std::span<const POINT> occupied;
         RECT expected;
     };
-    constexpr Case kCases[] = {
-        { "Shifted", kWork, { 100, 100, 600, 500 }, { 132, 132, 632, 532 } },
-        { "FitsExactly", kWork, { 468, 368, 968, 768 }, { 500, 400, 1000, 800 } },
-        { "OverflowRightWrapsToTopLeft", kWork, { 469, 100, 969, 500 }, { 0, 0, 500, 400 } },
-        { "OverflowBottomWrapsToTopLeft", kWork, { 100, 369, 600, 769 }, { 0, 0, 500, 400 } },
-        { "LargerThanWork", kWork, { 0, 0, 1000, 800 }, { 0, 0, 1000, 800 } },
+    const Case kCases[] = {
+        { "Shifted", kWork, kRect, {}, { 132, 132, 632, 532 } },
+        { "FitsExactly", kWork, { 468, 368, 968, 768 }, {}, { 500, 400, 1000, 800 } },
+        { "OverflowRightWrapsToTopLeft", kWork, { 469, 100, 969, 500 }, {}, { 0, 0, 500, 400 } },
+        { "OverflowBottomWrapsToTopLeft", kWork, { 100, 369, 600, 769 }, {}, { 0, 0, 500, 400 } },
+        { "LargerThanWork", kWork, kWork, {}, kWork },
         // 左の画面は座標が負になる。
-        { "NegativeCoordinates", { -1920, 0, 0, 1040 }, { -1800, 50, -1000, 650 }, { -1768, 82, -968, 682 } },
+        { "NegativeCoordinates", { -1920, 0, 0, 1040 }, { -1800, 50, -1000, 650 }, {}, { -1768, 82, -968, 682 } },
+        // 同じウィンドウから続けて開いても、開いているウィンドウと左上が重ならない所まで進める。
+        { "SkipOccupiedInAnyOrder", kWork, kRect, kChain, { 196, 196, 696, 596 } },
+        { "OnlyExactOriginCounts", kWork, kRect, kUnrelated, { 132, 132, 632, 532 } },
+        // 作業領域いっぱいの窓は左上へ戻るたびに同じ所に来る。空きが無くても抜ける。
+        { "NoFreeSlotStops", kWork, kWork, kTopLeft, kWork },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        EXPECT_EQ(Tie(CascadeRect(c.rect, c.work, 32)), Tie(c.expected));
+        EXPECT_EQ(Tie(CascadeRect(c.rect, c.work, 32, c.occupied)), Tie(c.expected));
     }
 }

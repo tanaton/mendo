@@ -90,8 +90,10 @@ void SetCloaked(HWND hwnd, BOOL cloaked);
 // CRT と CommandLineToArgvW が 1 つの引数に戻す形で引用符に囲む。パスは " を含まないので、閉じる " の前の \ だけを倍にする。
 std::wstring QuoteCommandLineArg(std::wstring_view arg);
 // rect を step ずつ右下へずらす。work からはみ出すなら work の左上へ戻す。
-RECT CascadeRect(const RECT& rect, const RECT& work, int step) noexcept;
-// この exe を origin から step ずらした位置の新しいウィンドウとして起動する。arg が空なら引数なし。
+// 左上が occupied (開いているウィンドウの左上) のどれかと重なる間は、さらにずらす。
+RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept;
+// この exe を origin から step ずらした位置の新しいウィンドウとして起動する。開いている同じクラスのウィンドウとは
+// 左上が重ならないようにする。arg が空なら引数なし。
 // 位置と大きさは STARTUPINFO で渡すので、受け側は CreateWindowExW に CW_USEDEFAULT を渡せば使われる。
 void LaunchSelfInNewWindow(HWND origin, std::wstring_view arg, int step);
 // LaunchSelfInNewWindow から起動され、位置と大きさを受け取った。
