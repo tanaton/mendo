@@ -1,5 +1,6 @@
 #include "file_io.h"
 #include <commdlg.h>
+#include <format>
 #include <new>
 
 std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
@@ -107,6 +108,29 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
     // 直書きフォールバックは CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
     DeleteFileW(tmp_path.c_str());
     return false;
+}
+
+InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path)
+{
+    // 名前に '\\' を含められないのでパスはハッシュにする。
+    const std::wstring& native = path.native();
+    const uint64_t hash = Fnv1a64({ reinterpret_cast<const char*>(native.data()), native.size() * sizeof(wchar_t) });
+    const std::wstring name = std::format(L"Local\\mendo-{}-{:016x}", kind, hash);
+    mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
+    if (!mutex_) {
+        return;
+    }
+    // ログオフ中は待てる時間が限られる。待ちきれなければロックなしで進める。
+    constexpr DWORD kTimeoutMs = 2000;
+    const DWORD result = WaitForSingleObject(mutex_.get(), kTimeoutMs);
+    owned_ = (result == WAIT_OBJECT_0) || (result == WAIT_ABANDONED);
+}
+
+InterProcessFileLock::~InterProcessFileLock()
+{
+    if (owned_) {
+        ReleaseMutex(mutex_.get());
+    }
 }
 
 namespace {

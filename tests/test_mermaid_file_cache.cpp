@@ -127,6 +127,17 @@ protected:
         return fresh;
     }
 
+    // 別のプロセスの代わり。temp_dir_ を同じ scheduler で開き、相手が書く前に索引を読み込んでおく。
+    std::unique_ptr<MermaidFileCache> OpenAnotherProcess(size_t max_entries = 4096)
+    {
+        auto other = std::make_unique<MermaidFileCache>();
+        other->SetCacheDir(temp_dir_);
+        other->SetLimits(max_entries, kNoSizeLimit);
+        other->Init(1.0f, *scheduler_);
+        (void)other->EntryCount();
+        return other;
+    }
+
     // worker を 1 本にして塞ぎ、以降に積んだタスク (書き込み・消去) を確実に待たせる。
     WorkerGate BlockSingleWorker()
     {
@@ -772,4 +783,104 @@ TEST_F(MermaidFileCacheTest, SetDprSwitchesKeySpace)
     cache_.SetDpr(1.0f);
     EXPECT_EQ(cache_.PngPath(42), path_at_1x);
     EXPECT_TRUE(LookupDimensions(cache_, 42, entry));
+}
+
+// ═══════════════════════════════════════════════
+// 複数のプロセスで同じフォルダを使う
+// ═══════════════════════════════════════════════
+
+// 後から閉じたプロセスが、先に閉じたプロセスの足した図を索引から消さない。
+TEST_F(MermaidFileCacheTest, SaveIndexKeepsEntriesSavedByAnotherProcess)
+{
+    auto a = OpenAnotherProcess();
+    auto b = OpenAnotherProcess();
+    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    b->StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(200));
+    scheduler_->Shutdown();
+    a->SaveIndex();
+    b->SaveIndex();
+    EXPECT_EQ(b->EntryCount(), 2u);
+
+    const auto fresh = OpenFreshCache();
+    EXPECT_EQ(fresh->EntryCount(), 2u);
+    EXPECT_EQ(fresh->TotalSize(), 300u);
+    MermaidFileCache::CacheEntry entry;
+    PngBlob out;
+    EXPECT_TRUE(LookupAndRead(*fresh, 1, entry, out));
+    EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
+}
+
+// 2 つのプロセスの使った順は同じ値から数えるので、後から書く側で使った図を先に書かれたどれよりも新しくする。
+TEST_F(MermaidFileCacheTest, MergedIndexOrdersOwnUsesAsNewest)
+{
+    InitCache();
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    FlushAndReopen();
+    (void)cache_.EntryCount();
+    auto other = OpenAnotherProcess();
+
+    for (uint64_t key = 3; key <= 5; ++key) {
+        other->StoreAsync(key, 100.0f, 50.0f, MakeDummyPng(100));
+    }
+    MermaidFileCache::CacheEntry entry;
+    std::filesystem::path path;
+    ASSERT_TRUE(LookupPath(cache_, 1, entry, path));
+    scheduler_->Shutdown();
+    other->SaveIndex();
+    cache_.SaveIndex();
+
+    // 古い順に 2, 3, 4 が追い出される。key=1 を他のプロセスの key=3 と同じ時期として扱うと、1 も追い出される。
+    const auto fresh = OpenFreshCache();
+    fresh->SetLimits(5, kNoSizeLimit);
+    for (uint64_t key = 6; key <= 8; ++key) {
+        fresh->StoreAsync(key, 100.0f, 50.0f, MakeDummyPng(100));
+    }
+    EXPECT_TRUE(LookupDimensions(*fresh, 1, entry));
+    EXPECT_TRUE(LookupDimensions(*fresh, 5, entry));
+    EXPECT_FALSE(LookupDimensions(*fresh, 4, entry));
+}
+
+// 2 つのプロセスの図を合わせて上限を超えたら、古いものを PNG ごと消す。
+TEST_F(MermaidFileCacheTest, MergedIndexEvictsOverflowWithPng)
+{
+    auto a = OpenAnotherProcess(1);
+    auto b = OpenAnotherProcess(1);
+    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    b->StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    scheduler_->Shutdown();
+    a->SaveIndex();
+    b->SaveIndex();
+
+    EXPECT_FALSE(std::filesystem::exists(a->PngPath(1)));
+    EXPECT_TRUE(std::filesystem::exists(b->PngPath(2)));
+    const auto fresh = OpenFreshCache();
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_EQ(fresh->EntryCount(), 1u);
+    EXPECT_TRUE(LookupDimensions(*fresh, 2, entry));
+}
+
+// このプロセスで追い出して PNG を消した図は、他のプロセスが使って書いた索引からも除く。
+TEST_F(MermaidFileCacheTest, MergedIndexDropsEntriesRemovedHere)
+{
+    cache_.SetLimits(2, kNoSizeLimit);
+    InitCache();
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    FlushAndReopen();
+    (void)cache_.EntryCount();
+    auto other = OpenAnotherProcess();
+
+    MermaidFileCache::CacheEntry entry;
+    std::filesystem::path path;
+    ASSERT_TRUE(LookupPath(*other, 1, entry, path));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
+    scheduler_->Shutdown();
+    other->SaveIndex();
+    cache_.SaveIndex();
+
+    const auto fresh = OpenFreshCache();
+    EXPECT_FALSE(LookupDimensions(*fresh, 1, entry));
+    EXPECT_TRUE(LookupDimensions(*fresh, 2, entry));
+    EXPECT_TRUE(LookupDimensions(*fresh, 3, entry));
 }
