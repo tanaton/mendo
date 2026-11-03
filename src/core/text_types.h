@@ -2,8 +2,9 @@
 #include <cstdint>
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
+// 守る規則 (start 昇順で重ならない、テキストに収まる) は run の並びに対するものなので、1 つの run には
+// 隠す状態を持たせず集成体にする。flags は下の定数の OR。
 struct TextRun {
-    // 呼び出し側が複数フラグを OR で組み上げて set_raw_flags() で一括設定するため公開。
     static constexpr uint8_t kBold = 0x01;
     static constexpr uint8_t kItalic = 0x02;
     static constexpr uint8_t kCode = 0x04;
@@ -16,6 +17,7 @@ struct TextRun {
     uint32_t start = 0;
     uint32_t length = 0;
     int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::view_link_urls() へのインデックス
+    uint8_t flags = 0;
 
     constexpr bool bold() const noexcept
     {
@@ -47,19 +49,7 @@ struct TextRun {
         return link_url_index >= 0;
     }
 
-    constexpr uint8_t raw_flags() const noexcept
-    {
-        return flags;
-    }
-    constexpr void set_raw_flags(uint8_t f) noexcept
-    {
-        flags = f;
-    }
-
     bool operator==(const TextRun&) const = default;
-
-private:
-    uint8_t flags = 0;
 };
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。

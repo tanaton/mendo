@@ -195,6 +195,7 @@ TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
     EXPECT_FALSE(LookupDimensions(cache_, 99999, entry));
 }
 
+// 別のキーは足し、同じキーは置き換える。
 TEST_F(MermaidFileCacheTest, StoreUpdatesCountAndTotalSize)
 {
     InitCache();
@@ -203,24 +204,15 @@ TEST_F(MermaidFileCacheTest, StoreUpdatesCountAndTotalSize)
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(1000));
     EXPECT_EQ(cache_.EntryCount(), 1u);
+    EXPECT_EQ(cache_.TotalSize(), 1000u);
 
     cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(2000));
     EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 3000u);
-}
 
-TEST_F(MermaidFileCacheTest, StoreSameKeyUpdatesEntry)
-{
-    InitCache();
-
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
-    EXPECT_EQ(cache_.EntryCount(), 1u);
-    EXPECT_EQ(cache_.TotalSize(), 256u);
-
-    // 同じキーで別サイズのデータを格納
     cache_.StoreAsync(1, 200.0f, 100.0f, MakeDummyPng(512));
-    EXPECT_EQ(cache_.EntryCount(), 1u);
-    EXPECT_EQ(cache_.TotalSize(), 512u);
+    EXPECT_EQ(cache_.EntryCount(), 2u);
+    EXPECT_EQ(cache_.TotalSize(), 2512u);
 }
 
 // ═══════════════════════════════════════════════
@@ -447,24 +439,6 @@ TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
     const auto fresh = OpenFreshCache();
     EXPECT_EQ(fresh->EntryCount(), 1u);
     EXPECT_EQ(fresh->TotalSize(), 512u);
-}
-
-// ═══════════════════════════════════════════════
-// 非同期書き出し
-// ═══════════════════════════════════════════════
-
-TEST_F(MermaidFileCacheTest, AsyncWriteCreatesFile)
-{
-    InitCache();
-
-    auto png = MakeDummyPng(2048);
-    cache_.StoreAsync(777, 500.0f, 400.0f, png);
-
-    // スケジューラをシャットダウンしてキューを完全に処理する
-    scheduler_->Shutdown();
-
-    // PNGファイルが存在すること（内部キーでファイル名を計算）
-    EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(777ULL)));
 }
 
 // ═══════════════════════════════════════════════

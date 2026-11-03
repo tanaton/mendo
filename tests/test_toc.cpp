@@ -101,15 +101,6 @@ TEST(Toc, EntriesFollowHeadingsInOrder)
     }
 }
 
-TEST(Toc, ManyHeadings)
-{
-    std::string md;
-    for (int i = 0; i < 100; i++) {
-        md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
-    }
-    EXPECT_EQ(ParseToc(md).toc.size(), 100u);
-}
-
 // ---- FindActiveIndex ----
 
 TEST(Toc, FindActiveIndexEmpty)

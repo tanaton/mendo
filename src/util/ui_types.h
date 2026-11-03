@@ -61,6 +61,11 @@ constexpr bool PointInRectInclusive(float x, float y, const DipRect& r) noexcept
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
 
+constexpr DipPoint RectCenter(const DipRect& r) noexcept
+{
+    return { (r.left + r.right) / 2.0f, (r.top + r.bottom) / 2.0f };
+}
+
 struct PaneRect {
     float x = 0.0f;
     float y = 0.0f;

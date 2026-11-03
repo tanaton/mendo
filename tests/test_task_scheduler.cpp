@@ -79,6 +79,7 @@ TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 }
 
 // タスクごとに結果を 1 回返す約束があるので、溜まっても捨てない。旧上限の 1024 を超えて積む。
+// 開けた直後に Shutdown するので、キューに残ったタスクを Shutdown が実行し切ることもここで見る。
 TEST(TaskScheduler, PostNeverDropsTasksWhileBacklogged)
 {
     TaskScheduler sch{ 1 };
@@ -134,31 +135,6 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
 // ═══════════════════════════════════════════════
 // Shutdown の挙動
 // ═══════════════════════════════════════════════
-
-TEST(TaskScheduler, ShutdownProcessesRemainingQueuedTasks)
-{
-    // ドキュメント: 「キューに残っているタスクをすべて処理してから終了」
-    TaskScheduler sch{ 1 };
-
-    std::atomic<int> count{0};
-    std::atomic<bool> first_entered{false};
-    std::atomic<bool> gate_open{false};
-    sch.Post([&] {
-        first_entered.store(true);
-        PollUntil([&] { return gate_open.load(); }, std::chrono::seconds(2));
-        count.fetch_add(1);
-    });
-    // 先頭タスクがワーカーを掴んだことを確定させてから残りを投入する
-    ASSERT_TRUE(PollUntil([&] { return first_entered.load(); }));
-    for (int i = 0; i < 20; ++i) {
-        sch.Post([&] { count.fetch_add(1); });
-    }
-    gate_open.store(true);
-
-    sch.Shutdown();
-
-    EXPECT_EQ(count.load(), 21);
-}
 
 TEST(TaskScheduler, ShutdownWithoutPostCompletes)
 {

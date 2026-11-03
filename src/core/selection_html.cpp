@@ -140,7 +140,7 @@ bool IsSafeImageSrc(std::string_view src)
 // 範囲外の番号と危険なスキームのリンクは外す。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
-    InlineState s{ r.raw_flags(), r.link_url_index };
+    InlineState s{ r.flags, r.link_url_index };
     if (s.link_url_index >= 0 &&
         (static_cast<size_t>(s.link_url_index) >= link_urls.size() || !IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]))) {
         s.link_url_index = -1;
@@ -748,9 +748,8 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
 
 std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
 {
-    const auto [runs, local_pos] = FindRunsAt(node, text_pos);
     const auto link_urls = node.view_link_urls();
-    const TextRun* run = FindRunAt(runs, local_pos);
+    const TextRun* run = FindRunAt(node, text_pos).run;
     if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }

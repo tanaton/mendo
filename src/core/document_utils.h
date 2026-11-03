@@ -30,9 +30,6 @@ struct NodeWordRange {
 };
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept;
 
-// pos を含む run。runs は start 昇順で重ならない。無ければ null。
-const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept;
-
 // 数式の run の前後にある区切り ($ か $$) の長さ。数式は区切りの内側 (TeX) だけを描いてコピーする。
 // 数式でない run と、区切りがそろっていない run (長い本文を区切って片側の $$ が無いもの) は 0 で、原文のまま扱う。
 constexpr uint32_t MathDelimiterLength(std::string_view text, const TextRun& run) noexcept
@@ -56,13 +53,13 @@ constexpr bool IsBlockMath(const Node& node) noexcept
            MathDelimiterLength(text, runs[0]) > 0;
 }
 
-// node の pos にある run の並びと、その中での位置。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の
-// offset。セル外 (区切り文字) なら runs は空。
-struct NodeRunsAt {
-    std::span<const TextRun> runs;
-    uint32_t local_pos = 0;
+// node の pos を含む run。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の offset。
+// base は run の start を node のテキストの位置に直す差 (表のセルの開始位置)。無ければ (セルの区切り文字も) run は null。
+struct NodeRunHit {
+    const TextRun* run = nullptr;
+    uint32_t base = 0;
 };
-NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept;
+NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept;
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
 // 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、

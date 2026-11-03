@@ -91,7 +91,7 @@ constexpr int VIEWER_SIZE_PERCENT = 90;
 
 // WebView2 は CapturePreview に IsVisible=TRUE を要求するため、非表示にせず画面外の遠い位置に置く。
 constexpr int HOST_OFFSCREEN_POS = -32000;
-// キャプチャ直前にダイアグラムの実寸へ合わせ直すので、それまでは小さく保つ。WebView2 は
+// キャプチャ直前にダイアグラムの実寸へ合わせ直すので、それ以外 (描き始めと待機中) は小さく保つ。WebView2 は
 // この大きさの描画面を確保してラスタライズする (4096^2 だと 1 面で 64MB)。
 // ダイアグラムの寸法は CSS 幅だけで決まり、ビューポートの高さには依存しない。
 constexpr int HOST_SIZE = 256;
@@ -668,8 +668,7 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
     controller->put_Bounds(RECT{ 0, 0, HOST_SIZE, HOST_SIZE });
     // インライン数式の型をアルファ付きでキャプチャするため。図はページの body が背景を塗る。
     SetDefaultBackground(controller, { 0, 0, 0, 0 });
-    DisableWebViewChrome(w.webview.Get());
-    RestrictWebView(w.webview.Get());
+    SecureWebView(w.webview.Get());
     RegisterWebViewHandlers(index);
 
     // HTML + JS は WebResourceRequested ハンドラがメモリから配信する。
@@ -707,12 +706,12 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
         }
     );
     // clang-format on
-
-    RegisterResourceHandler(webview);
 }
 
-void MermaidRenderer::RegisterResourceHandler(ICoreWebView2* webview)
+void MermaidRenderer::SecureWebView(ICoreWebView2* webview)
 {
+    DisableWebViewChrome(webview);
+    RestrictWebView(webview);
     // 全URLをフィルタし、app.local 以外へのリクエストもここで遮断する。
     // clang-format off
     LogHrFailure("AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -923,7 +922,7 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    const uint64_t code_hash =mermaid_util::EnsureDiagramCodeHash(diagram_entry.code_hash, node);
+    const uint64_t code_hash = mermaid_util::EnsureDiagramCodeHash(diagram_entry.code_hash, node);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
     if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
@@ -1435,8 +1434,7 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
     SetViewerBackground(controller, viewer_.dark_mode);
     ApplyViewerBounds();
     ICoreWebView2* webview = viewer_.webview.Get();
-    DisableWebViewChrome(webview);
-    RestrictWebView(webview);
+    SecureWebView(webview);
     RestrictViewerInput(webview);
 
     // ワーカーと同じく、閉じた webview の通知を開き直した後のビューアへ通さない。
@@ -1476,7 +1474,6 @@ void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* control
         }
     );
     // clang-format on
-    RegisterResourceHandler(webview);
     const HRESULT hr = webview->Navigate(APP_LOCAL_VIEWER_URL);
     LogHrFailure("Navigate(viewer)", hr);
     if (FAILED(hr)) {
@@ -1604,6 +1601,12 @@ void MermaidRenderer::FreeWorker(Worker& worker)
 {
     worker.current_request = {};
     ProcessQueue();
+    // 待機中は図の大きさの描画面を持ち続けないよう戻す。次の要求があれば RenderInWorker が合わせ直す。
+    // 描画面は GPU プロセス (ソフトウェア合成) に残り、縦に長いシーケンス図 1 枚の後で 126MB → 7MB、
+    // mendo + WebView2 の commit が 418MB → 296MB になった。
+    if (!worker.IsRendering() && worker.controller) {
+        ResizeWorkerView(worker, HOST_SIZE, HOST_SIZE);
+    }
 }
 
 void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg)

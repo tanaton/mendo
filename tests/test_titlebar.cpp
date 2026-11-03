@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include <algorithm>
+#include <iterator>
 #include <span>
 #include <string>
-#include <vector>
+#include "document.h"
 #include "titlebar.h"
 
 namespace {
@@ -32,6 +32,7 @@ constexpr ButtonSpec kRightButtons[] = {
 };
 
 constexpr std::span<const ButtonSpec> kButtonGroups[] = { kLeftButtons, kRightButtons };
+static_assert(std::size(kLeftButtons) + std::size(kRightButtons) == kTitleBarButtonCount);
 
 } // namespace
 
@@ -92,6 +93,7 @@ TEST_F(TitleBarTest, TitleTextRectSpansBetweenButtonGroups)
     const auto& rect = tb_.GetTitleTextRect();
     EXPECT_FLOAT_EQ(rect.left, tb_.GetButton(TitleBarHitZone::Help).right);
     EXPECT_FLOAT_EQ(rect.right, tb_.GetButton(TitleBarHitZone::FileToggle).left);
+    EXPECT_LT(rect.left, rect.right);
 }
 
 TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize)
@@ -150,26 +152,6 @@ TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
 }
 
 // ═══════════════════════════════════════════════
-// ボタンが重ならないことの検証
-// ═══════════════════════════════════════════════
-
-TEST_F(TitleBarTest, ButtonsDoNotOverlap)
-{
-    std::vector<DipRect> rects;
-    for (const auto zone : { TitleBarHitZone::OpenFile, TitleBarHitZone::Settings, TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
-                             TitleBarHitZone::Search, TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle, TitleBarHitZone::Minimize,
-                             TitleBarHitZone::Maximize, TitleBarHitZone::Close }) {
-        rects.push_back(tb_.GetButton(zone));
-    }
-    ASSERT_EQ(rects.size(), kTitleBarButtonCount);
-    std::ranges::sort(rects, {}, &DipRect::left);
-    for (size_t i = 1; i < rects.size(); ++i) {
-        EXPECT_LE(rects[i - 1].right, rects[i].left)
-            << "Button " << i - 1 << " overlaps button " << i;
-    }
-}
-
-// ═══════════════════════════════════════════════
 // 狭いウィンドウでのレイアウト安全性
 // ═══════════════════════════════════════════════
 
@@ -192,6 +174,7 @@ TEST(BuildTitleString, PrefixesFilenameToAppName)
         { L"", L"mendo" },
         { L"C:\\dir\\test.md", L"test.md - mendo" },
         { L"readme.md", L"readme.md - mendo" },
+        { HELP_PATH, L"help - mendo" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));

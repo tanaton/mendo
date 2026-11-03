@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <initializer_list>
+#include <numeric>
+#include <ranges>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include "document_test_helpers.h"
 #include "layout.h"
 #include "layout_invariants.h"
@@ -12,15 +13,8 @@
 #include "parser.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
-#include "theme.h"
 #include "test_nodes.h"
-#include <numeric>
-#include "document_types.h"
-#include "layout_cache.h"
-#include "layout_computer.h"
-#include "image_loader.h"
-#include <algorithm>
-#include <ranges>
+#include "theme.h"
 
 using layout::EstimateNodeHeights;
 
@@ -184,11 +178,10 @@ TEST_F(ParallelMeasureTest, ViewportClipMeasuresOnlyOverlappingNodes)
     }
 }
 
-TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
+// 全 dirty を直列と並列で計測し、全ノードを計測し終えて height / layout_dirty / 計測数が一致する。
+TEST_F(ParallelMeasureTest, MatchesSerialOutputAndClearsAllDirty)
 {
-    // 同じ fixture を 2 つ作り、片方を Serial、片方を Parallel に通して
-    // entry.height / layout_dirty / total processed が一致することを確認する。
-    constexpr size_t N = 200;
+    constexpr size_t N = 1000;
     DirtyNodeFixture f_serial;
     f_serial.Build(N, true);
     DirtyNodeFixture f_parallel;
@@ -197,26 +190,15 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     const auto r_serial = RunBatch(f_serial, theme_, mock_, YRange::All(), kNoLayoutDeadline, nullptr);
     const auto r_parallel = RunBatch(f_parallel, theme_, mock_, YRange::All(), kNoLayoutDeadline, &task_scheduler_);
 
+    EXPECT_EQ(r_parallel.processed, static_cast<int>(N));
     EXPECT_EQ(r_serial.processed, r_parallel.processed);
     EXPECT_EQ(r_serial.more, r_parallel.more);
 
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FLOAT_EQ(f_serial.cache[i].height, f_parallel.cache[i].height) << "i=" << i;
-        EXPECT_EQ(f_serial.cache[i].layout_dirty, f_parallel.cache[i].layout_dirty) << "i=" << i;
-    }
-}
-
-TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
-{
-    // 散在 dirty を含む大きめのケースで、全 dirty が処理 (= layout_dirty=false 化) されること。
-    constexpr size_t N = 1000;
-    DirtyNodeFixture f;
-    f.Build(N, true);
-    const auto r = RunBatch(f, theme_, mock_, YRange::All(), kNoLayoutDeadline, &task_scheduler_);
-    EXPECT_EQ(r.processed, static_cast<int>(N));
-    for (size_t i = 0; i < N; ++i) {
-        EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
-        EXPECT_GT(f.cache[i].height, 0.0f) << "i=" << i;
+        EXPECT_FALSE(f_parallel.cache[i].layout_dirty) << "i=" << i;
+        EXPECT_FALSE(f_serial.cache[i].layout_dirty) << "i=" << i;
+        EXPECT_GT(f_parallel.cache[i].height, 0.0f) << "i=" << i;
     }
 }
 
@@ -451,14 +433,10 @@ void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p)
 class ParallelMeasureStressTest : public ::testing::Test {
 protected:
     MockTextMeasurerWithTokens mock_;
-    Theme theme_;
-    TaskScheduler task_scheduler_{ 2 };
-
-    void SetUp() override
-    {
-        theme_ = GetLightTheme();
-    }
+    Theme theme_ = GetLightTheme();
 };
+
+class ParallelWorkerCountTest : public ParallelMeasureStressTest, public ::testing::WithParamInterface<int> {};
 
 } // namespace
 
@@ -466,6 +444,7 @@ protected:
 
 TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
 {
+    TaskScheduler ts{ 2 };
     constexpr size_t N = 22000;
     StressFixture s;
     s.Build(N, /*include_code_block=*/false);
@@ -473,17 +452,21 @@ TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
     p.Build(N, /*include_code_block=*/false);
 
     const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
-    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
 
     EXPECT_EQ(rs, 0);
     EXPECT_EQ(rp, 0);
     ExpectBitExactEqual(s, p);
 }
 
-// ===== CodeBlock の syntax_tokens 書き込み検証 =====
+// ===== worker 数変動 (0 は全 chunk を呼び出し側で回す) =====
 
-TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
+TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
 {
+    const int worker_count = GetParam();
+    TaskScheduler ts{ worker_count };
+    EXPECT_EQ(ts.WorkerCount(), static_cast<size_t>(worker_count));
+
     constexpr size_t N = 2000;
     StressFixture s;
     s.Build(N, /*include_code_block=*/true);
@@ -491,7 +474,7 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     p.Build(N, /*include_code_block=*/true);
 
     const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
-    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
 
     EXPECT_EQ(rs, 0);
     EXPECT_EQ(rp, 0);
@@ -500,6 +483,8 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     // 全 CodeBlock ノードが 3 トークンを持ち、token.start = source_offset + k*10 で並ぶこと。
     size_t code_block_count = 0;
     for (size_t i = 0; i < N; ++i) {
+        EXPECT_FALSE(p.cache[i].layout_dirty) << "i=" << i;
+        EXPECT_GT(p.cache[i].height, 0.0f) << "i=" << i;
         if (p.nodes[i].type != NodeType::CodeBlock) {
             continue;
         }
@@ -515,83 +500,30 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     EXPECT_EQ(code_block_count, N / 10);
 }
 
-// ===== worker 数変動テスト =====
-
-class ParallelWorkerCountTest : public ::testing::TestWithParam<int> {
-protected:
-    MockTextMeasurerWithTokens mock_;
-    Theme theme_;
-
-    void SetUp() override
-    {
-        theme_ = GetLightTheme();
-    }
-};
-
-TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
-{
-    const int worker_count = GetParam();
-    TaskScheduler ts{ worker_count };
-
-    constexpr size_t N = 2000;
-    StressFixture s;
-    s.Build(N, /*include_code_block=*/true);
-    StressFixture p;
-    p.Build(N, /*include_code_block=*/true);
-
-    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
-    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
-
-    EXPECT_EQ(rs, 0);
-    EXPECT_EQ(rp, 0);
-    ExpectBitExactEqual(s, p);
-
-    ts.Shutdown();
-}
-
-INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(1, 2, 8, 16));
-
-// ===== worker の無い scheduler =====
-
-TEST(ParallelMeasureNoWorkers, AllChunksRunOnCaller)
-{
-    TaskScheduler ts{ 0 };
-    EXPECT_EQ(ts.WorkerCount(), 0u);
-
-    constexpr size_t N = 128;
-    StressFixture f;
-    f.Build(N, /*include_code_block=*/false);
-
-    MockTextMeasurerWithTokens mock;
-    const Theme& theme = GetLightTheme();
-    const int r = MeasureAll(f.nodes, f.cache, theme, mock, &ts);
-
-    EXPECT_EQ(r, 0);
-    for (size_t i = 0; i < N; ++i) {
-        EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
-        EXPECT_GT(f.cache[i].height, 0.0f) << "i=" << i;
-    }
-
-    ts.Shutdown();
-}
+INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(0, 1, 2, 8, 16));
 
 // ============================================================
 // ProcessDirtyBatch ビューポート制限テスト
 // ============================================================
 
-class ProcessDirtyBatchViewportTest : public MockLayoutTestBase {};
+class ProcessDirtyBatchViewportTest : public MockLayoutTestBase {
+protected:
+    // 一度組んで Y 位置を確定させてから、全ノードを evict した状態にする。
+    ParsedLayout LayoutThenEvictAll(int paragraphs)
+    {
+        auto pl = ParseAndLayout(MakeParagraphs(paragraphs));
+        for (size_t i = 0; i < pl.nodes.size(); i++) {
+            pl.cache[i].layout_dirty = true;
+            pl.cache[i].release_layout_state();
+        }
+        return pl;
+    }
+};
 
 TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 {
-    // 初回レイアウトで Y 位置を確定
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
+    auto [nodes, cache] = LayoutThenEvictAll(100);
     ASSERT_GT(nodes.size(), 50u);
-
-    // 全ノードの layout_dirty を true に設定（eviction をシミュレート）
-    for (size_t i = 0; i < nodes.size(); i++) {
-        cache[i].layout_dirty = true;
-        cache[i].release_layout_state();
-    }
 
     // ビューポートを先頭に設定（top=0, height=200）
     // バッファ: ±5画面 = ±1000px → [−1000, 1200] が処理範囲
@@ -613,12 +545,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
 
 TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 {
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50));
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-        cache[i].layout_dirty = true;
-        cache[i].release_layout_state();
-    }
+    auto [nodes, cache] = LayoutThenEvictAll(50);
 
     // ビューポート制限なし (clip 省略)
     engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
@@ -631,12 +558,7 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
 TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 {
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-        cache[i].layout_dirty = true;
-        cache[i].release_layout_state();
-    }
+    auto [nodes, cache] = LayoutThenEvictAll(100);
 
     // ビューポート制限付きで全バッチ処理
     bool more = true;

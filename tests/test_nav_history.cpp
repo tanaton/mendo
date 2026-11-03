@@ -4,6 +4,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <string_view>
 #include <utility>
 
 class NavHistoryTest : public ::testing::Test {
@@ -236,6 +237,8 @@ void RunNavHistoryProperties(uint32_t seed)
     bool reached_max = false;
     int next_node = 0;
 
+    // 時間の大半は確定待ちの操作が両スタックを写す分 (上限近くで 1 回約 40µs)。上限に届くのは seed あたり 2〜7 回
+    // (seed=1 の最初は 14145 歩目) なので、歩数は減らさない。
     for (int step = 0; step < 30000; ++step) {
         if (segment_left-- == 0) {
             op_range = kOpRanges[pick(0, 3)];
@@ -243,12 +246,14 @@ void RunNavHistoryProperties(uint32_t seed)
         }
         const NavEntry cur{ L"a.md", next_node++, 0.0f };
         const int op = pick(op_range.first, op_range.second);
-        std::string label;
+        std::string_view label;
+        // 9 万ステップで毎回文字列を組むと遅いので、失敗したときだけ組む。
+        const auto ctx = [&] { return std::format("seed={} step={} op={}", seed, step, label); };
         if (op < 25) {
             label = "Push";
             hist.Push(cur);
             before_pending.reset();
-            ASSERT_FALSE(hist.CanGoForward());
+            ASSERT_FALSE(hist.CanGoForward()) << ctx();
         }
         else if (op < 35) {
             label = "PushPending";
@@ -257,7 +262,7 @@ void RunNavHistoryProperties(uint32_t seed)
                 before_pending.emplace(hist.BackSize(), hist.ForwardSize());
             }
             hist.PushPending(cur);
-            ASSERT_FALSE(hist.CanGoForward());
+            ASSERT_FALSE(hist.CanGoForward()) << ctx();
         }
         else if (op < 41) {
             label = "CommitPending";
@@ -268,7 +273,7 @@ void RunNavHistoryProperties(uint32_t seed)
             label = "RollbackPending";
             hist.RollbackPending();
             if (before_pending) {
-                ASSERT_EQ(std::pair(hist.BackSize(), hist.ForwardSize()), *before_pending);
+                ASSERT_EQ(std::pair(hist.BackSize(), hist.ForwardSize()), *before_pending) << ctx();
                 before_pending.reset();
             }
         }
@@ -282,10 +287,10 @@ void RunNavHistoryProperties(uint32_t seed)
             const bool moved = forward ? hist.GoForward(cur, out) : hist.GoBack(cur, out);
             // 確定待ちの操作があると先に取り消すことがあるので、確定済みの状態からの移動だけ差を確かめる。
             if (!before_pending) {
-                ASSERT_EQ(moved, can_move);
+                ASSERT_EQ(moved, can_move) << ctx();
                 if (moved) {
-                    ASSERT_EQ(hist.BackSize(), forward ? back + 1 : back - 1);
-                    ASSERT_EQ(hist.ForwardSize(), forward ? fwd - 1 : fwd + 1);
+                    ASSERT_EQ(hist.BackSize(), forward ? back + 1 : back - 1) << ctx();
+                    ASSERT_EQ(hist.ForwardSize(), forward ? fwd - 1 : fwd + 1) << ctx();
                     before_pending.emplace(back, fwd);
                 }
             }
@@ -296,8 +301,7 @@ void RunNavHistoryProperties(uint32_t seed)
             before_pending.reset();
         }
 
-        SCOPED_TRACE(std::format("seed={} step={} op={}", seed, step, label));
-        ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max);
+        ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max) << ctx();
         reached_max |= hist.BackSize() + hist.ForwardSize() == max;
     }
     EXPECT_TRUE(reached_max) << "seed=" << seed << " で上限に届いていない";

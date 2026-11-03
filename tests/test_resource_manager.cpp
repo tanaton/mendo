@@ -13,6 +13,8 @@
 #include "theme.h"
 #include "test_helpers.h"
 #include <algorithm>
+#include <filesystem>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -109,7 +111,9 @@ protected:
     void SetUp() override
     {
         InitReducerState(state_, theme_);
-        file_cache_.SetCacheDir(file_cache_dir_.path());
+        // Init しないので図のキャッシュは索引を引くだけで書かない。無いフォルダなら空の索引になるので、作らずに済む。
+        // 既定の空パスのままだと作業フォルダの index.bin を読む。
+        file_cache_.SetCacheDir(std::filesystem::temp_directory_path() / L"mendo_test_absent" / L"mermaid");
         theme_.indent_width = 20.0f;
         state_.view.panes.SetSidePaneVisible(PaneTarget::File, false);
         state_.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
@@ -132,7 +136,6 @@ protected:
 
     Theme theme_{};
     AppState state_;
-    ScopedTempDir file_cache_dir_;
     MermaidFileCache file_cache_;
     Document& doc_ = state_.document.doc;
     LayoutCache& cache_ = state_.document.layout_cache;
@@ -219,113 +222,68 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
     EXPECT_EQ(host_.recompute_layout, 2) << "寸法が同じなら適用し直さない";
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinContentWidth)
+// 画像の src をキャッシュのキーへ解決する規則。引いてはいけない行のキーは、判定を外したときに解決されるパスで入れる。
+TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadResolvesSrc)
 {
-    LoadMarkdown("![alt](small.png)\n");
-    // content_width=800 より小さい画像はスケール無し。
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\small.png", 400.0f, 300.0f);
+    const auto joined = [](const wchar_t* dir, const wchar_t* rel) {
+        return (std::filesystem::path(dir) / rel).lexically_normal().wstring();
+    };
+    const std::wstring escaped = joined(L"\\\\?\\C:\\dir", L"../../UNC/attacker/share/a.png");
+    ASSERT_FALSE(path_util::IsLocalPath(escaped)) << escaped;
 
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
-}
-
-// src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、キャッシュを引けない。
-TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesNonAsciiFileName)
-{
-    LoadMarkdown("![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n"); // 画像.png
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\\u753B\u50CF.png", 400.0f, 300.0f);
-
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
-}
-
-// md4c は src をパーセントエンコードのまま渡すので、ファイルパスにする前にデコードする。
-TEST_F(ResourceManagerTest, ApplyCachedImagesDecodesPercentEncodedPath)
-{
-    LoadMarkdown("![alt](my%20images/%E7%94%BB%E5%83%8F.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\my images\\\u753B\u50CF.png", 400.0f, 300.0f);
-
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
-}
-
-// UNC の画像はキャッシュにあっても引かない。判定はデコード後のパスにかける。
-TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresUncPaths)
-{
-    // Markdown の \\ は \ 1 個になるので、UNC の \\ は \\\\ と書く。
-    LoadMarkdown("![a](\\\\\\\\attacker\\share\\a.png)\n\n![c](%5C%5Cattacker%5Cshare%5Cc.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\a.png", 400.0f, 300.0f);
-    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\c.png", 400.0f, 300.0f);
-    ASSERT_EQ(doc_.GetImageNodeIndices().size(), 2u);
-
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
-// 先頭 2 文字がスラッシュなら向きを問わず UNC。デコード後に "//" になる記述も同じ。
-// キーは判定を外したときに解決される UNC パスで入れ、引かないことを確かめる。
-TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresSlashUncForms)
-{
-    LoadMarkdown("![b](//attacker/share/b.png)\n\n![c](%2F%2Fattacker%2Fshare%2Fc.png)\n\n![d](/%5Cattacker/share/d.png)\n");
-    ASSERT_EQ(doc_.GetImageNodeIndices().size(), 3u);
-    for (const wchar_t* key : { L"\\\\attacker\\share\\b.png", L"\\\\attacker\\share\\c.png", L"\\\\attacker\\share\\d.png" }) {
-        image_loader_.InsertCacheEntryForTest(key, 400.0f, 300.0f);
+    struct Entry {
+        std::wstring key;
+        float height;
+    };
+    struct Case {
+        const char* label;
+        std::string_view md;
+        const wchar_t* doc_path;
+        size_t images;
+        std::vector<Entry> entries;
+        // 1 枚目の画像に入る高さ。nullopt なら何も適用しない。
+        std::optional<float> height;
+    };
+    const Case kCases[] = {
+        // content_width=800 より小さい画像はスケール無し。
+        { "WithinContentWidth", "![alt](small.png)\n", kTestDocPath, 1, { { L"C:\\dir\\small.png", 300.0f } }, 300.0f },
+        // src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、キャッシュを引けない。
+        { "NonAscii", "![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n" /* 画像.png */, kTestDocPath, 1, { { L"C:\\dir\\\u753B\u50CF.png", 300.0f } }, 300.0f },
+        // md4c は src をパーセントエンコードのまま渡すので、ファイルパスにする前にデコードする。
+        { "PercentEncoded", "![alt](my%20images/%E7%94%BB%E5%83%8F.png)\n", kTestDocPath, 1,
+          { { L"C:\\dir\\my images\\\u753B\u50CF.png", 300.0f } }, 300.0f },
+        // UNC の画像はキャッシュにあっても引かない。判定はデコード後のパスにかける。
+        // Markdown の \\ は \ 1 個になるので、UNC の \\ は \\\\ と書く。
+        { "Unc", "![a](\\\\\\\\attacker\\share\\a.png)\n\n![c](%5C%5Cattacker%5Cshare%5Cc.png)\n", kTestDocPath, 2,
+          { { L"\\\\attacker\\share\\a.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f } }, std::nullopt },
+        // 先頭 2 文字がスラッシュなら向きを問わず UNC。デコード後に "//" になる記述も同じ。
+        { "SlashUnc", "![b](//attacker/share/b.png)\n\n![c](%2F%2Fattacker%2Fshare%2Fc.png)\n\n![d](/%5Cattacker/share/d.png)\n", kTestDocPath, 3,
+          { { L"\\\\attacker\\share\\b.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f }, { L"\\\\attacker\\share\\d.png", 300.0f } }, std::nullopt },
+        // デコードは 1 回だけ。二重エンコードの %255C は文書フォルダ内の "%5C" という名前のファイルになる。
+        { "PercentOnlyOnce", "![e](%255C%255Cattacker%255Cshare%255Ce.png)\n", kTestDocPath, 1,
+          { { L"\\\\attacker\\share\\e.png", 100.0f }, { L"C:\\dir\\%5C%5Cattacker%5Cshare%5Ce.png", 300.0f } }, 300.0f },
+        // "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果がキャッシュにあっても引かない。
+        { "Scheme", "![alt](https://example.com/foo.png)\n", kTestDocPath, 1,
+          { { joined(L"C:\\dir", L"https://example.com/foo.png"), 300.0f } }, std::nullopt },
+        // 文書を \\?\ 付きのパスで開いていても、相対パスの .. で \\?\UNC\host へ抜けさせない。
+        { "DevicePrefixEscape", "![a](../../UNC/attacker/share/a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { escaped, 300.0f } }, std::nullopt },
+        // \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
+        { "DevicePrefixRelative", "![a](img/../a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { L"C:\\dir\\a.png", 300.0f } }, 300.0f },
+        // キャッシュに無ければ何も適用せず、SeedLayoutCache の高さのまま。
+        { "CacheMiss", "![alt](missing.png)\n", kTestDocPath, 1, {}, std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        image_loader_.ClearCache();
+        LoadMarkdown(c.md, 100.0f, c.doc_path);
+        const auto& image_indices = doc_.GetImageNodeIndices();
+        ASSERT_EQ(image_indices.size(), c.images);
+        for (const auto& e : c.entries) {
+            image_loader_.InsertCacheEntryForTest(e.key, 400.0f, e.height);
+        }
+        EXPECT_EQ(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }), c.height.has_value());
+        EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, c.height.value_or(100.0f));
     }
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
-// デコードは 1 回だけ。二重エンコードの %255C は文書フォルダ内の "%5C" という名前のファイルになる。
-TEST_F(ResourceManagerTest, ApplyCachedImagesDecodesPercentOnlyOnce)
-{
-    LoadMarkdown("![e](%255C%255Cattacker%255Cshare%255Ce.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\e.png", 400.0f, 100.0f);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\%5C%5Cattacker%5Cshare%5Ce.png", 400.0f, 300.0f);
-
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-    EXPECT_FLOAT_EQ(cache_[doc_.GetImageNodeIndices()[0]].height, 300.0f);
-}
-
-// "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果がキャッシュにあっても引かない。
-TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresSchemeEvenIfJoinedPathIsCached)
-{
-    LoadMarkdown("![alt](https://example.com/foo.png)\n");
-    const auto joined = (std::filesystem::path(L"C:\\dir") / L"https://example.com/foo.png").lexically_normal();
-    image_loader_.InsertCacheEntryForTest(joined.wstring(), 400.0f, 300.0f);
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
-// 文書を \\?\ 付きのパスで開いていても、相対パスの .. で \\?\UNC\host へ抜けさせない。
-TEST_F(ResourceManagerTest, ApplyCachedImagesRelativePathCannotEscapeToUncFromDevicePrefixedDoc)
-{
-    LoadMarkdown("![a](../../UNC/attacker/share/a.png)\n", 100.0f, L"\\\\?\\C:\\dir\\test.md");
-    const auto escaped = (std::filesystem::path(L"\\\\?\\C:\\dir") / L"../../UNC/attacker/share/a.png").lexically_normal();
-    ASSERT_FALSE(path_util::IsLocalPath(escaped.native())) << escaped.native();
-    image_loader_.InsertCacheEntryForTest(escaped.wstring(), 400.0f, 300.0f);
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
-// \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
-TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesRelativePathInDevicePrefixedDoc)
-{
-    LoadMarkdown("![a](img/../a.png)\n", 100.0f, L"\\\\?\\C:\\dir\\test.md");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-    EXPECT_FLOAT_EQ(cache_[doc_.GetImageNodeIndices()[0]].height, 300.0f);
-}
-
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesNothingWhenCacheMisses)
-{
-    LoadMarkdown("![alt](missing.png)\n");
-    // image_loader_ にキャッシュ未挿入 → 0 件。
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f); // SeedLayoutCache の block_height のまま
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)

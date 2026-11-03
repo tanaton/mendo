@@ -32,13 +32,20 @@ protected:
         cache_ = std::move(cache);
     }
 
-    // 先頭から描いたコマンド。呼び出し後も nodes_ / cache_ で期待値を組み立てられる。
-    DrawCommandList Generate(std::string_view md)
+    static constexpr PaneRect kDefaultPane{ 0, 0, kViewportW, 2000.0f };
+
+    // nodes_ / cache_ を描いたコマンド。
+    DrawCommandList Draw(const PaneRect& pane = kDefaultPane, float scroll_y = 0.0f, float dpi = 1.0f)
+    {
+        DrawCommandList cmds;
+        gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, dpi);
+        return cmds;
+    }
+
+    // 呼び出し後も nodes_ / cache_ で期待値を組み立てられる。
+    DrawCommandList Generate(std::string_view md, const PaneRect& pane = kDefaultPane, float scroll_y = 0.0f, float dpi = 1.0f)
     {
         Parse(md);
-        const PaneRect md_pane{ 0, 0, kViewportW, 2000.0f };
-        DrawCommandList cmds;
-        gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
-        return cmds;
+        return Draw(pane, scroll_y, dpi);
     }
 };

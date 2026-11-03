@@ -183,10 +183,8 @@ TEST_F(ConfigServiceTest, FlushWritesWindowSectionAsWhole)
     auto a = MakeFreshLoadedConfig();
     auto b = MakeFreshLoadedConfig();
 
-    a.WriteSectionAsWhole("Window");
     a.SaveInt("Window", "Width", 1000);
     a.Flush();
-    b.WriteSectionAsWhole("Window");
     b.SaveInt("Window", "X", 50);
     b.SaveInt("Window", "Width", 800);
     b.Flush();
@@ -220,7 +218,6 @@ TEST_F(ConfigServiceTest, FlushKeepsUnknownKeysInWholeSection)
     auto a = MakeFreshLoadedConfig();
     WriteTempFile(L"settings.ini", "[Window]\nX=0\nFuture=1\n");
 
-    a.WriteSectionAsWhole("Window");
     a.SaveInt("Window", "X", 5);
     a.Flush();
 

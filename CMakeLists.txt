@@ -241,6 +241,9 @@ if(MENDO_BUILD_TESTS)
         URL https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
     )
     # CRT は CMAKE_MSVC_RUNTIME_LIBRARY を定義してあるので、gtest も静的リンク (/MT) で組まれる。
+    # gmock は使っていない。
+    set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
     add_subdirectory(tests)

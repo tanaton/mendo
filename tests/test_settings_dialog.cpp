@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "settings_dialog.h"
+#include "test_helpers.h"
 #include "theme.h"
 #include <dwrite.h>
 #include <string>
@@ -9,15 +10,6 @@ using Microsoft::WRL::ComPtr;
 using namespace settings_dialog_constants;
 using Hit = SettingsDialog::Hit;
 using HitKind = SettingsDialog::HitKind;
-
-namespace {
-
-DipPoint Center(const DipRect& r)
-{
-    return { (r.left + r.right) / 2.0f, (r.top + r.bottom) / 2.0f };
-}
-
-} // namespace
 
 TEST(FormatByteSizeTest, PicksUnitAndDigits)
 {
@@ -56,7 +48,6 @@ protected:
 
     void SetUp() override
     {
-        i18n::SetLanguage(&i18n::kJa);
         dialog_.dwrite_factory = dwrite_.Get();
         dialog_.theme = &theme_;
         dialog_.cache_bytes = 1024 * 1024;
@@ -68,17 +59,14 @@ protected:
         dialog_.Rebuild();
     }
 
-    void TearDown() override
-    {
-        i18n::SetLanguage(&i18n::kJa);
-    }
-
     Hit HitAt(const DipRect& rect) const
     {
-        const auto [x, y] = Center(rect);
+        const auto [x, y] = RectCenter(rect);
         return dialog_.HitTest(x, y);
     }
 
+    // 選んだ言語は on_language が切り替えるので、テストごとに日本語から始めて元に戻す。
+    ScopedLanguage language_{ &i18n::kJa };
     Theme theme_ = GetLightTheme();
     SettingsDialog dialog_;
     int language_calls_ = 0;
@@ -164,7 +152,7 @@ TEST_F(SettingsDialogLayoutTest, ClearingCacheDisablesButton)
 TEST_F(SettingsDialogLayoutTest, ClickOutsideCloses)
 {
     const auto click = [this](int x, int y) { dialog_.HandleMessage(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y)); };
-    const auto [rx, ry] = Center(dialog_.layout.languages.back());
+    const auto [rx, ry] = RectCenter(dialog_.layout.languages.back());
     click(static_cast<int>(rx), static_cast<int>(ry));
     EXPECT_FALSE(dialog_.done);
     EXPECT_EQ(language_calls_, 1);

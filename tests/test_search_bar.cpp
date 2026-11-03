@@ -56,7 +56,7 @@ protected:
         ASSERT_EQ(Nodes().size(), static_cast<size_t>(count));
         auto& ss = state_.search.search_state;
         ss.BeginSearch("x");
-        ss.ContinueSearch(Nodes(), std::chrono::steady_clock::now() - std::chrono::seconds(1));
+        ss.ContinueSearch(Nodes(), kExpiredDeadline);
         ASSERT_TRUE(ss.IsSearching());
     }
 

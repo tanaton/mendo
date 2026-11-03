@@ -19,18 +19,15 @@ namespace {
 
 constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
+bool TakePosted(HWND hwnd, UINT msg_id)
+{
+    MSG msg;
+    return PeekMessageW(&msg, hwnd, msg_id, msg_id, PM_REMOVE) != FALSE;
+}
+
 // システムメニュー（タスクバー右クリック）のカスタムコマンドID
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
 constexpr UINT SC_RESET_WINDOW = 0x0010;
-
-// ini 永続化キー。既存設定との互換性のため値の変更は禁止。
-using namespace std::literals;
-constexpr auto kSectionWindow = "Window"sv;
-constexpr auto kKeyWindowX = "X"sv;
-constexpr auto kKeyWindowY = "Y"sv;
-constexpr auto kKeyWindowWidth = "Width"sv;
-constexpr auto kKeyWindowHeight = "Height"sv;
-constexpr auto kKeyWindowMaximized = "Maximized"sv;
 
 // デフォルトウィンドウサイズ（ピクセル）
 constexpr int DEFAULT_WINDOW_WIDTH = 1600;
@@ -160,7 +157,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return destroy();
     }
     // デバイスを待つ間に起動時の読み込みが終わっていれば、空のフレームを出さずに最初のフレームへ入れる。
-    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
+    if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
         app_->OnParseComplete();
     }
     TakeStartupMessages();
@@ -180,7 +177,7 @@ void Win32Window::AwaitInitialParseBeforeDevice()
     const HANDLE device_ready = D3DPrefetchDoneEvent();
     for (;;) {
         // 先行作成が無くても、Attach の時点で出ていた結果はここで取り込む。
-        if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
+        if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
             app_->OnParseComplete();
             return;
         }
@@ -194,10 +191,10 @@ void Win32Window::AwaitInitialParseBeforeDevice()
 
 void Win32Window::TakeStartupMessages()
 {
-    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::FILE_LISTED, app_msg::FILE_LISTED, PM_REMOVE)) {
+    if (TakePosted(hwnd_, app_msg::FILE_LISTED)) {
         app_->OnFileListed();
     }
-    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::INLINE_MATH_REQUESTED, app_msg::INLINE_MATH_REQUESTED, PM_REMOVE)) {
+    if (TakePosted(hwnd_, app_msg::INLINE_MATH_REQUESTED)) {
         app_->OnInlineMathRequested();
     }
 }
@@ -743,41 +740,35 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
-    config_.WriteSectionAsWhole(kSectionWindow);
-    config_.SaveInt(kSectionWindow, kKeyWindowX, rc.left);
-    config_.SaveInt(kSectionWindow, kKeyWindowY, rc.top);
-    config_.SaveInt(kSectionWindow, kKeyWindowWidth, rc.right - rc.left);
-    config_.SaveInt(kSectionWindow, kKeyWindowHeight, rc.bottom - rc.top);
-
-    // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
-    const bool was_maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED));
-    config_.SaveBool(kSectionWindow, kKeyWindowMaximized, was_maximized);
+    session::SaveWindowPlacement(config_, {
+        .x = rc.left,
+        .y = rc.top,
+        .width = rc.right - rc.left,
+        .height = rc.bottom - rc.top,
+        // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
+        .maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED)),
+    });
 }
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
-    // 未保存 (0) ならデフォルト表示へフォールバックさせる
-    const int w = config_.LoadInt(kSectionWindow, kKeyWindowWidth, 0, 100, 100000);
-    const int h = config_.LoadInt(kSectionWindow, kKeyWindowHeight, 0, 100, 100000);
-    if (w == 0 || h == 0) {
+    const auto saved = session::LoadWindowPlacement(config_);
+    // 未保存ならデフォルト表示へフォールバックさせる
+    if (saved.width == 0) {
         return false;
     }
-    const int x = config_.LoadInt(kSectionWindow, kKeyWindowX, 0, -100000, 100000);
-    const int y = config_.LoadInt(kSectionWindow, kKeyWindowY, 0, -100000, 100000);
-    const bool maximized = config_.LoadBool(kSectionWindow, kKeyWindowMaximized, false);
-
     WINDOWPLACEMENT wp{};
     wp.length = sizeof(wp);
-    wp.rcNormalPosition = { x, y, x + w, y + h };
+    wp.rcNormalPosition = { saved.x, saved.y, saved.x + saved.width, saved.y + saved.height };
 
     if (nCmdShow == SW_SHOWMINIMIZED || nCmdShow == SW_MINIMIZE) {
         wp.showCmd = SW_SHOWMINIMIZED;
-        if (maximized) {
+        if (saved.maximized) {
             wp.flags = WPF_RESTORETOMAXIMIZED;
         }
     }
     else {
-        wp.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+        wp.showCmd = saved.maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
     }
 
     SetWindowPlacement(hwnd_, &wp);

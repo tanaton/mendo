@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "swipe_detector.h"
+#include <vector>
 
 class SwipeDetectorTest : public ::testing::Test {
 protected:
@@ -31,43 +32,29 @@ TEST_F(SwipeDetectorTest, BelowThresholdReturnsNone)
     }
 }
 
-// ─── 右スワイプ（正のdelta蓄積）→ Commit で Back ───
+// ─── 右スワイプ（正の delta）で Back、左スワイプ（負の delta）で Forward ───
 
-TEST_F(SwipeDetectorTest, RightSwipeTriggersBack)
+// 蓄積が閾値に届いたらオーバーレイを出す。OnHWheel 自体は発火せず、Commit で発動して状態を消す。
+TEST_F(SwipeDetectorTest, SwipeShowsOverlayAndCommitsOnce)
 {
-    detector_.OnHWheel(200, now_);
-    detector_.OnHWheel(200, now_ + 10);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-    // Commit後にリセットされる
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
-}
+    for (const int sign : { +1, -1 }) {
+        const NavDirection expected = sign > 0 ? NavDirection::Back : NavDirection::Forward;
+        // 2 回に分けて届く、ちょうど閾値、閾値の倍
+        for (const auto& deltas : { std::vector{ 200, 200 }, std::vector{ SwipeDetector::TRIGGER_THRESHOLD }, std::vector{ SwipeDetector::TRIGGER_THRESHOLD * 2 } }) {
+            SCOPED_TRACE(::testing::Message() << "sign=" << sign << " first=" << deltas.front() << " count=" << deltas.size());
+            SwipeDetector det;
+            for (size_t i = 0; i < deltas.size(); ++i) {
+                det.OnHWheel(sign * deltas[i], now_ + i * 10);
+            }
+            EXPECT_TRUE(det.IsOverlayVisible());
+            EXPECT_EQ(det.GetOverlayDirection(), expected);
+            EXPECT_EQ(det.Commit(), expected);
 
-// ─── 左スワイプ（負のdelta蓄積）→ Commit で Forward ───
-
-TEST_F(SwipeDetectorTest, LeftSwipeTriggersForward)
-{
-    detector_.OnHWheel(-200, now_);
-    detector_.OnHWheel(-200, now_ + 10);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Forward);
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
-}
-
-// ─── ちょうど閾値でオーバーレイを出し、Commit で発動 ───
-
-TEST_F(SwipeDetectorTest, ExactThresholdTriggersBack)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_TRUE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Back);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-}
-
-TEST_F(SwipeDetectorTest, ExactNegativeThresholdTriggersForward)
-{
-    detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_TRUE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Forward);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Forward);
+            EXPECT_FALSE(det.IsOverlayVisible());
+            EXPECT_EQ(det.GetOverlayDirection(), NavDirection::None);
+            EXPECT_EQ(det.Commit(), NavDirection::None);
+        }
+    }
 }
 
 // ─── 複数回の小さいイベントで蓄積 ───
@@ -79,17 +66,6 @@ TEST_F(SwipeDetectorTest, SmallDeltasAccumulate)
     for (int i = 0; i < 50; ++i) {
         detector_.OnHWheel(small, now_ + i * 10);
     }
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-}
-
-// ─── OnHWheel は即時発火しない ───
-
-TEST_F(SwipeDetectorTest, OnHWheelDoesNotFireImmediately)
-{
-    // 閾値を大幅に超えてもOnHWheel自体は発火しない
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD * 2, now_);
-    // オーバーレイは表示されるが Commit() を呼ばない限りナビゲーションは発火しない
-    EXPECT_TRUE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);
 }
 
@@ -167,16 +143,7 @@ TEST_F(SwipeDetectorTest, VScrollResetsDelta)
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
-// ─── Commit・縦スクロール・Reset でオーバーレイが消える ───
-
-TEST_F(SwipeDetectorTest, CommitResetsState)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-    EXPECT_FALSE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
-}
+// ─── 縦スクロールでオーバーレイが消える ───
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll)
 {

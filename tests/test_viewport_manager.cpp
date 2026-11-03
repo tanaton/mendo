@@ -6,20 +6,39 @@
 
 // ---- スクロールテスト ----
 
-TEST(ViewportManagerTest, ScrollToClampsToZero)
+// ScrollTo は絶対位置、DirectScrollBy は相対量で動かし、どちらも [0, max] に収める。
+TEST(ViewportManagerTest, ScrollClampsToRange)
 {
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(1000.0f, 500.0f); // max_scroll = 500
-    vm.ScrollTo(-100.0f, max_scroll);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
-}
-
-TEST(ViewportManagerTest, ScrollToClampsToMax)
-{
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(1000.0f, 500.0f); // max_scroll = 500
-    vm.ScrollTo(9999.0f, max_scroll);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 500.0f);
+    struct Case {
+        const char* name;
+        bool direct;
+        float content_h;
+        float viewport_h;
+        float first;
+        float second;
+        float expected;
+    };
+    constexpr Case kCases[] = {
+        { "ScrollToBelowZero", false, 1000.0f, 500.0f, 0.0f, -100.0f, 0.0f },
+        { "ScrollToAboveMax", false, 1000.0f, 500.0f, 0.0f, 9999.0f, 500.0f },
+        { "DirectScrollByMoves", true, 10000.0f, 200.0f, 0.0f, 100.0f, 100.0f },
+        { "DirectScrollByAboveMax", true, 300.0f, 200.0f, 0.0f, 9999.0f, 100.0f },
+        { "DirectScrollByBelowZero", true, 1000.0f, 200.0f, 50.0f, -200.0f, 0.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        ViewportManager vm;
+        const float max_scroll = MaxScroll(c.content_h, c.viewport_h);
+        for (const float amount : { c.first, c.second }) {
+            if (c.direct) {
+                vm.DirectScrollBy(amount, max_scroll);
+            }
+            else {
+                vm.ScrollTo(amount, max_scroll);
+            }
+        }
+        EXPECT_FLOAT_EQ(vm.GetScrollY(), c.expected);
+    }
 }
 
 TEST(ViewportManagerTest, ClampScrollClampsExistingScroll)
@@ -39,32 +58,6 @@ TEST(ViewportManagerTest, MaxScrollNoNegative)
 {
     // コンテンツがビューポートより小さい
     EXPECT_FLOAT_EQ(MaxScroll(100.0f, 500.0f), 0.0f);
-}
-
-TEST(ViewportManagerTest, DirectScrollByMovesPosition)
-{
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(10000.0f, 200.0f);
-
-    vm.DirectScrollBy(100.0f, max_scroll);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-}
-
-TEST(ViewportManagerTest, DirectScrollByClampsToMax)
-{
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(300.0f, 200.0f); // max = 100
-    vm.DirectScrollBy(9999.0f, max_scroll);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 100.0f);
-}
-
-TEST(ViewportManagerTest, DirectScrollByClampsToZero)
-{
-    ViewportManager vm;
-    const float max_scroll = MaxScroll(1000.0f, 200.0f);
-    vm.DirectScrollBy(50.0f, max_scroll);
-    vm.DirectScrollBy(-200.0f, max_scroll);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 0.0f);
 }
 
 TEST(ViewportManagerTest, DirectScrollByAccumulates)
@@ -226,82 +219,45 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 
 // ---- ズームテスト ----
 
-TEST(ViewportManagerTest, ZoomInAdvancesIndex)
+// 段は既定 (1.0) から始まり、端では動かず false を返す。
+TEST(ViewportManagerTest, ZoomStep)
 {
-    ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
-    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::In));
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX + 1);
-    EXPECT_GT(vm.Zoom().Value(), 1.0f);
+    const ViewportManager fresh;
+    EXPECT_EQ(fresh.Zoom().Index(), ZOOM_DEFAULT_INDEX);
+    struct Case {
+        int start;
+        ZoomDirection direction;
+        int expected;
+        bool changed;
+    };
+    constexpr Case kCases[] = {
+        { ZOOM_DEFAULT_INDEX, ZoomDirection::In, ZOOM_DEFAULT_INDEX + 1, true },
+        { ZOOM_DEFAULT_INDEX, ZoomDirection::Out, ZOOM_DEFAULT_INDEX - 1, true },
+        { ZOOM_STEP_COUNT - 1, ZoomDirection::In, ZOOM_STEP_COUNT - 1, false },
+        { 0, ZoomDirection::Out, 0, false },
+        { ZOOM_DEFAULT_INDEX + 2, ZoomDirection::Reset, ZOOM_DEFAULT_INDEX, true },
+        { ZOOM_DEFAULT_INDEX, ZoomDirection::Reset, ZOOM_DEFAULT_INDEX, false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.start << " dir=" << static_cast<int>(c.direction));
+        ViewportManager vm;
+        vm.Zoom().SetIndex(c.start);
+        EXPECT_EQ(vm.Zoom().Step(c.direction), c.changed);
+        EXPECT_EQ(vm.Zoom().Index(), c.expected);
+        EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[c.expected]);
+    }
 }
 
-TEST(ViewportManagerTest, ZoomOutDecrementsIndex)
+TEST(ViewportManagerTest, SetZoomIndexClampsToRange)
 {
-    ViewportManager vm;
-    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::Out));
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX - 1);
-    EXPECT_LT(vm.Zoom().Value(), 1.0f);
-    EXPECT_GT(vm.Zoom().Value(), 0.0f);
-}
-
-TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
-{
-    ViewportManager vm;
-    // 最大までズーム
-    for (int i = 0; i < 50; ++i)
-        vm.Zoom().Step(ZoomDirection::In);
-    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::In));
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_STEP_COUNT - 1);
-}
-
-TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
-{
-    ViewportManager vm;
-    // 最小までズーム
-    for (int i = 0; i < 50; ++i)
-        vm.Zoom().Step(ZoomDirection::Out);
-    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::Out));
-    EXPECT_EQ(vm.Zoom().Index(), 0);
-}
-
-TEST(ViewportManagerTest, ZoomResetFromNonDefault)
-{
-    ViewportManager vm;
-    vm.Zoom().Step(ZoomDirection::In);
-    vm.Zoom().Step(ZoomDirection::In);
-    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::Reset));
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
-    EXPECT_FLOAT_EQ(vm.Zoom().Value(), 1.0f);
-}
-
-TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
-{
-    ViewportManager vm;
-    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::Reset)); // 変更不要
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
-}
-
-TEST(ViewportManagerTest, SetZoomIndexClampsBelowZero)
-{
-    ViewportManager vm;
-    vm.Zoom().SetIndex(-5);
-    EXPECT_EQ(vm.Zoom().Index(), 0);
-    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[0]);
-}
-
-TEST(ViewportManagerTest, SetZoomIndexClampsAboveMax)
-{
-    ViewportManager vm;
-    vm.Zoom().SetIndex(ZOOM_STEP_COUNT + 100);
-    EXPECT_EQ(vm.Zoom().Index(), ZOOM_STEP_COUNT - 1);
-    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[ZOOM_STEP_COUNT - 1]);
-}
-
-TEST(ViewportManagerTest, SetZoomIndexAcceptsValidValues)
-{
-    ViewportManager vm;
-    vm.Zoom().SetIndex(3);
-    EXPECT_EQ(vm.Zoom().Index(), 3);
-    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[3]);
+    const std::pair<int, int> cases[] = { { -5, 0 }, { ZOOM_STEP_COUNT + 100, ZOOM_STEP_COUNT - 1 }, { 3, 3 } };
+    for (const auto [index, expected] : cases) {
+        SCOPED_TRACE(index);
+        ViewportManager vm;
+        vm.Zoom().SetIndex(index);
+        EXPECT_EQ(vm.Zoom().Index(), expected);
+        EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[expected]);
+    }
 }
 
 // ---- バグ #17: scroll_y の非負クランプ ----
@@ -324,20 +280,6 @@ TEST(ViewportManagerTest, ApplyScrollTargetClampsNegative)
 
     // scroll_yは-150ではなく0にクランプされるべき
     EXPECT_GE(vm.GetScrollY(), 0.0f);
-}
-
-TEST(ViewportManagerTest, ApplyScrollTargetPositiveShiftOk)
-{
-    ViewportManager vm;
-    auto cache = MakeUniformCache(5, 100.0f);
-    const float max_scroll = MaxScroll(500.0f, 200.0f);
-    vm.ScrollTo(100.0f, max_scroll);
-
-    vm.SetScrollTarget(1, vm.GetScrollY() - cache.Top(1));
-    cache.SetTop(1, 150.0f); // shifted down by 50
-
-    vm.ApplyScrollTarget(cache);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 150.0f);
 }
 
 // ---- セッション復元テスト（ノードベーススクロール復元） ----

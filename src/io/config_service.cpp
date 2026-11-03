@@ -5,6 +5,7 @@
 #include "utf8_codec.h"
 #include "utility.h"
 #include "win_handle.h"
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -132,6 +133,16 @@ constexpr auto kKeyLanguage = "Language"sv;
 constexpr auto kSectionView = "View"sv;
 constexpr auto kKeyDarkMode = "DarkMode"sv;
 constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
+constexpr auto kSectionWindow = "Window"sv;
+constexpr auto kKeyWindowX = "X"sv;
+constexpr auto kKeyWindowY = "Y"sv;
+constexpr auto kKeyWindowWidth = "Width"sv;
+constexpr auto kKeyWindowHeight = "Height"sv;
+constexpr auto kKeyWindowMaximized = "Maximized"sv;
+
+// 組で意味を持つ値のセクション。Flush で 1 つでも変えていたらセクションごと書く。
+// キーごとに重ねると、別のプロセスの値と混ざる (bar.md に foo.md のスクロール位置が付くなど)。
+constexpr std::string_view kWholeSections[] = { kSectionSession, kSectionWindow };
 } // namespace
 
 namespace {
@@ -254,7 +265,7 @@ void ConfigService::OverlayChanges(ini::IniData& target) const
     for (const auto& [section, keys] : changed_) {
         const auto& mine = data_.find(section)->second;
         auto& dst = target[section];
-        if (whole_sections_.contains(section)) {
+        if (std::ranges::contains(kWholeSections, section)) {
             // 他のバージョンが足したキーを消さないよう、置き換えずに重ねる。
             for (const auto& [key, value] : mine) {
                 dst[key] = value;
@@ -371,17 +382,11 @@ std::wstring ConfigService::LoadWString(std::string_view section, std::string_vi
     return val ? string_convert::Utf8ToWide(*val) : std::wstring{};
 }
 
-void ConfigService::WriteSectionAsWhole(std::string_view section)
-{
-    whole_sections_.emplace(section);
-}
-
 void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
 {
     if (path.empty()) {
         return;
     }
-    config.WriteSectionAsWhole(kSectionSession);
     config.SaveWString(kSectionSession, kKeyLastFile, path);
 }
 
@@ -448,7 +453,6 @@ void session::LoadPanes(const ConfigService& config, PaneController& panes)
 
 void session::SaveScrollPosition(ConfigService& config, int node, float offset)
 {
-    config.WriteSectionAsWhole(kSectionSession);
     config.SaveInt(kSectionSession, kKeyScrollNode, node);
     config.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
 }
@@ -489,4 +493,29 @@ void session::SaveZoomLevel(ConfigService& config, ZoomLevel zoom)
 ZoomLevel session::LoadZoomLevel(const ConfigService& config)
 {
     return config.LoadZoomLevel(kSectionView, kKeyZoomLevel);
+}
+
+void session::SaveWindowPlacement(ConfigService& config, const WindowPlacement& placement)
+{
+    config.SaveInt(kSectionWindow, kKeyWindowX, placement.x);
+    config.SaveInt(kSectionWindow, kKeyWindowY, placement.y);
+    config.SaveInt(kSectionWindow, kKeyWindowWidth, placement.width);
+    config.SaveInt(kSectionWindow, kKeyWindowHeight, placement.height);
+    config.SaveBool(kSectionWindow, kKeyWindowMaximized, placement.maximized);
+}
+
+session::WindowPlacement session::LoadWindowPlacement(const ConfigService& config)
+{
+    const int w = config.LoadInt(kSectionWindow, kKeyWindowWidth, 0, 100, 100000);
+    const int h = config.LoadInt(kSectionWindow, kKeyWindowHeight, 0, 100, 100000);
+    if (w == 0 || h == 0) {
+        return {};
+    }
+    return {
+        .x = config.LoadInt(kSectionWindow, kKeyWindowX, 0, -100000, 100000),
+        .y = config.LoadInt(kSectionWindow, kKeyWindowY, 0, -100000, 100000),
+        .width = w,
+        .height = h,
+        .maximized = config.LoadBool(kSectionWindow, kKeyWindowMaximized, false),
+    };
 }

@@ -98,12 +98,6 @@ public:
     // KeepMatchesOfUnchangedNodes の後に同じクエリで調べ直すこと。
     void BeginSearch(std::string_view query);
     bool ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
-    // 検索を止め、前回の結果を残す。
-    void StopSearch() noexcept
-    {
-        searching_ = false;
-        pending_.clear();
-    }
     // リロードで中身の変わらなかったノードのマッチだけを新しいノード番号で残す。
     // 調べ直しが終わるまで、変わらなかった所のハイライトを消さない。
     void KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcept;
@@ -123,6 +117,13 @@ private:
     // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
     // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
     void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
+
+    // 検索を止め、前回の結果を残す。
+    void StopSearch() noexcept
+    {
+        searching_ = false;
+        pending_.clear();
+    }
 
     void ClearMatches() noexcept
     {

@@ -51,8 +51,10 @@ TEST_F(FileWatcherTest, WatcherDoesNotFireWithoutChange)
     bool changed = false;
     watcher.StartWatching(OpenWatchTarget(path.native()), [&]() { changed = true; });
 
-    // 少し待ってからチェック（変更なしなので発火しないはず）
-    Sleep(100);
+    // 変更していないので、フォルダのどの変更でも立つ通知すら来ない。
+    const HANDLE h = watcher.GetEventHandle();
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(WaitForSingleObject(h, 20), WAIT_TIMEOUT);
     watcher.CheckForChanges();
     EXPECT_FALSE(changed);
 }

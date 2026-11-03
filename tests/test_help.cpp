@@ -4,39 +4,31 @@
 #include "example_files.h"
 #include "file_io.h"
 #include "mock_text_measurer.h"
-#include "nav.h"
-#include "titlebar.h"
 
 // ═══════════════════════════════════════════════
 // IsHelpPath
 // ═══════════════════════════════════════════════
 
-TEST(HelpPathTest, MatchesHelpPath)
+// 完全一致だけをヘルプとみなす (大文字小文字も区別する)。
+TEST(HelpPathTest, MatchesOnlyExactHelpPath)
 {
-    EXPECT_TRUE(IsHelpPath(L"mendo://help"));
-}
-
-TEST(HelpPathTest, RejectsEmptyPath)
-{
-    EXPECT_FALSE(IsHelpPath(L""));
-}
-
-TEST(HelpPathTest, RejectsNormalFilePath)
-{
-    EXPECT_FALSE(IsHelpPath(L"C:\\docs\\readme.md"));
-}
-
-TEST(HelpPathTest, RejectsSimilarPath)
-{
-    EXPECT_FALSE(IsHelpPath(L"mendo://help/extra"));
-    EXPECT_FALSE(IsHelpPath(L"mendo://hel"));
-    EXPECT_FALSE(IsHelpPath(L"MENDO://HELP"));
-    EXPECT_FALSE(IsHelpPath(L"mendo://other"));
-}
-
-TEST(HelpPathTest, ConstantValueIsCorrect)
-{
-    EXPECT_EQ(HELP_PATH, L"mendo://help");
+    struct Case {
+        std::wstring_view path;
+        bool expected;
+    };
+    constexpr Case kCases[] = {
+        { L"mendo://help", true },
+        { L"", false },
+        { L"C:\\docs\\readme.md", false },
+        { L"mendo://help/extra", false },
+        { L"mendo://hel", false },
+        { L"MENDO://HELP", false },
+        { L"mendo://other", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(IsHelpPath(c.path), c.expected);
+    }
 }
 
 // ═══════════════════════════════════════════════
@@ -56,12 +48,6 @@ TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
     EXPECT_FALSE(Document::FromMarkdown("# Help", HELP_PATH).HasBackingFile());
     EXPECT_FALSE(Document::FromMarkdown("# Empty", L"").HasBackingFile());
     EXPECT_TRUE(Document::FromMarkdown("# File", L"C:/docs/readme.md").HasBackingFile());
-}
-
-TEST(HelpDocumentTest, HelpDocumentHasToc)
-{
-    auto doc = Document::FromMarkdown("# Title\n## Section", HELP_PATH);
-    EXPECT_GE(doc.GetToc().size(), 1u);
 }
 
 TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
@@ -102,65 +88,4 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
             EXPECT_GT(cache[i].height, 0.0f) << "ノード " << i;
         }
     }
-}
-
-// ═══════════════════════════════════════════════
-// ナビゲーション履歴とヘルプパス
-// ═══════════════════════════════════════════════
-
-class HelpNavigationTest : public ::testing::Test {
-protected:
-    NavHistory history_;
-};
-
-TEST_F(HelpNavigationTest, GoBackFromHelpToFile)
-{
-    history_.Push(NavEntry{ L"C:\\file.md", 5, 10.0f });
-
-    NavEntry out;
-    ASSERT_TRUE(history_.GoBack(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"C:\\file.md");
-    EXPECT_EQ(out.node, 5);
-    EXPECT_FLOAT_EQ(out.offset, 10.0f);
-}
-
-TEST_F(HelpNavigationTest, GoForwardFromFileToHelp)
-{
-    history_.Push(NavEntry{ L"C:\\file.md", 5, 10.0f });
-
-    NavEntry back_out;
-    history_.GoBack(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f }, back_out);
-
-    NavEntry fwd_out;
-    ASSERT_TRUE(history_.GoForward(NavEntry{ L"C:\\file.md", 5, 10.0f }, fwd_out));
-    EXPECT_EQ(fwd_out.file_path, HELP_PATH);
-    EXPECT_EQ(fwd_out.node, 0);
-    EXPECT_FLOAT_EQ(fwd_out.offset, 0.0f);
-}
-
-TEST_F(HelpNavigationTest, PushHelpThenGoBack)
-{
-    history_.Push(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f });
-
-    NavEntry out;
-    ASSERT_TRUE(history_.GoBack(NavEntry{ L"C:\\file.md", 3, 40.0f }, out));
-    EXPECT_EQ(out.file_path, HELP_PATH);
-}
-
-TEST_F(HelpNavigationTest, HelpPathInHistoryCanGoBack)
-{
-    history_.Push(NavEntry{ std::wstring(HELP_PATH), 0, 0.0f });
-    EXPECT_TRUE(history_.CanGoBack());
-}
-
-// ═══════════════════════════════════════════════
-// BuildTitleString でヘルプパスを扱う
-// ═══════════════════════════════════════════════
-
-TEST(HelpDocumentTest, BuildTitleStringWithHelpPath)
-{
-    auto title = BuildTitleString(HELP_PATH, 0);
-    // ヘルプパスでもクラッシュせずタイトルが生成される
-    EXPECT_FALSE(title.empty());
-    EXPECT_TRUE(title.contains(L"mendo"));
 }

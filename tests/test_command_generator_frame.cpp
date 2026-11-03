@@ -22,11 +22,7 @@ class CmdGenFrameTest : public CmdGenMockTestBase {};
 
 TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 {
-    Parse("Hello");
-    const PaneRect pane{ 100.0f, 50.0f, 600.0f, 400.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
-
+    const auto cmds = Generate("Hello", { 100.0f, 50.0f, 600.0f, 400.0f });
     const auto clip = FindFirst<PushClipCmd>(cmds);
     ASSERT_TRUE(clip.has_value());
     EXPECT_FLOAT_EQ(clip->rect.left, 100.0f);
@@ -38,12 +34,9 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
 {
     // Transform の Y は常に 0、スクロール量は描画コマンドの Y に直接合算される。
-    Parse("---");
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
-    const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, 1.0f);
+    const auto cmds = Generate("---", { origin_x, 0.0f, 600.0f, 400.0f }, scroll_y);
 
     const auto first_xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(first_xform.has_value());
@@ -62,12 +55,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
 {
     // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップ。
     // スナップは Transform でなく描画コマンドの Y 計算に反映される。
-    Parse("---");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    const float scroll_y = 0.3f;
-    const float dpi = 2.0f;
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, dpi);
+    const auto cmds = Generate("---", { 0.0f, 0.0f, 800.0f, 400.0f }, 0.3f, 2.0f);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(xform.has_value());
@@ -86,12 +74,8 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
 
 TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
 {
-    // 数個の水平線を生成し、ビューポートより大きく下にスクロールする
-    Parse("---\n\n---\n\n---");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全ノードより下にスクロール → DrawLineCmd なし
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = 10000.0f }, 1.0f);
+    const auto cmds = Generate("---\n\n---\n\n---", { 0.0f, 0.0f, 800.0f, 100.0f }, 10000.0f);
 
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "すべてのノードがビューポート上ならDrawLineCmdは生成されない";
     // PushClip + SetTransform×2 + PopClip のみ
@@ -102,9 +86,7 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
 {
     nodes_.clear();
     cache_ = LayoutCache(0);
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    const auto cmds = Draw({ 0.0f, 0.0f, 800.0f, 600.0f });
 
     ASSERT_EQ(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds[0]));
@@ -119,10 +101,7 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
 
 TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
 {
-    Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    const auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |", { 0.0f, 0.0f, 800.0f, 400.0f });
     EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) static {
         const auto* fr = std::get_if<FillRectCmd>(&c);
         return fr && fr->brush_id == BrushId::TableStripe;

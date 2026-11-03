@@ -105,7 +105,7 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
 
     for (const i18n::Strings* language : { &i18n::kJa, &i18n::kEn }) {
         SCOPED_TRACE(std::wstring(language->lang_key));
-        i18n::SetLanguage(language);
+        const ScopedLanguage scoped(language);
         error = { DiagramError::Kind::TooLarge };
         EXPECT_EQ(text_of(), language->diagram_too_large);
         error = { DiagramError::Kind::WebViewUnavailable };
@@ -113,7 +113,6 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
         error = { DiagramError::Kind::Render };
         EXPECT_EQ(text_of(), language->diagram_error);
     }
-    i18n::SetLanguage(&i18n::kJa);
 }
 
 // mermaid の構文エラーは数行に折り返され、高さが本文 3 行ぶんの枠に収まらない。枠の外 (前後のブロックの上) には描かない。

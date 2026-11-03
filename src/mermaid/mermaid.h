@@ -322,7 +322,8 @@ private:
     void SetupWorker(int index);
     void OnControllerCreated(int index, ICoreWebView2Controller* controller);
     void RegisterWebViewHandlers(int index);
-    void RegisterResourceHandler(ICoreWebView2* webview);
+    // 開発者ツール等を止め、app.local の外への遷移と通信を遮断する。ワーカーもビューアも Navigate の前に掛ける。
+    void SecureWebView(ICoreWebView2* webview);
     // 仮想ホスト app.local への要求に埋め込みリソースを返し、それ以外は遮断する。
     void OnWebResourceRequested(ICoreWebView2WebResourceRequestedEventArgs* args);
     // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。

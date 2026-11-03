@@ -3,9 +3,9 @@
 // ハイライトの矩形発行と「検索→選択→本文」の順序は検証できない。本ファイルは
 // 実 IDWriteFactory を使う DWriteTestBase の上で、その経路を踏む。
 #include <gtest/gtest.h>
-#include "cmd_gen_mock_test_base.h"
 #include "command_generator.h"
 #include "document_test_helpers.h"
+#include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "dwrite_test_base.h"
 #include "search_state.h"
@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -46,8 +47,12 @@ std::optional<D2D1_RECT_F> FindFirstFillRectByBrush(const DrawCommandList& cmds,
     return rects.empty() ? std::nullopt : std::optional{ rects.front() };
 }
 
+// "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
+constexpr std::string_view kKanaThenAbc = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc";
+
 class HighlightOrderTest : public DWriteTestBase {
 protected:
+    static constexpr PaneRect kPane{ 0.0f, 0.0f, 800.0f, 600.0f };
     CommandGenerator gen_;
     DrawCommandList cmds_;
 
@@ -55,6 +60,25 @@ protected:
     {
         DWriteTestBase::SetUp();
         InitWithoutText(gen_, theme_);
+    }
+
+    // 次の呼び出しまで有効。
+    const DrawCommandList& Draw(const ParsedLayout& pl, const TextSelection& sel = {}, std::span<const SearchMatch> matches = {},
+                                int current_match = -1, const PaneRect& pane = kPane, float scroll_y = 0.0f)
+    {
+        cmds_.clear();
+        gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .scroll_y = scroll_y,
+                                     .search_matches = matches, .current_match_index = current_match }, 1.0f);
+        return cmds_;
+    }
+
+    // md を描いたときの brushes の最初の矩形の幅。無ければ nullopt。
+    std::optional<float> FirstRectWidth(std::string_view md, std::initializer_list<BrushId> brushes, const TextSelection& sel,
+                                        std::span<const SearchMatch> matches = {})
+    {
+        const auto pl = ParseAndLayout(md);
+        const auto rect = FindFirstFillRectByBrush(Draw(pl, sel, matches, matches.empty() ? -1 : 0), brushes);
+        return rect ? std::optional{ rect->right - rect->left } : std::nullopt;
     }
 };
 
@@ -71,14 +95,8 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
     // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
     // ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
-    std::vector<SearchMatch> matches;
-    matches.push_back({ 0, -1, -1, 0, 5 });
-
-    TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0 }, 1.0f);
+    const SearchMatch matches[] = { { 0, -1, -1, 0, 5 } };
+    const auto& cmds = Draw(pl, TextSelection::MakeOrdered(0, 6, 0, 11), matches, 0);
 
     // 検索色・選択色・本文 の各最小 index を見つける。
     std::optional<size_t> first_search;
@@ -115,12 +133,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 {
     auto pl = ParseAndLayout("Hello World");
-    const TextSelection sel{};
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
-
-    EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent, BrushId::Selection }).empty());
+    EXPECT_TRUE(CollectRectsByBrush(Draw(pl), { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent, BrushId::Selection }).empty());
 }
 
 // 現在マッチは search_highlight_current_color、それ以外は search_highlight_color
@@ -129,14 +142,8 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
     auto pl = ParseAndLayout("Hello Hello");
-    std::vector<SearchMatch> matches;
-    matches.push_back({ 0, -1, -1, 0, 5 });
-    matches.push_back({ 0, -1, -1, 6, 5 });
-
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    // 2 番目を current にする
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 1 }, 1.0f);
+    const SearchMatch matches[] = { { 0, -1, -1, 0, 5 }, { 0, -1, -1, 6, 5 } };
+    const auto& cmds = Draw(pl, {}, matches, 1);
 
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
@@ -147,13 +154,7 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
     auto pl = ParseAndLayout("Hello World");
-    TextSelection sel = TextSelection::MakeOrdered(0, 5, 0, 5);
-
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
-
-    EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::Selection }).empty())
+    EXPECT_TRUE(CollectRectsByBrush(Draw(pl, TextSelection::MakeOrdered(0, 5, 0, 5)), { BrushId::Selection }).empty())
         << "空選択で BrushId::Selection の FillRectCmd は出ない";
 }
 
@@ -162,50 +163,23 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 // 「あいうabc」の "abc" を検索して、ASCII 単独 "abc" と同等幅の矩形が出ることで担保する。
 TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 {
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-
-    auto pl1 = ParseAndLayout("abc");
-    std::vector<SearchMatch> matches1;
-    matches1.push_back({ 0, -1, -1, 0, 3 });
-    DrawCommandList cmds1;
-    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0 }, 1.0f);
-    const auto rect1 = FindFirstFillRectByBrush(cmds1,
-        { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
-    ASSERT_TRUE(rect1.has_value());
-
-    // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
-    auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
-    std::vector<SearchMatch> matches2;
-    matches2.push_back({ 0, -1, -1, 3, 3 });
-    DrawCommandList cmds2;
-    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0 }, 1.0f);
-    const auto rect2 = FindFirstFillRectByBrush(cmds2,
-        { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
-    ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
-    EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f)
-        << "ハイライト幅は ASCII 単独時と一致すべき";
+    const SearchMatch ascii[] = { { 0, -1, -1, 0, 3 } };
+    const SearchMatch after_kana[] = { { 0, -1, -1, 3, 3 } };
+    const auto w1 = FirstRectWidth("abc", { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent }, {}, ascii);
+    const auto w2 = FirstRectWidth(kKanaThenAbc, { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent }, {}, after_kana);
+    ASSERT_TRUE(w1.has_value());
+    ASSERT_TRUE(w2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
+    EXPECT_NEAR(*w2, *w1, 2.0f) << "ハイライト幅は ASCII 単独時と一致すべき";
 }
 
-// 選択範囲も UTF-8 byte 単位で保持されるため、同じ取り違えバグを抱えうる。
-// "あいうabc" の "abc" を選択して、矩形幅が ASCII 単独時と一致することで担保する。
+// 選択範囲は UTF-8 byte 単位で保持されるため、同じ取り違えバグを抱えうる。
 TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
 {
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-
-    auto pl1 = ParseAndLayout("abc");
-    TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
-    DrawCommandList cmds1;
-    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = sel1, .md_pane_rect = pane }, 1.0f);
-    const auto rect1 = FindFirstFillRectByBrush(cmds1, { BrushId::Selection });
-    ASSERT_TRUE(rect1.has_value());
-
-    auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
-    TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
-    DrawCommandList cmds2;
-    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = sel2, .md_pane_rect = pane }, 1.0f);
-    const auto rect2 = FindFirstFillRectByBrush(cmds2, { BrushId::Selection });
-    ASSERT_TRUE(rect2.has_value());
-    EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
+    const auto w1 = FirstRectWidth("abc", { BrushId::Selection }, TextSelection::MakeOrdered(0, 0, 0, 3));
+    const auto w2 = FirstRectWidth(kKanaThenAbc, { BrushId::Selection }, TextSelection::MakeOrdered(0, 9, 0, 12));
+    ASSERT_TRUE(w1.has_value());
+    ASSERT_TRUE(w2.has_value());
+    EXPECT_NEAR(*w2, *w1, 2.0f);
 }
 
 namespace {
@@ -224,10 +198,7 @@ protected:
     // 次の呼び出しまで有効。
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, const TextSelection& sel = {})
     {
-        cmds_.clear();
-        gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = PANE, .scroll_y = scroll_y,
-                                     .search_matches = search_.GetMatches(), .current_match_index = current_match_ }, 1.0f);
-        return cmds_;
+        return Draw(pl, sel, search_.GetMatches(), current_match_, PANE, scroll_y);
     }
 
     // ノード 0 の全マッチを HitTestTextRange して可視判定した結果と、描かれた検索ハイライトを突き合わせる。

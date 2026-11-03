@@ -2,6 +2,7 @@
 #include "context_menu.h"
 #include "i18n.h"
 #include "resource.h"
+#include "test_helpers.h"
 #include "theme.h"
 #include <algorithm>
 #include <dwrite.h>
@@ -48,17 +49,6 @@ constexpr ExpectedItem kNonMdPaneItems[] = {
     { ItemType::Text, IDM_TOGGLE_FILE_PANE },
     { ItemType::Text, IDM_TOGGLE_TOC_PANE },
 };
-
-
-struct Point {
-    float x;
-    float y;
-};
-
-constexpr Point Center(const DipRect& r)
-{
-    return { (r.left + r.right) / 2.0f, (r.top + r.bottom) / 2.0f };
-}
 
 } // namespace
 
@@ -220,16 +210,12 @@ TEST_F(ContextMenuTest, NavEnabledFollowsParams)
 // CreateTextFormats / ComputeLayout は DWrite だけを使う。D2D は Show で描くときにしか要らない。
 class ContextMenuLayoutTest : public ContextMenuTest {
 protected:
-    static ComPtr<IDWriteFactory> dwrite_;
+    static inline ComPtr<IDWriteFactory> dwrite_;
 
     static void SetUpTestSuite()
     {
-        const HRESULT hr = DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED,
-            __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr)) << "DWriteCreateFactory failed";
-        ASSERT_NE(dwrite_.Get(), nullptr);
+        const HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
+        ASSERT_TRUE(SUCCEEDED(hr));
     }
 
     static void TearDownTestSuite()
@@ -250,8 +236,6 @@ protected:
         menu_.ComputeLayout();
     }
 };
-
-ComPtr<IDWriteFactory> ContextMenuLayoutTest::dwrite_;
 
 // ─── メニューサイズ ───
 
@@ -282,7 +266,7 @@ TEST_F(ContextMenuLayoutTest, TextFormatFollowsUiLanguage)
     const auto params = MakeParams();
     for (const i18n::Strings* language : { &i18n::kZhHant, &i18n::kKo, &i18n::kJa }) {
         SCOPED_TRACE(std::wstring(language->lang_key));
-        i18n::SetLanguage(language);
+        const ScopedLanguage scoped(language);
         BuildAndLayout(params);
         wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
         ASSERT_TRUE(SUCCEEDED(menu_.fmt_text->GetLocaleName(locale, LOCALE_NAME_MAX_LENGTH)));
@@ -362,7 +346,7 @@ TEST_F(ContextMenuLayoutTest, HitTestAtItemCenters)
     for (size_t i = 0; i < items.size(); ++i) {
         SCOPED_TRACE(i);
         const int expected = kMdPaneItems[i].type == ItemType::Text ? kMdPaneItems[i].id : 0;
-        const auto [cx, cy] = Center(items[i].rect);
+        const auto [cx, cy] = RectCenter(items[i].rect);
         EXPECT_EQ(menu_.HitTest(cx, cy), expected);
     }
 }
@@ -420,7 +404,7 @@ TEST_F(ContextMenuLayoutTest, ZoomHitTestFollowsZoomLevel)
         BuildAndLayout(p);
         const auto& z = menu_.zoom_layout;
         const auto hit = [this](const DipRect& r) {
-            const auto [cx, cy] = Center(r);
+            const auto [cx, cy] = RectCenter(r);
             return menu_.ZoomHitTest(cx, cy);
         };
         const auto expect = [](bool enabled, ZoomDirection d) { return enabled ? std::optional{ d } : std::nullopt; };
@@ -440,16 +424,16 @@ TEST_F(ContextMenuLayoutTest, NavHitTest)
         const char* name;
         bool can_go_back;
         bool can_go_forward;
-        Point (*point)(const Nav&);
+        DipPoint (*point)(const Nav&);
         int expected;
     };
     constexpr Case kCases[] = {
-        { "Back", true, true, [](const Nav& n) static { return Center(n.back_rect); }, IDM_NAV_BACK },
-        { "Forward", true, true, [](const Nav& n) static { return Center(n.fwd_rect); }, IDM_NAV_FORWARD },
-        { "BetweenButtons", true, true, [](const Nav& n) static { return Point{ (n.back_rect.right + n.fwd_rect.left) / 2.0f, Center(n.back_rect).y }; }, 0 },
-        { "DisabledBack", false, true, [](const Nav& n) static { return Center(n.back_rect); }, 0 },
-        { "DisabledForward", true, false, [](const Nav& n) static { return Center(n.fwd_rect); }, 0 },
-        { "Outside", true, true, [](const Nav&) static { return Point{ -10.0f, -10.0f }; }, 0 },
+        { "Back", true, true, [](const Nav& n) static { return RectCenter(n.back_rect); }, IDM_NAV_BACK },
+        { "Forward", true, true, [](const Nav& n) static { return RectCenter(n.fwd_rect); }, IDM_NAV_FORWARD },
+        { "BetweenButtons", true, true, [](const Nav& n) static { return DipPoint{ (n.back_rect.right + n.fwd_rect.left) / 2.0f, RectCenter(n.back_rect).y }; }, 0 },
+        { "DisabledBack", false, true, [](const Nav& n) static { return RectCenter(n.back_rect); }, 0 },
+        { "DisabledForward", true, false, [](const Nav& n) static { return RectCenter(n.fwd_rect); }, 0 },
+        { "Outside", true, true, [](const Nav&) static { return DipPoint{ -10.0f, -10.0f }; }, 0 },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);

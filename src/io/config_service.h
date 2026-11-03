@@ -43,10 +43,6 @@ public:
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
     std::wstring LoadWString(std::string_view section, std::string_view key) const;
 
-    // 組で意味を持つ値のセクション。Flush で 1 つでも変えていたらセクションごと書く。
-    // キーごとに重ねると、別のプロセスの値と混ざる (bar.md に foo.md のスクロール位置が付くなど)。
-    void WriteSectionAsWhole(std::string_view section);
-
 private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
     void StoreValue(std::string_view section, std::string_view key, std::string value);
@@ -56,13 +52,12 @@ private:
     ini::IniData data_;
     // Load (または Flush) の後に値を変えたキー。
     std::map<std::string, std::set<std::string>> changed_;
-    std::set<std::string, std::less<>> whole_sections_;
 };
 
 class PaneController;
 
-// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語、ダークモード、本文の倍率）の永続化。
-// ConfigService のセクション "Session" / "Pane" / "General" / "View" を排他的に扱う。
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語、ダークモード、本文の倍率、ウィンドウの配置）の永続化。
+// ConfigService のセクション "Session" / "Pane" / "General" / "View" / "Window" を排他的に扱う。
 namespace session {
 
 void SaveLastFilePath(ConfigService& config, std::wstring_view path);
@@ -88,5 +83,16 @@ bool LoadDarkMode(const ConfigService& config);
 
 void SaveZoomLevel(ConfigService& config, ZoomLevel zoom);
 ZoomLevel LoadZoomLevel(const ConfigService& config);
+
+struct WindowPlacement {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool maximized = false;
+};
+void SaveWindowPlacement(ConfigService& config, const WindowPlacement& placement);
+// 未保存なら width と height が 0。
+WindowPlacement LoadWindowPlacement(const ConfigService& config);
 
 } // namespace session

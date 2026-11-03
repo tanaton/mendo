@@ -1513,6 +1513,11 @@ void App::RefreshFilePane()
 
 void App::HandleFileEntryClick(const FileEntry& entry)
 {
+    // ブラウザのリンクと同じく Ctrl+クリックは新しいウィンドウ。
+    if (IsKeyDown(VK_CONTROL)) {
+        Dispatch(NewWindowAction{ entry.full_path });
+        return;
+    }
     if (entry.is_directory) {
         Dispatch(FilePaneDirectoryClickedAction{ entry.full_path });
         return;
@@ -1564,13 +1569,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool 
         return;
     }
     if (target == PaneTarget::File) {
-        const FileEntry& entry = state_.file_explorer.GetEntries()[hit.item];
-        // ブラウザのリンクと同じく Ctrl+クリックは新しいウィンドウ。
-        if (IsKeyDown(VK_CONTROL)) {
-            Dispatch(NewWindowAction{ entry.full_path });
-            return;
-        }
-        HandleFileEntryClick(entry);
+        HandleFileEntryClick(state_.file_explorer.GetEntries()[hit.item]);
     }
     else {
         Dispatch(TocItemClickedAction{ state_.document.doc.GetToc()[hit.item].node_index });

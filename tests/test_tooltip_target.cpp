@@ -4,24 +4,13 @@
 // Tooltip クラス本体は Win32 HWND 依存のためテスト対象外。
 // ここでは値型 TooltipTarget の IsEmpty と同一判定、MakeTooltip のみを検証する。
 
-TEST(TooltipTarget, DefaultConstructedIsEmpty)
+// 空かどうかは zone だけで決まり、key は見ない。既定は空。
+TEST(TooltipTarget, IsEmptyFollowsZoneOnly)
 {
-    TooltipTarget t;
-    EXPECT_EQ(t.zone, TooltipTarget::Zone::None);
-    EXPECT_TRUE(t.IsEmpty());
-}
-
-TEST(TooltipTarget, ConstructedWithZoneIsNotEmpty)
-{
-    TooltipTarget t{ TooltipTarget::Zone::OverlayButton, 0 };
-    EXPECT_EQ(t.zone, TooltipTarget::Zone::OverlayButton);
-    EXPECT_FALSE(t.IsEmpty());
-}
-
-TEST(TooltipTarget, IsEmptyIgnoresKey)
-{
-    TooltipTarget t{ TooltipTarget::Zone::None, 5 };
-    EXPECT_TRUE(t.IsEmpty());
+    EXPECT_EQ(TooltipTarget{}.zone, TooltipTarget::Zone::None);
+    EXPECT_TRUE(TooltipTarget{}.IsEmpty());
+    EXPECT_FALSE((TooltipTarget{ TooltipTarget::Zone::OverlayButton, 0 }).IsEmpty());
+    EXPECT_TRUE((TooltipTarget{ TooltipTarget::Zone::None, 5 }).IsEmpty());
 }
 
 TEST(TooltipTarget, DifferentKeyOrZoneIsNotSameTarget)

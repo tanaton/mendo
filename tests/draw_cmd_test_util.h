@@ -75,6 +75,19 @@ inline void InitWithoutText(CommandGenerator& gen, const Theme& theme)
     gen.Init(theme, formats, NoTextLayouts());
 }
 
+// ファイル一覧を閉じ、目次だけを rect に出すサイドペイン。toc と nodes は使い終わるまで生かしておく。
+inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std::vector<TocEntry>& toc, const std::vector<Node>& nodes, int active_toc_index = -1)
+{
+    static const std::vector<FileEntry> no_files;
+    return {
+        .panes = { {}, SidePaneInstance{ .rect = rect, .show = true, .zoom = 1.0f, .item_height = item_height } },
+        .file_entries = no_files,
+        .toc_entries = toc,
+        .nodes = nodes,
+        .active_toc_index = active_toc_index,
+    };
+}
+
 // 検索を区切らずに最後まで進める。
 inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
 {

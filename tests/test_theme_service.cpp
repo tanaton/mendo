@@ -33,23 +33,16 @@ ZoomLevel ZoomAt(int index)
 }
 } // namespace
 
-TEST_F(ThemeServiceTest, CreateThemeDefaultZoom)
+// 作るテーマは今のライト/ダークに従い、渡したズームを掛ける。
+TEST_F(ThemeServiceTest, CreateThemeFollowsDarkModeAndZoom)
 {
-    Theme theme = service_.CreateTheme(ZoomLevel{});
-    EXPECT_FLOAT_EQ(theme.zoom, 1.0f);
-}
+    const Theme light_default = service_.CreateTheme(ZoomLevel{});
+    EXPECT_FALSE(light_default.dark);
+    EXPECT_FLOAT_EQ(light_default.zoom, 1.0f);
+    EXPECT_FLOAT_EQ(service_.CreateTheme(ZoomAt(12)).zoom, ZOOM_STEPS[12]);
 
-TEST_F(ThemeServiceTest, CreateThemeWithZoom)
-{
-    Theme theme = service_.CreateTheme(ZoomAt(12));
-    EXPECT_FLOAT_EQ(theme.zoom, ZOOM_STEPS[12]);
-}
-
-TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
-{
     service_.ToggleDarkMode();
-    Theme theme = service_.CreateTheme(ZoomAt(12));
-
+    const Theme theme = service_.CreateTheme(ZoomAt(12));
     Theme expected = GetDarkTheme();
     expected.ApplyZoom(ZOOM_STEPS[12]);
     EXPECT_FLOAT_EQ(theme.zoom, expected.zoom);
@@ -57,11 +50,12 @@ TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
     EXPECT_EQ(theme.Color(BrushId::Background).r, expected.Color(BrushId::Background).r);
 }
 
-TEST_F(ThemeServiceTest, LoadZoomLevelDefault)
+// 保存が無ければ等倍、保存した倍率はそのまま読み戻す。
+TEST_F(ThemeServiceTest, LoadZoomLevelDefaultsToActualSizeAndRoundTrips)
 {
-    const int idx = session::LoadZoomLevel(config_).Index();
-    EXPECT_GE(idx, 0);
-    EXPECT_LT(idx, ZOOM_STEP_COUNT);
+    EXPECT_TRUE(session::LoadZoomLevel(config_).IsDefault());
+    session::SaveZoomLevel(config_, ZoomAt(12));
+    EXPECT_EQ(session::LoadZoomLevel(config_).Index(), 12);
 }
 
 // 今のテーマはフォントを実在する候補に決め、ダークモードとズームの切り替えでも同じ場所を書き換える。

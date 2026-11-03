@@ -9,84 +9,46 @@
 
 TEST(Utility, OverloadedDispatchesByType)
 {
-    std::variant<int, double, std::wstring> v;
-
-    v = 42;
-    int tag = std::visit(overloaded{
-        [](int) static                 { return 1; },
-        [](double) static              { return 2; },
-        [](const std::wstring&) static { return 3; },
-    }, v);
-    EXPECT_EQ(tag, 1);
-
-    v = 1.5;
-    tag = std::visit(overloaded{
-        [](int) static                 { return 1; },
-        [](double) static              { return 2; },
-        [](const std::wstring&) static { return 3; },
-    }, v);
-    EXPECT_EQ(tag, 2);
-
-    v = std::wstring(L"hi");
-    tag = std::visit(overloaded{
-        [](int) static                 { return 1; },
-        [](double) static              { return 2; },
-        [](const std::wstring&) static { return 3; },
-    }, v);
-    EXPECT_EQ(tag, 3);
+    const auto tag_of = [](const std::variant<int, double, std::wstring>& v) static {
+        return std::visit(overloaded{
+            [](int) static                 { return 1; },
+            [](double) static              { return 2; },
+            [](const std::wstring&) static { return 3; },
+        }, v);
+    };
+    EXPECT_EQ(tag_of(42), 1);
+    EXPECT_EQ(tag_of(1.5), 2);
+    EXPECT_EQ(tag_of(std::wstring(L"hi")), 3);
 }
 
 // ═══════════════════════════════════════════════
 // Fnv1a64
 // ═══════════════════════════════════════════════
 
-TEST(Fnv1a64, EmptyStringReturnsOffsetBasis)
+// 空は offset basis。1 バイトは (basis ^ byte) * prime で、0x80 以上も符号拡張せずに混ぜる。
+// 長さの違い・1 文字の違い・NUL 1 バイトでも値が変わる。参照値は isthe.com の FNV-1a 64-bit。
+TEST(Fnv1a64, MatchesReferenceValues)
 {
-    EXPECT_EQ(Fnv1a64(std::string_view{}), kFnv1a64OffsetBasis);
-}
-
-// FNV-1a 64-bit リファレンスベクター (RFC 草案 / isthe.com の参照値)。
-TEST(Fnv1a64, ReferenceVector_a)
-{
-    // 'a' (0x61) → offset_basis XOR 0x61 → * prime
-    constexpr uint64_t expected = (kFnv1a64OffsetBasis ^ 0x61ULL) * kFnv1a64Prime;
-    EXPECT_EQ(Fnv1a64(std::string_view{ "a" }), expected);
-    EXPECT_EQ(Fnv1a64(std::string_view{ "a" }), 0xaf63dc4c8601ec8cULL);
-}
-
-TEST(Fnv1a64, ReferenceVector_foobar)
-{
-    EXPECT_EQ(Fnv1a64(std::string_view{ "foobar" }), 0x85944171f73967e8ULL);
-}
-
-TEST(Fnv1a64, DifferentLengthsDifferentHashes)
-{
+    struct Case {
+        std::string_view input;
+        uint64_t expected;
+    };
+    constexpr Case kCases[] = {
+        { {}, kFnv1a64OffsetBasis },
+        { "a", 0xaf63dc4c8601ec8cULL },
+        { "a", (kFnv1a64OffsetBasis ^ 0x61ULL) * kFnv1a64Prime },
+        { "foobar", 0x85944171f73967e8ULL },
+        { { "\x80", 1 }, (kFnv1a64OffsetBasis ^ 0x80ULL) * kFnv1a64Prime },
+        { { "\0", 1 }, (kFnv1a64OffsetBasis ^ 0x00ULL) * kFnv1a64Prime },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::string{ c.input }));
+        EXPECT_EQ(Fnv1a64(c.input), c.expected);
+    }
     EXPECT_NE(Fnv1a64(std::string_view{ "abc" }), Fnv1a64(std::string_view{ "abcd" }));
-    // string_view{const char*} は null-terminated で長さ 0 になるため、長さを明示する。
-    EXPECT_NE(Fnv1a64(std::string_view{ "", 0 }), Fnv1a64(std::string_view{ "\0", 1 }));
-}
-
-TEST(Fnv1a64, OneCharDifferenceProducesDifferentHash)
-{
     EXPECT_NE(Fnv1a64(std::string_view{ "abcd" }), Fnv1a64(std::string_view{ "abce" }));
-}
-
-TEST(Fnv1a64, HighByteHandledAsUnsigned)
-{
-    // 0x80 が signed sign-extension で混入していないこと。
-    const char buf[] = { static_cast<char>(0x80), 0 };
-    const std::string_view sv{ buf, 1 };
-    constexpr uint64_t expected = (kFnv1a64OffsetBasis ^ 0x80ULL) * kFnv1a64Prime;
-    EXPECT_EQ(Fnv1a64(sv), expected);
-}
-
-TEST(Fnv1a64, ConstevalContext)
-{
-    // constexpr 関数として compile-time に解ける
-    constexpr auto h = Fnv1a64(std::string_view{ "x" });
-    static_assert(h == ((kFnv1a64OffsetBasis ^ 0x78ULL) * kFnv1a64Prime),
-                  "Fnv1a64 must be constexpr-evaluable");
-    EXPECT_EQ(h, (kFnv1a64OffsetBasis ^ 0x78ULL) * kFnv1a64Prime);
+    // constexpr 関数としてコンパイル時に解ける。
+    static_assert(Fnv1a64(std::string_view{ "x" }) == ((kFnv1a64OffsetBasis ^ 0x78ULL) * kFnv1a64Prime));
 }
 
 TEST(Fnv1a64, NoCollisionsOnSmallSet)
