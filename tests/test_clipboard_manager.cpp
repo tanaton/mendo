@@ -46,15 +46,12 @@ public:
 constexpr float kDefaultMdWidth = 800.0f;
 constexpr std::string_view kMermaidMd = "```mermaid\ngraph TD; A-->B\n```\n";
 
-// テストは png 無しでガード経路のみ踏むため、共通の空 PNG ハンドルを使う。
-const PngBytes kNoPng;
-
 } // namespace
 
 class ClipboardManagerTest : public ::testing::Test {
 protected:
     // HWND/WIC nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
-    // png 無し (nullptr) のため BuildDib は空を返し、クリップボード書き込みは行われない。
+    // 画像無し (nullptr) のため BuildDib は空を返し、クリップボード書き込みは行われない。
     void SetUp() override
     {
         manager_.Init(nullptr, &renderer_, nullptr, [this](std::wstring_view m) { toasts_.emplace_back(m); });
@@ -69,7 +66,7 @@ protected:
 
     void CopyDiagram(int node_index, float md_width = kDefaultMdWidth, bool dark = false)
     {
-        manager_.CopyDiagramToClipboard(doc_, node_index, kNoPng, md_width, dark);
+        manager_.CopyDiagramToClipboard(doc_, node_index, nullptr, md_width, dark);
     }
 
     Document doc_;
@@ -100,8 +97,8 @@ TEST_F(ClipboardManagerTest, CopyCodeBlockNoOpForNonCodeBlock)
 TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpForOutOfRangeIndex)
 {
     Load(kMermaidMd);
-    manager_.SaveDiagramAsPng(doc_, -1, kNoPng);
-    manager_.SaveDiagramAsPng(doc_, 9999, kNoPng);
+    manager_.SaveDiagramAsPng(doc_, -1, {});
+    manager_.SaveDiagramAsPng(doc_, 9999, {});
     EXPECT_TRUE(toasts_.empty());
 }
 
@@ -109,15 +106,15 @@ TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpForNonDiagramLanguage)
 {
     const int cb_idx = Load("```cpp\nint main(){}\n```\n", NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
-    manager_.SaveDiagramAsPng(doc_, cb_idx, kNoPng);
+    manager_.SaveDiagramAsPng(doc_, cb_idx, {});
     EXPECT_TRUE(toasts_.empty());
 }
 
-TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpWithoutPng)
+TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpWithoutImage)
 {
     const int cb_idx = Load(kMermaidMd);
     ASSERT_GE(cb_idx, 0);
-    manager_.SaveDiagramAsPng(doc_, cb_idx, kNoPng);
+    manager_.SaveDiagramAsPng(doc_, cb_idx, {});
     EXPECT_TRUE(toasts_.empty());
 }
 

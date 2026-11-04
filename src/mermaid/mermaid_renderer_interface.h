@@ -1,10 +1,15 @@
 #pragma once
+#include <wincodec.h>
+#include <wrl/client.h>
 #include <functional>
 #include <string>
 #include <string_view>
 
 struct DiagramEntry;
 struct Node;
+namespace mermaid_util {
+struct DiagramDrawing;
+}
 
 // MermaidRenderer は exe の埋め込みリソースを読むので mendo_core に入れない。mendo_core 入りのモジュールは本 interface を介する。
 class IMermaidRenderer {
@@ -30,4 +35,9 @@ public:
     // 不要になった図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
     virtual void DropQueued()
     {}
+    // 図の保存・コピーに使う画像を描く。描けなければ null。
+    virtual Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& /*drawing*/)
+    {
+        return nullptr;
+    }
 };

@@ -7,9 +7,13 @@
 #include <wincodec.h>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string_view>
 
 class Document;
+namespace mermaid_util {
+struct DiagramDrawing;
+}
 
 // MD ペインのオーバーレイボタンから発火する 3 つのクリップボード操作を集約する。
 //   - コードブロックのテキストコピー
@@ -27,13 +31,15 @@ public:
     void Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
 
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
-    // png は MermaidRenderer::DiagramPng が描画命令から描いたもの。
-    void SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const;
-    void CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark);
+    // drawing は図の描画命令 (DiagramEntry::drawing)。null なら何もしない。画像は保存先を選んだ後に描く (取り消したら描かない)。
+    void SaveDiagramAsPng(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) const;
+    // drawing から描いた画像を CF_DIB に、SVG を image/svg+xml に書く。
+    void CopyDiagramToClipboard(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width,
+                                bool dark);
 
 private:
-    // PNG をデコードして CF_DIB 用 GlobalMem を作る。デコードはコピー時のみ実行。失敗/空は空を返す。
-    UniqueGlobalMem BuildDib(const PngBytes& png) const;
+    // CF_DIB 用 GlobalMem を作る。失敗/空は空を返す。
+    UniqueGlobalMem BuildDib(IWICBitmapSource* bitmap) const;
     // コピー成否に応じたトーストを出す (CopyDiagramToClipboard の各経路共通)。
     void EmitCopyResult(bool ok) const;
 

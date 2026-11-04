@@ -56,9 +56,9 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // wic は Renderer と共有する PNG エンコード用。
+    // wic は Renderer と共有する。図を描いた画像を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
-    // 完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
+    // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
     // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
     // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
@@ -70,14 +70,14 @@ public:
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
-    // 図の保存・コピーに使う PNG。本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。作れなければ null。
-    PngBytes DiagramPng(const DiagramEntry& entry);
-    // deadline を過ぎた分は残し、HasLeftoverDiskLoads が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
-    void ProcessDiskLoads(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
+    Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing) override;
+    // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
+    void ProcessJobResults(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
-    bool HasLeftoverDiskLoads() const noexcept
+    bool HasLeftoverJobResults() const noexcept
     {
-        return render_target_ && disk_results_.HasLeftover();
+        return render_target_ && job_results_.HasLeftover();
     }
     void Shutdown();
     void DropQueued() override;
@@ -145,27 +145,28 @@ private:
         bool has_image = false;
     };
 
-    struct DiskLoad {
+    // bg のワーカーの仕事 1 つ (図や数式の描画・ディスクキャッシュの読み込み) とその結果。
+    struct Job {
         RenderRequest req;
         // インライン数式の要求の結果。MathRequest::items と同じ順で、描けなかった数式は null。
         std::vector<std::shared_ptr<const MathDrawing>> maths;
         // 描いたばかりの図の、ディスクキャッシュに書く描画命令 (UTF-8)。
-        PngBytes bytes;
+        std::shared_ptr<const ByteBuffer> bytes;
         // 描画命令。UI で commands にする。
         std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
         // ディスクキャッシュを読めなかった。理由は read_error。
         bool read_failed = false;
         DWORD read_error = 0;
-        // 投入後に disk_drop_gen_ が進んだので読まずに返した。
+        // 投入後に drop_gen_ が進んだので描かず・読まずに返した。
         bool dropped = false;
         // PeleEngine で描いた (ディスクキャッシュから読んだのではない)。成功はディスクキャッシュへ書き、失敗は確定させる。
         // 走っている数も数える。
-        bool native = false;
+        bool rendered = false;
         // 描けなかった理由。描画命令を記録できなかったときは空。
         DiagramError error;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
-        // クリップボード用に PeleEngine で作った SVG。
+        // クリップボード用の SVG。
         std::wstring svg;
     };
 
@@ -187,7 +188,7 @@ private:
         InvokeSvgCallbackIfAny(req, {}, cancelled);
         CancelMathCallbackIfAny(req);
     }
-    void ApplyMathLoad(DiskLoad& r);
+    void ApplyMathResult(Job& r);
     // queue から kind の要求を順を保って取り出す。
     // 後始末は呼び出し側が取り出した後で行う (コールバックから描画待ちに積み直しても壊れない)。
     static std::vector<RenderRequest> TakePending(std::deque<RenderRequest>& queue, RequestKind kind);
@@ -204,7 +205,7 @@ private:
     // 呼ばない)。新しい世代を返す。
     unsigned int InvalidateViewerDrawing()
     {
-        std::erase_if(native_waiting_, [](const RenderRequest& r) { return r.kind == RequestKind::View; });
+        std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind == RequestKind::View; });
         return ++viewer_render_;
     }
     void DestroyViewer();
@@ -213,14 +214,14 @@ private:
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
     void EnsurePele();
     // bg のワーカーで PeleEngine に描かせ、結果をディスクキャッシュの読み込みと同じ経路で返す。
-    void StartNativeRender(RenderRequest req);
+    void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
-    void PumpNativeRenders();
-    // job を bg で work(job) してから disk_results_ に返す。投入後に disk_drop_gen_ が進んだ表示用の要求は work せずに返す。
+    void PumpRenders();
+    // job を bg で work(job) してから job_results_ に返す。投入後に drop_gen_ が進んだ表示用の要求は work せずに返す。
     template <typename Work>
-    void PostDiskJob(DiskLoad job, Work work);
+    void PostJob(Job job, Work work);
     // worker で呼ぶ。
-    void RenderNativeJob(DiskLoad& job, std::wstring_view locale);
+    void RenderJob(Job& job, std::wstring_view locale);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
         if (req.kind == RequestKind::Display) {
@@ -230,9 +231,9 @@ private:
 
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。locale は図のラベルの数式を組み直すのに使う。
-    void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path, std::wstring_view locale);
+    void LoadDiskJob(Job& job, const std::filesystem::path& path, std::wstring_view locale);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
-    bool ApplyDiskLoad(DiskLoad& r);
+    bool ApplyJobResult(Job& r);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
@@ -240,6 +241,11 @@ private:
     IDWriteFactory* WriteFactory();
     void InsertCache(uint64_t hash, DiagramResult result);
     const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
+    // 幅を混ぜないキーの結果。いまの幅の上限より狭いときだけ使える。
+    const DiagramResult* FindWidthFree(uint64_t width_free_hash, float max_width);
+    // 本文で縮めずに描けた図 (幅に縛られない結果) の描画命令。拡大表示とクリップボードは本文の幅に縮めない描き方なので、
+    // これをそのまま使える。無ければ null。
+    std::shared_ptr<const mermaid_util::DiagramDrawing> FindWidthFreeDrawing(std::string_view code, float max_width, bool dark_mode);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -263,15 +269,15 @@ private:
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
-    PostedInbox<DiskLoad> disk_results_;
-    // DropQueued / Shutdown で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
-    std::atomic<uint32_t> disk_drop_gen_{ 0 };
+    PostedInbox<Job> job_results_;
+    // DropQueued / Shutdown で進め、投入済みの表示用の図の描画とディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
+    std::atomic<uint32_t> drop_gen_{ 0 };
 
     // 最初に図を描くときに作る。終了時は描き終わりを待ってから捨てる。
     std::unique_ptr<PeleEngine> pele_;
     // PeleEngine で描く要求のうち、上限を超えて待っているものと、bg で走っている数。
-    std::deque<RenderRequest> native_waiting_;
-    int native_running_ = 0;
+    std::deque<RenderRequest> render_waiting_;
+    int renders_running_ = 0;
 
     // 描画命令を記録する DeviceContext。描画先と同じデバイスから作り、描画先が変わったら作り直す。
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;

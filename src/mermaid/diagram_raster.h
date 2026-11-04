@@ -92,7 +92,7 @@ Microsoft::WRL::ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarge
 Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
                                                        const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale);
 
-// 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの PNG)。CSS px を dpr 倍した 32bpp PBGRA に描く。
+// 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの画像)。CSS px を dpr 倍した 32bpp PBGRA に描く。
 // locale は文字の書式のロケール。描けなければ null。
 Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
                                                     const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale);

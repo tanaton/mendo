@@ -17,6 +17,7 @@ uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noex
 // NodeDiagramHash のうちノードのテキストだけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
 // テキストのハッシュは図の大きさに比例するので、覚えておけば要求し直すたびに読み直さずに済む。
 uint64_t DiagramCodeHash(const Node& node) noexcept;
+uint64_t DiagramCodeHash(std::string_view code) noexcept;
 // cached は DiagramEntry::code_hash。0 (未計算) のときだけテキストを読む。
 uint64_t EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept;
 uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept;

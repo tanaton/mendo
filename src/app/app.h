@@ -149,7 +149,7 @@ public:
     void PrepareFrame();
     void OnAppImageLoaded();
     void OnParseComplete();
-    void OnMermaidDiskLoaded();
+    void OnMermaidJobDone();
     void OnInlineMathRequested();
     void OnFileListed();
     void OnDestroy();

@@ -11,8 +11,8 @@
 #include <memory>
 #include <string>
 
-// ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
-static PngBytes MakeDummyPng(size_t size = 1024)
+// ダミーのデータを生成する（中身は読まないので何でもよい）。
+static std::shared_ptr<const ByteBuffer> MakeDummyData(size_t size = 1024)
 {
     std::vector<uint8_t> data(size);
     for (size_t i = 0; i < size; ++i) {
@@ -21,7 +21,6 @@ static PngBytes MakeDummyPng(size_t size = 1024)
     return std::make_shared<const ByteBuffer>(data);
 }
 
-using PngBlob = ByteBuffer;
 
 // 1 つのキーだけを引く。LRU は更新しない。
 static bool LookupDimensions(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry)
@@ -33,7 +32,7 @@ static bool LookupDimensions(MermaidFileCache& cache, uint64_t key, MermaidFileC
     return hit.has_value();
 }
 
-// 製品側 (MermaidRenderer::RequestRender) と同じく LRU を更新して PNG のパスを得る。
+// 製品側 (MermaidRenderer::RequestRender) と同じく LRU を更新してファイルのパスを得る。
 static bool LookupPath(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, std::filesystem::path& path)
 {
     const auto hit = cache.Find(key, key, 0.0f, /*touch=*/true);
@@ -41,20 +40,20 @@ static bool LookupPath(MermaidFileCache& cache, uint64_t key, MermaidFileCache::
         return false;
     }
     entry = hit->entry;
-    path = cache.PngPath(hit->key);
+    path = cache.FilePath(hit->key);
     return !path.empty();
 }
 
 // 製品側は LookupPath の後の読み込みを worker で行う。テストでは同期的に読む。
-static bool LookupAndRead(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, PngBlob& png)
+static bool LookupAndRead(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, ByteBuffer& data)
 {
     std::filesystem::path path;
     if (!LookupPath(cache, key, entry, path)) {
         return false;
     }
     DWORD read_error = 0;
-    png = ReadAllBytes(path.c_str(), &read_error);
-    if (png.empty()) {
+    data = ReadAllBytes(path.c_str(), &read_error);
+    if (data.empty()) {
         cache.OnReadFailed(key, read_error);
         return false;
     }
@@ -68,7 +67,7 @@ struct RawIndexRecord {
     uint64_t key = 0;
     float css_width = 0.0f;
     float css_height = 0.0f;
-    uint32_t png_size = 0;
+    uint32_t file_size = 0;
     int64_t last_used = 0;
 };
 
@@ -86,7 +85,7 @@ static std::string BuildRawIndex(uint32_t declared_count, std::initializer_list<
         put(r.key);
         put(r.css_width);
         put(r.css_height);
-        put(r.png_size);
+        put(r.file_size);
         put(r.last_used);
     }
     return buf;
@@ -145,27 +144,27 @@ protected:
         return WorkerGate(*scheduler_);
     }
 
-    // 書き込み中に追い出されたキーの PNG は、着地後に消えて孤立ファイルとして残らない。
+    // 書き込み中に追い出されたキーのファイルは、着地後に消えて孤立ファイルとして残らない。
     // 同じ図が文書に複数あると、同じキーの保存が書き込み中に重なる (key1_stores > 1)。
-    void ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(int key1_stores)
+    void ExpectEvictionDuringPendingWriteLeavesNoOrphanFile(int key1_stores)
     {
         cache_.SetLimits(2, kNoSizeLimit);
         InitCache();
         auto gate = BlockSingleWorker();
 
         for (int k = 0; k < key1_stores; ++k) {
-            cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+            cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
         }
-        cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-        cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
+        cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
+        cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100)); // key=1 を追い出す
         EXPECT_EQ(cache_.EntryCount(), 2u);
 
         gate.Open();
         scheduler_->Shutdown();
 
-        EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(1)));
-        EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(2)));
-        EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(3)));
+        EXPECT_FALSE(std::filesystem::exists(cache_.FilePath(1)));
+        EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(2)));
+        EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(3)));
     }
 
     // 止めて作り直せる scheduler。作り直してもアドレスは変わらないので、キャッシュは持ち続けられる。
@@ -182,18 +181,18 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     InitCache();
 
     uint64_t key = 12345;
-    auto png = MakeDummyPng(512);
-    cache_.StoreAsync(key, 400.0f, 300.0f, png);
+    auto data = MakeDummyData(512);
+    cache_.StoreAsync(key, 400.0f, 300.0f, data);
 
     // SaveIndex + Shutdown → 再Init で永続化された状態から読み込み
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(cache_, key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    EXPECT_TRUE(std::ranges::equal(out, *png));
+    EXPECT_TRUE(std::ranges::equal(out, *data));
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
@@ -201,7 +200,7 @@ TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
     InitCache();
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_FALSE(LookupAndRead(cache_, 99999, entry, out));
     EXPECT_FALSE(LookupDimensions(cache_, 99999, entry));
 }
@@ -213,15 +212,15 @@ TEST_F(MermaidFileCacheTest, StoreUpdatesCountAndTotalSize)
 
     EXPECT_EQ(cache_.EntryCount(), 0u);
 
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(1000));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(1000));
     EXPECT_EQ(cache_.EntryCount(), 1u);
     EXPECT_EQ(cache_.TotalSize(), 1000u);
 
-    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(2000));
+    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyData(2000));
     EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 3000u);
 
-    cache_.StoreAsync(1, 200.0f, 100.0f, MakeDummyPng(512));
+    cache_.StoreAsync(1, 200.0f, 100.0f, MakeDummyData(512));
     EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 2512u);
 }
@@ -234,27 +233,27 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
 {
     InitCache();
 
-    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyPng(256));
+    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyData(256));
     EXPECT_EQ(cache_.EntryCount(), 1u);
 
     // ファイル書き出し完了 → SaveIndex → 再Init
     FlushAndReopen();
 
-    // PNGファイルを手動削除してからLookup（内部キーでファイル名を計算）
-    std::filesystem::remove(cache_.PngPath(42ULL));
+    // ファイルを手動削除してからLookup（内部キーでファイル名を計算）
+    std::filesystem::remove(cache_.FilePath(42ULL));
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_FALSE(LookupAndRead(cache_, 42, entry, out));
     // 古いインデックスエントリが削除されていること
     EXPECT_EQ(cache_.EntryCount(), 0u);
 }
 
-// Find と PngPath はファイルを読まずに寸法とパスを返し、読み込み失敗は OnReadFailed で反映する。
+// Find と FilePath はファイルを読まずに寸法とパスを返し、読み込み失敗は OnReadFailed で反映する。
 TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 {
     InitCache();
-    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyPng(256));
+    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyData(256));
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
@@ -283,20 +282,20 @@ TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
     InitCache();
 
     // 3エントリを格納
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 3u);
 
     // 4つ目を追加 → 最古のエントリ(key=1)が削除される
-    cache_.StoreAsync(4, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(4, 100.0f, 50.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 3u);
 
     // key=1が削除されていることを永続化後にも確認
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_FALSE(LookupAndRead(cache_, 1, entry, out));
     EXPECT_TRUE(LookupAndRead(cache_, 2, entry, out));
     EXPECT_TRUE(LookupAndRead(cache_, 3, entry, out));
@@ -313,13 +312,13 @@ TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
     cache_.SetLimits(100, 500);
     InitCache();
 
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(200));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(200));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(200));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(200));
     EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 400u);
 
     // 300バイト追加 → 合計700 > 500 → 最古エントリを削除
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(300));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(300));
     // key=1が削除されて合計500バイト以内になる
     EXPECT_LE(cache_.TotalSize(), 500u);
     EXPECT_EQ(cache_.EntryCount(), 2u);
@@ -333,15 +332,15 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
 {
     InitCache();
 
-    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
-    cache_.StoreAsync(200, 320.0f, 240.0f, MakeDummyPng(512));
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyData(1024));
+    cache_.StoreAsync(200, 320.0f, 240.0f, MakeDummyData(512));
     cache_.SaveIndex();
 
     auto fresh = OpenFreshCache();
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(*fresh, 100, entry, out));
     EXPECT_EQ(entry.css_width, 640.0f);
     EXPECT_EQ(entry.css_height, 480.0f);
@@ -364,7 +363,7 @@ TEST_F(MermaidFileCacheTest, InitDoesNotTouchDisk)
 TEST_F(MermaidFileCacheTest, SaveIndexBeforeFirstUseKeepsIndex)
 {
     InitCache();
-    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyData(1024));
     FlushAndReopen();
 
     // 一度も参照しないまま終了しても既存の索引を空で上書きしないこと
@@ -375,7 +374,7 @@ TEST_F(MermaidFileCacheTest, SaveIndexBeforeFirstUseKeepsIndex)
 TEST_F(MermaidFileCacheTest, SaveIndexSkipsWriteWhenUnchanged)
 {
     InitCache();
-    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyData(1024));
     FlushAndReopen();
     ASSERT_EQ(cache_.EntryCount(), 1u);
 
@@ -415,7 +414,7 @@ TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
     WriteTempFile(L"index.bin", BuildRawIndex(4, {
         // css_width が負
         { 1, -100.0f, 50.0f, 256, 1000 },
-        // png_size が 0
+        // file_size が 0
         { 2, 100.0f, 50.0f, 0, 1000 },
         // css_width が NaN
         { 3, std::numeric_limits<float>::quiet_NaN(), 100.0f, 256, 1000 },
@@ -439,7 +438,7 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
     uninit.SetCacheDir(temp_dir_);
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_FALSE(LookupAndRead(uninit, 1, entry, out));
 
     uninit.SaveIndex();
@@ -456,19 +455,19 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
     InitCache();
 
     // key=1を最初に格納
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
 
     // key=2を格納（key=1より新しい使用順）
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     FlushAndReopen();
 
     // key=1をLookupして使用順を更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(cache_, 1, entry, out));
 
     // key=3を追加 → key=2が最古なのでkey=2が削除される
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
     // 永続化後にも確認
@@ -490,8 +489,8 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
     cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
 
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
     // key=1をLookupDimensionsで参照（LRUは更新されないはず）
@@ -499,7 +498,7 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
     EXPECT_TRUE(LookupDimensions(cache_, 1, entry));
 
     // key=3を追加 → LRU未更新のkey=1が最古として削除されるはず
-    cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyPng(100));
+    cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
     EXPECT_FALSE(LookupDimensions(cache_, 1, entry));
@@ -513,7 +512,7 @@ TEST_F(MermaidFileCacheTest, FindPrefersWidthFreeOnlyWhenNarrower)
     constexpr uint64_t kFree = 10;
     constexpr uint64_t kSized = 20;
     InitCache();
-    cache_.StoreAsync(kFree, 300.0f, 100.0f, MakeDummyPng(64));
+    cache_.StoreAsync(kFree, 300.0f, 100.0f, MakeDummyData(64));
 
     auto hit = cache_.Find(kFree, kSized, 600.0f, /*touch=*/false);
     ASSERT_TRUE(hit.has_value());
@@ -523,7 +522,7 @@ TEST_F(MermaidFileCacheTest, FindPrefersWidthFreeOnlyWhenNarrower)
     // 幅なしの図が上限いっぱいなら使わない。幅つきが無ければ外れ。
     EXPECT_FALSE(cache_.Find(kFree, kSized, 300.0f, /*touch=*/false).has_value());
 
-    cache_.StoreAsync(kSized, 280.0f, 120.0f, MakeDummyPng(64));
+    cache_.StoreAsync(kSized, 280.0f, 120.0f, MakeDummyData(64));
     hit = cache_.Find(kFree, kSized, 300.0f, /*touch=*/false);
     ASSERT_TRUE(hit.has_value());
     EXPECT_EQ(hit->key, kSized);
@@ -537,15 +536,15 @@ TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
     constexpr uint64_t kSized = 2;
     cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
-    cache_.StoreAsync(kFree, 500.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(kSized, 300.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(kFree, 500.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(kSized, 300.0f, 50.0f, MakeDummyData(100));
 
     // 幅なしは上限より広いので幅つきが当たり、幅つきだけ使用順が新しくなる。
     const auto hit = cache_.Find(kFree, kSized, 400.0f, /*touch=*/true);
     ASSERT_TRUE(hit.has_value());
     EXPECT_EQ(hit->key, kSized);
 
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100));
     MermaidFileCache::CacheEntry entry;
     EXPECT_FALSE(LookupDimensions(cache_, kFree, entry));
     EXPECT_TRUE(LookupDimensions(cache_, kSized, entry));
@@ -555,68 +554,68 @@ TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
 // Pending-write integrity (Medium-5 回帰)
 // ═══════════════════════════════════════════════
 
-// StoreAsync 直後で PNG が未着地のまま Lookup された時、index が
-// stale 扱いで消されないこと。修正前は orphan PNG（書き込み完了後に
-// インデックスが指していない PNG）を生み出す原因になっていた。
+// StoreAsync 直後でファイルが未着地のまま Lookup された時、index が
+// stale 扱いで消されないこと。修正前は orphan ファイル（書き込み完了後に
+// インデックスが指していないファイル）を生み出す原因になっていた。
 TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 {
     InitCache();
     auto gate = BlockSingleWorker();
 
     const uint64_t key = 0x1234567890abcdefULL;
-    cache_.StoreAsync(key, 100.0f, 80.0f, MakeDummyPng(64));
+    cache_.StoreAsync(key, 100.0f, 80.0f, MakeDummyData(64));
 
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
-    EXPECT_FALSE(LookupAndRead(cache_, key, entry, out)) << "PNG はまだ着地していない";
+    ByteBuffer out;
+    EXPECT_FALSE(LookupAndRead(cache_, key, entry, out)) << "ファイルはまだ着地していない";
 
     EXPECT_TRUE(LookupDimensions(cache_, key, entry))
-        << "pending write 中に index が消されている（orphan PNG の温床）";
+        << "pending write 中に index が消されている（orphan ファイルの温床）";
 }
 
-// 追い出した PNG は UI スレッドで触らず、worker が消す。
-TEST_F(MermaidFileCacheTest, EvictedPngIsRemovedOnWorker)
+// 追い出したファイルは UI スレッドで触らず、worker が消す。
+TEST_F(MermaidFileCacheTest, EvictedFileIsRemovedOnWorker)
 {
     cache_.SetLimits(1, kNoSizeLimit);
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
     scheduler_->Shutdown();
 
     auto gate = BlockSingleWorker();
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(1))) << "UI スレッドで消している";
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
+    EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(1))) << "UI スレッドで消している";
 
     gate.Open();
     scheduler_->Shutdown();
-    EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(1)));
-    EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(2)));
+    EXPECT_FALSE(std::filesystem::exists(cache_.FilePath(1)));
+    EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(2)));
 }
 
-TEST_F(MermaidFileCacheTest, EvictionDuringPendingWriteLeavesNoOrphanPng)
+TEST_F(MermaidFileCacheTest, EvictionDuringPendingWriteLeavesNoOrphanFile)
 {
-    ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(1);
+    ExpectEvictionDuringPendingWriteLeavesNoOrphanFile(1);
 }
 
-TEST_F(MermaidFileCacheTest, EvictionDuringDuplicatePendingWritesLeavesNoOrphanPng)
+TEST_F(MermaidFileCacheTest, EvictionDuringDuplicatePendingWritesLeavesNoOrphanFile)
 {
-    ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(2);
+    ExpectEvictionDuringPendingWriteLeavesNoOrphanFile(2);
 }
 
 // ═══════════════════════════════════════════════
 // Clear (設定ダイアログのキャッシュ削除)
 // ═══════════════════════════════════════════════
 
-// 索引に無い PNG も含めて全部消える。消す作業は worker に回る。次に開いても空のまま。
+// 索引に無いファイルも含めて全部消える。消す作業は worker に回る。次に開いても空のまま。
 TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
 {
     const auto dir = temp_dir_ / L"cache";
     cache_.SetCacheDir(dir);
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(200));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(200));
     FlushAndReopen();
     ASSERT_EQ(cache_.EntryCount(), 2u);
-    const auto orphan = dir / L"0123456789abcdef.png";
+    const auto orphan = dir / L"0123456789abcdef.drawing";
     ASSERT_TRUE(WriteAllBytes(orphan, "x", 1));
 
     cache_.Clear();
@@ -629,10 +628,10 @@ TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
     EXPECT_TRUE(std::filesystem::is_empty(dir));
 }
 
-// 違う版 (古い描き方) かヘッダの壊れた索引なら、引けない PNG を索引に載らないまま残さないよう、フォルダごと捨てる。
+// 違う版 (古い描き方) かヘッダの壊れた索引なら、引けないファイルを索引に載らないまま残さないよう、フォルダごと捨てる。
 TEST_F(MermaidFileCacheTest, UnusableIndexDiscardsWholeFolder)
 {
-    const RawIndexRecord record{ .key = 5, .css_width = 100.0f, .css_height = 50.0f, .png_size = 1 };
+    const RawIndexRecord record{ .key = 5, .css_width = 100.0f, .css_height = 50.0f, .file_size = 1 };
     auto bad_magic = BuildRawIndex(1, { record });
     bad_magic[0] = 'X';
     struct Case {
@@ -649,6 +648,7 @@ TEST_F(MermaidFileCacheTest, UnusableIndexDiscardsWholeFolder)
         const auto dir = temp_dir_ / L"cache";
         std::filesystem::create_directories(dir);
         ASSERT_TRUE(WriteAllBytes(dir / L"index.bin", c.index.data(), c.index.size()));
+        // 古い版のキャッシュは .png だった。
         ASSERT_TRUE(WriteAllBytes(dir / L"0123456789abcdef.png", "x", 1));
         MermaidFileCache cache;
         cache.SetCacheDir(dir);
@@ -669,7 +669,7 @@ TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
     const auto unrelated = temp_dir_ / L"cache-other";
     std::filesystem::create_directories(leftover);
     std::filesystem::create_directories(unrelated);
-    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.png", "x", 1));
+    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.drawing", "x", 1));
     cache_.SetCacheDir(dir);
     InitCache();
 
@@ -679,49 +679,49 @@ TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
     EXPECT_TRUE(std::filesystem::exists(unrelated));
 }
 
-// 書き込み中の PNG は着地後に消え、消した後に孤立ファイルとして現れない。
-TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoPng)
+// 書き込み中のファイルは着地後に消え、消した後に孤立ファイルとして現れない。
+TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoFile)
 {
     InitCache();
     auto gate = BlockSingleWorker();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
 
     cache_.Clear();
     gate.Open();
     scheduler_->Shutdown();
 
-    EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(1)));
+    EXPECT_FALSE(std::filesystem::exists(cache_.FilePath(1)));
     EXPECT_EQ(cache_.EntryCount(), 0u);
 }
 
-// 消すのは worker で、キャッシュのファイルだけ。消し終える前に同じ名前で保存した PNG と索引は、書いた後に消されない。
+// 消すのは worker で、キャッシュのファイルだけ。消し終える前に同じ名前で保存したファイルと索引は、書いた後に消されない。
 TEST_F(MermaidFileCacheTest, ClearRemovesOnWorker)
 {
     const auto dir = temp_dir_ / L"cache";
     cache_.SetCacheDir(dir);
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     FlushAndReopen();
     const auto unrelated = dir / L"unrelated.txt";
     ASSERT_TRUE(WriteAllBytes(unrelated, "x", 1));
 
     auto gate = BlockSingleWorker();
     cache_.Clear();
-    EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(2))) << "UI スレッドで消している";
+    EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(2))) << "UI スレッドで消している";
     EXPECT_EQ(cache_.EntryCount(), 0u);
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
     cache_.SaveIndex();
 
     gate.Open();
     scheduler_->Shutdown();
-    EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(1))) << "消した後に保存した PNG を消した";
-    EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(2)));
+    EXPECT_TRUE(std::filesystem::exists(cache_.FilePath(1))) << "消した後に保存したファイルを消した";
+    EXPECT_FALSE(std::filesystem::exists(cache_.FilePath(2)));
     EXPECT_TRUE(std::filesystem::exists(unrelated));
 
     const auto fresh = OpenFreshCache(dir);
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(*fresh, 1, entry, out)) << "消した後に書いた索引を消した";
     EXPECT_FALSE(LookupDimensions(*fresh, 2, entry));
 }
@@ -730,14 +730,14 @@ TEST_F(MermaidFileCacheTest, ClearRemovesOnWorker)
 TEST_F(MermaidFileCacheTest, StoreAfterClearPersists)
 {
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
     cache_.Clear();
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     cache_.SaveIndex();
 
     const auto fresh = OpenFreshCache();
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
     EXPECT_FALSE(LookupDimensions(*fresh, 1, entry));
 }
@@ -751,8 +751,8 @@ TEST_F(MermaidFileCacheTest, SaveIndexKeepsEntriesSavedByAnotherProcess)
 {
     auto a = OpenAnotherProcess();
     auto b = OpenAnotherProcess();
-    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    b->StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(200));
+    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    b->StoreAsync(2, 200.0f, 100.0f, MakeDummyData(200));
     scheduler_->Shutdown();
     a->SaveIndex();
     b->SaveIndex();
@@ -762,7 +762,7 @@ TEST_F(MermaidFileCacheTest, SaveIndexKeepsEntriesSavedByAnotherProcess)
     EXPECT_EQ(fresh->EntryCount(), 2u);
     EXPECT_EQ(fresh->TotalSize(), 300u);
     MermaidFileCache::CacheEntry entry;
-    PngBlob out;
+    ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(*fresh, 1, entry, out));
     EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
 }
@@ -771,14 +771,14 @@ TEST_F(MermaidFileCacheTest, SaveIndexKeepsEntriesSavedByAnotherProcess)
 TEST_F(MermaidFileCacheTest, MergedIndexOrdersOwnUsesAsNewest)
 {
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     FlushAndReopen();
     (void)cache_.EntryCount();
     auto other = OpenAnotherProcess();
 
     for (uint64_t key = 3; key <= 5; ++key) {
-        other->StoreAsync(key, 100.0f, 50.0f, MakeDummyPng(100));
+        other->StoreAsync(key, 100.0f, 50.0f, MakeDummyData(100));
     }
     MermaidFileCache::CacheEntry entry;
     std::filesystem::path path;
@@ -791,39 +791,39 @@ TEST_F(MermaidFileCacheTest, MergedIndexOrdersOwnUsesAsNewest)
     const auto fresh = OpenFreshCache();
     fresh->SetLimits(5, kNoSizeLimit);
     for (uint64_t key = 6; key <= 8; ++key) {
-        fresh->StoreAsync(key, 100.0f, 50.0f, MakeDummyPng(100));
+        fresh->StoreAsync(key, 100.0f, 50.0f, MakeDummyData(100));
     }
     EXPECT_TRUE(LookupDimensions(*fresh, 1, entry));
     EXPECT_TRUE(LookupDimensions(*fresh, 5, entry));
     EXPECT_FALSE(LookupDimensions(*fresh, 4, entry));
 }
 
-// 2 つのプロセスの図を合わせて上限を超えたら、古いものを PNG ごと消す。
-TEST_F(MermaidFileCacheTest, MergedIndexEvictsOverflowWithPng)
+// 2 つのプロセスの図を合わせて上限を超えたら、古いものをファイルごと消す。
+TEST_F(MermaidFileCacheTest, MergedIndexEvictsOverflowWithFile)
 {
     auto a = OpenAnotherProcess(1);
     auto b = OpenAnotherProcess(1);
-    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    b->StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    a->StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    b->StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     scheduler_->Shutdown();
     a->SaveIndex();
     b->SaveIndex();
 
-    EXPECT_FALSE(std::filesystem::exists(a->PngPath(1)));
-    EXPECT_TRUE(std::filesystem::exists(b->PngPath(2)));
+    EXPECT_FALSE(std::filesystem::exists(a->FilePath(1)));
+    EXPECT_TRUE(std::filesystem::exists(b->FilePath(2)));
     const auto fresh = OpenFreshCache();
     MermaidFileCache::CacheEntry entry;
     EXPECT_EQ(fresh->EntryCount(), 1u);
     EXPECT_TRUE(LookupDimensions(*fresh, 2, entry));
 }
 
-// このプロセスで追い出して PNG を消した図は、他のプロセスが使って書いた索引からも除く。
+// このプロセスで追い出してファイルを消した図は、他のプロセスが使って書いた索引からも除く。
 TEST_F(MermaidFileCacheTest, MergedIndexDropsEntriesRemovedHere)
 {
     cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     FlushAndReopen();
     (void)cache_.EntryCount();
     auto other = OpenAnotherProcess();
@@ -831,7 +831,7 @@ TEST_F(MermaidFileCacheTest, MergedIndexDropsEntriesRemovedHere)
     MermaidFileCache::CacheEntry entry;
     std::filesystem::path path;
     ASSERT_TRUE(LookupPath(*other, 1, entry, path));
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100)); // key=1 を追い出す
     scheduler_->Shutdown();
     other->SaveIndex();
     cache_.SaveIndex();

@@ -320,8 +320,13 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
 
 uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 {
-    // 描き方を変えたときは MermaidFileCache::VERSION を上げ、古い描き方の PNG をフォルダごと捨てる。
-    return Fnv1a64(node.GetText());
+    return DiagramCodeHash(node.GetText());
+}
+
+uint64_t mermaid_util::DiagramCodeHash(std::string_view code) noexcept
+{
+    // 描き方を変えたときは MermaidFileCache::VERSION を上げ、古い描き方のファイルをフォルダごと捨てる。
+    return Fnv1a64(code);
 }
 
 uint64_t mermaid_util::EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept

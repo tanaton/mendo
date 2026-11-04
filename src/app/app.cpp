@@ -135,7 +135,7 @@ bool App::CreateRenderDevice()
     // 届いた後で入ると高さが変わって表示が跳ねるので、時間予算で切らずに全部入れる。
     constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
     resource_manager_.OnImagesDecoded(kNoDeadline);
-    mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
+    mermaid_renderer_.ProcessJobResults(kNoDeadline);
     return true;
 }
 
@@ -154,7 +154,7 @@ void App::OnRenderDeviceRecreated()
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
     resource_manager_.LoadImages();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
-    mermaid_renderer_.ProcessDiskLoads();
+    mermaid_renderer_.ProcessJobResults();
 }
 
 void App::LoadInitialDocument()
@@ -347,9 +347,9 @@ void App::OnAppImageLoaded()
     resource_manager_.OnImagesDecoded();
 }
 
-void App::OnMermaidDiskLoaded()
+void App::OnMermaidJobDone()
 {
-    mermaid_renderer_.ProcessDiskLoads();
+    mermaid_renderer_.ProcessJobResults();
 }
 
 void App::OnInlineMathRequested()
@@ -1391,14 +1391,15 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramCopy:
     case OverlayButton::DiagramSave: {
-        // ボタンは保存・コピーの元 (DiagramEntry::CanExport) があるときだけ出す。描画命令の図はここで PNG に描く。
+        // ボタンは保存・コピーの元 (DiagramEntry::CanExport) があるときだけ出す。保存先を選ぶ間に文書が読み直されても
+        // 描けるよう、描画命令を持って渡す。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
-        const PngBytes png = diagram ? mermaid_renderer_.DiagramPng(*diagram) : nullptr;
+        auto drawing = diagram ? diagram->drawing : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(state_), dark);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_), dark);
         }
         else {
-            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, png);
+            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, std::move(drawing));
         }
         return;
     }
@@ -1679,7 +1680,7 @@ void App::ClampScrollToContent()
 bool App::HasIdleWork()
 {
     return state_.document.layout_cache.HasDirtyNodes() || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
-           image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads();
+           image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults();
 }
 
 // 1 回に 1 種類だけ進めてメッセージループへ戻り、入力と描画を先に配らせる。
@@ -1687,11 +1688,11 @@ bool App::HasIdleWork()
 void App::RunIdleWork()
 {
     DisposeReleasedLayouts();
-    if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads()) {
+    if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults()) {
         // 両方で 1 回分の持ち時間を分け合う。
         const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
         resource_manager_.OnImagesDecoded(deadline);
-        mermaid_renderer_.ProcessDiskLoads(deadline);
+        mermaid_renderer_.ProcessJobResults(deadline);
         return;
     }
     if (state_.search.search_state.IsSearching()) {

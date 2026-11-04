@@ -547,8 +547,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnParseComplete();
         return 0;
 
-    case app_msg::MERMAID_DISK_LOADED:
-        app_->OnMermaidDiskLoaded();
+    case app_msg::MERMAID_JOB_DONE:
+        app_->OnMermaidJobDone();
         return 0;
 
     case app_msg::FILE_LISTED:

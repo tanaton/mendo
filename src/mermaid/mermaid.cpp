@@ -10,9 +10,7 @@
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "utility.h"
-#include "wic_util.h"
 #include "win32_util.h"
-#include <objidl.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
@@ -25,7 +23,7 @@ namespace {
 constexpr std::wstring_view MERMAID_VIEWER_CLASS = L"mendo_MermaidViewer";
 // 最初の大きさ。本体に対する割合。
 constexpr int VIEWER_SIZE_PERCENT = 90;
-// 保存・コピーの PNG の 1 枚の画素数の上限。
+// 保存・コピーの画像の 1 枚の画素数の上限。
 constexpr double MAX_EXPORT_PIXELS = 64.0 * 1024 * 1024;
 
 void BringToFront(HWND hwnd) noexcept
@@ -34,47 +32,6 @@ void BringToFront(HWND hwnd) noexcept
         ShowWindow(hwnd, SW_RESTORE);
     }
     SetForegroundWindow(hwnd);
-}
-
-// HGLOBAL から直接写し、ゼロ埋めした中間バッファを挟まない。
-PngBytes ReadHGlobalStream(IStream* stream)
-{
-    STATSTG stat{};
-    HGLOBAL mem = nullptr;
-    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME)) || stat.cbSize.QuadPart == 0 || FAILED(GetHGlobalFromStream(stream, &mem))) {
-        return nullptr;
-    }
-    const auto size = static_cast<size_t>(stat.cbSize.QuadPart);
-    if (size > GlobalSize(mem)) {
-        return nullptr;
-    }
-    const auto* src = static_cast<const uint8_t*>(GlobalLock(mem));
-    if (!src) {
-        return nullptr;
-    }
-    auto png = std::make_shared<const ByteBuffer>(std::span{ src, size });
-    GlobalUnlock(mem);
-    return png;
-}
-
-// source を 32bpp BGRA の PNG にする。失敗したら null。
-PngBytes EncodePng(IWICImagingFactory* wic, IWICBitmapSource* source)
-{
-    const auto bgra = wic_util::ConvertBitmapSource(wic, source, GUID_WICPixelFormat32bppBGRA);
-    Microsoft::WRL::ComPtr<IStream> stream;
-    Microsoft::WRL::ComPtr<IWICBitmapEncoder> encoder;
-    Microsoft::WRL::ComPtr<IWICBitmapFrameEncode> frame;
-    UINT width = 0;
-    UINT height = 0;
-    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-    if (!bgra || FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || FAILED(bgra->GetSize(&width, &height)) ||
-        FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) || FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
-        FAILED(encoder->CreateNewFrame(&frame, nullptr)) || FAILED(frame->Initialize(nullptr)) || FAILED(frame->SetSize(width, height)) ||
-        FAILED(frame->SetPixelFormat(&format)) || format != GUID_WICPixelFormat32bppBGRA || FAILED(frame->WriteSource(bgra.Get(), nullptr)) ||
-        FAILED(frame->Commit()) || FAILED(encoder->Commit())) {
-        return nullptr;
-    }
-    return ReadHGlobalStream(stream.Get());
 }
 
 } // namespace
@@ -87,22 +44,22 @@ MermaidRenderer::~MermaidRenderer()
 void MermaidRenderer::Shutdown()
 {
     // SVG 専用リクエストのコールバックは cancelled=true で呼び、呼び出し元の状態をリセットさせる。
-    for (auto& req : std::exchange(native_waiting_, {})) {
+    for (auto& req : std::exchange(render_waiting_, {})) {
         FailCallbacksIfAny(req, true);
     }
     inflight_.clear();
-    disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
-    disk_results_.TakeAll();
+    drop_gen_.fetch_add(1, std::memory_order_relaxed);
+    job_results_.TakeAll();
     if (pele_) {
         pele_->Cancel();
     }
     latch_.Wait();
     // 待つ間に描き終えた SVG の要求も、取り消しで返す。
-    for (auto& r : disk_results_.TakeAll()) {
+    for (auto& r : job_results_.TakeAll()) {
         FailCallbacksIfAny(r.req, true);
     }
     pele_.reset();
-    native_running_ = 0;
+    renders_running_ = 0;
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
     DestroyViewer();
 }
@@ -141,13 +98,22 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-// 幅を混ぜないキーの結果は、いまの幅の上限より狭いときだけ使う。
+const DiagramResult* MermaidRenderer::FindWidthFree(uint64_t width_free_hash, float max_width)
+{
+    const auto* free = cache_.Find(width_free_hash);
+    return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : nullptr;
+}
+
 const DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
 {
-    if (const auto* free = cache_.Find(width_free_hash); free && mermaid_util::IsWidthFree(free->width, max_width)) {
-        return free;
-    }
-    return cache_.Find(request_hash);
+    const auto* free = FindWidthFree(width_free_hash, max_width);
+    return free ? free : cache_.Find(request_hash);
+}
+
+std::shared_ptr<const mermaid_util::DiagramDrawing> MermaidRenderer::FindWidthFreeDrawing(std::string_view code, float max_width, bool dark_mode)
+{
+    const auto* free = FindWidthFree(mermaid_util::DiagramWidthFreeHash(mermaid_util::DiagramCodeHash(code), dark_mode), max_width);
+    return free ? free->drawing : nullptr;
 }
 
 void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg)
@@ -187,17 +153,17 @@ void MermaidRenderer::CancelMathCallbackIfAny(RenderRequest& req)
 
 void MermaidRenderer::DropQueued()
 {
-    // 読み込み待ちのディスクキャッシュも取り消す。描画直後の結果はディスクへ保存したいので取り消さない。
-    disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
+    // 投入済みの表示用の図の描画とディスクキャッシュの読み込みも取り消す。
+    drop_gen_.fetch_add(1, std::memory_order_relaxed);
     // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。SVG と拡大表示の要求は頼み直す仕組みが無いので残す。
-    for (auto& req : TakePending(native_waiting_, RequestKind::Display)) {
+    for (auto& req : TakePending(render_waiting_, RequestKind::Display)) {
         ReleaseInflight(req);
     }
 }
 
 void MermaidRenderer::DropQueuedMath()
 {
-    for (auto& req : TakePending(native_waiting_, RequestKind::Math)) {
+    for (auto& req : TakePending(render_waiting_, RequestKind::Math)) {
         CancelMathCallbackIfAny(req);
     }
 }
@@ -243,25 +209,25 @@ bool MermaidRenderer::RequestRender(
     };
     if (const auto hit = file_cache_->Find(width_free_hash, hash, max_width, /*touch=*/true)) {
         req.width_free = hit->key == width_free_hash;
-        StartDiskLoad(std::move(req), file_cache_->PngPath(hit->key));
+        StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
         return false;
     }
-    StartNativeRender(std::move(req));
+    StartRender(std::move(req));
     return false;
 }
 
 template <typename Work>
-void MermaidRenderer::PostDiskJob(DiskLoad job, Work work)
+void MermaidRenderer::PostJob(Job job, Work work)
 {
-    bg_scheduler_->Post([this, job = std::move(job), work = std::move(work), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed),
+    bg_scheduler_->Post([this, job = std::move(job), work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式・SVG・拡大表示は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        job.dropped = job.req.kind == RequestKind::Display && drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        job.dropped = job.req.kind == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
             work(job);
         }
-        if (disk_results_.Push(std::move(job))) {
-            ::PostMessageW(hwnd_, app_msg::MERMAID_DISK_LOADED, 0, 0);
+        if (job_results_.Push(std::move(job))) {
+            ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
         }
     });
 }
@@ -271,12 +237,12 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path pat
     // 描画命令の図のラベルの数式を組み直すのに使う。
     EnsurePele();
     // ファイル読み込みと解析は worker で行う (UI では時間予算なしに積み上がる)。
-    PostDiskJob(DiskLoad{ .req = std::move(req) }, [this, path = std::move(path), locale = std::wstring{ i18n::TextLocale() }](DiskLoad& job) {
+    PostJob(Job{ .req = std::move(req) }, [this, path = std::move(path), locale = std::wstring{ i18n::TextLocale() }](Job& job) {
         LoadDiskJob(job, path, locale);
     });
 }
 
-void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path, std::wstring_view locale)
+void MermaidRenderer::LoadDiskJob(Job& job, const std::filesystem::path& path, std::wstring_view locale)
 {
     const auto data = ReadAllBytes(path.c_str(), &job.read_error);
     if (data.empty()) {
@@ -304,12 +270,8 @@ Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const me
     return RecordDiagram(record_dc_.Get(), WriteFactory(), wic_factory_.Get(), drawing, i18n::TextLocale());
 }
 
-PngBytes MermaidRenderer::DiagramPng(const DiagramEntry& entry)
+Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing)
 {
-    if (!entry.drawing) {
-        return nullptr;
-    }
-    const auto& drawing = *entry.drawing;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
     if (render_target_) {
         render_target_->GetFactory(&d2d);
@@ -319,11 +281,10 @@ PngBytes MermaidRenderer::DiagramPng(const DiagramEntry& entry)
     const float h = drawing.height;
     const float dpr = std::min({ DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_))), static_cast<float>(MaxBitmapDim(render_target_)) / std::max(w, h),
                                  static_cast<float>(std::sqrt(MAX_EXPORT_PIXELS / (static_cast<double>(w) * h))) });
-    const auto bitmap = RasterizeDiagram(d2d.Get(), WriteFactory(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
-    return bitmap ? EncodePng(wic_factory_.Get(), bitmap.Get()) : nullptr;
+    return RasterizeDiagram(d2d.Get(), WriteFactory(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
 }
 
-void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
+void MermaidRenderer::ApplyMathResult(Job& r)
 {
     // 終了で止めた (Cancel) ときは描けなかった数式と見分けられないので、取り消しとして返す。
     if (pele_->Cancelled()) {
@@ -349,12 +310,12 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
     cb(std::move(result));
 }
 
-bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
+bool MermaidRenderer::ApplyJobResult(Job& r)
 {
     // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
     switch (r.req.kind) {
     case RequestKind::Math:
-        ApplyMathLoad(r);
+        ApplyMathResult(r);
         return false;
     case RequestKind::View:
         if (auto callback = std::move(r.req.drawing_callback); callback && !r.dropped) {
@@ -375,7 +336,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     if (r.parsed) {
         DiagramResult result{ .commands = RecordDrawing(*r.parsed), .width = r.parsed->width, .height = r.parsed->height };
         if (result.commands) {
-            if (r.native) {
+            if (r.rendered) {
                 r.req.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
                 file_cache_->StoreAsync(r.req.CacheKey(), result.width, result.height, std::move(r.bytes));
             }
@@ -386,7 +347,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         }
     }
     // 描いたばかりの図は描き直しても同じ結果になるので、エラーを確定させて再要求させない。
-    if (r.native) {
+    if (r.rendered) {
         SetDiagramError(r.req, r.error.empty() ? DiagramError::Kind::Render : r.error.kind, r.error.message);
         ReleaseInflight(r.req);
         return true;
@@ -394,11 +355,11 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     if (r.read_failed) {
         file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
     }
-    StartNativeRender(std::move(r.req));
+    StartRender(std::move(r.req));
     return false;
 }
 
-void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point deadline)
+void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point deadline)
 {
     // デバイスの再作成を待つ間に受け取ると、記録できないだけの結果が失敗として確定する。
     // 数式の組は描き直しても同じと見なされ、計画を作り直すまで頼み直されない。描画先が戻ってから受け取る。
@@ -406,21 +367,21 @@ void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point dea
         return;
     }
     bool resolved = false;
-    bool native_done = false;
+    bool render_done = false;
     bool used_pele = false;
-    disk_results_.Drain(deadline, [&](DiskLoad& r) {
-        if (r.native) {
-            --native_running_;
-            native_done = true;
+    job_results_.Drain(deadline, [&](Job& r) {
+        if (r.rendered) {
+            --renders_running_;
+            render_done = true;
         }
         used_pele |= r.used_pele;
-        resolved |= ApplyDiskLoad(r);
+        resolved |= ApplyJobResult(r);
     });
     if (used_pele) {
         SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
     }
-    if (native_done) {
-        PumpNativeRenders();
+    if (render_done) {
+        PumpRenders();
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
@@ -441,27 +402,27 @@ void MermaidRenderer::EnsurePele()
     pele_ = std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), WriteFactory());
 }
 
-void MermaidRenderer::StartNativeRender(RenderRequest req)
+void MermaidRenderer::StartRender(RenderRequest req)
 {
     EnsurePele();
-    native_waiting_.push_back(std::move(req));
-    PumpNativeRenders();
+    render_waiting_.push_back(std::move(req));
+    PumpRenders();
 }
 
-void MermaidRenderer::PumpNativeRenders()
+void MermaidRenderer::PumpRenders()
 {
     // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
     // ランタイムも同時に描く数だけ作るので、メモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
-    while (native_running_ < limit && !native_waiting_.empty()) {
-        ++native_running_;
-        DiskLoad job{ .req = std::move(native_waiting_.front()), .native = true };
-        native_waiting_.pop_front();
-        PostDiskJob(std::move(job), [this, locale = std::wstring{ i18n::TextLocale() }](DiskLoad& j) { RenderNativeJob(j, locale); });
+    while (renders_running_ < limit && !render_waiting_.empty()) {
+        ++renders_running_;
+        Job job{ .req = std::move(render_waiting_.front()), .rendered = true };
+        render_waiting_.pop_front();
+        PostJob(std::move(job), [this, locale = std::wstring{ i18n::TextLocale() }](Job& j) { RenderJob(j, locale); });
     }
 }
 
-void MermaidRenderer::RenderNativeJob(DiskLoad& job, std::wstring_view locale)
+void MermaidRenderer::RenderJob(Job& job, std::wstring_view locale)
 {
     using Status = PeleOutcome::Status;
     job.used_pele = true;
@@ -504,7 +465,13 @@ void MermaidRenderer::RenderNativeJob(DiskLoad& job, std::wstring_view locale)
 // 数式のラベルも KaTeX で描かず元の文字のまま書く (Office や Inkscape は MathML を読めない)。
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    StartNativeRender(RenderRequest{
+    // 本文の描画命令を使えるなら pele で描かないので、図の描画の待ちに並べない。
+    if (auto drawing = FindWidthFreeDrawing(code, max_width, dark_mode)) {
+        PostJob(Job{ .req = { .kind = RequestKind::Svg, .svg_callback = std::move(callback) } },
+                [drawing = std::move(drawing)](Job& job) { job.svg = string_convert::Utf8ToWide(DrawingToSvg(*drawing)); });
+        return;
+    }
+    StartRender(RenderRequest{
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
@@ -515,7 +482,7 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
 
 void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback)
 {
-    StartNativeRender(RenderRequest{
+    StartRender(RenderRequest{
         .kind = RequestKind::Math,
         .math = std::make_unique<MathRequest>(MathRequest{ .items = std::move(items), .callback = std::move(callback) }),
     });
@@ -694,7 +661,12 @@ void MermaidRenderer::OnViewerResult(bool drawn)
 void MermaidRenderer::RequestViewerDrawing()
 {
     const unsigned int render = InvalidateViewerDrawing();
-    StartNativeRender(RenderRequest{
+    if (auto drawing = FindWidthFreeDrawing(viewer_.code, viewer_.max_width, viewer_.dark_mode)) {
+        viewer_.view->SetDrawing(std::move(drawing));
+        OnViewerResult(true);
+        return;
+    }
+    StartRender(RenderRequest{
         .code = viewer_.code,
         .max_width = viewer_.max_width,
         .dark_mode = viewer_.dark_mode,

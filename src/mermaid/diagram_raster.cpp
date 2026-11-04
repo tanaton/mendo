@@ -3760,7 +3760,7 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             const auto& shape = *p->shape;
             ComPtr<ID2D1PathGeometry> geometry = shape.geometry;
             if (shape.factory != factory) {
-                // 拡大表示や保存の PNG は本体と別のファクトリで描くので、そのときだけ作って捨てる。
+                // 拡大表示や保存・コピーの画像は本体と別のファクトリで描くので、そのときだけ作って捨てる。
                 geometry = BuildPathGeometry(factory.Get(), shape.d);
                 if (!shape.factory && geometry) {
                     shape.factory = factory;

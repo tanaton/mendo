@@ -445,7 +445,7 @@ struct DiagramResult {
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
-    // 図の描画命令。クリップボードコピー・保存の PNG と拡大表示の元。commands と同時に設定する。
+    // 図の描画命令。クリップボードコピー・保存の画像と拡大表示の元。commands と同時に設定する。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
