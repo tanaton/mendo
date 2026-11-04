@@ -142,6 +142,7 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
     };
     constexpr PrefixEntry kEntries[]{
         { L"render-result:"sv, WebMessageKind::RenderResult },
+        { L"draw-result:"sv,   WebMessageKind::DrawResult   },
         { L"capture-ready:"sv, WebMessageKind::CaptureReady },
         { L"svg-result:"sv,    WebMessageKind::SvgResult    },
         { L"render-error:"sv,  WebMessageKind::RenderError  },
@@ -179,6 +180,142 @@ mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload
     float values[3]{};
     ParseFloatList(payload, L':', values);
     return { values[0], values[1], IsPlausibleDpr(values[2]) ? values[2] : 1.0f };
+}
+
+namespace {
+
+// s の先頭から sep までを切り出して進める。sep が無ければ nullopt。
+std::optional<std::wstring_view> TakeField(std::wstring_view& s, wchar_t sep = L':') noexcept
+{
+    const auto pos = s.find(sep);
+    if (pos == std::wstring_view::npos) {
+        return std::nullopt;
+    }
+    const auto field = s.substr(0, pos);
+    s.remove_prefix(pos + 1);
+    return field;
+}
+
+// 10 進の数字だけからなる値。max を超えれば nullopt。
+std::optional<uint32_t> ParseDecimal(std::wstring_view s, uint32_t max) noexcept
+{
+    if (s.empty()) {
+        return std::nullopt;
+    }
+    uint64_t v = 0;
+    for (const wchar_t c : s) {
+        if (c < L'0' || c > L'9') {
+            return std::nullopt;
+        }
+        v = v * 10 + static_cast<uint64_t>(c - L'0');
+        if (v > max) {
+            return std::nullopt;
+        }
+    }
+    return static_cast<uint32_t>(v);
+}
+
+// "<長さ>:<本文>" を切り出して進める。
+std::optional<std::wstring_view> TakeText(std::wstring_view& s, uint32_t max_len) noexcept
+{
+    const auto len_field = TakeField(s);
+    const auto len = len_field ? ParseDecimal(*len_field, max_len) : std::nullopt;
+    if (!len || *len > s.size()) {
+        return std::nullopt;
+    }
+    const auto text = s.substr(0, *len);
+    s.remove_prefix(*len);
+    return text;
+}
+
+constexpr uint32_t kMaxRgb = 0xFFFFFF;
+constexpr uint32_t kMaxFamilyLength = 1024;
+
+std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
+{
+    const auto numbers = TakeField(s);
+    if (!numbers || std::ranges::count(*numbers, L',') != 13) {
+        return std::nullopt;
+    }
+    float v[14]{};
+    ParseFloatList(*numbers, L',', v);
+    const float font_size = v[8];
+    const float weight = v[9];
+    const float rgb = v[12];
+    if (!(font_size > 0.0f && font_size <= 1000.0f) || !(weight >= 1.0f && weight <= 1000.0f) || (v[10] != 0.0f && v[10] != 1.0f) ||
+        (v[11] != 0.0f && v[11] != 1.0f) || !(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
+        return std::nullopt;
+    }
+    const auto family = TakeText(s, kMaxFamilyLength);
+    const auto text = family ? TakeText(s, std::numeric_limits<uint32_t>::max()) : std::nullopt;
+    if (!text) {
+        return std::nullopt;
+    }
+    return mermaid_util::DrawingText{
+        .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
+        .x = v[6],
+        .y = v[7],
+        .font_size = font_size,
+        .weight = static_cast<uint16_t>(weight),
+        .italic = v[10] != 0.0f,
+        .underline = v[11] != 0.0f,
+        .rgb = static_cast<uint32_t>(rgb),
+        .alpha = std::clamp(v[13], 0.0f, 1.0f),
+        .family = std::wstring{ *family },
+        .text = std::wstring{ *text },
+    };
+}
+
+} // namespace
+
+std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstring_view payload)
+{
+    std::wstring_view s = payload;
+    float size[3]{};
+    for (float& v : size) {
+        const auto field = TakeField(s);
+        if (!field) {
+            return std::nullopt;
+        }
+        v = ParseFloatPrefix(*field);
+    }
+    // 数だけ大きく偽って確保させないよう、数の上限は残りの長さから決める (層は少なくとも 4 文字、並びは 30 文字ある)。
+    const auto take_count = [&s](uint32_t min_chars) {
+        const auto field = TakeField(s);
+        return field ? ParseDecimal(*field, static_cast<uint32_t>(std::min<size_t>(s.size() / min_chars, std::numeric_limits<uint32_t>::max())))
+                     : std::nullopt;
+    };
+    const auto background_field = TakeField(s);
+    const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
+    const auto layer_count = background ? take_count(4) : std::nullopt;
+    if (!layer_count || !(size[0] > 0.0f) || !(size[1] > 0.0f)) {
+        return std::nullopt;
+    }
+    DiagramDrawing out{
+        .size = { size[0], size[1], IsPlausibleDpr(size[2]) ? size[2] : 1.0f },
+        .background = *background,
+    };
+    out.layers.reserve(*layer_count);
+    for (uint32_t i = 0; i < *layer_count; ++i) {
+        const auto svg = TakeText(s, std::numeric_limits<uint32_t>::max());
+        const auto text_count = svg ? take_count(30) : std::nullopt;
+        if (!text_count) {
+            return std::nullopt;
+        }
+        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes_svg = string_convert::WideToUtf8(*svg) });
+        layer.texts.reserve(*text_count);
+        for (uint32_t k = 0; k < *text_count; ++k) {
+            auto text = ParseDrawingText(s);
+            if (!text) {
+                return std::nullopt;
+            }
+            layer.texts.push_back(std::move(*text));
+        }
+    }
+    if (!s.empty()) {
+        return std::nullopt;
+    }
+    return out;
 }
 
 namespace {

@@ -1,6 +1,7 @@
 #include "mermaid.h"
 #include "app_constants.h"
 #include "d2d_util.h"
+#include "diagram_raster.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "mermaid_file_cache.h"
@@ -955,10 +956,11 @@ bool MermaidRenderer::RequestRender(
     return true;
 }
 
-void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream)
+void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream,
+                                    std::wstring drawing)
 {
-    const bool captured = captured_stream != nullptr;
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured };
+    const bool captured = captured_stream != nullptr || !drawing.empty();
+    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .drawing = std::move(drawing), .captured = captured };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed), guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
@@ -974,6 +976,10 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
 
 void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path)
 {
+    if (!job.drawing.empty()) {
+        RasterizeJob(job);
+        return;
+    }
     if (job.captured_stream) {
         job.png = ReadHGlobalStream(job.captured_stream.Get());
         job.captured_stream.Reset();
@@ -999,6 +1005,26 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
     }
     else {
         job.bitmap = DecodePngToWicBitmap(wic_factory_.Get(), *job.png);
+    }
+}
+
+void MermaidRenderer::RasterizeJob(DiskLoad& job)
+{
+    TaskScheduler::EnsureWorkerCom();
+    std::call_once(raster_factories_once_, [this] {
+        LogHrFailure("D2D1CreateFactory(raster)", D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, raster_d2d_.GetAddressOf()));
+        LogHrFailure("DWriteCreateFactory(raster)",
+                     DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(raster_dw_.GetAddressOf())));
+    });
+    const auto drawing = mermaid_util::ParseDrawing(std::exchange(job.drawing, {}));
+    if (!drawing) {
+        return;
+    }
+    const auto& rect = job.req.page_rect;
+    job.bitmap = RasterizeDiagram(raster_d2d_.Get(), raster_dw_.Get(), wic_factory_.Get(), *drawing, static_cast<UINT>(rect.Width),
+                                  static_cast<UINT>(rect.Height), i18n::TextLocale());
+    if (job.bitmap) {
+        job.png = EncodePng(wic_factory_.Get(), job.bitmap.Get());
     }
 }
 
@@ -1726,6 +1752,11 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
             OnRenderResult(w, mermaid_util::ParseRenderSize(payload));
         }
         return;
+    case WebMessageKind::DrawResult:
+        if (req_id_match && req.has_payload && w.current_request.is_display()) {
+            OnDrawResult(w, payload);
+        }
+        return;
     case WebMessageKind::CaptureReady:
         if (req_id_match) {
             DoCapturePreview(index);
@@ -1775,6 +1806,25 @@ void MermaidRenderer::OnRenderResult(Worker& w, const mermaid_util::RenderSize& 
     }
     w.current_request.SetCaptureBox(PageRect(size), size.dpr);
     ScheduleCapture(w, size);
+}
+
+void MermaidRenderer::OnDrawResult(Worker& w, std::wstring_view payload)
+{
+    // 先頭は render-result と同じ "<幅>:<高さ>:<dpr>"。全体の解析は大きな図で重いので、描く worker で行う。
+    const auto size = mermaid_util::ParseRenderSize(payload);
+    if (size.width <= 0 || size.height <= 0) {
+        FailWorkerRequest(w, DiagramError::Kind::Render);
+        return;
+    }
+    if (!FitsCapture(size)) {
+        FailWorkerRequest(w, DiagramError::Kind::TooLarge);
+        return;
+    }
+    // キャプチャと同じく、表示の大きさは描く画素数から決める。ワーカーはすぐ次の図に使える。
+    w.current_request.SetCaptureBox(PageRect(size), size.dpr);
+    auto req = std::move(w.current_request);
+    FreeWorker(w);
+    StartDiskLoad(std::move(req), {}, nullptr, std::wstring{ payload });
 }
 
 bool MermaidRenderer::FitsCapture(const mermaid_util::RenderSize& size) const noexcept

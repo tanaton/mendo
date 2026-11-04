@@ -1580,10 +1580,15 @@ sequenceDiagram
         MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
         WV->>JS: pele.render(code)
         JS-->>WV: SVG文字列
-        WV-->>MR: 寸法 (WebMessage)
-        MR->>WV: CapturePreview(PNG)
-        WV-->>MR: PNG ストリーム
-        MR->>WIC: worker でデコード (ディスク読み込みと同じ DiskLoad 経路)
+        alt 描画命令に書き出せる図
+            WV-->>MR: 描画命令 (draw-result)
+            MR->>WIC: worker で D2D の SVG と DirectWrite で描き、PNG にする (RasterizeDiagram)
+        else 数式のラベルなど書き出せない図
+            WV-->>MR: 寸法 (render-result)
+            MR->>WV: CapturePreview(PNG)
+            WV-->>MR: PNG ストリーム
+            MR->>WIC: worker でデコード (ディスク読み込みと同じ DiskLoad 経路)
+        end
         WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
         APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ
         MR->>FC: StoreAsync(hash, css_width, css_height, png)
@@ -3213,7 +3218,9 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`）の RCDATA として無圧縮のまま EXE に埋め込む。`WebResourceRequested` は `index.html` に HTML テンプレートを、`pele.mjs` と `katex.js` にそれぞれのライブラリを返し、それ以外は 404 にする。KaTeX は UMD 版なので `import` ではなく `<script>` で読み、数式の要求より先に pele と並べて読み始める。どちらも `eval` を使わないので、ページの CSP は `unsafe-eval` を許さない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
 
-pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、ブラウザが解決した値を属性に書き込んで渡す。
+pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。
+
+表示用の図はキャプチャせず、ページが SVG を DOM に入れてブラウザが解決した値を描画命令（`draw-result`、`mermaid_util::ParseDrawing`）に書き出し、worker が `RasterizeDiagram` で描く。図形は色・不透明度・変換を属性に確定させた SVG にして `ID2D1SvgDocument` で、文字は D2D の SVG が描かないので 1 行ずつの並びにして DirectWrite で描く。文字の位置はブラウザが置いた位置（`getStartPositionOfChar`）をそのまま使い、書体は本文と同じ Segoe UI にロケールで決まるフォールバック先を明示するので、DirectWrite の字幅との差は 1389 本の並びで平均 0.02px になる（明示しないと日本語のフォールバック先が分かれて最大 86px ずれる）。図形が前の文字に重なるときだけ層を分け、文書の順の重なりを保つ。D2D の SVG はグラデーションで塗るときの塗りの不透明度を無視するので、止まりの不透明度に掛けて書き出す。書き出せない図（数式のラベルの `<foreignObject>` など）はこれまでどおりキャプチャで描く。キャプチャ（1 図 60ms ほどの待ち）が無くなり、起動から図 4 個がそろうまでが 739 → 609ms、test.md の図 8〜11 で 915 → 685ms、sankey を含む 4 個で 795 → 543ms になった（キャッシュなし、3 回交互の中央値。WebView2 の起動を含む）。mendo と WebView2 のメモリの合計はほぼ変わらない（WebView2 が 3〜26MB 減り、描くファクトリと書体の分だけ mendo が増える）。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、ブラウザが解決した値を属性に書き込んで渡す。
 
 ### 6.5 MSVC ビルド最適化
 

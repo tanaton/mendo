@@ -7,7 +7,8 @@
 #include "mermaid_util.h"
 #include "utility.h"
 #include "worker_latch.h"
-#include <d2d1.h>
+#include <d2d1_1.h>
+#include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <WebView2.h>
@@ -18,6 +19,7 @@
 #include <functional>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -236,7 +238,9 @@ private:
         PngBytes png;
         // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
         Microsoft::WRL::ComPtr<IStream> captured_stream;
-        // WebView2 で描画した直後の PNG。成功時はディスクキャッシュへ書き出す。
+        // ページが書き出した図の描画命令 (DrawResult の payload)。worker で解析して描き、bitmap と png にしたら解放する。
+        std::wstring drawing;
+        // WebView2 で描画した直後の PNG (キャプチャか描画命令から描いたもの)。成功時はディスクキャッシュへ書き出す。
         bool captured = false;
         DWORD read_error = 0;
         // 投入後に disk_drop_gen_ が進んだので読まずに返した。
@@ -372,8 +376,9 @@ private:
         }
     }
 
-    // captured_stream があればファイルは読まずにそれをデコードする。
-    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr);
+    // captured_stream があればファイルは読まずにそれをデコードする。drawing (描画命令) があればそれを描く。
+    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr,
+                       std::wstring drawing = {});
     // worker で呼ぶ。
     void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
     // 戻り値: 結果 (ビットマップかエラー) が出たか。
@@ -382,6 +387,9 @@ private:
     void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void OnWorkerReady(Worker& worker, float dpr);
     void OnRenderResult(Worker& w, const mermaid_util::RenderSize& size);
+    void OnDrawResult(Worker& w, std::wstring_view payload);
+    // worker で呼ぶ。
+    void RasterizeJob(DiskLoad& job);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, DiagramResult result);
@@ -429,6 +437,11 @@ private:
     PostedInbox<DiskLoad> disk_results_;
     // DropQueued / Shutdown で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };
+
+    // 図の描画命令を worker で描くためのファクトリ。最初に描くときに作る (図の無い文書の起動で読み込まない)。
+    std::once_flag raster_factories_once_;
+    Microsoft::WRL::ComPtr<ID2D1Factory1> raster_d2d_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> raster_dw_;
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

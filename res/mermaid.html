@@ -118,8 +118,249 @@
     return Math.ceil(width) + ':' + Math.ceil(height) + ':' + (window.devicePixelRatio || 1);
   }
 
+  // getComputedStyle の色を [r, g, b, a] (r〜b は 0〜255 の整数) にする。color-mix() の結果は color(srgb ...) で返る。
+  // none や url() は null。
+  function parseColor(value) {
+    let m = /^rgba?\(([^)]*)\)$/.exec(value);
+    let scale = 1;
+    if (!m) {
+      m = /^color\(srgb ([^)]*)\)$/.exec(value);
+      scale = 255;
+    }
+    if (!m) {
+      return null;
+    }
+    const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+    if (p.length < 3 || !p.every(Number.isFinite)) {
+      return null;
+    }
+    const channel = v => Math.min(255, Math.max(0, Math.round(v * scale)));
+    return [channel(p[0]), channel(p[1]), channel(p[2]), p.length > 3 ? Math.min(1, Math.max(0, p[3])) : 1];
+  }
+  const hexColor = c => '#' + c.slice(0, 3).map(v => v.toString(16).padStart(2, '0')).join('');
+  const num = v => String(+(+v).toFixed(3));
+  const escapeAttr = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+  // ---- 描画命令 (C++ の mermaid_util::ParseDrawing) ----
+  // キャプチャ (1 図 60ms ほど待つ) の代わりに、ブラウザが解決した値を書き出し、C++ が Direct2D と DirectWrite で描く。
+  // 図形は ID2D1SvgDocument が読める要素と属性だけの SVG にし、文字は 1 行ずつの並びにする (D2D の SVG は文字を描かない)。
+
+  const BACKGROUND = { light: 0xffffff, dark: 0x1e1e1e }; // body の背景
+  const SHAPE_SELECTOR = 'path,rect,circle,ellipse,line,polyline,polygon';
+  // 書き出せない要素。含む図はキャプチャで描く (数式のラベルは <foreignObject> になる)。
+  // 入れ子の <svg> (アイコン) は getScreenCTM がその座標系への変換を含み、アイコンは枠の中に収まるので書き出せる。
+  const UNSUPPORTED_SELECTOR = 'foreignObject,image,use,pattern,mask,filter,clipPath,marker,textPath';
+
+  // 祖先まで含めた不透明度。どこかが display:none なら 0。
+  function effectiveOpacity(el, root) {
+    let opacity = 1;
+    for (let e = el; e; e = e === root ? null : e.parentElement) {
+      const cs = getComputedStyle(e);
+      if (cs.display === 'none') {
+        return 0;
+      }
+      opacity *= +cs.opacity;
+    }
+    return opacity;
+  }
+
+  function overlaps(a, b) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+
+  // SVG の文字の要素を、ブラウザが置いた位置の 1 行ずつの並びにする。書き出せなければ null。
+  function textRuns(t, svg, toRoot) {
+    const nodes = [];
+    const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
+    for (let node; (node = walker.nextNode());) {
+      nodes.push(node);
+    }
+    // 空白を畳んだ文字は位置の番号が DOM の文字とずれる。pele は畳まないので、ずれたらキャプチャに回す。
+    if (nodes.reduce((n, node) => n + node.data.length, 0) !== t.getNumberOfChars()) {
+      return null;
+    }
+    const m = toRoot(t);
+    const matrix = [m.a, m.b, m.c, m.d, m.e, m.f].map(num).join(',');
+    const runs = [];
+    let index = 0;
+    for (const node of nodes) {
+      const start = index;
+      index += node.data.length;
+      const owner = node.parentElement;
+      const cs = getComputedStyle(owner);
+      const opacity = effectiveOpacity(owner, svg);
+      const color = parseColor(cs.fill);
+      if (!node.data.trim() || cs.visibility !== 'visible' || opacity === 0 || !color) {
+        continue;
+      }
+      const sp = t.getStartPositionOfChar(start);
+      const ep = t.getEndPositionOfChar(index - 1);
+      // 右から左へ並ぶ文字や 1 行に並ばない文字は、DirectWrite で同じ位置に置けない。
+      if (ep.x < sp.x || Math.abs(ep.y - sp.y) > 0.5) {
+        return null;
+      }
+      let underline = false;
+      for (let e = owner; e && !underline; e = e === t ? null : e.parentElement) {
+        underline = /underline/.test(getComputedStyle(e).textDecorationLine);
+      }
+      const rgb = (color[0] << 16) | (color[1] << 8) | color[2];
+      const numbers = [matrix, num(sp.x), num(sp.y), num(parseFloat(cs.fontSize)), parseInt(cs.fontWeight, 10) || 400,
+                       /italic|oblique/.test(cs.fontStyle) ? 1 : 0, underline ? 1 : 0, rgb,
+                       num(color[3] * +cs.fillOpacity * opacity)].join(',');
+      const family = cs.fontFamily;
+      const text = node.data.replace(/[\r\n\t]/g, ' ');
+      runs.push({ rect: owner.getBoundingClientRect(),
+                  markup: numbers + ':' + family.length + ':' + family + text.length + ':' + text });
+    }
+    return runs;
+  }
+
+  // 図形 1 つを、色・不透明度・変換を属性に確定させた要素にする。
+  function shapeMarkup(el, cs, matrix, opacity, gradientRef) {
+    // D2D の SVG はグラデーションで塗るときの fill-opacity / stroke-opacity を無視するので、止まりの不透明度に掛ける。
+    const paint = (value, opacityValue) => {
+      const url = /^url\("?#([^")]+)"?\)/.exec(value);
+      if (url) {
+        const name = gradientRef(url[1], +opacityValue);
+        return name ? ['url(#' + name + ')', 1] : null;
+      }
+      const c = parseColor(value);
+      return c ? [hexColor(c), c[3] * +opacityValue] : null;
+    };
+    const fill = paint(cs.fill, cs.fillOpacity);
+    const stroke = paint(cs.stroke, cs.strokeOpacity);
+    let a = 'transform="matrix(' + [matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f].map(num).join(' ') + ')"';
+    a += fill ? ' fill="' + fill[0] + '" fill-opacity="' + num(fill[1]) + '"' : ' fill="none"';
+    if (cs.fillRule === 'evenodd') {
+      a += ' fill-rule="evenodd"';
+    }
+    if (stroke) {
+      a += ' stroke="' + stroke[0] + '" stroke-opacity="' + num(stroke[1]) + '" stroke-width="' + num(parseFloat(cs.strokeWidth)) + '"' +
+           ' stroke-linecap="' + cs.strokeLinecap + '" stroke-linejoin="' + cs.strokeLinejoin + '" stroke-miterlimit="' + num(cs.strokeMiterlimit) + '"';
+      if (cs.strokeDasharray !== 'none') {
+        a += ' stroke-dasharray="' + cs.strokeDasharray.replace(/px/g, '') + '" stroke-dashoffset="' + num(parseFloat(cs.strokeDashoffset)) + '"';
+      }
+    }
+    if (opacity < 1) {
+      a += ' opacity="' + num(opacity) + '"';
+    }
+    const tag = el.tagName;
+    const px = name => num(parseFloat(cs.getPropertyValue(name)));
+    let g;
+    if (tag === 'path') {
+      g = 'd="' + escapeAttr(el.getAttribute('d') || '') + '"';
+    }
+    else if (tag === 'rect') {
+      g = 'x="' + px('x') + '" y="' + px('y') + '" width="' + px('width') + '" height="' + px('height') + '"';
+      const rx = cs.rx === 'auto' ? cs.ry : cs.rx;
+      const ry = cs.ry === 'auto' ? cs.rx : cs.ry;
+      if (rx !== 'auto') {
+        g += ' rx="' + num(parseFloat(rx)) + '" ry="' + num(parseFloat(ry)) + '"';
+      }
+    }
+    else if (tag === 'circle') {
+      g = 'cx="' + px('cx') + '" cy="' + px('cy') + '" r="' + px('r') + '"';
+    }
+    else if (tag === 'ellipse') {
+      const rx = cs.rx === 'auto' ? cs.ry : cs.rx;
+      const ry = cs.ry === 'auto' ? cs.rx : cs.ry;
+      g = 'cx="' + px('cx') + '" cy="' + px('cy') + '" rx="' + num(parseFloat(rx)) + '" ry="' + num(parseFloat(ry)) + '"';
+    }
+    else if (tag === 'line') {
+      g = ['x1', 'y1', 'x2', 'y2'].map(k => k + '="' + escapeAttr(el.getAttribute(k) || '0') + '"').join(' ');
+    }
+    else {
+      g = 'points="' + escapeAttr(el.getAttribute('points') || '') + '"';
+    }
+    return '<' + tag + ' ' + a + ' ' + g + '/>';
+  }
+
+  // グラデーションを、止まりの色を確定させて書き出す。alpha は塗りの不透明度で、止まりの不透明度に掛ける。
+  function gradientMarkup(g, name, alpha) {
+    let a = 'id="' + name + '"';
+    for (const k of ['gradientUnits', 'gradientTransform', 'spreadMethod', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'fx', 'fy']) {
+      if (g.hasAttribute(k)) {
+        a += ' ' + k + '="' + escapeAttr(g.getAttribute(k)) + '"';
+      }
+    }
+    let stops = '';
+    for (const s of g.querySelectorAll('stop')) {
+      const cs = getComputedStyle(s);
+      const c = parseColor(cs.stopColor) || [0, 0, 0, 1];
+      stops += '<stop offset="' + escapeAttr(s.getAttribute('offset') || '0') + '" stop-color="' + hexColor(c) +
+               '" stop-opacity="' + num(c[3] * +cs.stopOpacity * alpha) + '"/>';
+    }
+    return '<' + g.tagName + ' ' + a + '>' + stops + '</' + g.tagName + '>';
+  }
+
+  // 書き出せない図は null (キャプチャで描く)。
+  function drawingOf(svg, isDark) {
+    if (svg.querySelector(UNSUPPORTED_SELECTOR)) {
+      return null;
+    }
+    const box = svg.getBoundingClientRect();
+    const width = Math.ceil(box.width);
+    const height = Math.ceil(box.height);
+    // 図の左上を原点とする CSS px への変換。
+    const origin = new DOMMatrix([1, 0, 0, 1, -box.left, -box.top]);
+    const toRoot = el => origin.multiply(el.getScreenCTM());
+    let defs = '';
+    const gradients = new Map();
+    const gradientRef = (id, alpha) => {
+      const key = id + '|' + num(alpha);
+      if (!gradients.has(key)) {
+        const g = svg.getElementById(id);
+        const ok = g && (g.tagName === 'linearGradient' || g.tagName === 'radialGradient');
+        gradients.set(key, ok ? 'g' + gradients.size : null);
+        if (ok) {
+          defs += gradientMarkup(g, gradients.get(key), alpha);
+        }
+      }
+      return gradients.get(key);
+    };
+    // 図形は今の層の文字に重なるときだけ次の層へ送り、文書の順の重なりを保つ。
+    const layers = [{ shapes: '', texts: [] }];
+    for (const el of svg.querySelectorAll(SHAPE_SELECTOR + ',text')) {
+      if (el.closest('defs')) {
+        continue;
+      }
+      const opacity = effectiveOpacity(el, svg);
+      if (opacity === 0) {
+        continue;
+      }
+      if (el.tagName === 'text') {
+        const runs = textRuns(el, svg, toRoot);
+        if (runs === null) {
+          return null;
+        }
+        layers[layers.length - 1].texts.push(...runs);
+        continue;
+      }
+      const cs = getComputedStyle(el);
+      if (cs.visibility !== 'visible') {
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      const pad = parseFloat(cs.strokeWidth) || 0;
+      const bounds = { left: r.left - pad, top: r.top - pad, right: r.right + pad, bottom: r.bottom + pad };
+      if (layers[layers.length - 1].texts.some(t => overlaps(bounds, t.rect))) {
+        layers.push({ shapes: '', texts: [] });
+      }
+      layers[layers.length - 1].shapes += shapeMarkup(el, cs, toRoot(el), opacity, gradientRef);
+    }
+    const head = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+                 (defs ? '<defs>' + defs + '</defs>' : '');
+    let out = [width, height, window.devicePixelRatio || 1, isDark ? BACKGROUND.dark : BACKGROUND.light, layers.length].join(':') + ':';
+    for (const layer of layers) {
+      const shapes = layer.shapes ? head + layer.shapes + '</svg>' : '';
+      out += shapes.length + ':' + shapes + layer.texts.length + ':' + layer.texts.map(t => t.markup).join('');
+    }
+    return out;
+  }
+
   // 描けなければ投げる。呼び出し側 (message の受け口) の catch が render-error でメッセージを返す。
-  // 戻り値は sizeString。
+  // 戻り値は [結果の種類, 中身]。書き出せれば draw-result と描画命令、書き出せない図は render-result と sizeString
+  // (C++ がキャプチャする)。
   async function renderDiagram(code, isDark, maxWidth, locale) {
     const svg = await renderPele(code, maxWidth, locale, true);
     document.body.className = isDark ? 'dark' : '';
@@ -133,8 +374,16 @@
     if (!svgEl) {
       throw new Error('SVG not found');
     }
+    let drawing = null;
+    try {
+      drawing = drawingOf(svgEl, isDark);
+    } catch (e) {
+    }
+    if (drawing !== null) {
+      return ['draw-result', drawing];
+    }
     const rect = svgEl.getBoundingClientRect();
-    return sizeString(rect.width, rect.height);
+    return ['render-result', sizeString(rect.width, rect.height)];
   }
 
   // クリップボード用。Office や Inkscape は CSS 変数と color-mix() を読めないので、ブラウザが解決した値を
@@ -144,15 +393,10 @@
                        'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'opacity',
                        'display', 'visibility'];
   const TEXT_PROPS = ['font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration-line'];
-  const hex2 = v => Math.round(+v).toString(16).padStart(2, '0');
-  // rgb()/rgba() は SVG 1.1 の読み手が読めないことがあるので #rrggbb と不透明度に分ける。
+  // rgb()/rgba() と color(srgb ...) は SVG 1.1 の読み手が読めないことがあるので #rrggbb と不透明度に分ける。
   function splitColor(value) {
-    const m = /^rgba?\(([^)]*)\)$/.exec(value);
-    if (!m) {
-      return [value, 1];
-    }
-    const p = m[1].split(/[\s,/]+/).filter(Boolean);
-    return ['#' + hex2(p[0]) + hex2(p[1]) + hex2(p[2]), p.length > 3 ? +p[3] : 1];
+    const c = parseColor(value);
+    return c ? [hexColor(c), c[3]] : [value, 1];
   }
   function bakeElement(el) {
     const cs = getComputedStyle(el);
@@ -198,6 +442,12 @@
       for (const el of elements) {
         if (el instanceof SVGGraphicsElement) {
           bakeElement(el);
+        }
+        else if (el instanceof SVGStopElement) {
+          const cs = getComputedStyle(el);
+          const [color, alpha] = splitColor(cs.stopColor);
+          el.setAttribute('stop-color', color);
+          el.setAttribute('stop-opacity', String(alpha * +cs.stopOpacity));
         }
       }
       // <g> などに残る var() は、子に解決済みの値を書いたので継承させなくてよい。
@@ -296,7 +546,7 @@
       requestAnimationFrame(() => window.chrome.webview.postMessage('capture-ready:' + id));
       return;
     }
-    let result;
+    // task は [結果の種類, 中身] を返す。
     let task;
     if (kind === 'math') {
       let width;
@@ -308,8 +558,7 @@
         [tex, pos] = readText(msg, pos);
         items.push([tex, +px]);
       }
-      result = 'math-result';
-      task = renderMathBatch(items, +width);
+      task = renderMathBatch(items, +width).then(r => ['math-result', r]);
     }
     else {
       let dark, width, locale;
@@ -319,15 +568,13 @@
       const code = msg.slice(pos);
       const isDark = dark === '1';
       if (kind === 'svg' || kind === 'view') {
-        result = 'svg-result';
-        task = renderSvg(kind, code, isDark, +width, locale);
+        task = renderSvg(kind, code, isDark, +width, locale).then(r => ['svg-result', r]);
       }
       else {
-        result = 'render-result';
         task = renderDiagram(code, isDark, +width, locale);
       }
     }
-    task.then(r => result + ':' + id + ':' + r, err => 'render-error:' + id + ':' + errorText(err))
+    task.then(([result, body]) => result + ':' + id + ':' + body, err => 'render-error:' + id + ':' + errorText(err))
         .then(reply => window.chrome.webview.postMessage(reply));
   });
 
