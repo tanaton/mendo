@@ -76,17 +76,15 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
 }
 
 // 言語で変わる文言は描くときに引くので、失敗した図も切り替えた言語の文言で出る。
-// コードで決まる失敗は要求を止める。WebView2 を起動できないだけなら、文言を出したまま要求を続ける。
-TEST(DiagramEntryTest, OnlySettledErrorsStopRendering)
+// 失敗はコードで決まるので要求を止める。
+TEST(DiagramEntryTest, ErrorsStopRendering)
 {
     DiagramEntry diagram;
     EXPECT_TRUE(diagram.NeedsRender());
     diagram.error = { DiagramError::Kind::Render };
     EXPECT_FALSE(diagram.NeedsRender());
-    diagram.error = { DiagramError::Kind::TooLarge };
+    diagram.error = { DiagramError::Kind::Unsupported };
     EXPECT_FALSE(diagram.NeedsRender());
-    diagram.error = { DiagramError::Kind::WebViewUnavailable };
-    EXPECT_TRUE(diagram.NeedsRender());
 }
 
 TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
@@ -106,10 +104,8 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
     for (const i18n::Strings* language : { &i18n::kJa, &i18n::kEn }) {
         SCOPED_TRACE(std::wstring(language->lang_key));
         const ScopedLanguage scoped(language);
-        error = { DiagramError::Kind::TooLarge };
-        EXPECT_EQ(text_of(), language->diagram_too_large);
-        error = { DiagramError::Kind::WebViewUnavailable };
-        EXPECT_EQ(text_of(), language->diagram_webview_unavailable);
+        error = { DiagramError::Kind::Unsupported };
+        EXPECT_EQ(text_of(), language->diagram_unsupported);
         error = { DiagramError::Kind::Render };
         EXPECT_EQ(text_of(), language->diagram_error);
     }

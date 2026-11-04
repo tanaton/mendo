@@ -987,15 +987,15 @@ void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
 BENCHMARK_CAPTURE(BM_TocColdFrame, fallback, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_TocColdFrame, explicit_fonts, true)->Unit(benchmark::kMicrosecond);
 
-// 数式 10000 個の型から、画面の 200 個を引く。描画はグリフランごとに 1 回引く。
-void BM_InlineMathMaskFind(benchmark::State& state)
+// 数式 10000 個の描画命令から、画面の 200 個を引く。描画はインラインオブジェクトごとに 1 回引く。
+void BM_InlineMathDrawingFind(benchmark::State& state)
 {
-    InlineMathMasks math;
-    InlineMathPage page;
+    InlineMathDrawings math;
+    const auto drawing = std::make_shared<const MathDrawing>();
     std::vector<uint64_t> keys;
     for (int i = 0; i < 10000; ++i) {
         keys.push_back(InlineMathKey(std::to_string(i), 16.0f));
-        math.Assign(keys.back(), { .page = &page, .src = {}, .dest = {} });
+        *math.drawings.TryEmplace(keys.back()).first = drawing;
     }
     size_t at = 0;
     for (auto _ : state) {
@@ -1005,7 +1005,7 @@ void BM_InlineMathMaskFind(benchmark::State& state)
         }
     }
 }
-BENCHMARK(BM_InlineMathMaskFind)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_InlineMathDrawingFind)->Unit(benchmark::kMicrosecond);
 
 // 全マッチのハイライトを描く 1 フレーム分のコマンド生成。上限 (10000 件) までのマッチが見えるよう文書の先頭で測る。
 // step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
@@ -1092,7 +1092,7 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
     auto& [cache, viewport, service, generator, cmds] = frame;
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane }, 1.0f);
-    InlineMathMasks math;
+    InlineMathDrawings math;
     for (auto _ : state) {
         target.context->BeginDraw();
         target.context->Clear(l.theme.Color(BrushId::Background));

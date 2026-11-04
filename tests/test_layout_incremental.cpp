@@ -10,6 +10,7 @@
 #include "document.h"
 #include "document_test_helpers.h"
 #include "layout.h"
+#include "mermaid_util.h"
 #include "layout_invariants.h"
 #include "mock_text_measurer.h"
 #include "parser.h"
@@ -594,7 +595,7 @@ TEST(CarryOverUnchangedTest, KeepsEditedDiagramAsStale)
     const auto doc = Document::FromMarkdown(std::string{ kOneDiagramMd }, L"C:\\dir\\test.md");
     auto cache = CacheWithDiagramResult(doc);
     const size_t old_index = doc.GetDiagramNodeIndices()[0];
-    cache.EnsureDiagram(old_index).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
+    cache.EnsureDiagram(old_index).drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
     cache[old_index].height = 321.0f;
 
     auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, L"C:\\dir\\test.md");
@@ -607,7 +608,7 @@ TEST(CarryOverUnchangedTest, KeepsEditedDiagramAsStale)
     EXPECT_TRUE(d->bitmap);
     EXPECT_TRUE(d->stale);
     EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
-    EXPECT_EQ(d->png, nullptr) << "前のコードの絵をコピー・保存させない";
+    EXPECT_EQ(d->drawing, nullptr) << "前のコードの絵をコピー・保存させない";
     EXPECT_FLOAT_EQ(next_cache[new_index].height, 321.0f);
 }
 

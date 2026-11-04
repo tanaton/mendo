@@ -63,3 +63,6 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# KaTeX の書体 (third_party/katex/fonts)。
+*.woff2 binary

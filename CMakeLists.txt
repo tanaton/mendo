@@ -57,17 +57,27 @@ if(MENDO_USE_TRACY)
     endif()
 endif()
 
-# ---- WebView2 SDK（Mermaid図表レンダリング用） ----
+# ---- QuickJS-ng（pele と KaTeX を動かす） ----
+# ライブラリの 4 ファイルだけを組む。SOURCE_SUBDIR を無い場所にして、同梱の CMakeLists (qjs などの実行ファイル) を読ませない。
 FetchContent_Declare(
-    webview2
-    URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3967.48
+    quickjs
+    URL https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.18.0.tar.gz
+    URL_HASH SHA256=28bcd89aa3683fd2a946537e5ce3f11cc46b5cbf3383c7561aaef3df5ff9f1dd
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR _none
 )
-FetchContent_MakeAvailable(webview2)
-
-# 展開されたWebView2のヘッダーとライブラリのパスを設定。SSE2 を直接使うので x64 だけを組む。
-set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
-set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
-set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
+FetchContent_MakeAvailable(quickjs)
+add_library(quickjs STATIC
+    ${quickjs_SOURCE_DIR}/quickjs.c
+    ${quickjs_SOURCE_DIR}/libregexp.c
+    ${quickjs_SOURCE_DIR}/libunicode.c
+    ${quickjs_SOURCE_DIR}/dtoa.c
+)
+target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
+# 同梱の CMakeLists と同じ定義と C11 (Windows の原子操作は /experimental:c11atomics)。
+target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
+set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
+target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
 
 # ---- md4c（サードパーティ） ----
 # Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
@@ -81,7 +91,7 @@ set(MENDO_SRC_DIRS
     src/ui src/input src/io src/mermaid src/nav src/theme src/util
 )
 
-# ---- コアライブラリ（テストがリンクするコード。WinMain・App・WebView2 は含まない） ----
+# ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
     src/core/document.cpp
@@ -117,6 +127,9 @@ add_library(mendo_core STATIC
     # mermaid - Mermaid図表サポート
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
+    src/mermaid/diagram_raster.cpp
+    src/mermaid/pele_engine.cpp
+    src/mermaid/diagram_view.cpp
     # nav - ナビゲーション
     src/nav/nav.cpp
     # theme - テーマ管理
@@ -142,7 +155,7 @@ target_compile_definitions(mendo_core PUBLIC
 # リンクする OS のライブラリはここにまとめる (ソースの #pragma comment(lib) は使わない)。
 # windowscodecs は DLL を静的に読まないが、WIC の GUID がこの lib にある。
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
+    md4c quickjs d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
 )
 if(MENDO_USE_TRACY)
     # profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。TRACY_ENABLE は TracyClient から伝わる。
@@ -159,37 +172,6 @@ target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 # 日本語パス配下では MSVC `/utf-8` と衝突するため。
 target_precompile_headers(mendo_core PRIVATE <pch.h>)
 
-# ---- mermaid（ESM 版、本体 + 遅延読み込みのチャンク） ----
-# third_party/mermaid からの相対パスをそのままリソース名にして埋め込み、URL のパスで引く。
-# 日本語パスを rc.exe に渡さないよう、ファイルは res/mendo.rc からの相対パスで書く。
-file(GLOB_RECURSE _mendo_mermaid_files CONFIGURE_DEPENDS
-    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/*.mjs")
-set(_mendo_mermaid_rc "")
-foreach(_f IN LISTS _mendo_mermaid_files)
-    # rc.exe は数字で始まる名前を数値 ID と読み、記号によっては名前を区切る
-    if(NOT _f MATCHES "^[A-Za-z][A-Za-z0-9._/-]*$")
-        message(FATAL_ERROR "mendo: '${_f}' cannot be used as an rc resource name.")
-    endif()
-    string(APPEND _mendo_mermaid_rc "${_f} RCDATA \"../third_party/mermaid/${_f}\"\n")
-endforeach()
-file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mermaid_esm.rc" CONTENT "${_mendo_mermaid_rc}")
-unset(_mendo_mermaid_files)
-unset(_mendo_mermaid_rc)
-# 数式は mermaid 同梱の KaTeX を直接呼ぶ。チャンク名には mermaid の版ごとに変わるハッシュが付くので、
-# 実名をヘッダに書き出し、ページからは固定の別名で読ませる。
-file(GLOB _mendo_katex_chunk CONFIGURE_DEPENDS
-    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/chunks/mermaid.esm.min/katex-*.mjs")
-list(LENGTH _mendo_katex_chunk _mendo_katex_count)
-if(NOT _mendo_katex_count EQUAL 1)
-    message(FATAL_ERROR "mendo: expected exactly one KaTeX chunk in third_party/mermaid, found '${_mendo_katex_chunk}'.")
-endif()
-file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/katex_chunk.h"
-    CONTENT "#pragma once\ninline constexpr wchar_t KATEX_CHUNK_RESOURCE[] = L\"${_mendo_katex_chunk}\";\n")
-unset(_mendo_katex_chunk)
-unset(_mendo_katex_count)
-
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32
     src/main.cpp
@@ -200,10 +182,7 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 shcore delayimp
-    "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
-)
+target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。

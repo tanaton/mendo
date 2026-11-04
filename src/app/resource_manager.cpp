@@ -138,9 +138,9 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
+    // image/diagram bitmap も可視範囲外の分を捨てる。描いた図の
     // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
-    // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
+    // 全消去すると可視中の図まで捨てて描き直しの cliff を生むため。
     state_.document.layout_cache.EvictDiagramBitmapsOutside(keep->range.begin, keep->range.end);
 }
 
@@ -347,7 +347,7 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
             auto* diagram = state_.document.layout_cache.FindDiagram(i);
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
-            if (diagram && !(diagram->bitmap && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
+            if (diagram && !(diagram->HasImage() && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
                 diagram->MarkStale();
             }
         }

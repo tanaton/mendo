@@ -2,7 +2,7 @@
 #include "brush_id.h"
 #include "syntax.h"
 #include "utility.h"
-#include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <array>
@@ -63,6 +63,13 @@ struct DrawBitmapCmd {
     float opacity = 1.0f;
 };
 
+// 描画命令から描く図。commands は図の左上を原点とする CSS px で記録してあり、dest に合わせて縮めて描く。
+struct DrawDiagramCmd {
+    ID2D1CommandList* commands; // 非所有; ライフタイムは LayoutCache::DiagramEntry が管理。
+    D2D1_RECT_F dest;
+    float width; // 記録した図の幅 (CSS px)
+};
+
 struct FillEllipseCmd {
     D2D1_POINT_2F center;
     float radius;
@@ -103,6 +110,7 @@ using DrawCommand = std::variant<
     DrawLineCmd,
     DrawTextLayoutCmd,
     DrawBitmapCmd,
+    DrawDiagramCmd,
     FillEllipseCmd,
     DrawEllipseCmd,
     DrawGeometryCmd,
@@ -114,46 +122,19 @@ using DrawCommandList = std::vector<DrawCommand>;
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 
-// まとめて描いたインライン数式のページ 1 枚 (A8)。
-struct InlineMathPage {
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    // このページを指す型の数。読み直しで型がすべて別のページへ移ったら捨てる。
-    size_t masks = 0;
-    // 最後に描いたフレーム (InlineMathMasks::frame)。描くときに書く。
-    uint64_t last_drawn = 0;
-};
+struct MathDrawing;
 
-// インライン数式の型。黒で描いた数式のアルファだけを持ち、描くときに周りの文字の色で塗る
+// インライン数式の描画命令。キーは InlineMathKey。数式は色を持たず、描くときに周りの文字の色で塗る
 // (ダークモードやリンクの色で描き直さずに済む。数式の中の \color は効かない)。
-struct InlineMathMask {
-    InlineMathPage* page; // 非所有; InlineMathMasks::pages が持つ
-    D2D1_RECT_F src;      // page の中の位置 (ピクセル)
-    D2D1_RECT_F dest;     // 数式の箱の左上を原点とする描画先 (DIP)。箱からはみ出すインクの分だけ広い
-};
+struct InlineMathDrawings {
+    FlatHashMap<std::shared_ptr<const MathDrawing>> drawings;
 
-// キーは InlineMathKey。ページは GPU のメモリに置かれ、数式 10000 個で約 38MB になるので、上限に収まる分だけ受け取り
-// (App::ReserveInlineMathPage)、上限を超えたら長く描いていないページから捨てる (EvictPages)。型の無い数式は、
-// 見えたときに組ごと読み直す (missing)。
-struct InlineMathMasks {
-    std::vector<std::unique_ptr<InlineMathPage>> pages;
-    FlatHashMap<InlineMathMask> masks;
-    size_t page_bytes = 0;
-    // 描いたフレームの番号。Renderer が描くたびに進める。
-    uint64_t frame = 0;
-    // 見える位置にあるのに型が無かった数式。描いた後で呼び出し側が組を頼み直す。
-    std::vector<uint64_t> missing;
-
-    const InlineMathMask* Find(uint64_t key) const noexcept
+    const MathDrawing* Find(uint64_t key) const noexcept
     {
-        return masks.Find(key);
+        const auto* found = drawings.Find(key);
+        return found ? found->get() : nullptr;
     }
-    InlineMathPage& AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
-    // key の型を置き換える。前の型のページを指す型が無くなったら、そのページを捨てる。
-    void Assign(uint64_t key, const InlineMathMask& mask);
-    // ページの合計が budget を超えていたら、このフレームで描いていないページを古い順に捨てる。
-    void EvictPages(size_t budget);
 };
 
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
-// math には描いたページの last_drawn と、型の無かった数式 (missing) を書く。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks& math);
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathDrawings& math);

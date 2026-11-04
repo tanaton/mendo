@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-struct InlineMathMasks;
+struct InlineMathDrawings;
 
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
@@ -93,8 +93,7 @@ struct MdPaneParams {
 
 struct RenderParams {
     MdPaneParams md;
-    // インライン数式の型。描いたフレームの番号と、型の無かった数式 (missing) を書く。
-    InlineMathMasks& inline_math;
+    const InlineMathDrawings& inline_math;
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
     const GestureRenderState& gesture;

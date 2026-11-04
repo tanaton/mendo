@@ -8,7 +8,7 @@
 #include <vector>
 #include <memory>
 #include <wrl/client.h>
-#include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <algorithm>
 #include <ranges>
@@ -416,22 +416,16 @@ struct DiagramError {
         None,
         // message を出す。空なら汎用の文言を出す。
         Render,
-        TooLarge,
-        // WebView2 を起動できない。コードで決まる結果ではないので文言だけを出し、要求は続ける。
-        WebViewUnavailable,
+        // 描画命令にできない要素がある。
+        Unsupported,
     };
     Kind kind = Kind::None;
-    // Mermaid が返した文言 (表示用に整形済み)。Mermaid の文言は訳さないのでそのまま持つ。
+    // pele が返した文言 (表示用に整形済み)。pele の文言は訳さないのでそのまま持つ。
     std::wstring message;
 
     bool empty() const noexcept
     {
         return kind == Kind::None;
-    }
-    // コードで決まる失敗。同じコードを描き直しても変わらない。
-    bool settled() const noexcept
-    {
-        return kind == Kind::Render || kind == Kind::TooLarge;
     }
     void clear() noexcept
     {
@@ -440,15 +434,22 @@ struct DiagramError {
     }
 };
 
+namespace mermaid_util {
+struct DiagramDrawing;
+}
+
 struct DiagramResult {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    // 画像はビットマップを描く。図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
+    // 1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
+    Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
-    // クリップボードコピー・保存用の元 PNG。bitmap と同時に設定/破棄する (EvictBitmap 含む)。
+    // 図の描画命令。クリップボードコピー・保存の画像と拡大表示の元。commands と同時に設定する。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
-    PngBytes png;
-    // レンダリング失敗の理由。非空なら bitmap は持たず、プレースホルダにその文言を表示する。
-    // 確定した失敗 (settled) は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
+    std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
+    // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
+    // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
     // クリアされ再試行の契機になる。オフスクリーン evict では保持する。
     DiagramError error;
 };
@@ -457,37 +458,50 @@ struct DiagramEntry : DiagramResult {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
-    // bitmap・寸法・png は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
+    // 絵 (bitmap / commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
 
-    // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。
+    bool HasImage() const noexcept
+    {
+        return bitmap || commands;
+    }
+    // 保存・コピーの元があるか (ボタンを出すか)。
+    bool CanExport() const noexcept
+    {
+        return HasImage() && drawing;
+    }
+
+    // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。失敗はコードで決まり、同じコードを描き直しても変わらない。
     bool NeedsRender() const noexcept
     {
-        return (!bitmap || stale) && !error.settled();
+        return (!HasImage() || stale) && error.empty();
     }
 
     // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
+    // 描画命令の図は小さい (30 図で 4MB ほど) ので残し、見えたときに描き直させない。
     void EvictBitmap() noexcept
     {
+        if (commands) {
+            return;
+        }
         bitmap.Reset();
-        png.reset();
         stale = false;
     }
 
-    // デバイスロスト用。旧デバイスのビットマップと、旧デバイスで確定したかもしれないエラーを捨てる。
+    // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
     // 寸法はレイアウト維持のため残す。
     void EvictForRetry() noexcept
     {
-        EvictBitmap();
-        error.clear();
+        static_cast<DiagramResult&>(*this) = DiagramResult{ .width = width, .height = height };
+        stale = false;
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
     // 再試行可能に戻す。
     void MarkStale() noexcept
     {
-        if (!bitmap) {
+        if (!HasImage()) {
             static_cast<DiagramResult&>(*this) = {};
             stale = false;
             return;

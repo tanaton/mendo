@@ -41,6 +41,19 @@ constexpr uint32_t Utf16Units(uint32_t cp) noexcept
     return cp > 0xFFFF ? 2 : 1;
 }
 
+// cp を UTF-16 にして out に書き、code unit 数を返す。
+constexpr uint32_t EncodeUtf16(uint32_t cp, wchar_t* out) noexcept
+{
+    if (cp <= 0xFFFF) {
+        out[0] = static_cast<wchar_t>(cp);
+        return 1;
+    }
+    const uint32_t adj = cp - 0x10000u;
+    out[0] = static_cast<wchar_t>(0xD800u + (adj >> 10));
+    out[1] = static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu));
+    return 2;
+}
+
 constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
 {
     if (pos > 0) {

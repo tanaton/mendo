@@ -31,10 +31,6 @@ struct InlineMathMetrics {
     }
 };
 
-// 型を切り出すとき箱の外に含める幅 (DIP)。積分記号の端など、箱から少しはみ出すインクも含める。
-// ページでは数式の間を 2px 空けてある。
-inline constexpr float INLINE_MATH_INK_MARGIN = 1.0f;
-
 // 描く数式 1 つ。font_size は数式を置く場所の文字の大きさ (DIP)。
 struct InlineMathItem {
     uint64_t key = 0;
@@ -53,19 +49,18 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
 
-// 1 回のまとめ描き (1 ページ・1 回のキャプチャ) に載せる数式の数の上限。キャプチャは面積に比例して時間とメモリを使い、
-// 2000 個を 1 枚にすると WebView2 の commit が一時的に 250MB 増える (200 個なら 31MB、1 個あたりの時間はほぼ同じ)。
-inline constexpr size_t kMaxInlineMathPerChunk = 200;
+// 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。KaTeX は 1 個 平均 0.2ms ほどなので、
+// 1 つの仕事が 13ms ほどで終わり、ほかの図や画像のデコードを長く待たせない。
+inline constexpr size_t kInlineMathPerChunk = 64;
 
 struct InlineMathChunk {
-    // ディスクキャッシュのキー。組の数式のキーの並びから決まる。
+    // 組の数式のキーの並びから決まる。計画を作り直す前に頼んだ組の結果を見分けるのに使う。
     uint64_t key = 0;
     std::vector<InlineMathItem> items;
 };
 
-// 文書の数式を、同じ内容なら毎回同じ組に分ける。描画とディスクキャッシュはこの組を単位にする。
-// 計測で見つかった順に束ねると開くたびに組が変わり、キャッシュに当たらない。
-// 文書の順に重複を除いて並べ、区切りを数式のキーで決めるので、編集で数式が増減しても変わるのはその前後の組だけ。
+// 文書の数式を組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
+// 文書の順に重複を除いて並べ、kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
     void Build(std::span<const Node> nodes, const Theme& theme);
@@ -75,18 +70,13 @@ public:
     }
     // key の数式を含む組の番号。計画に無ければ nullopt。
     std::optional<size_t> ChunkOf(uint64_t key) const noexcept;
-    // 組を描くために取り出す。結果を待っている組と描けなかった組は nullptr。描けた組はまた取り出せる (型を捨てた後や
-    // デバイスロストの後に、見えた数式の組を読み直す)。wanted は見えている数式のために頼むときで、ページを上限を
-    // 超えても受け取らせる (IsWanted)。
-    const InlineMathChunk* TakeChunk(size_t chunk, bool wanted) noexcept;
-    // TakeChunk した組を、結果を待つまでの間に wanted で頼んだか。計画を作り直す前に頼んだ組 (番号と key が合わない) は false。
-    bool IsWanted(size_t chunk, uint64_t key) const noexcept;
-    // TakeChunk した組の結果が届いた。計画を作り直す前に頼んだ組は何もしない。描けなかった組は計画を作り直すまで
-    // 取り出させない (描き直しても同じく失敗する)。
-    void FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept;
+    // 組を描くために取り出す。結果を待っている組は nullptr。描けた組はまた取り出せる。
+    const InlineMathChunk* TakeChunk(size_t chunk) noexcept;
+    // TakeChunk した組の結果が届いた。計画を作り直す前に頼んだ組 (番号と key が合わない) は何もしない。
+    void FinishChunk(size_t chunk, uint64_t key) noexcept;
 
 private:
-    enum class State : uint8_t { Idle, Requested, Wanted, Failed };
+    enum class State : uint8_t { Idle, Requested };
 
     // 計画を作り直す前に頼んだ組は、番号と key が合わない。
     bool IsCurrent(size_t chunk, uint64_t key) const noexcept
@@ -134,7 +124,7 @@ private:
 };
 
 // $...$ の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
-// InlineMathObjectOf で引いた型を本文の色で塗る。scale は寸法と型に掛ける倍率 (幅に収まらないブロック数式を縮める)。
+// InlineMathObjectOf で引いた描画命令を本文の色で描く。scale は寸法と描画命令に掛ける倍率 (幅に収まらないブロック数式を縮める)。
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale);
 struct InlineMathObjectRef {
     uint64_t key = 0;

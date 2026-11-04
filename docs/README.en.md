@@ -22,7 +22,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - **Fast startup** — Window creation and file processing run in parallel for a quick launch.
 - **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
 - **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
-- **Mermaid** — Renders `mermaid` code blocks as diagrams (offscreen rendering via WebView2 + Mermaid.js).
+- **Mermaid** — Renders `mermaid` code blocks as diagrams ([pele](https://pele.run/) runs on [QuickJS-ng](https://github.com/quickjs-ng/quickjs) and the result is drawn with Direct2D).
 - **Offline** — Works without a network connection.
 - **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
 - **Images** — Displays local PNG, JPEG, BMP, and other images.
@@ -44,7 +44,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Inline code | Supported |
 | Fenced code blocks | Supported (with syntax highlighting). Languages: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (batch), Dockerfile, Makefile, diff |
 | Images (PNG / JPEG / BMP) | Supported (async loading) |
-| Mermaid diagrams | Supported (WebView2 rendering) |
+| Mermaid diagrams | Supported (pele + QuickJS-ng, drawn with Direct2D) |
 | LaTeX math (`$...$` / `$$...$$` / ` ```math `) | ✅ Rendered in the surrounding text color (`\color` has no effect) and always in display style. A paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as block equations. |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
 | Footnotes (`[^1]`) | Supported (listed at the end of the document, with links between references and definitions) |
@@ -186,8 +186,8 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 | GUI | Win32 API |
 | 2D rendering | Direct2D (`ID2D1DeviceContext`) |
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
-| Diagrams | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| Math | [KaTeX](https://katex.org/) (bundled with Mermaid) |
+| Diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Math | [KaTeX](https://katex.org/) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Tests | Google Test v1.18.0 |
 | Benchmarks | Google Benchmark v1.10.0 |

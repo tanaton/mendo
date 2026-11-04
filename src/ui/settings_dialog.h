@@ -12,6 +12,8 @@
 struct SettingsDialogParams {
     PopupEnv env;
     uint64_t diagram_cache_bytes = 0;
+    // 削除ボタンを押せる。大きさに数えない物も消すので、diagram_cache_bytes が 0 でも押せることがある。
+    bool can_clear_cache = false;
     // 言語を選んだ。nullptr は OS に合わせる。呼んだ後にダイアログ自身の文言も選んだ言語で組み直す。
     std::function<void(const i18n::Strings*)> on_language;
     std::function<void()> on_clear_cache;
@@ -92,7 +94,7 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
     Hit HitTest(float x, float y) const noexcept;
     bool CanClearCache() const noexcept
     {
-        return cache_bytes > 0;
+        return can_clear;
     }
     void Activate(const Hit& hit);
 
@@ -103,6 +105,7 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
 
     Hit hovered{};
     uint64_t cache_bytes = 0;
+    bool can_clear = false;
     std::function<void(const i18n::Strings*)> on_language;
     std::function<void()> on_clear_cache;
 

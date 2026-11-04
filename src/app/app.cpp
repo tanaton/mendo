@@ -76,12 +76,11 @@ bool App::Init(HWND hwnd)
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
-    file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
+    file_cache_.Init(scheduler_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
-                           config_.GetConfigPath(L"WebView2Data"), [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -136,7 +135,7 @@ bool App::CreateRenderDevice()
     // 届いた後で入ると高さが変わって表示が跳ねるので、時間予算で切らずに全部入れる。
     constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
     resource_manager_.OnImagesDecoded(kNoDeadline);
-    mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
+    mermaid_renderer_.ProcessJobResults(kNoDeadline);
     return true;
 }
 
@@ -154,11 +153,8 @@ void App::OnRenderDeviceRecreated()
     // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
     resource_manager_.LoadImages();
-    // インライン数式の型は旧デバイスのビットマップなので捨てる。寸法は同じなのでレイアウトはそのまま。
-    // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。
-    math_masks_ = {};
-    // 待たせた読み込みの結果を受け取る。型を捨てた後でないと、受け取った型まで捨ててしまう。
-    mermaid_renderer_.ProcessDiskLoads();
+    // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
+    mermaid_renderer_.ProcessJobResults();
 }
 
 void App::LoadInitialDocument()
@@ -168,7 +164,7 @@ void App::LoadInitialDocument()
         ScheduleLoadingAnimation();
     }
     else {
-        ShowHelpResource();
+        ShowEmbeddedResource(HELP_PATH);
     }
 }
 
@@ -286,7 +282,7 @@ void App::OnPaint()
             .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
             .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
         },
-        .inline_math = math_masks_,
+        .inline_math = math_drawings_,
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
@@ -315,7 +311,6 @@ void App::OnPaint()
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
         break;
     }
-    ManageInlineMathPages();
     // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
     // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
     // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
@@ -352,61 +347,37 @@ void App::OnAppImageLoaded()
     resource_manager_.OnImagesDecoded();
 }
 
-void App::OnMermaidDiskLoaded()
+void App::OnMermaidJobDone()
 {
-    mermaid_renderer_.ProcessDiskLoads();
+    mermaid_renderer_.ProcessJobResults();
 }
 
 void App::OnInlineMathRequested()
 {
     for (const uint64_t key : inline_math_.TakeRequests()) {
         // 計画に無いのは、リロードの前に測って今の文書には無くなった数式だけ。描かずに待ちから外す。
-        if (!RequestInlineMathChunk(key, false)) {
+        if (!RequestInlineMathChunk(key)) {
             inline_math_.ForgetRequest(key);
         }
     }
 }
 
-bool App::RequestInlineMathChunk(uint64_t key, bool wanted)
+bool App::RequestInlineMathChunk(uint64_t key)
 {
     const auto chunk = inline_math_plan_.ChunkOf(key);
     if (!chunk) {
         return false;
     }
     // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
-    if (const auto* c = inline_math_plan_.TakeChunk(*chunk, wanted)) {
+    if (const auto* c = inline_math_plan_.TakeChunk(*chunk)) {
         inline_math_.MarkRequested(c->items);
         const size_t index = *chunk;
         const uint64_t chunk_key = c->key;
-        mermaid_renderer_.RequestMathBatch(
-            c->items, chunk_key, [this, index, chunk_key](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result), index, chunk_key); },
-            [this, index, chunk_key](size_t bytes) { return ReserveInlineMathPage(index, chunk_key, bytes); });
+        mermaid_renderer_.RequestMathBatch(c->items, [this, index, chunk_key](InlineMathBatchResult result) {
+            OnInlineMathRendered(std::move(result), index, chunk_key);
+        });
     }
     return true;
-}
-
-bool App::ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes)
-{
-    // 見えている数式のために頼んだ組でなければ、上限に収まるページだけを受け取る。収まらなければ寸法だけ使い、
-    // 見えたときに読み直す。表全体を測ると全部の組が届き、5000 行の表 (数式 10000 個) ではページが約 38MB になる。
-    // デコードと GPU への転送の前に決めるので、この表を 2 回目に開くとデコードが 151 枚 → 20 枚になり、全部の寸法が
-    // 揃うまでが約 160ms → 約 122ms。組はまとめて頼むので、受け取ると答えてまだ届いていない分も数える。
-    if (!inline_math_plan_.IsWanted(chunk, chunk_key) &&
-        math_masks_.page_bytes + reserved_math_page_bytes_ + bytes > kInlineMathPageBudget) {
-        return false;
-    }
-    reserved_math_page_bytes_ += bytes;
-    return true;
-}
-
-void App::ManageInlineMathPages()
-{
-    // 型の無い (受け取らなかったページ・捨てたページ・デバイスロスト) 数式が見えたら、組をディスクキャッシュから読み直す。
-    // 同じ組を頼むのは結果を待つ間 1 回だけなので、同じ数式が何度出てきてもよい。
-    for (const uint64_t key : std::exchange(math_masks_.missing, {})) {
-        RequestInlineMathChunk(key, true);
-    }
-    math_masks_.EvictPages(kInlineMathPageBudget);
 }
 
 void App::RebuildInlineMathPlan()
@@ -417,40 +388,23 @@ void App::RebuildInlineMathPlan()
 
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
 {
-    reserved_math_page_bytes_ -= result.reserved_bytes;
     // 取り消すのは終了するときと ForgetInlineMath のときだけで、どちらも結果を使わない。
     if (result.cancelled) {
         return;
     }
-    inline_math_plan_.FinishChunk(chunk, chunk_key, result.failed);
-    InlineMathPage* page = nullptr;
-    bool lost = false;
-    for (const auto& item : result.items) {
-        if (!item.metrics.ok()) {
-            const auto before = inline_math_.Find(item.key);
-            lost |= before && before->ok();
-        }
+    inline_math_plan_.FinishChunk(chunk, chunk_key);
+    for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
-        if (!inline_math_.Resolve(item.key, item.metrics) || !item.metrics.ok() || !result.page) {
+        if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
             continue;
         }
-        if (!page) {
-            page = &math_masks_.AddPage(result.page);
-        }
-        math_masks_.Assign(item.key, InlineMathMask{ page, item.src, item.dest });
+        *math_drawings_.drawings.TryEmplace(item.key).first = std::move(item.drawing);
     }
     auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
     state_.view.viewport.EnsureScrollTarget(cache);
-    // 型を失って読み直した数式が描けなかった (ディスクキャッシュが消えていて、WebView2 でも描けなかった)。
-    // 組んだレイアウトはその数式の幅を空けたままなので、原文で組み直す。数式からノードは引けないので全部組み直す。
-    if (lost) {
-        cache.InvalidateAllLayouts(state_.document.doc.GetNodes());
-        RelayoutViewport();
-        return;
-    }
     // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
-    // 1 件あたり 1ms 以下、全部で約 4ms (ディスクキャッシュから 12 件が続けて届く場合)。
+    // 1 件あたり 1ms 以下、全部で約 4ms (12 件が続けて届く場合)。
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
     // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
     // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
@@ -481,7 +435,7 @@ void App::RelayoutPendingInlineMath(bool tables)
 void App::ForgetInlineMath()
 {
     inline_math_.Clear();
-    math_masks_ = {};
+    math_drawings_ = {};
     mermaid_renderer_.DropQueuedMath();
     // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
     RebuildInlineMathPlan();
@@ -588,11 +542,8 @@ void App::HandleTimer(UINT_PTR timer_id)
     case BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
         return;
-    case MERMAID_INIT_RETRY:
-        mermaid_renderer_.OnInitRetryTimer();
-        return;
-    case MERMAID_IDLE:
-        mermaid_renderer_.OnIdleTimer();
+    case PELE_TRIM:
+        mermaid_renderer_.OnPeleTrimTimer();
         return;
     case DEVICE_RECREATE_RETRY:
         KillTimer(id);
@@ -671,9 +622,9 @@ void App::StopLoadingAnimation()
     spinner_shown_ = false;
 }
 
-void App::ShowHelpResource()
+void App::ShowEmbeddedResource(std::wstring_view path)
 {
-    const auto rc = LoadRcData(i18n::S().help_resource_id);
+    const auto rc = LoadRcData(IsHelpPath(path) ? i18n::S().help_resource_id : IDR_THIRD_PARTY_LICENSES_MD);
     if (rc.empty()) {
         return;
     }
@@ -682,9 +633,9 @@ void App::ShowHelpResource()
     load_coordinator_.Cancel();
 
     std::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
-    Document help = Document::FromMarkdown(std::move(utf8), HELP_PATH);
-    LayoutCache estimated = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_service_.GetTheme(), MdContentWidth(state_));
-    OpenDocument(std::move(help), std::move(estimated), /*follow_file_pane=*/false, {});
+    Document doc = Document::FromMarkdown(std::move(utf8), path);
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_service_.GetTheme(), MdContentWidth(state_));
+    OpenDocument(std::move(doc), std::move(estimated), /*follow_file_pane=*/false, {});
 }
 
 namespace {
@@ -737,8 +688,8 @@ void App::LoadMarkdownFile(std::wstring_view path)
     file_watcher_.RequeueIfPaused();
     prefix_shrink_defers_ = 0;
     // 仮想パスはファイルとして読めないので、埋め込みリソースから開く。
-    if (IsHelpPath(path)) {
-        ShowHelpResource();
+    if (IsEmbeddedPath(path)) {
+        ShowEmbeddedResource(path);
         return;
     }
     // 旧文書の画像・図の待ちはもう要らない。文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す
@@ -782,7 +733,7 @@ void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
     file_watcher_.ResumeWatching();
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
-        ShowHelpResource();
+        ShowEmbeddedResource(HELP_PATH);
     }
 }
 
@@ -881,8 +832,6 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
-    // 開いただけの文書は読むだけかもしれないので、変更の通知で読み直すまでは短く閉じる。
-    mermaid_renderer_.SetEditingDiagrams(false);
 }
 
 void App::ReloadCurrentFile()
@@ -960,7 +909,6 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     Dispatch(ReloadSettledAction{});
 
-    mermaid_renderer_.SetEditingDiagrams(!state_.document.doc.GetDiagramNodeIndices().empty());
     if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), viewer_node_, NodeType::Diagram)) {
         mermaid_renderer_.UpdateViewerCode(node->GetText());
     }
@@ -1336,6 +1284,9 @@ void App::HandleLinkClick(std::string_view url)
     case LinkClickResult::Type::ExternalUrl:
         ShellOpenAsync(string_convert::Utf8ToWide(result.target));
         return;
+    case LinkClickResult::Type::Embedded:
+        Dispatch(OpenPathAction{ string_convert::Utf8ToWide(result.target) });
+        return;
     }
     std::unreachable();
 }
@@ -1440,14 +1391,15 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramCopy:
     case OverlayButton::DiagramSave: {
-        // ボタンは DiagramEntry::png があるときだけ出す。
+        // ボタンは保存・コピーの元 (DiagramEntry::CanExport) があるときだけ出す。保存先を選ぶ間に文書が読み直されても
+        // 描けるよう、描画命令を持って渡す。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
-        const PngBytes png = diagram ? diagram->png : nullptr;
+        auto drawing = diagram ? diagram->drawing : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(state_), dark);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_), dark);
         }
         else {
-            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, png);
+            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, std::move(drawing));
         }
         return;
     }
@@ -1690,11 +1642,18 @@ PopupEnv App::MakePopupEnv() const noexcept
 
 void App::ShowSettingsDialog()
 {
+    const uint64_t cache_bytes = file_cache_.TotalSize();
     const SettingsDialogParams params{
         .env = MakePopupEnv(),
-        .diagram_cache_bytes = file_cache_.TotalSize(),
+        .diagram_cache_bytes = cache_bytes,
+        // 前の版の WebView2 のデータは大きさに数えないが、図のキャッシュと一緒に消すので、それだけでも消せる。
+        .can_clear_cache = cache_bytes > 0 || file_cache_.HasLegacyData(),
         .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
-        .on_clear_cache = [this] { file_cache_.Clear(); },
+        .on_clear_cache =
+            [this] {
+                file_cache_.Clear();
+                file_cache_.RemoveLegacyDataAsync();
+            },
     };
     SettingsDialog::Show(hwnd_, params);
 }
@@ -1708,7 +1667,7 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
     renderer_.OnLanguageChanged();
     mermaid_renderer_.ApplyViewerLanguage();
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
-        ShowHelpResource();
+        ShowEmbeddedResource(HELP_PATH);
     }
     Invalidate();
 }
@@ -1721,7 +1680,7 @@ void App::ClampScrollToContent()
 bool App::HasIdleWork()
 {
     return state_.document.layout_cache.HasDirtyNodes() || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
-           image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads();
+           image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults();
 }
 
 // 1 回に 1 種類だけ進めてメッセージループへ戻り、入力と描画を先に配らせる。
@@ -1729,11 +1688,11 @@ bool App::HasIdleWork()
 void App::RunIdleWork()
 {
     DisposeReleasedLayouts();
-    if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads()) {
+    if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults()) {
         // 両方で 1 回分の持ち時間を分け合う。
         const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
         resource_manager_.OnImagesDecoded(deadline);
-        mermaid_renderer_.ProcessDiskLoads(deadline);
+        mermaid_renderer_.ProcessJobResults(deadline);
         return;
     }
     if (state_.search.search_state.IsSearching()) {

@@ -2,7 +2,9 @@
 #include "app_controller.h"
 #include "document_test_helpers.h"
 #include "layout_computer.h"
+#include "mermaid_util.h"
 #include "reducer_harness.h"
+#include "test_helpers.h"
 #include <optional>
 #include <utility>
 #include <windows.h>
@@ -297,7 +299,8 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
     auto& diagram = cache.EnsureDiagram(static_cast<size_t>(index));
     diagram.width = 40.0f;
     diagram.height = 40.0f;
-    diagram.png = std::make_shared<const ByteBuffer>(size_t{ 1 });
+    diagram.bitmap = &SharedStubBitmap();
+    diagram.drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
 
     const auto& node = h.state.document.doc.GetNodes()[static_cast<size_t>(index)];
     const auto& theme = h.theme;

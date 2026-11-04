@@ -95,8 +95,7 @@ struct Strings {
 
     // ダイアグラム描画エラー (詳細メッセージが取れなかった場合のフォールバック)
     std::wstring_view diagram_error;
-    std::wstring_view diagram_too_large;
-    std::wstring_view diagram_webview_unavailable;
+    std::wstring_view diagram_unsupported;
 
     // 設定ダイアログ
     std::wstring_view settings_title;
@@ -171,8 +170,7 @@ inline constexpr Strings kJa = {
     .toast_diagram_view_failed = L"図を開けませんでした",
     .loading = L"読み込み中...",
     .diagram_error = L"図の描画に失敗しました",
-    .diagram_too_large = L"図が大きすぎるため表示できません",
-    .diagram_webview_unavailable = L"WebView2 を利用できないため図を描画できません",
+    .diagram_unsupported = L"この図は描画できません",
     .settings_title = L"設定",
     .settings_language = L"言語",
     .settings_language_system = L"OS の設定に合わせる",
@@ -239,8 +237,7 @@ inline constexpr Strings kEn = {
     .toast_diagram_view_failed = L"Could not open the diagram",
     .loading = L"Loading...",
     .diagram_error = L"Failed to render diagram",
-    .diagram_too_large = L"Diagram is too large to display",
-    .diagram_webview_unavailable = L"Cannot render diagrams because WebView2 is unavailable",
+    .diagram_unsupported = L"This diagram cannot be rendered",
     .settings_title = L"Settings",
     .settings_language = L"Language",
     .settings_language_system = L"Use system setting",
@@ -307,8 +304,7 @@ inline constexpr Strings kZh = {
     .toast_diagram_view_failed = L"无法打开图表",
     .loading = L"正在加载...",
     .diagram_error = L"图表渲染失败",
-    .diagram_too_large = L"图表过大，无法显示",
-    .diagram_webview_unavailable = L"WebView2 不可用，无法绘制图表",
+    .diagram_unsupported = L"无法绘制此图表",
     .settings_title = L"设置",
     .settings_language = L"语言",
     .settings_language_system = L"跟随系统设置",
@@ -375,8 +371,7 @@ inline constexpr Strings kZhHant = {
     .toast_diagram_view_failed = L"無法開啟圖表",
     .loading = L"正在載入...",
     .diagram_error = L"無法繪製圖表",
-    .diagram_too_large = L"圖表太大，無法顯示",
-    .diagram_webview_unavailable = L"WebView2 無法使用，因此無法繪製圖表",
+    .diagram_unsupported = L"無法繪製此圖表",
     .settings_title = L"設定",
     .settings_language = L"語言",
     .settings_language_system = L"依照系統設定",
@@ -443,8 +438,7 @@ inline constexpr Strings kKo = {
     .toast_diagram_view_failed = L"다이어그램을 열 수 없습니다",
     .loading = L"불러오는 중...",
     .diagram_error = L"다이어그램을 그리지 못했습니다",
-    .diagram_too_large = L"다이어그램이 너무 커서 표시할 수 없습니다",
-    .diagram_webview_unavailable = L"WebView2를 사용할 수 없어 다이어그램을 그릴 수 없습니다",
+    .diagram_unsupported = L"이 다이어그램은 그릴 수 없습니다",
     .settings_title = L"설정",
     .settings_language = L"언어",
     .settings_language_system = L"시스템 설정 사용",

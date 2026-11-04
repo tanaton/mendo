@@ -332,14 +332,14 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
 bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
 {
     const auto it = src.diagrams_.find(from);
-    if (it == src.diagrams_.end() || !it->second.bitmap) {
+    if (it == src.diagrams_.end() || !it->second.HasImage()) {
         return false;
     }
     auto& d = diagrams_.insert_or_assign(to, std::move(it->second)).first->second;
     d.MarkStale();
     // コードのハッシュは新しいノードのテキストで計算し直させる。
     d.code_hash = 0;
-    d.png.reset();
+    d.drawing.reset();
     entries_[to].height = src.entries_[from].height;
     return true;
 }

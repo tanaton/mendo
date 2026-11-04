@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-// 確保した後で書き込んで埋めるバイト列 (ファイルの読み込み・WebView2 の出力)。std::vector と違い確保時に 0 で埋めない。
+// 確保した後で書き込んで埋めるバイト列 (ファイルの読み込みなど)。std::vector と違い確保時に 0 で埋めない。
 // 埋める分は読み込みの 2 割弱にあたる (温まったキャッシュから 50MB を読んで約 2.5ms / 15ms)。
 class ByteBuffer {
 public:
@@ -58,8 +58,6 @@ private:
     size_t size_ = 0;
 };
 
-// エンコード済み PNG。図のビットマップ・ディスクキャッシュ・クリップボードで共有する。
-using PngBytes = std::shared_ptr<const ByteBuffer>;
 
 // UI スレッドで溜まった結果を GPU へ転送する 1 回の持ち時間。1 件で数 ms かかるので、まとめて届くと 1 フレームを押し出す。
 inline constexpr std::chrono::microseconds kUploadSliceBudget{ 4000 };

@@ -1,6 +1,8 @@
 #include "document_utils.h"
+#include "document.h"
 #include "ascii_util.h"
 #include "profiler.h"
+#include "string_convert.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <charconv>
@@ -450,6 +452,11 @@ LinkClickResult ClassifyLinkClick(std::string_view url)
     if (url[0] == '#') {
         result.type = LinkClickResult::Type::Anchor;
         result.target = PercentDecode(url.substr(1));
+        return result;
+    }
+    if (url.starts_with("mendo://") && IsEmbeddedPath(string_convert::Utf8ToWide(url))) {
+        result.type = LinkClickResult::Type::Embedded;
+        result.target = url;
         return result;
     }
     if (!IsSafeUrlScheme(url)) {

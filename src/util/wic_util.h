@@ -99,13 +99,12 @@ inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
     return nullptr;
 }
 
-// bytes をコピーせずに参照して container 形式の画像をデコードし、pixel_format の FormatConverter と
+// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter と
 // ピクセルサイズを返す。bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は
 // ConvertBitmapSource を参照)。形式の判定を WIC に任せるとインストール済みのどのデコーダも
 // 動きうるので、container の形式に限る。
 inline std::optional<DecodeResult> DecodeFromMemory(
-    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container,
-    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
+    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
 {
     const auto stream = CreateStreamOnMemory(wic, bytes);
     if (!stream) {
@@ -121,7 +120,7 @@ inline std::optional<DecodeResult> DecodeFromMemory(
         return std::nullopt;
     }
 
-    auto converter = ConvertBitmapSource(wic, frame.Get(), pixel_format);
+    auto converter = ConvertBitmapSource(wic, frame.Get());
     if (!converter) {
         return std::nullopt;
     }

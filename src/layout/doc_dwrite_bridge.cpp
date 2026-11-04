@@ -57,11 +57,15 @@ constexpr wchar_t kFirstCombiningChar = 0x0300;
 // 掛ける順序は前からのままにする。後ろからだと同じ 4500 区間が 311ms になる。
 constexpr size_t kMaxFallbackRanges = 1024;
 
-// 1 文字をシステムのフォールバックに尋ねるための入力。
+// 1 文字をシステムのフォールバックに尋ねるための入力。BMP 外の文字はサロゲートの 2 単位。
 class SingleCharSource final : public UncountedCom<IDWriteTextAnalysisSource> {
 public:
-    SingleCharSource(wchar_t text, const wchar_t* locale) noexcept : text_(text), locale_(locale)
+    SingleCharSource(uint32_t cp, const wchar_t* locale) noexcept : length_(utf8_codec::EncodeUtf16(cp, text_)), locale_(locale)
     {}
+    UINT32 Length() const noexcept
+    {
+        return length_;
+    }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** object) override
     {
         *object = nullptr;
@@ -69,14 +73,14 @@ public:
     }
     HRESULT STDMETHODCALLTYPE GetTextAtPosition(UINT32 position, const WCHAR** text, UINT32* length) override
     {
-        *text = position == 0 ? &text_ : nullptr;
-        *length = position == 0 ? 1 : 0;
+        *text = position < length_ ? text_ + position : nullptr;
+        *length = position < length_ ? length_ - position : 0;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetTextBeforePosition(UINT32 position, const WCHAR** text, UINT32* length) override
     {
-        *text = position > 0 ? &text_ : nullptr;
-        *length = position > 0 ? 1 : 0;
+        *text = position > 0 ? text_ : nullptr;
+        *length = std::min(position, length_);
         return S_OK;
     }
     DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override
@@ -85,19 +89,20 @@ public:
     }
     HRESULT STDMETHODCALLTYPE GetLocaleName(UINT32, UINT32* length, const WCHAR** locale) override
     {
-        *length = 1;
+        *length = length_;
         *locale = locale_;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetNumberSubstitution(UINT32, UINT32* length, IDWriteNumberSubstitution** substitution) override
     {
-        *length = 1;
+        *length = length_;
         *substitution = nullptr;
         return S_OK;
     }
 
 private:
-    wchar_t text_;
+    wchar_t text_[2]{};
+    UINT32 length_;
     const wchar_t* locale_;
 };
 
@@ -142,23 +147,9 @@ ComPtr<IDWriteFont> FindFont(IDWriteFactory* factory, const std::wstring& family
 // 分からなければ空。大きさを変えて組むフォント (scale が 1 でない) は名前だけでは再現できないので空にする。
 std::wstring AskSystemFallback(IDWriteFactory* factory, wchar_t sample, const std::wstring& base_family, const std::wstring& locale)
 {
-    ComPtr<IDWriteFactory2> factory2;
-    ComPtr<IDWriteFontFallback> fallback;
-    ComPtr<IDWriteFontCollection> collection;
-    if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) || FAILED(factory2->GetSystemFontFallback(&fallback)) ||
-        FAILED(factory->GetSystemFontCollection(&collection))) {
-        return {};
-    }
-    SingleCharSource source(sample, locale.c_str());
-    UINT32 mapped_length = 0;
-    ComPtr<IDWriteFont> font;
-    FLOAT scale = 0.0f;
-    const HRESULT hr = fallback->MapCharacters(&source, 0, 1, collection.Get(), base_family.c_str(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                               DWRITE_FONT_STRETCH_NORMAL, &mapped_length, &font, &scale);
-    if (FAILED(hr) || !font || mapped_length != 1 || scale != 1.0f) {
-        return {};
-    }
-    return FamilyNameOf(font.Get());
+    float scale = 0.0f;
+    const auto font = MapSystemFallback(factory, sample, base_family.c_str(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, locale.c_str(), &scale);
+    return font && scale == 1.0f ? FamilyNameOf(font.Get()) : std::wstring{};
 }
 
 // 解決した結果「明示しない」を表す。FamilyFor の nullptr (未解決) と区別する。
@@ -167,6 +158,31 @@ const wchar_t* const kNoFamily = L"";
 } // namespace
 
 static_assert(std::size(kScripts) == FallbackFontMap::kScriptCount);
+
+ComPtr<IDWriteFont> MapSystemFallback(IDWriteFactory* factory, uint32_t cp, const wchar_t* base_family, DWRITE_FONT_WEIGHT weight,
+                                      DWRITE_FONT_STYLE style, const wchar_t* locale, float* scale)
+{
+    ComPtr<IDWriteFactory2> factory2;
+    ComPtr<IDWriteFontFallback> fallback;
+    ComPtr<IDWriteFontCollection> collection;
+    if (!factory || FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) || FAILED(factory2->GetSystemFontFallback(&fallback)) ||
+        FAILED(factory->GetSystemFontCollection(&collection))) {
+        return nullptr;
+    }
+    SingleCharSource source(cp, locale);
+    UINT32 mapped_length = 0;
+    ComPtr<IDWriteFont> font;
+    FLOAT font_scale = 0.0f;
+    if (FAILED(fallback->MapCharacters(&source, 0, source.Length(), collection.Get(), base_family, weight, style, DWRITE_FONT_STRETCH_NORMAL,
+                                       &mapped_length, &font, &font_scale)) ||
+        mapped_length != source.Length()) {
+        return nullptr;
+    }
+    if (scale) {
+        *scale = font_scale;
+    }
+    return font;
+}
 
 void FallbackFontMap::Reset(IDWriteFactory* factory, std::wstring_view base_family, std::wstring_view locale)
 {
@@ -283,14 +299,7 @@ void DecodeForDWrite(std::string_view text, std::wstring& out)
                 continue;
             }
             const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(byte_pos));
-            if (decoded.cp <= 0xFFFF) {
-                dst[wide_pos++] = static_cast<wchar_t>(decoded.cp);
-            }
-            else {
-                const uint32_t adj = decoded.cp - 0x10000u;
-                dst[wide_pos++] = static_cast<wchar_t>(0xD800u + (adj >> 10));
-                dst[wide_pos++] = static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu));
-            }
+            wide_pos += utf8_codec::EncodeUtf16(decoded.cp, dst + wide_pos);
             byte_pos += decoded.len;
         }
         return wide_pos;

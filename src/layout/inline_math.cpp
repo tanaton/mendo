@@ -35,10 +35,6 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
 
 void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
 {
-    // 平均してこの数ごとに区切る。上限 (kMaxInlineMathPerChunk) で区切ると、数式の増減でその後ろの区切りも
-    // 次にキーで区切るまでずれるので、上限に届くことが少ないよう (約 4%) 平均を上限の 1/3 ほどにする。
-    constexpr uint64_t kAverageChunk = 64;
-    // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方のページを引かせない。
     constexpr uint64_t kChunkKeySalt = 0xA54FF53A5F1D36F1ULL;
 
     chunks_.clear();
@@ -72,13 +68,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
             }
             *chunk = static_cast<uint32_t>(chunks_.size());
             current.items.push_back({ key, std::string{ *tex }, font_size });
-            // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
-            // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
-            uint64_t mixed = key;
-            mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9ULL;
-            mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBULL;
-            mixed ^= mixed >> 31;
-            if (mixed % kAverageChunk == 0 || current.items.size() >= kMaxInlineMathPerChunk) {
+            if (current.items.size() >= kInlineMathPerChunk) {
                 close();
             }
         }
@@ -103,28 +93,15 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
     states_.assign(chunks_.size(), State::Idle);
 }
 
-const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk, bool wanted) noexcept
+const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk) noexcept
 {
-    auto& state = states_[chunk];
-    if (state == State::Idle) {
-        state = wanted ? State::Wanted : State::Requested;
-        return &chunks_[chunk];
-    }
-    if (wanted && state == State::Requested) {
-        state = State::Wanted;
-    }
-    return nullptr;
+    return std::exchange(states_[chunk], State::Requested) == State::Idle ? &chunks_[chunk] : nullptr;
 }
 
-bool InlineMathPlan::IsWanted(size_t chunk, uint64_t key) const noexcept
-{
-    return IsCurrent(chunk, key) && states_[chunk] == State::Wanted;
-}
-
-void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept
+void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key) noexcept
 {
     if (IsCurrent(chunk, key)) {
-        states_[chunk] = failed ? State::Failed : State::Idle;
+        states_[chunk] = State::Idle;
     }
 }
 

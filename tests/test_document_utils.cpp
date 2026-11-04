@@ -1896,6 +1896,12 @@ TEST(HandleLinkClickTest, ClassifiesLinks)
         { "https://example.com/?q=%22", Type::ExternalUrl, "https://example.com/?q=%22" },
         { "https://例え.jp/パス", Type::ExternalUrl, "https://例え.jp/パス" },
 
+        // 埋め込みの文書は完全一致だけ。
+        { "mendo://licenses", Type::Embedded, "mendo://licenses" },
+        { "mendo://help", Type::Embedded, "mendo://help" },
+        { "mendo://other", Type::None, "" },
+        { "mendo://licenses/x", Type::None, "" },
+
         { "file:///C:/Windows/System32/cmd.exe", Type::None, "" },
         { "javascript:alert(1)", Type::None, "" },
         { "ftp://example.com/file", Type::None, "" },

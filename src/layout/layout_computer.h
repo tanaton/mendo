@@ -99,7 +99,7 @@ constexpr float BitmapDisplayHeight(float width, float height, float max_width) 
 }
 
 // ノードの右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。
-// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図の結果 (コピー・保存する PNG が無ければボタンも無い)。
+// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図の結果 (コピー・保存の元が無ければボタンも無い)。
 template <class Fn>
 void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x, float w, float top, const Theme& theme, Fn&& fn)
 {
@@ -107,7 +107,7 @@ void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x
     if (node.type == NodeType::CodeBlock && !node.continues_prev()) {
         fn(OverlayButtonRect(x + w, top - NodeBoxPadTop(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
     }
-    else if (node.type == NodeType::Diagram && diagram && diagram->png) {
+    else if (node.type == NodeType::Diagram && diagram && diagram->CanExport()) {
         const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
         for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
             fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);

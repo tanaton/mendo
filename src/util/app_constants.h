@@ -10,9 +10,8 @@ enum class Id : UINT_PTR {
     TOAST,
     TOOLTIP,
     BITMAP_MANAGE,
-    MERMAID_INIT_RETRY,
     FILE_RELOAD_DEBOUNCE,
-    MERMAID_IDLE,
+    PELE_TRIM,
     DEVICE_RECREATE_RETRY,
     INLINE_MATH_TABLES,
 };
@@ -32,7 +31,7 @@ namespace app_msg {
 
 inline constexpr UINT IMAGE_LOADED = WM_APP + 2;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
-inline constexpr UINT MERMAID_DISK_LOADED = WM_APP + 7;
+inline constexpr UINT MERMAID_JOB_DONE = WM_APP + 7;
 inline constexpr UINT FILE_LISTED = WM_APP + 8;
 // 計測ワーカーがインライン数式の描画を頼んだ (InlineMathTable::SetWake)。
 inline constexpr UINT INLINE_MATH_REQUESTED = WM_APP + 9;

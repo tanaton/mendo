@@ -7,6 +7,7 @@
 #include "document_test_helpers.h"
 #include "draw_cmd_test_util.h"
 #include "draw_command.h"
+#include "mermaid_util.h"
 #include "dwrite_test_base.h"
 #include "search_state.h"
 #include "text_types.h"
@@ -364,11 +365,11 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Diagram);
     ASSERT_GE(idx, 0);
 
-    // ボタンは描けた (bitmap があり) 保存・コピー元の PNG もある図にだけ付く。
+    // ボタンは描けた (commands があり) 保存・コピー元の描画命令もある図にだけ付く。
     auto& diagram = pl.cache.EnsureDiagram(static_cast<size_t>(idx));
     diagram.width = 100.0f;
     diagram.height = 80.0f;
-    diagram.png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>{ 0x89 });
+    diagram.drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
 
     const auto wic = wic_util::CreateWicFactory("HighlightOrderTest");
     ASSERT_NE(wic, nullptr);
@@ -380,7 +381,9 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
     ASSERT_HRESULT_SUCCEEDED(d2d->CreateWicBitmapRenderTarget(
         wic_bitmap.Get(), D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE), rt.GetAddressOf()));
-    ASSERT_HRESULT_SUCCEEDED(rt->CreateBitmapFromWicBitmap(wic_bitmap.Get(), diagram.bitmap.GetAddressOf()));
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    ASSERT_HRESULT_SUCCEEDED(rt.As(&dc));
+    ASSERT_HRESULT_SUCCEEDED(dc->CreateCommandList(diagram.commands.GetAddressOf()));
 
     auto icon = CreateThemeFormat(COPY_BTN_SIZE);
     ASSERT_NE(icon, nullptr);

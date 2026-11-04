@@ -117,7 +117,7 @@ private:
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
-    // DropQueued で進める。投入時の値から変わっていたら worker は読まずに dropped で返す (Mermaid の disk_drop_gen_ と同じ)。
+    // DropQueued で進める。投入時の値から変わっていたら worker は読まずに dropped で返す (Mermaid の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
     // 結果を待っているパス -> 待つ間に要求し直されたか。要求は必ず結果を 1 回返すので、届いたら外す。
     // 文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、要求し直されたものだけ読み直させる。
