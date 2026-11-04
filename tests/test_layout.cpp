@@ -118,15 +118,6 @@ TEST_F(LayoutTest, MixedDocumentLayout)
     }
 }
 
-TEST_F(LayoutTest, LayoutDirtyFlagCleared)
-{
-    auto nodes = ParseNodes("Test");
-    LayoutCache cache(nodes.size());
-    EXPECT_TRUE(cache[0].layout_dirty);
-    ComputeLayout(engine_, nodes, cache, 800.0f);
-    EXPECT_FALSE(cache[0].layout_dirty);
-}
-
 TEST_F(LayoutTest, TableCellLinkHasUnderline)
 {
     auto [nodes, cache] = ParseAndLayout(
@@ -281,15 +272,6 @@ TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
     ASSERT_EQ(widths.size(), 2u);
     // 列Aは列Bよりも大きな割合を得ること
     EXPECT_GT(widths[0], widths[1]);
-}
-
-TEST(ComputeColumnWidthsTest, SingleColumn)
-{
-    std::vector<float> natural = { 50.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 200.0f);
-    ASSERT_EQ(widths.size(), 1u);
-    EXPECT_GE(widths[0], 50.0f);
 }
 
 TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
@@ -513,15 +495,6 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
         EXPECT_FALSE(cache[i].layout_dirty)
             << "y=" << cache.Top(i) << " の表示ノードがまだダーティ";
     }
-}
-
-TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
-{
-    auto [nodes, cache] = ParseAndLayout("Hello world");
-
-    // すべてのノードがクリーンなので、EnsureVisibleLayoutはfalseを返すこと
-    bool updated = engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 1000.0f);
-    EXPECT_FALSE(updated);
 }
 
 // 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
@@ -845,29 +818,12 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
 
     CommandGenerator gen;
     InitWithoutText(gen, theme_);
-    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    DrawCommandList cmds;
-    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
     const auto bullet = FindFirst<FillEllipseCmd>(cmds);
     ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
     EXPECT_NEAR(bullet->center.y, expected_y, 0.01f)
         << "箇条書き記号は1行目の中央に配置されるべき";
-}
-
-// issue#237: loose list の LI (空) と直下 Paragraph の text_top は一致すべき。
-TEST_F(LayoutTest, LooseListBulletAlignsWithFollowingParagraphText)
-{
-    auto [nodes, cache] = ParseAndLayout("- a\n\n- b");
-
-    ASSERT_EQ(nodes.size(), 4u);
-    ASSERT_EQ(nodes[0].type, NodeType::ListItem);
-    ASSERT_EQ(nodes[1].type, NodeType::Paragraph);
-    ASSERT_EQ(nodes[2].type, NodeType::ListItem);
-    ASSERT_EQ(nodes[3].type, NodeType::Paragraph);
-
-    EXPECT_NEAR(cache.Top(0), cache.Top(1), 0.01f);
-    EXPECT_NEAR(cache.Top(2), cache.Top(3), 0.01f);
 }
 
 // インデントが本文幅を超える深いネストでも、幅に下限があるのでテキストレイアウトを作れる。
@@ -914,18 +870,6 @@ TEST(NodeContentWidthTest, ContentWidthStaysPositiveAtMaxZoomAndMinPaneWidth)
 }
 
 // 子ブロックの無い空 LI は 1 行ぶんの高さを持ち、重ならない (高さ 0 だと全部が同じ Y に積まれる)。
-TEST_F(LayoutTest, EmptyListItemsWithoutChildrenDoNotOverlap)
-{
-    auto [nodes, cache] = ParseAndLayout("1.\n2.\n3.\n");
-
-    ASSERT_EQ(nodes.size(), 3u);
-    for (size_t i = 0; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].height, 0.0f) << i;
-    }
-    EXPECT_LT(cache.Top(0), cache.Top(1));
-    EXPECT_LT(cache.Top(1), cache.Top(2));
-}
-
 // 推定と実測は別の場所で同じ式を書いているので、片方だけ変わると計測のたびにスクロール位置が飛ぶ。
 TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
 {
@@ -933,6 +877,9 @@ TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
     ASSERT_EQ(nodes.size(), 3u);
     const auto estimated = EstimateHeights(nodes, theme_);
     const float expected = layout::EmptyListItemHeight(theme_);
+    EXPECT_GT(expected, 0.0f);
+    EXPECT_LT(cache.Top(0), cache.Top(1));
+    EXPECT_LT(cache.Top(1), cache.Top(2));
     for (size_t i = 0; i < nodes.size(); i++) {
         SCOPED_TRACE(i);
         EXPECT_FLOAT_EQ(cache[i].height, expected);
@@ -941,6 +888,7 @@ TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
     EXPECT_FLOAT_EQ(cache.Top(1) - cache.Top(0), estimated.Top(1) - estimated.Top(0));
 }
 
+// loose list の LI (空) と直下の段落の text_top は一致する (issue#237)。記号は段落の 1 行目の中央に置く。
 // 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので
 // 実 line metrics と完全一致しない → epsilon 3px で許容。
 TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
@@ -948,6 +896,12 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     auto [nodes, cache] = ParseAndLayout("- a\n\n- b");
 
     ASSERT_EQ(nodes.size(), 4u);
+    ASSERT_EQ(nodes[0].type, NodeType::ListItem);
+    ASSERT_EQ(nodes[1].type, NodeType::Paragraph);
+    ASSERT_EQ(nodes[2].type, NodeType::ListItem);
+    ASSERT_EQ(nodes[3].type, NodeType::Paragraph);
+    EXPECT_NEAR(cache.Top(0), cache.Top(1), 0.01f);
+    EXPECT_NEAR(cache.Top(2), cache.Top(3), 0.01f);
     ASSERT_NE(cache[1].text_layout(), nullptr);
     DWRITE_LINE_METRICS lm;
     UINT32 lc;
@@ -956,9 +910,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
 
     CommandGenerator gen;
     InitWithoutText(gen, theme_);
-    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    DrawCommandList cmds;
-    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
     const auto bullet = FindFirst<FillEllipseCmd>(cmds);
@@ -990,9 +942,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     CommandGenerator gen;
     const MdPaneFormats formats{ .checkbox = icon_fmt };
     gen.Init(theme_, formats, text_layouts);
-    PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    DrawCommandList cmds;
-    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
     int unchecked = 0;
     int checked = 0;

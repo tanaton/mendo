@@ -24,11 +24,21 @@ std::vector<Node> RepeatedTextNodes(const char* text, int count)
     return nodes;
 }
 
-std::vector<Node> Nodes(Node node)
+template <class... N>
+std::vector<Node> Nodes(N... node)
 {
     std::vector<Node> nodes;
-    nodes.push_back(std::move(node));
+    (nodes.push_back(std::move(node)), ...);
     return nodes;
+}
+
+Node TypedNode(NodeType type, const char* text = "", SyntaxLanguage language = SyntaxLanguage::None)
+{
+    Node node;
+    node.type = type;
+    node.code_language = language;
+    node.SetText(text);
+    return node;
 }
 
 SearchState Searched(const std::vector<Node>& nodes, std::string_view query, bool case_sensitive = false)
@@ -63,13 +73,16 @@ TEST(SearchStateTest, HideClearsMatches)
 // 基本検索
 // ═══════════════════════════════════════════════
 
-// 既定は大文字小文字を無視し、区別するときは完全一致だけ。空のノードは飛ばす。
-TEST(SearchStateTest, FindsAllMatchesInTextNodes)
+// 既定は大文字小文字を無視し、区別するときは完全一致だけ。テキストを持たないノードは飛ばす。
+// 位置は UTF-16 で、表のセルではセル内の位置。
+TEST(SearchStateTest, FindsAllMatches)
 {
     struct Expected {
         int node;
         uint32_t start_w;
         uint32_t length_w;
+        int row = -1;
+        int col = 0;
     };
     struct Case {
         const char* name;
@@ -89,6 +102,18 @@ TEST(SearchStateTest, FindsAllMatchesInTextNodes)
         { "EmptyTextNodeSkipped", TextNodes({ "", "hello" }), "hello", false, { { 1, 0, 5 } } },
         { "CaseSensitiveMatchesExact", TextNodes({ "Hello HELLO hello" }), "Hello", true, { { 0, 0, 5 } } },
         { "CaseSensitiveNoMatch", TextNodes({ "HELLO" }), "hello", true, {} },
+        // "これは" 3 / "テスト" 3 / "です。" 3
+        { "Japanese", TextNodes({ "これはテストです。テスト完了。" }), "テスト", false, { { 0, 3, 3 }, { 0, 9, 3 } } },
+        { "AfterSurrogatePair", TextNodes({ "\xF0\x9F\x98\x80\xE3\x81\x82\xE3\x81\x84" }), "\xE3\x81\x84", false, { { 0, 3, 1 } } },
+        { "NonTextNodeSkipped", Nodes(TypedNode(NodeType::HorizontalRule), MakeTextNode("hello")), "hello", false, { { 1, 0, 5 } } },
+        // 画像の alt と Mermaid のソースは描画されないので一致させない。
+        { "BitmapNodesExcluded", Nodes(TypedNode(NodeType::Image, "alt text with keyword"), TypedNode(NodeType::Diagram, "graph keyword TD; A-->B", SyntaxLanguage::Mermaid), MakeTextNode("keyword in paragraph")), "keyword", false, { { 2, 0, 7 } } },
+        { "NonMermaidCodeBlock", Nodes(TypedNode(NodeType::CodeBlock, "int main()", SyntaxLanguage::Cpp)), "main", false, { { 0, 4, 4 } } },
+        { "TableCell", Nodes(MakeTableNode({ { "hello", "world" } })), "hello", false, { { 0, 0, 5, 0, 0 } } },
+        { "TableMultipleCells", Nodes(MakeTableNode({ { "test one", "test two" } })), "test", false, { { 0, 0, 4, 0, 0 }, { 0, 0, 4, 0, 1 } } },
+        { "TableCaseSensitive", Nodes(MakeTableNode({ { "Hello", "hello" } })), "Hello", true, { { 0, 0, 5, 0, 0 } } },
+        { "TextAndTable", Nodes(MakeTextNode("find me"), MakeTableNode({ { "find here", "no" } })), "find", false, { { 0, 0, 4 }, { 1, 0, 4, 0, 0 } } },
+        { "TableCellLocalOffsets", Nodes(MakeTableNode({ { "xx Foo", "\xE3\x81\x82" "foo foo" } })), "FOO", false, { { 0, 3, 3, 0, 0 }, { 0, 1, 3, 0, 1 }, { 0, 5, 3, 0, 1 } } },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -98,53 +123,14 @@ TEST(SearchStateTest, FindsAllMatchesInTextNodes)
             SCOPED_TRACE(k);
             const auto& m = s.GetMatches()[k];
             EXPECT_EQ(m.node_index, c.expected[k].node);
-            EXPECT_EQ(m.table_row, -1);
+            EXPECT_EQ(m.table_row, c.expected[k].row);
+            if (c.expected[k].row >= 0) {
+                EXPECT_EQ(m.table_col, c.expected[k].col);
+            }
             EXPECT_EQ(m.start_w, c.expected[k].start_w);
             EXPECT_EQ(m.length_w, c.expected[k].length_w);
         }
     }
-}
-
-// ═══════════════════════════════════════════════
-// テーブル検索
-// ═══════════════════════════════════════════════
-
-TEST(SearchStateTest, TableCellMatch)
-{
-    const auto s = Searched(Nodes(MakeTableNode({ { "hello", "world" } })), "hello");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-    EXPECT_EQ(s.GetMatches()[0].table_row, 0);
-    EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
-    EXPECT_EQ(s.GetMatches()[0].length_w, 5u);
-}
-
-TEST(SearchStateTest, TableMultipleCellMatches)
-{
-    const auto s = Searched(Nodes(MakeTableNode({ { "test one", "test two" } })), "test");
-    ASSERT_EQ(s.GetMatchCount(), 2);
-    EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-    EXPECT_EQ(s.GetMatches()[1].table_col, 1);
-}
-
-TEST(SearchStateTest, TableCaseSensitiveMatch)
-{
-    const auto s = Searched(Nodes(MakeTableNode({ { "Hello", "hello" } })), "Hello", true);
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-}
-
-TEST(SearchStateTest, MixedNodeAndTableMatches)
-{
-    auto nodes = TextNodes({ "find me" });
-    nodes.push_back(MakeTableNode({ { "find here", "no" } }));
-    const auto s = Searched(nodes, "find");
-    ASSERT_EQ(s.GetMatchCount(), 2);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-    EXPECT_EQ(s.GetMatches()[0].table_row, -1); // 通常ノード
-    EXPECT_EQ(s.GetMatches()[1].node_index, 1);
-    EXPECT_EQ(s.GetMatches()[1].table_row, 0); // テーブル
 }
 
 // ═══════════════════════════════════════════════
@@ -391,66 +377,6 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
 }
 
 // ═══════════════════════════════════════════════
-// 日本語テキスト
-// ═══════════════════════════════════════════════
-
-TEST(SearchStateTest, JapaneseTextSearch)
-{
-    const auto s = Searched(TextNodes({ "これはテストです。テスト完了。" }), "テスト");
-    ASSERT_EQ(s.GetMatchCount(), 2);
-    // UTF-16: 各 BMP CJK 文字 1 code unit。"これは" 3 / "テスト" 3 / "です。" 3
-    EXPECT_EQ(s.GetMatches()[0].start_w, 3u);
-    EXPECT_EQ(s.GetMatches()[0].length_w, 3u);
-    EXPECT_EQ(s.GetMatches()[1].start_w, 9u);
-}
-
-// ═══════════════════════════════════════════════
-// テキストを持たないノード・画像・Mermaid の扱い
-// ═══════════════════════════════════════════════
-
-TEST(SearchStateTest, NonTextNodesSkipped)
-{
-    Node hr;
-    hr.type = NodeType::HorizontalRule;
-    auto nodes = Nodes(std::move(hr));
-    nodes.push_back(MakeTextNode("hello"));
-    const auto s = Searched(nodes, "hello");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 1);
-}
-
-// 画像の alt と Mermaid のソースは描画されないので一致させない。段落の一致だけが残る。
-TEST(SearchStateTest, BitmapNodesExcludedFromSearch)
-{
-    Node img;
-    img.type = NodeType::Image;
-    img.SetText("alt text with keyword");
-    Node mermaid;
-    mermaid.type = NodeType::Diagram;
-    mermaid.code_language = SyntaxLanguage::Mermaid;
-    mermaid.SetText("graph keyword TD; A-->B");
-
-    std::vector<Node> nodes;
-    nodes.push_back(std::move(img));
-    nodes.push_back(std::move(mermaid));
-    nodes.push_back(MakeTextNode("keyword in paragraph"));
-    const auto s = Searched(nodes, "keyword");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 2);
-}
-
-TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
-{
-    Node code;
-    code.type = NodeType::CodeBlock;
-    code.code_language = SyntaxLanguage::Cpp;
-    code.SetText("int main()");
-    const auto s = Searched(Nodes(std::move(code)), "main");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-}
-
-// ═══════════════════════════════════════════════
 // テーブル一括走査
 // ═══════════════════════════════════════════════
 
@@ -466,26 +392,6 @@ TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
     RunSearchToEnd(s, nodes, "abc");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-}
-
-TEST(SearchStateTest, TableMatchesCarryCellLocalOffsets)
-{
-    const auto s = Searched(Nodes(MakeTableNode({ { "xx Foo", "\xE3\x81\x82" "foo foo" } })), "FOO");
-    ASSERT_EQ(s.GetMatchCount(), 3);
-    EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 3u);
-    EXPECT_EQ(s.GetMatches()[1].table_col, 1);
-    EXPECT_EQ(s.GetMatches()[1].start_w, 1u);
-    EXPECT_EQ(s.GetMatches()[1].length_w, 3u);
-    EXPECT_EQ(s.GetMatches()[2].start_w, 5u);
-}
-
-TEST(SearchStateTest, JapaneseMatchUtf16Offsets)
-{
-    const auto s = Searched(TextNodes({ "\xF0\x9F\x98\x80\xE3\x81\x82\xE3\x81\x84" }), "\xE3\x81\x84");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start_w, 3u) << "サロゲートペア 2 + 'あ' 1";
-    EXPECT_EQ(s.GetMatches()[0].length_w, 1u);
 }
 
 namespace {

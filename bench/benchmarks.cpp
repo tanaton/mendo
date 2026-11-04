@@ -79,6 +79,16 @@ const Node* FirstTableOrSkip(benchmark::State& state, const Document& doc)
     return &doc.GetNodes()[tables.front()];
 }
 
+// rows 行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
+std::string BenchTableMd(size_t rows)
+{
+    std::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
+    for (size_t r = 0; r < rows; ++r) {
+        std::format_to(std::back_inserter(md), "| 項目{0} | 状態{1} | 説明のテキスト {0} を少し長めに書く | {0} | {2} | 備考{0} |\n", r, r % 97, r * 7 % 1000);
+    }
+    return md;
+}
+
 // example/test.md を copies 回、かつ min_bytes 以上になるまでつなげる。
 std::string RepeatTestMd(benchmark::State& state, size_t copies, size_t min_bytes = 0, std::string_view separator = {})
 {
@@ -454,6 +464,17 @@ std::unique_ptr<DocLayout> OpenDoc(benchmark::State& state, std::string md, int 
     return opened->l.SkipIfFailed(state) ? nullptr : std::move(opened);
 }
 
+// 表を含む文書を開き、最初の表を返す。開けないか表が無ければスキップにして表は null。
+std::pair<std::unique_ptr<DocLayout>, const Node*> OpenTableOrSkip(benchmark::State& state, std::string md, int workers)
+{
+    auto opened = OpenDoc(state, std::move(md), workers);
+    if (!opened) {
+        return {};
+    }
+    const Node* table = FirstTableOrSkip(state, opened->doc);
+    return { std::move(opened), table };
+}
+
 void WorkerCounts(benchmark::Benchmark* b)
 {
     for (const int n : { 0, 8 }) {
@@ -822,21 +843,12 @@ BENCHMARK(BM_FindActiveTocIndex)->Unit(benchmark::kNanosecond);
 // 40 行の表の全セルの選択矩形 (1 フレーム分)。
 void BM_TableSelectionHitTest(benchmark::State& state)
 {
-    std::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
-    for (size_t r = 0; r < 40; ++r) {
-        std::format_to(std::back_inserter(md), "| 項目{0} | 状態{0} | 説明のテキスト {0} を少し長めに書く | {0} | {0}00 | 備考{0} |\n", r);
-    }
-    const auto opened = OpenDoc(state, std::move(md), 0);
-    if (!opened) {
-        return;
-    }
-    auto& [doc, l] = *opened;
-    const Node* table_node = FirstTableOrSkip(state, doc);
+    const auto [opened, table_node] = OpenTableOrSkip(state, BenchTableMd(40), 0);
     if (!table_node) {
         return;
     }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*table_node, entry, 1200.0f);
+    opened->l.measurer.MeasureNode(*table_node, entry, 1200.0f);
     const auto& tl = *entry.table_layout();
     const auto& table = *table_node->table_data();
     std::vector<DWRITE_HIT_TEST_METRICS> buffer;
@@ -1119,16 +1131,9 @@ BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_2kb, JsonCodeBlock(60, 2 * 1024))->Unit
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_12kb, JsonCodeBlock(60, 12 * 1024))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, plain_12kb, JsonCodeBlock(60, 12 * 1024, ""))->Unit(benchmark::kMicrosecond);
 
-// 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
 Document MakeBenchTableDoc()
 {
-    std::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
-    for (size_t r = 0; r < 20000; ++r) {
-        const auto n = std::to_string(r);
-        md += "| 項目" + n + " | 状態" + std::to_string(r % 97) + " | 説明のテキスト " + n + " を少し長めに書く | " + n + " | " +
-              std::to_string(r * 7 % 1000) + " | 備考" + n + " |\n";
-    }
-    return Document::FromMarkdown(std::move(md), L"bench.md");
+    return Document::FromMarkdown(BenchTableMd(20000), L"bench.md");
 }
 
 // 大きな表 (evict 前提) の計測。ワーカー 8 本。
@@ -1241,15 +1246,11 @@ void BM_TableResizeFastPath(benchmark::State& state)
     for (size_t i = 0; i < 20000; ++i) {
         std::format_to(std::back_inserter(md), "| r{} | value {} | 東京都 | x | 12.5 |\n", i, i * 7);
     }
-    const auto opened = OpenDoc(state, std::move(md), 0);
-    if (!opened) {
-        return;
-    }
-    auto& [doc, l] = *opened;
-    const Node* table_node = FirstTableOrSkip(state, doc);
+    const auto [opened, table_node] = OpenTableOrSkip(state, std::move(md), 0);
     if (!table_node) {
         return;
     }
+    auto& l = opened->l;
     NodeLayoutEntry entry;
     l.measurer.MeasureNode(*table_node, entry, 760.0f);
     constexpr std::array kWidths{ 700.0f, 760.0f };
@@ -1278,15 +1279,11 @@ void BM_TableFewValues(benchmark::State& state)
         }
         md += "|\n";
     }
-    const auto opened = OpenDoc(state, std::move(md), 8);
-    if (!opened) {
-        return;
-    }
-    auto& [doc, l] = *opened;
-    const Node* table = FirstTableOrSkip(state, doc);
+    const auto [opened, table] = OpenTableOrSkip(state, std::move(md), 8);
     if (!table) {
         return;
     }
+    auto& l = opened->l;
     for (auto _ : state) {
         NodeLayoutEntry entry;
         state.SetIterationTime(SecondsOf([&] { MeasureEntry(l.measurer, *table, entry, 1200.0f, nullptr); }));

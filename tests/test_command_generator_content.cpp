@@ -41,51 +41,36 @@ bool IsVertical(const DrawLineCmd& l)
 } // namespace
 
 // ---- Heading 下線 ----
-// h1 / h2 のみ entry.height の下に下線が描画される（hr_color）。
-// h3 以降では下線が出ない。
 
-TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
+// h1 / h2 だけ entry.height の下に hr 色の下線を 1 本引く。h2 は h1 より細い。
+TEST_F(CmdGenContentTest, HeadingUnderlineOnlyForH1AndH2)
 {
-    const auto cmds = Generate("# Title");
-    ASSERT_EQ(CountCmd<DrawLineCmd>(cmds), 1) << "h1 は下線を 1 本発行する";
-    const auto underline = FindFirst<DrawLineCmd>(cmds);
-    EXPECT_EQ(underline->brush_id, BrushId::Hr);
-    EXPECT_FLOAT_EQ(underline->stroke_width, theme_.hr_thickness);
-}
-
-TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
-{
-    const auto cmds = Generate("## Subtitle");
-    ASSERT_EQ(CountCmd<DrawLineCmd>(cmds), 1) << "h2 は下線を 1 本発行する";
-    const auto underline = FindFirst<DrawLineCmd>(cmds);
-    EXPECT_EQ(underline->brush_id, BrushId::Hr);
-    EXPECT_FLOAT_EQ(underline->stroke_width, theme_.h2_underline_thickness);
-    EXPECT_LT(underline->stroke_width, theme_.hr_thickness);
-}
-
-TEST_F(CmdGenContentTest, HeadingH3_DoesNotEmitUnderline)
-{
-    EXPECT_EQ(CountCmd<DrawLineCmd>(Generate("### Sub")), 0) << "h3 は下線を発行しない";
+    struct Case {
+        const char* md;
+        bool underline;
+        float thickness;
+    };
+    const Case kCases[] = {
+        { "# Title", true, theme_.hr_thickness },
+        { "## Subtitle", true, theme_.h2_underline_thickness },
+        { "### Sub", false, 0.0f },
+    };
+    EXPECT_LT(theme_.h2_underline_thickness, theme_.hr_thickness);
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto cmds = Generate(c.md);
+        ASSERT_EQ(CountCmd<DrawLineCmd>(cmds), c.underline ? 1 : 0);
+        if (c.underline) {
+            const auto underline = FindFirst<DrawLineCmd>(cmds);
+            EXPECT_EQ(underline->brush_id, BrushId::Hr);
+            EXPECT_FLOAT_EQ(underline->stroke_width, c.thickness);
+        }
+    }
 }
 
 // ---- blockquote グループ装飾 ----
 
-// ネスト blockquote の各レベルを別 x 座標のバーで描画する (PR #156)
-TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
-{
-    const auto cmds = Generate("> outer\n> > inner");
-
-    std::set<float> bar_x_positions;
-    for (const auto& c : cmds) {
-        if (auto* l = std::get_if<DrawLineCmd>(&c); l && IsQuoteBar(*l)) {
-            bar_x_positions.insert(l->p0.x);
-        }
-    }
-    EXPECT_GE(bar_x_positions.size(), 2u)
-        << "2 段ネストではレベルごとに別 x 座標のバーが出る";
-}
-
-// 外→内→外の連続描画: 外側 (level=1) はネストを貫通して 1 本のバーになる
+// ネストした引用はレベルごとに別 x 座標のバーで描く (PR #156)。外→内→外と続けば、外側 (level=1) はネストを貫通して 1 本のバーになる。
 TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
 {
     const auto cmds = Generate("> outer\n> > inner\n>\n> back to outer");
@@ -127,23 +112,31 @@ TEST_F(CmdGenContentTest, TransformsArePaired)
 
 // ---- 角丸の背景 ----
 
-// コードブロック・Alert と、ビットマップ未設定の画像・Mermaid のプレースホルダーは角丸の背景を描く。
+// コードブロック・Alert と、ビットマップ未設定の画像・Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
 TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 {
     struct Case {
         const char* name;
         const char* md;
+        bool background;
     };
     constexpr Case cases[] = {
-        { "CodeBlock",             "```\ncode\n```"                     },
-        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```"           },
-        { "Alert",                 "> [!WARNING]\n> Be careful"         },
-        { "ImageWithoutBitmap",    "![alt](image.png)"                  },
-        { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```" },
+        { "CodeBlock",             "```\ncode\n```",                     true  },
+        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```",           true  },
+        { "Alert",                 "> [!WARNING]\n> Be careful",         true  },
+        { "ImageWithoutBitmap",    "![alt](image.png)",                  true  },
+        { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```", true  },
+        { "Paragraph",             "Hello world",                        false },
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
-        EXPECT_GE(CountCmd<FillRoundedRectCmd>(Generate(c.md)), 1);
+        const auto rounded = CountCmd<FillRoundedRectCmd>(Generate(c.md));
+        if (c.background) {
+            EXPECT_GE(rounded, 1);
+        }
+        else {
+            EXPECT_EQ(rounded, 0);
+        }
     }
 }
 
@@ -188,16 +181,11 @@ TEST_F(CmdGenContentTest, AlertBarColorMatchesTheme)
 
 // ---- コピーボタン ----
 
+// アイコンのフォントが無ければ、コピーボタンは背景も出さない。
 TEST_F(CmdGenContentTest, CodeBlockNoCopyButtonWithoutIconFont)
 {
-    auto cmds = Generate("```\ncode\n```");
-    EXPECT_EQ(CountCmd<DrawTextLayoutCmd>(cmds), 0) << "formats_.copy_btn_icon が null のときコピーボタンのアイコンは生成されないべき";
-}
-
-TEST_F(CmdGenContentTest, NonCodeBlockNoCopyButton)
-{
-    auto cmds = Generate("Hello world");
-    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 0);
+    const auto cmds = Generate("```\ncode\n```");
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Overlay; }), 0);
 }
 
 // ---- リスト箇条書き記号の垂直位置 ----
@@ -322,18 +310,7 @@ TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
 
     // 1 つ目と 2 つ目の継ぎ目を画面の y=200 に置く。
     const float seam = cache_.Top(1);
-    DrawCommandList cmds;
-    // clang-format off
-    gen_.GenerateMdPane(
-        cmds,
-        {
-            .nodes = nodes_, .cache = cache_, .selection = TextSelection{},
-            .md_pane_rect = PaneRect{ 0, 0, kViewportW, 400.0f },
-            .scroll_y = seam - 200.0f
-        },
-        1.0f
-    );
-    // clang-format on
+    const auto cmds = GenerateMdPaneAt(gen_, nodes_, cache_, PaneRect{ 0, 0, kViewportW, 400.0f }, seam - 200.0f);
     const auto code_bg_edge = [&](auto edge) {
         return CountCmd<FillRectCmd>(cmds, [&](const FillRectCmd& c) { return c.brush_id == BrushId::CodeBg && std::abs(edge(c.rect) - 200.0f) < 0.01f; });
     };

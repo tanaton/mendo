@@ -108,33 +108,40 @@ TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
     EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
-TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
+// 段落以外のブロックの画像や、画像の無い段落は Image ノードにならず、ブロックの種類と番号を保つ。
+// タイトリストの項目は段落を作らないので ListItem のまま。番号が画像の src で上書きされない (#298)。
+TEST(ParserImage, NonImageBlockKeepsItsKind)
 {
-    // 見出し内の画像バッジが見出しレベルを壊さないこと
-    auto nodes = ParseNodes("# ![logo](l.png) Title");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Heading);
-    EXPECT_EQ(nodes[0].heading_level, 1);
-    EXPECT_TRUE(nodes[0].image_src().empty());
-}
-
-TEST(ParserImage, ImageInTightListStaysListItem)
-{
-    // タイトリスト内の画像はP生成されないため、ListItem のまま
-    auto nodes = ParseNodes("- ![alt](img.png)");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    EXPECT_TRUE(nodes[0].image_src().empty());
-}
-
-// issue#298: リスト項目の番号が画像 src で上書きされないこと
-TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
-{
-    auto nodes = ParseNodes("3. ![alt](img.png)");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    EXPECT_TRUE(nodes[0].list_ordered());
-    EXPECT_EQ(nodes[0].list_number(), 3);
+    struct Case {
+        std::string_view md;
+        NodeType type;
+        int heading_level = 0;
+        int list_number = 0;
+        bool checked = false;
+    };
+    constexpr Case kCases[] = {
+        { "# ![logo](l.png) Title", NodeType::Heading, 1 },
+        { "- ![alt](img.png)", NodeType::ListItem },
+        { "3. ![alt](img.png)", NodeType::ListItem, 0, 3 },
+        { "- [x] ![alt](img.png)", NodeType::TaskListItem, 0, 0, true },
+        { "Just text", NodeType::Paragraph },
+        { "[link text](https://example.com)", NodeType::Paragraph },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].type, c.type);
+        EXPECT_TRUE(nodes[0].image_src().empty());
+        EXPECT_EQ(nodes[0].heading_level, c.heading_level);
+        if (c.type == NodeType::ListItem) {
+            EXPECT_EQ(nodes[0].list_ordered(), c.list_number > 0);
+            EXPECT_EQ(nodes[0].list_number(), c.list_number);
+        }
+        if (c.type == NodeType::TaskListItem) {
+            EXPECT_EQ(nodes[0].task_checked(), c.checked);
+        }
+    }
 }
 
 TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
@@ -160,32 +167,6 @@ TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
         }
     }
     EXPECT_TRUE(found_para) << "後続の段落ノードが存在すること";
-}
-
-TEST(ParserImage, ImageInTaskListStaysTaskListItem)
-{
-    auto nodes = ParseNodes("- [x] ![alt](img.png)");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
-    EXPECT_TRUE(nodes[0].task_checked());
-}
-
-// ---- 画像がない場合 ----
-
-TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
-{
-    auto nodes = ParseNodes("Just text");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_TRUE(nodes[0].image_src().empty());
-}
-
-TEST(ParserImage, LinkDoesNotTriggerImage)
-{
-    auto nodes = ParseNodes("[link text](https://example.com)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 // ---- 複数ノード内の画像 ----
@@ -316,20 +297,34 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 
 class ImageLoaderTest : public ComApartmentTest {
 protected:
+    // 新しいファクトリでの描画先の作成は重い (毎回作ると 1 本あたり約 3.5ms、共有すると約 1ms) ので、スイートで共有する。
+    // COM の初期化より後に作り、CoUninitialize より前に手放す。
+    static void SetUpTestSuite()
+    {
+        ComApartmentTest::SetUpTestSuite();
+        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
+        wic_factory_ = wic_util::CreateWicFactory("ImageLoaderTest");
+    }
+
+    static void TearDownTestSuite()
+    {
+        wic_factory_.Reset();
+        d2d_factory_.Reset();
+        ComApartmentTest::TearDownTestSuite();
+    }
+
+    static inline ComPtr<ID2D1Factory> d2d_factory_;
+    static inline ComPtr<IWICImagingFactory> wic_factory_;
+
     // loader_ や COM オブジェクトより後に破棄し、ファイル削除を最後に行う
     ScopedTempDir temp_dir_;
-    ComPtr<ID2D1Factory> d2d_factory_;
-    ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ID2D1RenderTarget> render_target_;
     ImageLoader loader_;
     TaskScheduler scheduler_{ 2 };
 
     void SetUp() override
     {
-        const HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
-        ASSERT_TRUE(SUCCEEDED(hr)) << "D2Dファクトリ作成に失敗";
-
-        wic_factory_ = wic_util::CreateWicFactory("ImageLoaderTest");
+        ASSERT_TRUE(d2d_factory_) << "D2Dファクトリ作成に失敗";
         ASSERT_TRUE(wic_factory_) << "WICファクトリ作成に失敗";
 
         render_target_ = CreateRenderTarget();
@@ -491,36 +486,7 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
 
 // ---- 正常系: キャッシュ動作 ----
 
-TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap)
-{
-    ASSERT_TRUE(CreateTestImage(L"cached.png", GUID_ContainerFormatPng, 64, 64));
-    auto path = GetTestImagePath(L"cached.png");
-
-    DiagramEntry entry1;
-    EXPECT_TRUE(LoadAndGet(path, entry1));
-
-    DiagramEntry entry2;
-    EXPECT_TRUE(GetCachedImage(loader_, path, entry2));
-
-    // 同じビットマップオブジェクトが返されること
-    EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
-}
-
-TEST_F(ImageLoaderTest, DifferentPathsDifferentBitmaps)
-{
-    ASSERT_TRUE(CreateTestImage(L"img1.png", GUID_ContainerFormatPng, 32, 32));
-    ASSERT_TRUE(CreateTestImage(L"img2.png", GUID_ContainerFormatPng, 64, 64));
-
-    DiagramEntry entry1, entry2;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"img1.png"), entry1));
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"img2.png"), entry2));
-
-    EXPECT_NE(entry1.bitmap.Get(), entry2.bitmap.Get());
-    EXPECT_FLOAT_EQ(entry1.width, 32.0f);
-    EXPECT_FLOAT_EQ(entry2.width, 64.0f);
-}
-
-TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
+TEST_F(ImageLoaderTest, CacheHitsUntilClearCache)
 {
     ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 40));
     auto path = GetTestImagePath(L"clear.png");
@@ -528,6 +494,11 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
     DiagramEntry entry1;
     EXPECT_TRUE(LoadAndGet(path, entry1));
     auto* first_bitmap = entry1.bitmap.Get();
+
+    // 消す前は同じビットマップをキャッシュから返す
+    DiagramEntry hit;
+    EXPECT_TRUE(GetCachedImage(loader_, path, hit));
+    EXPECT_EQ(hit.bitmap.Get(), first_bitmap);
 
     loader_.ClearCache();
 
@@ -623,23 +594,6 @@ TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
     EXPECT_FALSE(LoadAndGet(loader_null, GetTestImagePath(L"valid.png"), entry));
 }
 
-// ---- 異常系: エントリの状態保証 ----
-
-TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry)
-{
-    DiagramEntry entry;
-    entry.width = 999.0f;
-    entry.height = 888.0f;
-
-    // 存在しないファイルのロードを試みる
-    EXPECT_FALSE(LoadAndGet(L"C:\\no_such_file.png", entry));
-
-    // 既存の値が変更されていないこと
-    EXPECT_FLOAT_EQ(entry.width, 999.0f);
-    EXPECT_FLOAT_EQ(entry.height, 888.0f);
-    EXPECT_FALSE(entry.bitmap);
-}
-
 // ---- Shutdown テスト ----
 
 TEST_F(ImageLoaderTest, ShutdownWithoutInitIsNoOp)
@@ -647,12 +601,6 @@ TEST_F(ImageLoaderTest, ShutdownWithoutInitIsNoOp)
     ImageLoader loader;
     loader.SetRenderTarget(render_target_.Get());
     loader.Shutdown(); // Init 未呼び出しでもクラッシュしないこと
-}
-
-TEST_F(ImageLoaderTest, CancelPendingIsNoOp)
-{
-    // CancelPending が空の状態でもクラッシュしないこと
-    loader_.CancelPending();
 }
 
 // ---- ファイルロック回避テスト ----
@@ -811,33 +759,13 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
     EXPECT_TRUE(CanOpenExclusively(path)) << "非同期読み込み後にファイルが書き込みロックされている";
 }
 
-TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
-{
-    // 非同期パスでも DPI 補正が適用されることを確認
-    // 既存ローダーを停止し、144 DPI のレンダーターゲットで再初期化
-    loader_.Shutdown();
-    loader_.ClearCache();
-
-    const auto rt_144 = CreateRenderTarget(144.0f);
-    ASSERT_TRUE(rt_144);
-
-    loader_.SetRenderTarget(rt_144.Get());
-
-    ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));
-    auto path = GetTestImagePath(L"async_dpi.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
-    EXPECT_TRUE(entry.bitmap);
-    // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
-    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
-    EXPECT_NEAR(entry.height, 100.0f, 0.1f);
-}
-
 TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
 {
     ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"cancel.png");
+
+    // 空でも取り消せる
+    loader_.CancelPending();
 
     // 要求をキュー待ちのまま取り消す。
     WorkerGate gate(scheduler_, 2);

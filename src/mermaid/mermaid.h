@@ -92,7 +92,7 @@ public:
     // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
     std::optional<std::string_view> ViewerCode() const noexcept
     {
-        return viewer_.hwnd ? std::optional<std::string_view>{ viewer_.code } : std::nullopt;
+        return ViewerOpen() ? std::optional<std::string_view>{ viewer_.code } : std::nullopt;
     }
     // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
     void UpdateViewerCode(std::string_view code);
@@ -130,10 +130,8 @@ private:
         std::unique_ptr<MathRequest> math;
     };
 
-    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く。
-    // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
+    // 図の拡大表示 (窓は DiagramView が持つ)。
     struct Viewer {
-        HWND hwnd = nullptr;
         std::unique_ptr<DiagramView> view;
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
@@ -179,8 +177,10 @@ private:
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
 
-    static LRESULT CALLBACK ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    bool CreateViewer();
+    bool ViewerOpen() const noexcept
+    {
+        return viewer_.view && viewer_.view->IsOpen();
+    }
     // 描けた図を出したら drawn。描けなければ、図が出ていなければ閉じる。
     void OnViewerResult(bool drawn);
     void RequestViewerDrawing();

@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 #include "d2d_util.h"
-#include "draw_command.h"
 #include "diagram_raster.h"
+#include "diagram_view.h"
+#include "draw_command.h"
 #include "inline_math.h"
 #include "test_helpers.h"
 #include "wic_util.h"
@@ -82,13 +83,11 @@ protected:
 
     ComPtr<IDWriteTextLayout> CreateTextLayout(std::wstring_view text, const wchar_t* family, const wchar_t* locale, float max_w, float max_h, bool ellipsis = false)
     {
-        if (!dw_factory_) {
-            EXPECT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw_factory_));
-        }
-        const auto fmt = CreateTextFormat(dw_factory_.Get(), { .family = family, .size = 12.0f, .locale = locale, .ellipsis = ellipsis });
+        IDWriteFactory* const factory = SharedDWriteFactory();
+        const auto fmt = CreateTextFormat(factory, { .family = family, .size = 12.0f, .locale = locale, .ellipsis = ellipsis });
         EXPECT_NE(fmt, nullptr);
         ComPtr<IDWriteTextLayout> layout;
-        EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
+        EXPECT_HRESULT_SUCCEEDED(factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
         return layout;
     }
 
@@ -164,7 +163,6 @@ protected:
 
     UINT size_ = 32;
     InlineMathDrawings no_math_;
-    ComPtr<IDWriteFactory> dw_factory_;
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<IWICBitmap> wic_bitmap_;
@@ -445,4 +443,31 @@ TEST_F(CommandExecutorIntegrationTest, HorizontalCullKeepsPixelsInsideClip)
         EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
         EXPECT_EQ(render(true), expected);
     }
+}
+
+// ---- DiagramView の倍率 ----
+
+using diagram_view::FitZoom;
+using diagram_view::NextZoom;
+
+// 全体表示は余白を除いた窓に収め、等倍より大きくしない。潰した窓では最小の倍率で止める。
+TEST(DiagramViewZoom, FitsInsidePaddingWithoutEnlarging)
+{
+    EXPECT_FLOAT_EQ(FitZoom(1000.0f, 800.0f, 200.0f, 100.0f), 1.0f);
+    EXPECT_FLOAT_EQ(FitZoom(432.0f, 1000.0f, 800.0f, 100.0f), 0.5f);
+    EXPECT_FLOAT_EQ(FitZoom(1000.0f, 232.0f, 100.0f, 400.0f), 0.5f);
+    EXPECT_FLOAT_EQ(FitZoom(10.0f, 10.0f, 1000.0f, 1000.0f), 0.05f);
+}
+
+// ボタンの止まる位置は表の値と全体表示の倍率。全体表示のすぐ隣の値は飛ばす。
+TEST(DiagramViewZoom, StepsThroughStopsIncludingFit)
+{
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, 1), 1.25f);
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, -1), 0.75f);
+    // 全体表示 0.7 は止まる位置になり、すぐ隣の 0.67 と 0.75 は飛ばす
+    EXPECT_FLOAT_EQ(*NextZoom(0.7f, 0.7f, 1), 1.0f);
+    EXPECT_FLOAT_EQ(*NextZoom(0.7f, 0.7f, -1), 0.5f);
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 0.7f, -1), 0.7f);
+    EXPECT_FALSE(NextZoom(8.0f, 1.0f, 1));
+    EXPECT_FALSE(NextZoom(0.05f, 0.05f, -1));
 }

@@ -18,19 +18,8 @@
 
 namespace {
 
-constexpr std::wstring_view MERMAID_VIEWER_CLASS = L"mendo_MermaidViewer";
-// 最初の大きさ。本体に対する割合。
-constexpr int VIEWER_SIZE_PERCENT = 90;
 // 保存・コピーの画像の 1 枚の画素数の上限。
 constexpr double MAX_EXPORT_PIXELS = 64.0 * 1024 * 1024;
-
-void BringToFront(HWND hwnd) noexcept
-{
-    if (IsIconic(hwnd)) {
-        ShowWindow(hwnd, SW_RESTORE);
-    }
-    SetForegroundWindow(hwnd);
-}
 
 } // namespace
 
@@ -448,8 +437,9 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBa
 
 void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool dark_mode)
 {
-    if (viewer_.hwnd) {
-        BringToFront(viewer_.hwnd);
+    const bool open = ViewerOpen();
+    if (open) {
+        viewer_.view->BringToFront();
         if (viewer_.code == code) {
             return;
         }
@@ -458,10 +448,10 @@ void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool da
     viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
     viewer_.has_image = false;
-    if (viewer_.hwnd) {
+    if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (!CreateViewer()) {
+    else if (viewer_.view = DiagramView::Open(hwnd_, WriteFactory(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
         FailViewer();
         return;
     }
@@ -470,18 +460,17 @@ void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool da
 
 void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
 {
-    if (!viewer_.hwnd) {
+    if (!ViewerOpen()) {
         return;
     }
     viewer_.dark_mode = dark_mode;
-    ApplyDarkModeToWindow(viewer_.hwnd, dark_mode);
     viewer_.view->SetDarkMode(dark_mode);
     RequestViewerDrawing();
 }
 
 void MermaidRenderer::UpdateViewerCode(std::string_view code)
 {
-    if (!viewer_.hwnd || viewer_.code == code) {
+    if (!ViewerOpen() || viewer_.code == code) {
         return;
     }
     viewer_.code.assign(code);
@@ -490,112 +479,22 @@ void MermaidRenderer::UpdateViewerCode(std::string_view code)
 
 void MermaidRenderer::ApplyViewerLanguage()
 {
-    if (!viewer_.hwnd) {
-        return;
+    if (ViewerOpen()) {
+        viewer_.view->ApplyLanguage();
     }
-    SetWindowTextW(viewer_.hwnd, i18n::S().viewer_title.data());
-    viewer_.view->ApplyLanguage();
 }
 
 void MermaidRenderer::CloseViewer()
 {
     InvalidateViewerDrawing();
-    Viewer viewer = std::exchange(viewer_, {});
-    viewer.view.reset();
-    if (viewer.hwnd) {
-        DestroyWindow(viewer.hwnd);
-    }
+    // 窓も壊す。
+    viewer_ = {};
 }
 
 void MermaidRenderer::FailViewer()
 {
     CloseViewer();
     on_viewer_failed_();
-}
-
-LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    auto* const self = BindWindowInstance<MermaidRenderer>(hwnd, msg, lParam);
-    if (!self) {
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
-    }
-    auto& viewer = self->viewer_;
-    if (LRESULT result = 0; viewer.view && viewer.view->HandleMessage(msg, wParam, lParam, result)) {
-        return result;
-    }
-    switch (msg) {
-    case WM_CLOSE:
-        self->CloseViewer();
-        return 0;
-
-    case WM_NCDESTROY:
-        // 本体と一緒に壊されたときも、壊れた hwnd を持ち続けない。
-        viewer.hwnd = nullptr;
-        break;
-
-    // 本体 (Win32Window) と同じく、開閉で DWM のアニメーションを出さない。閉じ方が多く (Esc・×・文書の切り替え・本体と
-    // 一緒に) どれも破棄の中の非表示化を通るので、ここで隠す。本体の最小化でも一緒に隠れるので、解くのも表示を開く
-    // 1 か所ではなくここで行う。WM_WINDOWPOSCHANGED は WM_SIZE を作るので既定の処理へ回す。
-    case WM_WINDOWPOSCHANGING:
-        if (reinterpret_cast<const WINDOWPOS*>(lParam)->flags & SWP_HIDEWINDOW) {
-            SetCloaked(hwnd, TRUE);
-        }
-        break;
-
-    case WM_WINDOWPOSCHANGED:
-        if (reinterpret_cast<const WINDOWPOS*>(lParam)->flags & SWP_SHOWWINDOW) {
-            UpdateWindow(hwnd);
-            SetCloaked(hwnd, FALSE);
-        }
-        break;
-
-    case WM_DPICHANGED: {
-        const RECT& r = *reinterpret_cast<const RECT*>(lParam);
-        SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
-        return 0;
-    }
-
-    default:
-        break;
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
-
-bool MermaidRenderer::CreateViewer()
-{
-    static const bool registered = RegisterWindowClass(
-        MERMAID_VIEWER_CLASS.data(), ViewerWndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
-    RECT owner{};
-    if (!registered || !GetWindowRect(hwnd_, &owner)) {
-        return false;
-    }
-    const int owner_w = owner.right - owner.left;
-    const int owner_h = owner.bottom - owner.top;
-    const int w = MulDiv(owner_w, VIEWER_SIZE_PERCENT, 100);
-    const int h = MulDiv(owner_h, VIEWER_SIZE_PERCENT, 100);
-    viewer_.hwnd = CreateWindowExW(
-        // 所有ウィンドウは既定でタスクバーにボタンが無く、最小化すると戻す手段が無い。図を見ながら編集するときにどかせるよう、
-        // 最小化ボタンを消さずにタスクバーのボタンを出す。
-        WS_EX_APPWINDOW,
-        MERMAID_VIEWER_CLASS.data(),
-        i18n::S().viewer_title.data(),
-        WS_OVERLAPPEDWINDOW,
-        owner.left + (owner_w - w) / 2, owner.top + (owner_h - h) / 2,
-        w, h,
-        hwnd_, nullptr, GetModuleHandleW(nullptr), this);
-    if (!viewer_.hwnd) {
-        return false;
-    }
-    ApplyDarkModeToWindow(viewer_.hwnd, viewer_.dark_mode);
-    // 表示する前に作り、最初の描画から DiagramView が背景を塗る。
-    viewer_.view = std::make_unique<DiagramView>(viewer_.hwnd, WriteFactory(), wic_factory_.Get());
-    viewer_.view->SetDarkMode(viewer_.dark_mode);
-    viewer_.view->ApplyLanguage();
-    viewer_.view->ShowLoading();
-    // 表示の中の WM_WINDOWPOSCHANGED で解く。
-    SetCloaked(viewer_.hwnd, TRUE);
-    ShowWindow(viewer_.hwnd, SW_SHOW);
-    return true;
 }
 
 // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
@@ -624,7 +523,7 @@ void MermaidRenderer::RequestViewerDrawing()
         .kind = RequestKind::View,
         .drawing_callback =
             [this, render](std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) {
-                if (render != viewer_render_) {
+                if (render != viewer_render_ || !ViewerOpen()) {
                     return;
                 }
                 const bool drawn = drawing != nullptr;

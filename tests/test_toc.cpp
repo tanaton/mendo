@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <initializer_list>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,7 +47,7 @@ std::vector<TocItem> TocItems(const ParsedToc& parsed)
 }
 
 // 目次の i 番目の見出しノードを tops[i] に置き、高さを height にした LayoutCache。
-LayoutCache MakeHeadingCache(const ParsedToc& parsed, std::initializer_list<float> tops, float height = 30.0f)
+LayoutCache MakeHeadingCache(const ParsedToc& parsed, const std::vector<float>& tops, float height = 30.0f)
 {
     LayoutCache cache(parsed.nodes.size());
     size_t i = 0;
@@ -103,58 +102,41 @@ TEST(Toc, EntriesFollowHeadingsInOrder)
 
 // ---- FindActiveIndex ----
 
-TEST(Toc, FindActiveIndexEmpty)
+// scroll_y + margin 以前に始まる最後の見出しがアクティブ。最初の見出しより前や目次が空なら -1。
+// margin は目次のクリックで見出しの margin 上へスクロールした位置でも、その見出しを選ぶため。
+TEST(Toc, FindActiveIndex)
 {
-    std::vector<TocEntry> toc;
-    LayoutCache cache;
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f, 0.0f), -1);
-}
-
-TEST(Toc, FindActiveIndexBeforeFirstHeading)
-{
-    const auto parsed = ParseToc("Para\n\n# Title");
-    const auto cache = MakeHeadingCache(parsed, { 200.0f });
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f, 0.0f), -1);
-}
-
-// scroll_y 以前に始まる最後の見出しがアクティブ。
-TEST(Toc, FindActiveIndexAtHeading)
-{
-    const auto parsed = ParseToc("# First\n\nText\n\n## Second");
-    const auto cache = MakeHeadingCache(parsed, { 10.0f, 200.0f });
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 10.0f, 0.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 100.0f, 0.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 200.0f, 0.0f), 1);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 300.0f, 0.0f), 1);
-}
-
-TEST(Toc, FindActiveIndexManyHeadings)
-{
-    std::string md;
+    std::string many;
+    std::vector<float> many_tops;
     for (int i = 0; i < 10; ++i) {
-        md += "## H" + std::to_string(i) + "\n\nText\n\n";
+        many += "## H" + std::to_string(i) + "\n\nText\n\n";
+        many_tops.push_back(static_cast<float>(i) * 100.0f);
     }
-    const auto parsed = ParseToc(md);
-    ASSERT_EQ(parsed.toc.size(), 10u);
-    const auto cache = MakeHeadingCache(parsed, { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f, 700.0f, 800.0f, 900.0f });
-
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f, 0.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 450.0f, 0.0f), 4);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 999.0f, 0.0f), 9);
-}
-
-// margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
-TEST(Toc, FindActiveIndexWithMargin)
-{
-    const auto parsed = ParseToc("# First\n\nText\n\n## Second");
-    const auto cache = MakeHeadingCache(parsed, { 100.0f, 300.0f });
-
-    // NavigateToAnchorが target_y = y_position - margin でスクロールする想定
-    // margin=50 のとき、scroll_y=250 (= 300 - 50) で2番目の見出しがアクティブになるべき
-    constexpr float margin = 50.0f;
-    constexpr float scroll_after_click = 300.0f - margin;
-    // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click, 0.0f), 0);
-    // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click, margin), 1);
+    struct Case {
+        std::string md;
+        std::vector<float> tops;
+        float scroll_y;
+        float margin;
+        int expected;
+    };
+    const Case kCases[] = {
+        { "Para", {}, 0.0f, 0.0f, -1 },
+        { "Para\n\n# Title", { 200.0f }, 0.0f, 0.0f, -1 },
+        { "# First\n\nText\n\n## Second", { 10.0f, 200.0f }, 10.0f, 0.0f, 0 },
+        { "# First\n\nText\n\n## Second", { 10.0f, 200.0f }, 100.0f, 0.0f, 0 },
+        { "# First\n\nText\n\n## Second", { 10.0f, 200.0f }, 200.0f, 0.0f, 1 },
+        { "# First\n\nText\n\n## Second", { 10.0f, 200.0f }, 300.0f, 0.0f, 1 },
+        { many, many_tops, 0.0f, 0.0f, 0 },
+        { many, many_tops, 450.0f, 0.0f, 4 },
+        { many, many_tops, 999.0f, 0.0f, 9 },
+        { "# First\n\nText\n\n## Second", { 100.0f, 300.0f }, 250.0f, 0.0f, 0 },
+        { "# First\n\nText\n\n## Second", { 100.0f, 300.0f }, 250.0f, 50.0f, 1 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.md.substr(0, 20) << " scroll=" << c.scroll_y << " margin=" << c.margin);
+        const auto parsed = ParseToc(c.md);
+        ASSERT_EQ(parsed.toc.size(), c.tops.size());
+        const auto cache = MakeHeadingCache(parsed, c.tops);
+        EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, c.scroll_y, c.margin), c.expected);
+    }
 }

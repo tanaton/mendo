@@ -32,12 +32,8 @@ TEST(PointInRectTest, HalfOpenBounds)
         SCOPED_TRACE(c.name);
         EXPECT_EQ(PointInRect(c.x, c.y, r), c.inside);
     }
-}
-
-TEST(PointInRectTest, ZeroSizeRect)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 10.0f, 10.0f, 10.0f);
-    EXPECT_FALSE(PointInRect(10.0f, 10.0f, r));
+    // 大きさ 0 の矩形はどの点も含まない
+    EXPECT_FALSE(PointInRect(10.0f, 10.0f, D2D1::RectF(10.0f, 10.0f, 10.0f, 10.0f)));
 }
 
 // ═══════════════════════════════════════════════
@@ -294,28 +290,26 @@ TEST(PixelToDipTest, DividesByScale)
 // ブロック横スクロールバー
 // ═══════════════════════════════════════════════
 
-TEST(BlockHScrollbarThumbWidthTest, ProportionalToVisibleRatio)
+// つまみの幅は可視幅 × 可視の割合。最小幅で止めるが、可視幅が最小幅より狭ければ可視幅に収める。中身の幅が 0 以下なら 0。
+TEST(BlockHScrollbarThumbWidthTest, ProportionalAndClamped)
 {
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 400.0f), 100.0f);
-}
-
-TEST(BlockHScrollbarThumbWidthTest, ClampedToMinimumAndVisibleWidth)
-{
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 100000.0f), PANE_SCROLLBAR_THUMB_MIN);
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 100.0f), 200.0f);
-}
-
-// 可視幅が最小幅より狭いときは可視幅に収める。
-TEST(BlockHScrollbarThumbWidthTest, VisibleWidthBelowMinimumFitsTrack)
-{
-    const float visible = PANE_SCROLLBAR_THUMB_MIN * 0.5f;
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(visible, 100000.0f), visible);
-}
-
-TEST(BlockHScrollbarThumbWidthTest, NonPositiveNaturalWidthIsZero)
-{
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 0.0f), 0.0f);
-    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, -1.0f), 0.0f);
+    struct Case {
+        float visible;
+        float natural;
+        float expected;
+    };
+    const Case kCases[] = {
+        { 200.0f, 400.0f, 100.0f },
+        { 200.0f, 100000.0f, PANE_SCROLLBAR_THUMB_MIN },
+        { 200.0f, 100.0f, 200.0f },
+        { PANE_SCROLLBAR_THUMB_MIN * 0.5f, 100000.0f, PANE_SCROLLBAR_THUMB_MIN * 0.5f },
+        { 200.0f, 0.0f, 0.0f },
+        { 200.0f, -1.0f, 0.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.visible << " / " << c.natural);
+        EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(c.visible, c.natural), c.expected);
+    }
 }
 
 // バーはブロック下端の内側に収まり、ヒット矩形はバーを上下に広げたもの。

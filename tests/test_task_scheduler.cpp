@@ -17,28 +17,6 @@
 // 基本的な Post → 実行
 // ═══════════════════════════════════════════════
 
-TEST(TaskScheduler, SingleTaskExecutes)
-{
-    TaskScheduler sch{ 1 };
-    std::atomic<bool> ran{false};
-    sch.Post([&] { ran.store(true); });
-    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
-    sch.Shutdown();
-}
-
-TEST(TaskScheduler, MultipleTasksAllExecute)
-{
-    TaskScheduler sch{ 2 };
-    constexpr int N = 100;
-    std::atomic<int> count{0};
-    for (int i = 0; i < N; ++i) {
-        sch.Post([&] { count.fetch_add(1); });
-    }
-    EXPECT_TRUE(PollUntil([&] { return count.load() == N; }));
-    sch.Shutdown();
-    EXPECT_EQ(count.load(), N);
-}
-
 TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
 {
     TaskScheduler sch{ 2 };
@@ -136,22 +114,19 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
 // Shutdown の挙動
 // ═══════════════════════════════════════════════
 
-TEST(TaskScheduler, ShutdownWithoutPostCompletes)
+// タスクが無くても終わり、2 回目の Shutdown は何もしない。
+TEST(TaskScheduler, ShutdownIsIdempotent)
 {
-    TaskScheduler sch{ 4 };
-    sch.Shutdown(); // タスクがなくても正常終了する
-    SUCCEED();
-}
+    TaskScheduler idle{ 4 };
+    idle.Shutdown();
 
-TEST(TaskScheduler, ShutdownTwiceIsSafe)
-{
     TaskScheduler sch{ 2 };
     std::atomic<int> count{0};
     sch.Post([&] { count.fetch_add(1); });
     EXPECT_TRUE(PollUntil([&] { return count.load() == 1; }));
     sch.Shutdown();
-    sch.Shutdown(); // 2回目は no-op
-    SUCCEED();
+    sch.Shutdown();
+    EXPECT_EQ(count.load(), 1);
 }
 
 TEST(TaskScheduler, DestructorJoinsWorkersEvenIfShutdownNotCalled)

@@ -146,19 +146,26 @@ TEST(GetBlockHScrollGeometry, IndentReducesVisibleWidth)
 // BlockHScrollGeometry::ClampScrollX
 // ─────────────────────────────────────────────
 
+// スクロール量は [0, block - visible] に収める。幅が広がって収まるようになったブロックは、以前の位置を残さない。
 TEST(BlockHScrollGeometry, ClampScrollXClampsToScrollableRange)
 {
-    constexpr BlockHScrollGeometry g{ .block_width = 300.0f, .visible_width = 100.0f };
-    EXPECT_FLOAT_EQ(g.ClampScrollX(-10.0f), 0.0f);
-    EXPECT_FLOAT_EQ(g.ClampScrollX(50.0f), 50.0f);
-    EXPECT_FLOAT_EQ(g.ClampScrollX(500.0f), 200.0f);
-}
-
-// 幅が広がって収まるようになったブロックは、以前のスクロール位置を残さない。
-TEST(BlockHScrollGeometry, ClampScrollXIsZeroWhenNotScrollable)
-{
-    constexpr BlockHScrollGeometry g{ .block_width = 100.0f, .visible_width = 300.0f };
-    EXPECT_FLOAT_EQ(g.ClampScrollX(80.0f), 0.0f);
+    struct Case {
+        float block_width;
+        float visible_width;
+        float x;
+        float expected;
+    };
+    constexpr Case kCases[] = {
+        { 300.0f, 100.0f, -10.0f, 0.0f },
+        { 300.0f, 100.0f, 50.0f, 50.0f },
+        { 300.0f, 100.0f, 500.0f, 200.0f },
+        { 100.0f, 300.0f, 80.0f, 0.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.block_width << " / " << c.visible_width << " x=" << c.x);
+        const BlockHScrollGeometry g{ .block_width = c.block_width, .visible_width = c.visible_width };
+        EXPECT_FLOAT_EQ(g.ClampScrollX(c.x), c.expected);
+    }
 }
 
 // 区切ったコードブロックは並び全体で横スクロールする。スクロール量の鍵は先頭で、幅は並びの最大。

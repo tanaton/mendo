@@ -33,22 +33,10 @@ TEST(SettingsDialogRowsTest, FirstRowFollowsOsThenAllLanguages)
 // CreateTextFormats / ComputeLayout は DWrite だけを使う。D2D は Show で描くときにしか要らない。
 class SettingsDialogLayoutTest : public ::testing::Test {
 protected:
-    static inline ComPtr<IDWriteFactory> dwrite_;
-
-    static void SetUpTestSuite()
-    {
-        const HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr));
-    }
-
-    static void TearDownTestSuite()
-    {
-        dwrite_.Reset();
-    }
-
     void SetUp() override
     {
-        dialog_.dwrite_factory = dwrite_.Get();
+        dialog_.dwrite_factory = SharedDWriteFactory();
+        ASSERT_NE(dialog_.dwrite_factory, nullptr);
         dialog_.theme = &theme_;
         dialog_.cache_bytes = 1024 * 1024;
         dialog_.can_clear = true;

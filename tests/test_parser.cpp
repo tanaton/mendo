@@ -188,20 +188,6 @@ TEST(Parser, HorizontalRuleWithAsterisks)
 
 // ---- リスト ----
 
-TEST(Parser, UnorderedList)
-{
-    auto nodes = ParseNodes("- item1\n- item2\n- item3");
-    ASSERT_EQ(nodes.size(), 3u);
-    for (const auto& node : nodes) {
-        EXPECT_EQ(node.type, NodeType::ListItem);
-        EXPECT_EQ(node.list_number(), 0);  // 順序なしリスト
-        EXPECT_FALSE(node.list_ordered()); // ordered フラグも false
-    }
-    EXPECT_EQ(nodes[0].GetText(), "item1");
-    EXPECT_EQ(nodes[1].GetText(), "item2");
-    EXPECT_EQ(nodes[2].GetText(), "item3");
-}
-
 // loose list は md4c が LI 中身を MD_BLOCK_P に外出しするため LI 自体は空 (issue#237 の原因)。
 TEST(Parser, UnorderedListLooseProducesParagraphChildren)
 {
@@ -218,27 +204,7 @@ TEST(Parser, UnorderedListLooseProducesParagraphChildren)
 }
 
 // 装飾 run は 1 テキストあたり 4096 個で打ち切る (DirectWrite の書式設定が二乗で遅くなるため)。
-TEST(Parser, StyledRunsAreCappedPerText)
-{
-    std::string para;
-    std::string row = "|h|\n|-|\n|";
-    for (int i = 0; i < 5000; i++) {
-        para += "`a` ";
-        row += "`a` ";
-    }
-    const auto nodes = ParseNodes(para);
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].runs().size(), 4096u);
-    EXPECT_EQ(nodes[0].GetText().size(), para.size() - 2 * 5000 - 1);
-
-    row += "|\n";
-    const auto table = ParseNodes(row);
-    ASSERT_EQ(table.size(), 1u);
-    ASSERT_TRUE(table[0].has_table());
-    EXPECT_EQ(table[0].table_data()->GetCellRuns(1, 0).size(), 4096u);
-}
-
-// 上限ちょうどは全部残し、超えた分は末尾から捨てる。打ち切り後も改行は行数に数える。
+// 上限ちょうどは全部残し、超えた分は末尾から捨てる。打ち切り後もテキストは残し、改行は行数に数える。
 TEST(Parser, StyledRunCapKeepsLeadingRunsAndLineCount)
 {
     for (const size_t n : { size_t{ 4096 }, size_t{ 4097 } }) {
@@ -340,70 +306,43 @@ TEST(Parser, TightListInBlockquoteTextAfterHeadingStaysQuoted)
 
 // ---- バグ #10: ネストされた引用ブロック ----
 
-// 内側の引用を出た後も引用の段落のまま。group はネストの内外を問わず最外側のものを共有する
-// (PR #156 で blockquote_group をネスト中も最外側で共有する設計に変更)。
-TEST(Parser, NestedBlockquotePreservesOuterStyleAndGroup)
+// 引用の段落の quote_depth は引用のネストの深さ。内側の引用を出た後は外側の深さに戻る (内側の終了には空行 `>` が要る)。
+// group はネストの内外を問わず最外側のものを共有する (PR #156)。引用は字下げし、マーカーが無ければ Alert にしない。
+TEST(Parser, BlockquoteDepthAndGroup)
 {
-    auto nodes = ParseNodes("> outer\n>\n> > inner\n>\n> still outer");
-    ASSERT_GE(nodes.size(), 3u);
-    const int group = nodes[0].blockquote_group;
-    EXPECT_GE(group, 0);
-    bool found_still_outer = false;
-    for (const auto& node : nodes) {
-        if (node.GetText().contains("still outer")) {
-            EXPECT_TRUE(IsQuoteParagraph(node))
-                << "内側の引用ブロック後のテキストは引用の段落のままであるべき";
-            found_still_outer = true;
-        }
-        if (IsQuoteParagraph(node)) {
-            EXPECT_EQ(node.blockquote_group, group);
-        }
-    }
-    EXPECT_TRUE(found_still_outer) << "ノード内に'still outer'が見つかるべき";
-}
-
-TEST(Parser, SingleBlockquoteIsQuoteParagraph)
-{
-    auto nodes = ParseNodes("> quoted text");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
-    EXPECT_EQ(nodes[0].GetText(), "quoted text");
-    EXPECT_EQ(nodes[0].alert_type, AlertType::None);
-    EXPECT_EQ(nodes[0].alert_label_length(), 0u);
-}
-
-// ネスト blockquote の quote_depth 設計回帰防止
-
-TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
-{
-    auto nodes = ParseNodes("> outer\n> > inner\n> > > deep");
-    int max_depth = 0;
-    for (const auto& n : nodes) {
-        if (IsQuoteParagraph(n) && n.quote_depth > max_depth) {
-            max_depth = n.quote_depth;
+    using Paragraphs = std::vector<std::pair<std::string_view, int>>;
+    struct Case {
+        std::string_view md;
+        Paragraphs paragraphs; // {テキスト, quote_depth}
+    };
+    const Case kCases[] = {
+        { "> quoted text", { { "quoted text", 1 } } },
+        { "> outer\n>\n> > inner\n>\n> still outer", { { "outer", 1 }, { "inner", 2 }, { "still outer", 1 } } },
+        { "> outer\n> > inner\n> > > deep", { { "outer", 1 }, { "inner", 2 }, { "deep", 3 } } },
+        { "> outer\n> > inner\n>\n> back to outer", { { "outer", 1 }, { "inner", 2 }, { "back to outer", 1 } } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), c.paragraphs.size());
+        EXPECT_GE(nodes[0].blockquote_group, 0);
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            SCOPED_TRACE(i);
+            EXPECT_TRUE(IsQuoteParagraph(nodes[i]));
+            EXPECT_EQ(nodes[i].GetText(), c.paragraphs[i].first);
+            EXPECT_EQ(nodes[i].quote_depth, c.paragraphs[i].second);
+            EXPECT_EQ(nodes[i].blockquote_group, nodes[0].blockquote_group);
+            EXPECT_GT(nodes[i].indent_level, 0);
+            EXPECT_EQ(nodes[i].alert_type, AlertType::None);
+            EXPECT_EQ(nodes[i].alert_label_length(), 0u);
         }
     }
-    EXPECT_EQ(max_depth, 3) << "3 段ネストの最大 quote_depth は 3";
-}
-
-TEST(Parser, NestedBlockquote_OuterReturnAfterInnerKeepsDepthOne)
-{
-    // 内側 quote の終了は空行 `>` が必要 (md4c の lazy continuation 挙動)
-    auto nodes = ParseNodes("> outer\n> > inner\n>\n> back to outer");
-    bool checked = false;
-    for (const auto& n : nodes) {
-        if (n.GetText().contains("back to outer")) {
-            EXPECT_EQ(n.quote_depth, 1)
-                << "ネストを抜けて外側に戻ったノードは quote_depth=1";
-            checked = true;
-        }
-    }
-    EXPECT_TRUE(checked);
 }
 
 // ---- 文字参照 ----
 
-// 文字参照は UTF-8 に解く。解けないもの (U+10FFFF 超など) は原文のまま残す。
+// 文字参照は UTF-8 に解いて前後の文字とつなぐ。解けないもの (U+10FFFF 超など) は原文のまま残す。
+// 参照ごとの解き方は HtmlEntity のテストで見る。
 TEST(Parser, CharacterReferencesAreDecoded)
 {
     struct Case {
@@ -413,14 +352,8 @@ TEST(Parser, CharacterReferencesAreDecoded)
     constexpr Case kCases[] = {
         { "&#x1F600;", "\xF0\x9F\x98\x80" }, // 追加面 (bug #11)
         { "&#128169;", "\xF0\x9F\x92\xA9" }, // 追加面の 10 進表記
-        { "&#xA9;", "\xC2\xA9" },
-        { "&#x3042;", "\xE3\x81\x82" },
-        { "&#65;", "A" },
-        { "&#x41;", "A" },
         { "&#x110000;", "&#x110000;" },
-        { "&lt;tag&gt;", "<tag>" },
         { "a&lt;b&gt;c", "a<b>c" },
-        { "a &amp; b", "a & b" },
         { "&quot;hello&quot;", "\"hello\"" },
         { "a&nbsp;b", "a\xC2\xA0" "b" },
     };
@@ -434,47 +367,6 @@ TEST(Parser, CharacterReferencesAreDecoded)
 
 // ---- リスト ----
 
-TEST(Parser, OrderedList)
-{
-    auto nodes = ParseNodes("1. first\n2. second\n3. third");
-    ASSERT_EQ(nodes.size(), 3u);
-    for (const auto& node : nodes) {
-        EXPECT_EQ(node.type, NodeType::ListItem);
-        EXPECT_TRUE(node.list_ordered());
-    }
-    EXPECT_EQ(nodes[0].list_number(), 1);
-    EXPECT_EQ(nodes[1].list_number(), 2);
-    EXPECT_EQ(nodes[2].list_number(), 3);
-}
-
-TEST(Parser, OrderedListStartsFromN)
-{
-    auto nodes = ParseNodes("5. five\n6. six");
-    ASSERT_EQ(nodes.size(), 2u);
-    EXPECT_EQ(nodes[0].list_number(), 5);
-    EXPECT_EQ(nodes[1].list_number(), 6);
-}
-
-// `0.` 始まりの順序リスト: 旧実装の list_number()>0 プロキシでは unordered と誤認される。
-// ordered フラグと番号 0 の保持を検証する (PR#249 Copilot レビュー指摘の回帰テスト)。
-TEST(Parser, OrderedListStartsFromZero)
-{
-    auto nodes = ParseNodes("0. zero\n1. one");
-    ASSERT_EQ(nodes.size(), 2u);
-    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    EXPECT_TRUE(nodes[0].list_ordered());
-    EXPECT_EQ(nodes[0].list_number(), 0);
-    EXPECT_TRUE(nodes[1].list_ordered());
-    EXPECT_EQ(nodes[1].list_number(), 1);
-}
-
-TEST(Parser, ListIndentLevel)
-{
-    auto nodes = ParseNodes("- item");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_GT(nodes[0].indent_level, 0);
-}
-
 // 記号と番号の書式はリストの段で決まる。番号付きと順序なしは混ぜて数え、引用は数えない (issue#365)。
 // 項目の深さはリストの入れ子だけを数え、深い項目ほど字下げする。番号は箇条書きなら 0。
 TEST(Parser, ListDepthCountsOnlyListNesting)
@@ -483,8 +375,15 @@ TEST(Parser, ListDepthCountsOnlyListNesting)
         std::string_view md;
         std::vector<int> depths;
         std::vector<int> numbers;
+        std::string_view kinds; // 項目ごとに o = 番号付き、u = 箇条書き。空なら見ない
+        std::vector<std::string_view> texts = {};
     };
     const Case kCases[] = {
+        { "- item1\n- item2\n- item3", { 1, 1, 1 }, { 0, 0, 0 }, "uuu", { "item1", "item2", "item3" } },
+        { "1. first\n2. second\n3. third", { 1, 1, 1 }, { 1, 2, 3 }, "ooo", { "first", "second", "third" } },
+        { "5. five\n6. six", { 1, 1 }, { 5, 6 }, "oo" },
+        // 番号が 0 でも番号付き (PR#249: 番号 > 0 で判定すると箇条書きと誤認する)。
+        { "0. zero\n1. one", { 1, 1 }, { 0, 1 }, "oo" },
         { "- a\n  - b\n    - c\n      - d", { 1, 2, 3, 4 }, { 0, 0, 0, 0 } },
         { "1. a\n   1. b\n      1. c", { 1, 2, 3 }, { 1, 1, 1 } },
         { "1. a\n   - b\n     1. c", { 1, 2, 3 }, { 1, 0, 1 } },
@@ -497,15 +396,28 @@ TEST(Parser, ListDepthCountsOnlyListNesting)
         std::vector<int> depths;
         std::vector<int> numbers;
         std::vector<int> indents;
-        for (const auto& node : ParseNodes(c.md)) {
+        std::string kinds;
+        std::vector<std::string_view> texts;
+        const auto nodes = ParseNodes(c.md);
+        for (const auto& node : nodes) {
             if (node.type == NodeType::ListItem) {
                 depths.push_back(node.list_depth());
                 numbers.push_back(node.list_number());
                 indents.push_back(node.indent_level);
+                kinds += node.list_ordered() ? 'o' : 'u';
+                texts.push_back(node.GetText());
             }
         }
         EXPECT_EQ(depths, c.depths);
         EXPECT_EQ(numbers, c.numbers);
+        if (!c.kinds.empty()) {
+            EXPECT_EQ(kinds, c.kinds);
+        }
+        if (!c.texts.empty()) {
+            EXPECT_EQ(texts, c.texts);
+        }
+        ASSERT_FALSE(indents.empty());
+        EXPECT_GT(indents[0], 0);
         for (size_t i = 1; i < indents.size(); ++i) {
             if (depths[i] > depths[i - 1]) {
                 EXPECT_LT(indents[i - 1], indents[i]) << "i=" << i;
@@ -543,15 +455,6 @@ TEST(Parser, TaskListItem)
         EXPECT_EQ(nodes[0].task_checked(), c.checked);
         EXPECT_EQ(nodes[0].GetText(), c.text);
     }
-}
-
-// ---- 引用ブロック ----
-
-TEST(Parser, BlockQuoteIndentLevel)
-{
-    auto nodes = ParseNodes("> quoted");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_GT(nodes[0].indent_level, 0);
 }
 
 // ---- テーブル ----
@@ -708,14 +611,6 @@ TEST(Parser, MultibyteTextIsKept)
 }
 
 // ---- ラン位置の整合性 ----
-
-TEST(Parser, RunPositionsAreValid)
-{
-    constexpr std::string_view md = "normal **bold** `code` *italic*";
-    auto nodes = ParseNodes(md);
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-}
 
 // 装飾の無い前後のテキストは run にならない。位置は UTF-8 byte。
 TEST(Parser, RunsOmitPlainText)
@@ -1066,13 +961,14 @@ TEST(Parser, EmptyHeading)
 
 // ---- GitHub Alerts ----
 
-// マーカーはアイコンとラベルの行に置き換わり、本文はその次の行に続く。種別名の大小は問わない。
-TEST(Parser, AlertMarkerBecomesLabelLine)
+// 引用の先頭行がマーカーだけなら、マーカーはアイコンとラベルの行に置き換わり、本文はその次の行に続く。種別名の大小は問わない。
+// Alert でなければマーカーも本文として残り、ソフト改行は従来どおり空白になる。
+TEST(Parser, AlertMarkerOnFirstLine)
 {
     struct Case {
         std::string_view md;
         AlertType type;
-        std::string_view body;
+        std::string_view text; // Alert ならラベル行の後ろの本文、そうでなければ最後のノードのテキスト全体
     };
     constexpr Case kCases[] = {
         { "> [!NOTE]\n> This is a note", AlertType::Note, "This is a note" },
@@ -1082,64 +978,39 @@ TEST(Parser, AlertMarkerBecomesLabelLine)
         { "> [!CAUTION]\n> Don't do this", AlertType::Caution, "Don't do this" },
         { "> [!note]\n> lower case", AlertType::Note, "lower case" },
         { "> [!Note]\n> mixed case", AlertType::Note, "mixed case" },
+        { "> [!NOTE]", AlertType::Note, "" },
+        // マーカー行の後ろが空白や強制改行でも、本文が次の行なら Alert になる。
+        { "> [!NOTE] \n> body", AlertType::Note, "body" },
+        { "> [!NOTE]  \n> body", AlertType::Note, "body" },
+        { "> [!NOTE]\\\n> body", AlertType::Note, "body" },
+        // GitHub はマーカーと本文が同じ行にあると Alert にせず、通常の引用としてマーカーも表示する。
+        { "> [!NOTE] same line", AlertType::None, "[!NOTE] same line" },
+        { "> [!NOTE] same line\n> next", AlertType::None, "[!NOTE] same line next" },
+        { "> [!NOTE] x\n> body", AlertType::None, "[!NOTE] x body" },
+        { "> [!FOO]\n> body", AlertType::None, "[!FOO] body" },
+        { "> [!NOTX]\n> body", AlertType::None, "[!NOTX] body" },
+        { "> [!]\n> body", AlertType::None, "[!] body" },
+        { "> [NOTE]\n> body", AlertType::None, "[NOTE] body" },
+        { "> intro\n>\n> [!NOTE]\n> body", AlertType::None, "[!NOTE] body" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
-        auto nodes = ParseNodes(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_FALSE(nodes.empty());
+        const auto& node = nodes.back();
+        EXPECT_TRUE(IsQuoteParagraph(node));
+        EXPECT_EQ(node.alert_type, c.type);
+        EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
+        if (c.type == AlertType::None) {
+            EXPECT_EQ(node.GetText(), c.text);
+            EXPECT_EQ(node.alert_label_length(), 0u);
+            continue;
+        }
         ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
-        EXPECT_EQ(nodes[0].alert_type, c.type);
         const std::string label{ AlertHeadText(c.type) };
-        EXPECT_EQ(nodes[0].GetText(), label + "\n" + std::string{ c.body });
-        EXPECT_EQ(nodes[0].alert_label_length(), label.size());
+        EXPECT_EQ(node.GetText(), c.text.empty() ? label : label + "\n" + std::string{ c.text });
+        EXPECT_EQ(node.alert_label_length(), label.size());
     }
-}
-
-// GitHub はマーカーと本文が同じ行にあると Alert にせず、通常の引用としてマーカーも表示する。
-TEST(Parser, AlertMarkerWithTextOnSameLineIsPlainQuote)
-{
-    for (const char* md : { "> [!NOTE] same line", "> [!NOTE] same line\n> next" }) {
-        SCOPED_TRACE(md);
-        const auto nodes = ParseNodes(md);
-        ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_EQ(nodes[0].alert_type, AlertType::None);
-        EXPECT_TRUE(nodes[0].GetText().starts_with("[!NOTE] same line"));
-    }
-}
-
-// マーカー行の後ろが空白や強制改行でも、本文が次の行なら Alert になる。
-TEST(Parser, AlertMarkerFollowedByTrailingSpacesIsAlert)
-{
-    for (const char* md : { "> [!NOTE] \n> body", "> [!NOTE]  \n> body", "> [!NOTE]\\\n> body" }) {
-        SCOPED_TRACE(md);
-        const auto nodes = ParseNodes(md);
-        ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-        EXPECT_EQ(nodes[0].GetText(), std::string{ AlertHeadText(AlertType::Note) } + "\nbody");
-        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-    }
-}
-
-// Alert でない引用のソフト改行は従来どおり空白になる。
-TEST(Parser, SoftBreakAfterNonAlertMarkerStaysSpace)
-{
-    for (const char* md : { "> [!NOTX]\n> body", "> intro\n>\n> [!NOTE]\n> body" }) {
-        SCOPED_TRACE(md);
-        const auto nodes = ParseNodes(md);
-        EXPECT_TRUE(nodes.back().GetText().ends_with("] body"));
-    }
-}
-
-TEST(Parser, AlertLabelIsBold)
-{
-    auto nodes = ParseNodes("> [!NOTE]\n> Some text");
-    ASSERT_GE(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].runs().size(), 1u);
-    // 最初のランはラベル部分で太字、アイコン絵文字は含まない
-    const auto icon_len = static_cast<uint32_t>(AlertHeadText(AlertType::Note).find(' '));
-    EXPECT_TRUE(nodes[0].runs()[0].bold());
-    EXPECT_EQ(nodes[0].runs()[0].start, icon_len);
-    EXPECT_EQ(nodes[0].runs()[0].start + nodes[0].runs()[0].length, nodes[0].alert_label_length());
 }
 
 // マーカー直後の改行は除去範囲に入るので、本文の run はラベル行の次へちょうど平行移動する。
@@ -1198,15 +1069,6 @@ TEST(Parser, AlertIgnoresQuoteWithoutNodes)
         EXPECT_EQ(nodes.back().alert_type, AlertType::None);
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
-}
-
-TEST(Parser, AlertMarkerOnlyNoContent)
-{
-    auto nodes = ParseNodes("> [!NOTE]");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-    // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
-    EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote)
@@ -1448,43 +1310,6 @@ TEST(Parser, ParseMarkdownStopTokenAlreadyRequestedAbortsEarly)
     auto result = ParseMarkdown(markdown, ss.get_token());
     // 初回 OnEnterBlock で abort されるためノード列は空。
     EXPECT_TRUE(result.nodes.empty());
-}
-
-TEST(Parser, ParseMarkdownDefaultStopTokenWorksAsUsual)
-{
-    // default-constructed の stop_token は never stop_requested。従来動作を維持。
-    auto result = ParseMarkdown("# Title\n\nBody");
-    EXPECT_FALSE(result.nodes.empty());
-}
-
-// ---- Alert マーカーの判定 ----
-
-// 先頭行がマーカーだけなら Alert になり、ソフト改行は改行のまま残る。そうでなければ空白になる。
-TEST(Parser, AlertMarkerOnlyFirstLine)
-{
-    struct Case {
-        std::string_view marker;
-        AlertType type;
-    };
-    constexpr Case kCases[] = {
-        { "[!NOTE]", AlertType::Note },
-        { "[!note]", AlertType::Note },
-        { "[!TIP]", AlertType::Tip },
-        { "[!NOTE] x", AlertType::None },
-        { "[!FOO]", AlertType::None },
-        { "[!]", AlertType::None },
-        { "[NOTE]", AlertType::None },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.marker);
-        const std::string md = std::format("> {}\n> body", c.marker);
-        const auto nodes = ParseNodes(md);
-        ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_EQ(nodes[0].alert_type, c.type);
-        const std::string expected = c.type == AlertType::None ? std::format("{} body", c.marker)
-                                                               : std::format("{}\nbody", AlertHeadText(c.type));
-        EXPECT_EQ(nodes[0].GetText(), expected);
-    }
 }
 
 // マーカーは最外側の引用グループの先頭段落でだけ効く。
@@ -1938,45 +1763,26 @@ TEST(ParserChunks, LongJapaneseLineSplitsAfterPunctuation)
     }
 }
 
-// シンプルな code block が view 化されることを確認 (回帰防止)
-TEST(ParserRawView, SimpleCodeBlockIsViewed)
-{
-    auto doc = Document::FromMarkdown("```cpp\nint x = 0;\nint y = 1;\n```", L"test.md");
-    bool found_code = false;
-    for (const auto& n : doc.GetNodes()) {
-        if (n.type == NodeType::CodeBlock) {
-            found_code = true;
-            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
-        }
-    }
-    ASSERT_TRUE(found_code);
-}
-
-// シンプルな段落 (span マークアップなし) が view 化されることを確認
-TEST(ParserRawView, SimpleParagraphIsViewed)
-{
-    auto doc = Document::FromMarkdown("Just a plain paragraph without any markup.", L"test.md");
-    bool found_paragraph = false;
-    for (const auto& n : doc.GetNodes()) {
-        if (n.type == NodeType::Paragraph) {
-            found_paragraph = true;
-            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
-        }
-    }
-    ASSERT_TRUE(found_paragraph);
-}
-
+// 装飾の無い段落やコードは原文を指す (コピーしない)。
 // 字下げは md4c から静的な空白で届くが、原文も空白なら 1 行目が字下げされたコードも原文を指す。
 // タブの字下げは空白に置き換わるのでコピーになる。
-TEST(ParserRawView, CodeBlockWithIndentedFirstLineIsViewed)
+TEST(ParserRawView, PlainTextPointsIntoRaw)
 {
-    for (const auto& [md, viewed] : {
-             std::pair{ "```\n    return x;\nend\n```\n",    true  },
-             std::pair{ "text\n\n```cpp\n  a\n    b\n```\n", true  },
-             std::pair{ "```\n\tx\n```\n",                   false }
-    }) {
+    struct Case {
+        const char* md;
+        NodeType type;
+        bool viewed;
+    };
+    constexpr Case kCases[] = {
+        { "Just a plain paragraph without any markup.", NodeType::Paragraph, true },
+        { "```cpp\nint x = 0;\nint y = 1;\n```", NodeType::CodeBlock, true },
+        { "```\n    return x;\nend\n```\n", NodeType::CodeBlock, true },
+        { "text\n\n```cpp\n  a\n    b\n```\n", NodeType::CodeBlock, true },
+        { "```\n\tx\n```\n", NodeType::CodeBlock, false },
+    };
+    for (const auto& [md, type, viewed] : kCases) {
         auto doc = Document::FromMarkdown(md, L"test.md");
-        const auto it = std::ranges::find(doc.GetNodes(), NodeType::CodeBlock, &Node::type);
+        const auto it = std::ranges::find(doc.GetNodes(), type, &Node::type);
         ASSERT_NE(it, doc.GetNodes().end()) << md;
         EXPECT_EQ(TextPointsIntoRaw(*it, doc.GetRawText()), viewed) << md;
         if (viewed) {

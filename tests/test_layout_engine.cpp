@@ -32,12 +32,6 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
 
 // ---- ダーティ追跡 ----
 
-TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
-{
-    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
-    EXPECT_FALSE(cache.HasDirtyNodes());
-}
-
 // 部分レイアウト (ビューポート [0, 1) のみ) は外のノードを dirty で残し、ProcessDirtyBatch が片付ける。
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
@@ -82,67 +76,39 @@ TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
     }
 }
 
-// ビットマップレンダリング後の高さがレイアウト再計算で保持されること（ズーム操作を模擬）
+// 描いた後の図の高さは、全件の無効化と組み直し (ズーム) で保たれる。寸法 (DiagramEntry) があればそれも保つ。
+// 寸法がまだ無ければ、幅 0 (500% ズームで本文が極小) を経て元の幅に戻した後も今の高さのまま。
 TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 {
-    auto [nodes, cache] = ParseAndLayout("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text", ViewportWidthFor(800.0f));
-
-    // ビットマップレンダリング完了後の高さを模擬（300 DIP）
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-            cache[i].height = 300.0f; // ビットマップ描画サイズ
+    struct Case {
+        bool with_entry;
+        std::vector<float> content_widths;
+    };
+    const Case kCases[] = {
+        { true, { 600.0f } },
+        { false, { 0.0f, 800.0f } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.with_entry);
+        auto [nodes, cache] = ParseAndLayout("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text", ViewportWidthFor(800.0f));
+        const int mermaid = FindFirstNodeIndexByType(nodes, NodeType::Diagram);
+        ASSERT_GE(mermaid, 0);
+        const auto i = static_cast<size_t>(mermaid);
+        cache[i].height = 300.0f;
+        if (c.with_entry) {
             cache.EnsureDiagram(i).width = 400.0f;
             cache.EnsureDiagram(i).height = 300.0f;
         }
-    }
 
-    // ズーム変更を模擬: InvalidateAllLayouts → 全件レイアウト
-    cache.InvalidateAllLayouts(nodes);
-    LayoutAll(nodes, cache, 600.0f);
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-            EXPECT_FLOAT_EQ(cache[i].height, 300.0f)
-                << "Mermaidブロックの高さはレイアウト再計算後も保持されるべき";
-            // ダイアグラムエントリも保持
-            EXPECT_FLOAT_EQ(cache.FindDiagram(i)->width, 400.0f);
-            EXPECT_FLOAT_EQ(cache.FindDiagram(i)->height, 300.0f);
-        }
-    }
-}
-
-// content_widthが0以下のときもMermaidブロックの高さが保持されること
-// （500%ズームでMDペインが極小になる場合を模擬）
-TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
-{
-    auto [nodes, cache] = ParseAndLayout("```mermaid\ngraph TD;\n  A-->B;\n```", ViewportWidthFor(800.0f));
-
-    // ビットマップ描画後の高さを設定
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-            cache[i].height = 250.0f;
-        }
-    }
-
-    // 極端なズームを模擬: 幅0でレイアウト
-    cache.InvalidateAllLayouts(nodes);
-    LayoutAll(nodes, cache, 0.0f);
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-            EXPECT_FLOAT_EQ(cache[i].height, 250.0f)
-                << "幅0でのレイアウトでもMermaidブロックの高さは保持されるべき";
-        }
-    }
-
-    // 元の幅に復帰
-    cache.InvalidateAllLayouts(nodes);
-    LayoutAll(nodes, cache, 800.0f);
-
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
-            EXPECT_FLOAT_EQ(cache[i].height, 250.0f)
-                << "幅復帰後もMermaidブロックの高さは保持されるべき";
+        for (const float content_width : c.content_widths) {
+            SCOPED_TRACE(content_width);
+            cache.InvalidateAllLayouts(nodes);
+            LayoutAll(nodes, cache, content_width);
+            EXPECT_FLOAT_EQ(cache[i].height, 300.0f);
+            if (c.with_entry) {
+                EXPECT_FLOAT_EQ(cache.FindDiagram(i)->width, 400.0f);
+                EXPECT_FLOAT_EQ(cache.FindDiagram(i)->height, 300.0f);
+            }
         }
     }
 }

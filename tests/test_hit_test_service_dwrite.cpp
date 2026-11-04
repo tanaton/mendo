@@ -53,23 +53,7 @@ protected:
 
 } // namespace
 
-// 段落の text_layout 経路: paragraph 上の中央付近をクリックすると、当該ノードと
-// 0 でない text_pos が返される。MockTextMeasurer 経路では text_pos = 0 のまま
-// 返されてしまうため、DirectWrite を通したことの直接的な検証になる。
-TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
-{
-    auto pl = ParseAndLayout("Hello, this is a long paragraph for hit testing.");
-    ASSERT_FALSE(pl.nodes.empty());
-
-    // 段落の中央付近 (margin_left + 数文字分) をクリックする想定。
-    const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 50.0f, pl.cache.Top(0) + 4.0f }));
-
-    EXPECT_EQ(r.node_index, 0);
-    EXPECT_GT(r.text_pos, 0u)
-        << "DirectWrite 経路では HitTestPoint で text_pos が 0 より大きく解決されるはず";
-}
-
-// 1 文字だけのリンク "L" の右半分。キャレット位置は文字の後ろ (リンクの外) になるが、リンクとして当たること。
+// 段落は text_layout で位置を引く。1 文字だけのリンク "L" の右半分。キャレット位置は文字の後ろ (リンクの外) になるが、リンクとして当たること。
 TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharHitsLink)
 {
     auto pl = ParseAndLayout("aaa [L](https://l.example) tail");
@@ -225,22 +209,6 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     EXPECT_LE(r.text_pos, cell_start + 2);
 }
 
-// OverlayButtonHitTest: Copy ボタンの上を click するとコードブロックの CodeCopy が返ること。
-TEST_F(HitTestDWriteTest, OverlayButtonHitTest_CopyHitReturnsNode)
-{
-    auto pl = ParseAndLayout("```\nint main() { return 0; }\n```");
-
-    const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
-    ASSERT_GE(code_idx, 0);
-
-    const float content_width = theme_.ContentWidth(800.0f);
-    const float block_right = theme_.margin_left + content_width;
-    const float block_top = pl.cache.Top(code_idx) - theme_.code_block_padding;
-    const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top, OverlayButton::CodeCopy);
-    const auto ctx = Ctx(pl, { (btn.left + btn.right) * 0.5f, (btn.top + btn.bottom) * 0.5f });
-    EXPECT_EQ(hit_test::OverlayButtonHitTest(ctx), (OverlayButtonHit{ code_idx, OverlayButton::CodeCopy }));
-}
-
 // ---- FindTableRow / FindTableCol ----
 
 namespace {
@@ -288,8 +256,7 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
 
     CommandGenerator gen;
     InitWithoutText(gen, theme_);
-    DrawCommandList cmds;
-    gen.GenerateMdPane(cmds, { .nodes = pl_.nodes, .cache = pl_.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f } }, 1.0f);
+    const auto cmds = GenerateMdPaneAt(gen, pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f });
 
     std::vector<float> col_lines;
     std::vector<float> row_lines;

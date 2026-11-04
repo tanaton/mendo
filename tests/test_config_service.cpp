@@ -45,12 +45,30 @@ TEST_F(ConfigServiceTest, GetConfigPathCombinesCorrectly)
 
 // ---- 値の保存と読み出し ----
 
+// 無いキーは既定値。空のディレクトリや壊れたファイルを読んだ後も同じ。
 TEST_F(ConfigServiceTest, MissingKeysReturnDefaults)
 {
-    EXPECT_TRUE(config_.LoadBool("Test", "Missing", true));
-    EXPECT_FALSE(config_.LoadBool("Test", "Missing", false));
-    EXPECT_EQ(config_.LoadInt("Test", "Missing", 7, 0, 100), 7);
-    EXPECT_TRUE(config_.LoadWString("Test", "Missing").empty());
+    const auto expect_defaults = [](const ConfigService& config) {
+        EXPECT_TRUE(config.LoadBool("View", "DarkMode", true));
+        EXPECT_FALSE(config.LoadBool("View", "DarkMode", false));
+        EXPECT_EQ(config.LoadInt("Window", "Width", 7, 0, 100), 7);
+        EXPECT_TRUE(config.LoadWString("Session", "LastFile").empty());
+    };
+    {
+        SCOPED_TRACE("not loaded");
+        expect_defaults(config_);
+    }
+    {
+        SCOPED_TRACE("empty directory");
+        config_.Load();
+        expect_defaults(config_);
+    }
+    {
+        SCOPED_TRACE("corrupted");
+        WriteTempFile(L"settings.ini", "garbage content\nno sections\n");
+        config_.Load();
+        expect_defaults(config_);
+    }
 }
 
 // 同じキーへ順に書き、上書きも確かめる。既定値と逆の値を読めれば保存値が返っている。
@@ -111,13 +129,6 @@ TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
     EXPECT_EQ(fresh.LoadWString("Session", "LastFile"), L"C:\\テスト\\file.md");
 }
 
-TEST_F(ConfigServiceTest, LoadEmptyDirectoryProducesDefaults)
-{
-    config_.Load();
-    EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 0);
-    EXPECT_FALSE(config_.LoadBool("View", "DarkMode", false));
-}
-
 TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
 {
     // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも
@@ -143,16 +154,6 @@ TEST_F(ConfigServiceTest, FlushWithoutAnySaveCreatesNoFile)
 {
     config_.Flush();
     EXPECT_FALSE(std::filesystem::exists(temp_dir_ / L"settings.ini"));
-}
-
-TEST_F(ConfigServiceTest, FlushWritesChangedValue)
-{
-    WriteTempFile(L"settings.ini", "[Window]\r\nX=42\r\n");
-    config_.Load();
-    config_.SaveInt("Window", "X", 43);
-    config_.Flush();
-
-    EXPECT_EQ(MakeFreshLoadedConfig().LoadInt("Window", "X", 0, 0, 100), 43);
 }
 
 // ---- 複数のウィンドウ (プロセス) ----
@@ -246,15 +247,6 @@ TEST_F(ConfigServiceTest, FlushKeepsChangesAfterFailedWrite)
 
 // ---- INIファイル破損テスト ----
 
-TEST_F(ConfigServiceTest, LoadCorruptedIniFile)
-{
-    WriteTempFile(L"settings.ini", "garbage content\nno sections\n");
-
-    config_.Load();
-    // パースエラーでもクラッシュしないことを確認
-    EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 0);
-}
-
 // 数値として読み切れない値 (末尾にゴミが残る部分パースを含む) は既定値に倒す。
 TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
 {
@@ -266,34 +258,31 @@ TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
 
 // ---- Parse テスト ----
 
-TEST(IniParserTest, ParseEmpty)
+// 空行・コメント (; と #)・'=' の無い行は飛ばす。セクションより前のキーは名前の無いセクションに入る。
+TEST(IniParserTest, ParseSections)
 {
-    auto data = ini::Parse("");
-    EXPECT_TRUE(data.empty());
-}
-
-TEST(IniParserTest, ParseSingleSection)
-{
-    auto data = ini::Parse("[Window]\nX=100\nY=200\n");
-    ASSERT_EQ(data.size(), 1u);
-    EXPECT_EQ(data["Window"]["X"], "100");
-    EXPECT_EQ(data["Window"]["Y"], "200");
-}
-
-TEST(IniParserTest, ParseMultipleSections)
-{
-    auto data = ini::Parse(
-        "[Window]\nWidth=1280\n\n[View]\nDarkMode=1\n");
-    EXPECT_EQ(data["Window"]["Width"], "1280");
-    EXPECT_EQ(data["View"]["DarkMode"], "1");
-}
-
-TEST(IniParserTest, ParseCommentLines)
-{
-    auto data = ini::Parse(
-        "; comment\n# another comment\n[S]\nK=V\n");
-    ASSERT_EQ(data.size(), 1u);
-    EXPECT_EQ(data["S"]["K"], "V");
+    struct Case {
+        const char* label;
+        std::string_view input;
+        ini::IniData expected;
+    };
+    const Case kCases[] = {
+        { "Empty", "", {} },
+        { "SingleSection", "[Window]\nX=100\nY=200\n", { { "Window", { { "X", "100" }, { "Y", "200" } } } } },
+        { "MultipleSections", "[Window]\nWidth=1280\n\n[View]\nDarkMode=1\n", { { "Window", { { "Width", "1280" } } }, { "View", { { "DarkMode", "1" } } } } },
+        { "CommentLines", "; comment\n# another comment\n[S]\nK=V\n", { { "S", { { "K", "V" } } } } },
+        { "CRLF", "[S]\r\nA=1\r\nB=2\r\n", { { "S", { { "A", "1" }, { "B", "2" } } } } },
+        { "EmptySection", "[Empty]\n[Full]\nK=V\n", { { "Full", { { "K", "V" } } } } },
+        { "MalformedLineIgnored", "[S]\nno_equals_here\nK=V\n", { { "S", { { "K", "V" } } } } },
+        { "KeyBeforeSection", "Orphan=1\n[S]\nK=2\n", { { "", { { "Orphan", "1" } } }, { "S", { { "K", "2" } } } } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        auto data = ini::Parse(c.input);
+        // 空のセクションは持っても持たなくてもよい。
+        std::erase_if(data, [](const auto& section) { return section.second.empty(); });
+        EXPECT_EQ(data, c.expected);
+    }
 }
 
 // セクション S のキー K の値。
@@ -321,34 +310,6 @@ TEST(IniParserTest, ParseValue)
         ASSERT_TRUE(data["S"].contains("K"));
         EXPECT_EQ(data["S"]["K"], c.expected);
     }
-}
-
-TEST(IniParserTest, ParseCRLFLineEndings)
-{
-    auto data = ini::Parse("[S]\r\nA=1\r\nB=2\r\n");
-    EXPECT_EQ(data["S"]["A"], "1");
-    EXPECT_EQ(data["S"]["B"], "2");
-}
-
-TEST(IniParserTest, ParseEmptySection)
-{
-    auto data = ini::Parse("[Empty]\n[Full]\nK=V\n");
-    EXPECT_TRUE(!data.contains("Empty") || data["Empty"].empty());
-    EXPECT_EQ(data["Full"]["K"], "V");
-}
-
-TEST(IniParserTest, ParseMalformedLineIgnored)
-{
-    auto data = ini::Parse("[S]\nno_equals_here\nK=V\n");
-    ASSERT_EQ(data["S"].size(), 1u);
-    EXPECT_EQ(data["S"]["K"], "V");
-}
-
-TEST(IniParserTest, ParseKeyBeforeSection)
-{
-    auto data = ini::Parse("Orphan=1\n[S]\nK=2\n");
-    EXPECT_EQ(data[""]["Orphan"], "1");
-    EXPECT_EQ(data["S"]["K"], "2");
 }
 
 // ---- Serialize テスト ----
@@ -421,20 +382,25 @@ protected:
 
 // ---- SavePanes / LoadPanes ----
 
-TEST_F(SessionTest, SaveAndLoadPanes)
+// 表示・幅・倍率はペインごとに往復する。幅はズームを含まない DIP 値で、読み側は倍率を掛けない。
+TEST_F(SessionTest, PanesRoundTrip)
 {
     PaneController saved;
     saved.SetSidePaneVisible(PaneTarget::File, false);
-    saved.SetSidePaneWidth(PaneTarget::File, 180.0f);
-    saved.SetSidePaneWidth(PaneTarget::Toc, 250.0f);
+    saved.SetSidePaneWidth(PaneTarget::File, 300.0f);
+    saved.SetSidePaneWidth(PaneTarget::Toc, 260.0f);
+    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    saved.SidePaneZoom(PaneTarget::Toc).SetIndex(ZOOM_DEFAULT_INDEX - 1);
     session::SavePanes(config_, saved);
 
     const auto loaded = LoadPanes();
 
     EXPECT_FALSE(loaded.IsSidePaneVisible(PaneTarget::File));
     EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 180.0f);
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 250.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 300.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 260.0f);
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::File).Index(), ZOOM_DEFAULT_INDEX + 2);
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::Toc).Index(), ZOOM_DEFAULT_INDEX - 1);
 }
 
 // 読み込み先の今の状態は残さない。
@@ -469,52 +435,20 @@ TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
     EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 500.0f);
 }
 
-TEST_F(SessionTest, LoadPanesUsesDefaultWhenNothingSaved)
+// 何も保存していなければ、ペインは両方表示・既定の幅・等倍、スクロール位置とファイルは無し。
+TEST_F(SessionTest, LoadsDefaultsWhenNothingSaved)
 {
-    const auto loaded = LoadPanes();
-
-    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::File));
-    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_DEFAULT_WIDTH);
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_DEFAULT_WIDTH);
-}
-
-// 幅はズームを含まない DIP 値として往復する。読み側は倍率を掛けない。
-TEST_F(SessionTest, SavedWidthRoundTripsAsDip)
-{
-    PaneController saved;
-    saved.SetSidePaneWidth(PaneTarget::File, 300.0f);
-    saved.SetSidePaneWidth(PaneTarget::Toc, 260.0f);
-    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
-    session::SavePanes(config_, saved);
-
-    const auto loaded = LoadPanes();
-
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 300.0f);
-    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 260.0f);
-}
-
-// ペインの倍率はペインごとに往復する。
-TEST_F(SessionTest, PaneZoomRoundTrips)
-{
-    PaneController saved;
-    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
-    saved.SidePaneZoom(PaneTarget::Toc).SetIndex(ZOOM_DEFAULT_INDEX - 1);
-    session::SavePanes(config_, saved);
-
-    const auto loaded = LoadPanes();
-
-    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::File).Index(), ZOOM_DEFAULT_INDEX + 2);
-    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::Toc).Index(), ZOOM_DEFAULT_INDEX - 1);
-}
-
-// 保存が無ければ等倍。
-TEST_F(SessionTest, PaneZoomDefaultsToActualSize)
-{
-    const auto loaded = LoadPanes();
-
-    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::File).IsDefault());
-    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::Toc).IsDefault());
+    const auto panes = LoadPanes();
+    for (const auto target : { PaneTarget::File, PaneTarget::Toc }) {
+        SCOPED_TRACE(static_cast<int>(target));
+        EXPECT_TRUE(panes.IsSidePaneVisible(target));
+        EXPECT_FLOAT_EQ(panes.GetSidePaneWidth(target), SIDE_PANE_DEFAULT_WIDTH);
+        EXPECT_TRUE(panes.SidePaneZoom(target).IsDefault());
+    }
+    const auto pos = session::LoadScrollPosition(config_);
+    EXPECT_EQ(pos.node, -1);
+    EXPECT_EQ(pos.offset, 0);
+    EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
 }
 
 // ---- SaveScrollPosition / LoadScrollPosition ----
@@ -576,12 +510,6 @@ TEST_F(SessionTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
     }
 }
 
-TEST_F(SessionTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
-{
-    auto path = session::LoadLastFilePath(config_);
-    EXPECT_TRUE(path.empty());
-}
-
 // ---- SaveScrollPosition / LoadScrollPosition の境界 ----
 
 TEST_F(SessionTest, SaveScrollPosition_NegativeOffsetRoundtrips)
@@ -591,13 +519,6 @@ TEST_F(SessionTest, SaveScrollPosition_NegativeOffsetRoundtrips)
     const auto pos = session::LoadScrollPosition(config_);
     EXPECT_EQ(pos.node, 3);
     EXPECT_EQ(pos.offset, -150);
-}
-
-TEST_F(SessionTest, LoadScrollPosition_DefaultsWhenNothingSaved)
-{
-    const auto pos = session::LoadScrollPosition(config_);
-    EXPECT_EQ(pos.node, -1);
-    EXPECT_EQ(pos.offset, 0);
 }
 
 // node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。

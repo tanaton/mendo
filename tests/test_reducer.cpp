@@ -494,18 +494,25 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
 
 // ---- コマンド系アクションテスト ----
 
-TEST_F(ReducerTest, ReloadFileAction_EmitsReloadEffect)
+// 状態を見ずに実行側へ渡すだけのコマンドは、対応する副作用を 1 つだけ出す。
+TEST_F(ReducerTest, CommandActionEmitsSingleEffect)
 {
-    auto effects = Reduce(state, ReloadFileAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::ReloadFile>(effects));
-}
-
-TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog)
-{
-    auto effects = Reduce(state, OpenFileAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::OpenFileDialog>(effects));
+    struct Case {
+        const char* name;
+        AppAction action;
+        bool (*has_effect)(const SideEffectList&) noexcept;
+    };
+    const Case kCases[] = {
+        { "ReloadFile", ReloadFileAction{}, &HasEffect<effect::ReloadFile> },
+        { "OpenFile", OpenFileAction{}, &HasEffect<effect::OpenFileDialog> },
+        { "ToggleDarkMode", ToggleDarkModeAction{}, &HasEffect<effect::ToggleDarkMode> },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        const auto effects = Reduce(state, c.action);
+        EXPECT_EQ(effects.size(), 1u);
+        EXPECT_TRUE(c.has_effect(effects));
+    }
 }
 
 // 開く先が無ければ表示中の文書、ヘルプのようにファイルが無ければファイル一覧のフォルダを渡す。
@@ -635,10 +642,13 @@ TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
 
 // ---- ナビゲーションテスト ----
 
-TEST_F(ReducerTest, NavigateBack_NoHistory_NoEffects)
+// 履歴が無ければ、戻るも進むも何もしない。
+TEST_F(ReducerTest, NavigateWithoutHistory_NoEffects)
 {
-    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
-    EXPECT_TRUE(effects.empty());
+    for (const bool forward : { false, true }) {
+        SCOPED_TRACE(forward);
+        EXPECT_TRUE(Reduce(state, NavigateHistoryAction{ .forward = forward }).empty());
+    }
 }
 
 TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
@@ -679,12 +689,6 @@ TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
     EXPECT_FALSE(state.view.pending_restore.IsValid());
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
-}
-
-TEST_F(ReducerTest, NavigateForward_NoHistory_NoEffects)
-{
-    auto effects = Reduce(state, NavigateHistoryAction{ .forward = true });
-    EXPECT_TRUE(effects.empty());
 }
 
 // ---- OpenPath / ShowHelp テスト ----
@@ -780,13 +784,6 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 }
 
 // ---- テーマ / ズームテスト ----
-
-TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
-{
-    auto effects = Reduce(state, ToggleDarkModeAction{});
-
-    EXPECT_TRUE(HasEffect<effect::ToggleDarkMode>(effects));
-}
 
 // まとめて届いたノッチは段数ぶん進めるが、組み直しの要求は 1 回だけ出す。
 TEST_F(ReducerTest, ZoomInMultipleStepsEmitsSingleThemeChange)

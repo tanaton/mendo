@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <d2d1.h>
+#include <dwrite.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -15,6 +16,7 @@
 #include <thread>
 #include <utility>
 #include <windows.h>
+#include <wrl/client.h>
 #include <vector>
 #include "document_types.h"
 #include "i18n.h"
@@ -487,6 +489,17 @@ inline StubD2D1Bitmap& SharedStubBitmap() noexcept
 {
     static StubD2D1Bitmap instance;
     return instance;
+}
+
+// DWRITE_FACTORY_TYPE_SHARED はプロセスで 1 つなので、テストごとに作らず引き回す。作れなければ null。
+inline IDWriteFactory* SharedDWriteFactory()
+{
+    static const Microsoft::WRL::ComPtr<IDWriteFactory> factory = [] {
+        Microsoft::WRL::ComPtr<IDWriteFactory> created;
+        DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(created.GetAddressOf()));
+        return created;
+    }();
+    return factory.Get();
 }
 
 // COM apartment 初期化を管理する基底フィクスチャ。

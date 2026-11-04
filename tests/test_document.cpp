@@ -111,54 +111,34 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
 
 // ---- 1.2 view 化 sanity (Document move) ----
 
-// 原文を直接指すノードのテキストも、move 後に同じ値を読めること。
-TEST(DocumentTest, ViewModeNodesSurviveMove)
-{
-    auto check = [](const Document& doc) static {
-        ASSERT_EQ(doc.GetNodes().size(), 2u);
-        EXPECT_EQ(doc.GetNodes()[0].GetText(), "Hello world");
-        EXPECT_EQ(doc.GetNodes()[1].GetText(), "Second paragraph");
-    };
-    auto src = Document::FromMarkdown("Hello world\n\nSecond paragraph", L"test.md");
-    check(src);
-    Document moved = std::move(src);
-    check(moved);
-    Document assigned;
-    assigned = std::move(moved);
-    check(assigned);
-}
-
-// runs・リンク URL・画像 src は Document の arena か原文を指すので、move 後も同じ値を読めること。
-TEST(DocumentTest, ArenaBackedFieldsSurviveMove)
+// 原文を直接指すノード (view) と、加工が入って arena に持つノード (owned) が同じ文書に並ぶ。
+// runs・リンク URL・画像 src も arena か原文を指すので、move 後も同じ値を読め、見出しの索引も引ける。
+TEST(DocumentTest, NodesSurviveMove)
 {
     auto check = [](const Document& doc) static {
         const auto& nodes = doc.GetNodes();
-        ASSERT_EQ(nodes.size(), 2u);
-        EXPECT_EQ(nodes[0].GetText(), "b l m");
-        const auto runs = nodes[0].runs();
+        ASSERT_EQ(nodes.size(), 5u);
+        EXPECT_EQ(nodes[0].GetText(), "Alpha");
+        EXPECT_EQ(nodes[1].GetText(), "Hello world");
+        EXPECT_EQ(nodes[2].GetText(), "Hello & world");
+        EXPECT_EQ(nodes[3].GetText(), "b l m");
+        const auto runs = nodes[3].runs();
         ASSERT_EQ(runs.size(), 2u);
         EXPECT_TRUE(runs[0].bold());
         ASSERT_TRUE(runs[1].has_link());
-        EXPECT_EQ(nodes[0].view_link_urls()[runs[1].link_url_index], "u_x");
-        EXPECT_EQ(nodes[1].image_src(), "i_x.png");
+        EXPECT_EQ(nodes[3].view_link_urls()[runs[1].link_url_index], "u_x");
+        EXPECT_EQ(nodes[4].image_src(), "i_x.png");
     };
-    auto src = Document::FromMarkdown("**b** [l](u\\_x)\nm\n\n![a](i\\_x.png)", L"t.md");
+    auto src = Document::FromMarkdown("# Alpha\n\nHello world\n\nHello &amp; world\n\n**b** [l](u\\_x)\nm\n\n![a](i\\_x.png)", L"t.md");
     check(src);
     Document moved = std::move(src);
+    // 索引は move の後に初めて作る。
+    EXPECT_EQ(moved.FindAnchorIndex("alpha"), 0);
     check(moved);
     Document assigned = Document::FromMarkdown("other", L"o.md");
     assigned = std::move(moved);
     check(assigned);
-}
-
-TEST(DocumentTest, OwnedAndViewModesCoexist)
-{
-    // HTML entity (&amp;) を含むノードは加工が入るため owned 経路、
-    // 加工なしのノードは view 経路。同一 Document 内で両モードが共存できることを確認する。
-    auto doc = Document::FromMarkdown("Hello &amp; world\n\nNoEntityHere", L"test.md");
-    ASSERT_GE(doc.GetNodes().size(), 2u);
-    EXPECT_EQ(doc.GetNodes()[0].GetText(), "Hello & world");
-    EXPECT_EQ(doc.GetNodes()[1].GetText(), "NoEntityHere");
+    EXPECT_EQ(assigned.FindAnchorIndex("alpha"), 0);
 }
 
 // ---- 索引 ----
@@ -179,39 +159,49 @@ TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
     EXPECT_EQ(doc.FindAnchorIndex("head"), 0);
 }
 
-TEST(DocumentTest, ImageNodeIndices)
+// 画像と図 (Mermaid) のノードの索引。ほかのコードブロックは図に数えない。
+TEST(DocumentTest, ImageAndDiagramNodeIndices)
 {
-    auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\nmore text", L"test.md");
-    const auto& images = doc.GetImageNodeIndices();
-    EXPECT_EQ(images.size(), 1u);
-}
-
-TEST(DocumentTest, DiagramNodeIndices)
-{
-    auto doc = Document::FromMarkdown("```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
-    const auto& diagrams = doc.GetDiagramNodeIndices();
-    EXPECT_EQ(diagrams.size(), 1u);
-    // cppコードブロックはダイアグラムインデックスに含まれない
+    auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\n```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
     const auto& nodes = doc.GetNodes();
-    EXPECT_EQ(nodes[diagrams[0]].code_language, SyntaxLanguage::Mermaid);
-}
+    ASSERT_EQ(doc.GetImageNodeIndices().size(), 1u);
+    EXPECT_EQ(nodes[doc.GetImageNodeIndices()[0]].type, NodeType::Image);
+    ASSERT_EQ(doc.GetDiagramNodeIndices().size(), 1u);
+    EXPECT_EQ(nodes[doc.GetDiagramNodeIndices()[0]].code_language, SyntaxLanguage::Mermaid);
 
-TEST(DocumentTest, NoSpecialNodeIndices)
-{
-    auto doc = Document::FromMarkdown("just a paragraph", L"test.md");
-    EXPECT_TRUE(doc.GetImageNodeIndices().empty());
-    EXPECT_TRUE(doc.GetDiagramNodeIndices().empty());
+    auto plain = Document::FromMarkdown("just a paragraph", L"test.md");
+    EXPECT_TRUE(plain.GetImageNodeIndices().empty());
+    EXPECT_TRUE(plain.GetDiagramNodeIndices().empty());
 }
 
 // ---- FindAnchorIndex 回帰テスト ----
 
-TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
+// アンカーは小文字で作るが、大文字の混じったクエリでも引ける。GitHub は非 ASCII も小文字にしたスラグを付けるので、
+// そのスラグや大文字のままのリンクでも見出しに飛べる。見出し以外と空のクエリは引けない。
+TEST(DocumentTest, FindAnchorIndexMatchesHeadingSlug)
 {
-    // アンカーは ASCII 小文字で作るが、クエリに大文字が混ざっていても引けること。
-    auto doc = Document::FromMarkdown("# Hello World", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex("hello-world"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex("Hello-World"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex("HELLO-WORLD"), 0);
+    struct Case {
+        std::string_view md;
+        std::string_view anchor;
+        int expected;
+    };
+    constexpr Case kCases[] = {
+        { "# Hello World", "hello-world", 0 },
+        { "# Hello World", "Hello-World", 0 },
+        { "# Hello World", "HELLO-WORLD", 0 },
+        { "Paragraph\n\n## コードブロック", "コードブロック", 1 },
+        { "Paragraph\n\n## コードブロック", "paragraph", -1 },
+        { "## Введение\n\n## Über", "введение", 0 },
+        { "## Введение\n\n## Über", "Введение", 0 },
+        { "## Введение\n\n## Über", "über", 1 },
+        { "## Введение\n\n## Über", "ÜBER", 1 },
+        { "# Heading", "", -1 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.md << " #" << c.anchor);
+        auto doc = Document::FromMarkdown(std::string{ c.md }, L"test.md");
+        EXPECT_EQ(doc.FindAnchorIndex(c.anchor), c.expected);
+    }
 }
 
 // 索引は引いた見出しまでしか作らないので、先に後ろの見出しや存在しないアンカーを引いても
@@ -225,36 +215,4 @@ TEST(DocumentTest, FindAnchorIndexExtendsIndexFromPreviousLookup)
     EXPECT_EQ(doc.FindAnchorIndex("missing"), -1);
     EXPECT_EQ(doc.FindAnchorIndex("c"), 3);
     EXPECT_EQ(doc.FindAnchorIndex("b"), 1);
-}
-
-TEST(DocumentTest, FindAnchorIndexCjkHeadingAndSkipsParagraph)
-{
-    auto doc = Document::FromMarkdown("Paragraph\n\n## コードブロック", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex("コードブロック"), 1);
-    EXPECT_EQ(doc.FindAnchorIndex("paragraph"), -1);
-}
-
-// GitHub は非 ASCII も小文字にしたスラグを付けるので、そのスラグや大文字のままのリンクでも見出しに飛べること。
-TEST(DocumentTest, FindAnchorIndexNonAsciiCaseInsensitive)
-{
-    auto doc = Document::FromMarkdown("## Введение\n\n## Über", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex("введение"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex("Введение"), 0);
-    EXPECT_EQ(doc.FindAnchorIndex("über"), 1);
-    EXPECT_EQ(doc.FindAnchorIndex("ÜBER"), 1);
-}
-
-TEST(DocumentTest, FindAnchorIndexEmptyQuery)
-{
-    auto doc = Document::FromMarkdown("# Heading", L"test.md");
-    EXPECT_EQ(doc.FindAnchorIndex(""), -1);
-}
-
-TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
-{
-    // Document の move 構築後も lookup が壊れないこと。
-    auto doc = Document::FromMarkdown("# Alpha\n\n## Beta", L"test.md");
-    Document moved = std::move(doc);
-    EXPECT_EQ(moved.FindAnchorIndex("alpha"), 0);
-    EXPECT_EQ(moved.FindAnchorIndex("beta"), 1);
 }

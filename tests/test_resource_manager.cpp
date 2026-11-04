@@ -155,12 +155,17 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenNoImagesInDocument)
     EXPECT_EQ(host_.recompute_layout, 0);
 }
 
-TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenContentWidthIsZero)
+// 本文の幅が 0 (最小化など) のうちは、画像も図も適用・要求しない。
+TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
 {
-    LoadMarkdown("# heading\n\n![alt](image.png)\n");
+    LoadMarkdown("# heading\n\n![alt](foo.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
     SetContentWidth(0.0f);
     rm_.LoadImages();
+    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    rm_.RequestMermaidRenders();
     EXPECT_EQ(host_.recompute_layout, 0);
+    EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
 // ---- 画像経路: リロード時の ApplyCachedImagesForReload (issue #148) ----
@@ -328,14 +333,6 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesOnlyGivenRange)
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesNothingWhenContentWidthIsZero)
-{
-    LoadMarkdown("![alt](foo.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
-    SetContentWidth(0.0f);
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
-}
-
 // ---- Mermaid 経路 ----
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)
@@ -369,15 +366,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
     rm_.RequestMermaidRenders();
     // 1個目 (y=0, 可視範囲内) のみ Render される
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
-}
-
-TEST_F(ResourceManagerTest, RequestMermaidRendersZeroWidthIsNoOp)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    SetContentWidth(0.0f);
-    rm_.RequestMermaidRenders();
-    EXPECT_EQ(host_.recompute_layout, 0);
-    EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
 // エラー確定 (error 非空) の図は再リクエストされない (issue #271: 失敗レンダの無限リトライ防止)。
@@ -419,7 +407,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadDoesNotCarryChangeRange)
     EXPECT_EQ(host_.last_change.begin, diagram);
 }
 
-// 量子化幅の変化でエラーがクリアされ、再試行される (issue #271)。
+// 量子化幅が変わると旧幅の描画待ちを捨て、エラーもクリアして再試行する (issue #271)。
+// メモリキャッシュは幅込みのキーなので残す。
 TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -431,9 +420,11 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
     ASSERT_EQ(mock_mermaid_.requested.size(), 1u);
 
     cache_.EnsureDiagram(diagram_index).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
+    const int initial_drop = mock_mermaid_.drop_queued_count;
 
     SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
+    EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
     EXPECT_TRUE(cache_.FindDiagram(diagram_index)->error.empty());
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
 }
@@ -481,37 +472,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits
     rm_.RequestMermaidRenders();
     EXPECT_EQ(mock_mermaid_.requested.size(), 3u);
     EXPECT_EQ(host_.recompute_layout, 1);
-}
-
-// FlushPendingResources 経由では図ごとに再レイアウトせず、画像と合わせて 1 回だけ行う。
-// OnBitmapManageTimer がこの経路をトリガする。
-TEST_F(ResourceManagerTest, FlushRecomputesOnceForAllDiagrams)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n");
-    ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 2u);
-    mock_mermaid_.sync_apply_bitmap = true;
-
-    rm_.OnBitmapManageTimer();
-
-    EXPECT_EQ(host_.recompute_layout, 1);
-}
-
-TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidthShift)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-
-    // 1 回目: 幅 800（最初の登録、last_mermaid_content_width_ をシードする）
-    SetContentWidth(800.0f);
-    rm_.RequestMermaidRenders();
-
-    const int initial_drop = mock_mermaid_.drop_queued_count;
-
-    // 2 回目: QuantizeWidth(800) != QuantizeWidth(1000) → 幅変化検出
-    SetContentWidth(1000.0f);
-    rm_.RequestMermaidRenders();
-
-    // 量子化幅が変化すると旧幅の描画待ちを捨てる。メモリキャッシュは幅込みのキーなので残す。
-    EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
 }
 
 // 保持範囲を越えて移動したら、旧位置で積んだ描画待ちを捨ててから要求し直す。

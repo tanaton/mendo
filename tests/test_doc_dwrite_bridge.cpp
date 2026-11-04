@@ -5,6 +5,7 @@
 #include "example_files.h"
 #include "parallel_for.h"
 #include "task_scheduler.h"
+#include "test_helpers.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "ui_constants.h"
@@ -47,116 +48,40 @@ std::wstring Decode(std::string_view text)
 // Utf16OffsetCursor: WideAt (byte → wide) / ByteAt (wide → byte)
 // ─────────────────────────────────────────────
 
-TEST(Utf16OffsetCursor, EmptyText)
+// 文字列ごとの WideAt (byte → wide) と ByteAt (wide → byte) の対応。範囲外は末尾に丸める。
+TEST(Utf16OffsetCursor, MapsOffsetsBothWays)
 {
-    EXPECT_EQ(WideAt("", 0), 0u);
-    EXPECT_EQ(ByteAt("", 0), 0u);
-}
-
-TEST(Utf16OffsetCursor, AsciiOnly)
-{
-    for (uint32_t i = 0; i <= 5; ++i) {
-        EXPECT_EQ(WideAt("Hello", i), i);
-        EXPECT_EQ(ByteAt("Hello", i), i);
+    using Pairs = std::vector<std::pair<uint32_t, uint32_t>>;
+    struct Case {
+        std::string_view text;
+        Pairs wide_at; // {byte, wide}
+        Pairs byte_at; // {wide, byte}
+    };
+    const Case cases[] = {
+        { "", { { 0, 0 } }, { { 0, 0 } } },
+        { "Hello", { { 0, 0 }, { 1, 1 }, { 2, 2 }, { 3, 3 }, { 4, 4 }, { 5, 5 }, { 100, 5 } }, { { 0, 0 }, { 1, 1 }, { 2, 2 }, { 3, 3 }, { 4, 4 }, { 5, 5 }, { 100, 5 } } },
+        // "日" は 3 bytes / 1 wide
+        { "ab日c", { { 1, 1 }, { 2, 2 }, { 5, 3 }, { 6, 4 } }, { { 3, 5 } } },
+        // ByteAt は continuation byte を返さず、次の文字の先頭 byte を返す。
+        // 回帰 #183: 末尾の文字を選ぶと wide=2 が渡り、旧実装は continuation byte を返して貼り付け先で化けていた。
+        { "テスト", { { 0, 0 }, { 3, 1 }, { 6, 2 }, { 9, 3 }, { 100, 3 } }, { { 0, 0 }, { 1, 3 }, { 2, 6 }, { 3, 9 }, { 100, 9 } } },
+        // é = U+00E9 は 2 bytes / 1 wide
+        { "aébc", { { 0, 0 }, { 1, 1 }, { 3, 2 }, { 4, 3 }, { 5, 4 } }, { { 0, 0 }, { 1, 1 }, { 2, 3 }, { 3, 4 }, { 4, 5 } } },
+        // 😀 = U+1F600 は 4 bytes / 2 wide。サロゲートペアの中央 (wide=2) は絵文字ではなく次の文字の先頭 byte。
+        { "A\xF0\x9F\x98\x80""B", { { 0, 0 }, { 1, 1 }, { 5, 3 }, { 6, 4 } }, { { 0, 0 }, { 1, 1 }, { 2, 5 }, { 3, 5 }, { 4, 6 } } },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.text);
+        for (const auto [byte, wide] : c.wide_at) {
+            EXPECT_EQ(WideAt(c.text, byte), wide) << "byte=" << byte;
+        }
+        for (const auto [wide, byte] : c.byte_at) {
+            EXPECT_EQ(ByteAt(c.text, wide), byte) << "wide=" << wide;
+        }
     }
-}
 
-TEST(Utf16OffsetCursor, AsciiOnlyOutOfRangeClampsToSize)
-{
-    EXPECT_EQ(WideAt("Hello", 100), 5u);
-    EXPECT_EQ(ByteAt("Hello", 100), 5u);
-}
-
-TEST(Utf16OffsetCursor, AsciiPrefixBeforeNonAscii)
-{
-    // "日" は 3 bytes / 1 wide
-    const std::string_view text = "ab日c";
-    EXPECT_EQ(WideAt(text, 1), 1u);
-    EXPECT_EQ(WideAt(text, 2), 2u);
-    EXPECT_EQ(WideAt(text, 5), 3u);
-    EXPECT_EQ(WideAt(text, 6), 4u);
-    EXPECT_EQ(ByteAt(text, 3), 5u);
-}
-
-TEST(Utf16OffsetCursor, Cjk3ByteRoundTrip)
-{
-    // テスト = 3 文字, UTF-8 9 bytes, UTF-16 3 wide units
-    const std::string_view text = "テスト";
-
-    EXPECT_EQ(WideAt(text, 0), 0u);
-    EXPECT_EQ(WideAt(text, 3), 1u);
-    EXPECT_EQ(WideAt(text, 6), 2u);
-    EXPECT_EQ(WideAt(text, 9), 3u);
-
-    // wide → byte: 対応する文字の leading byte 位置 (= continuation byte は返さない)
-    EXPECT_EQ(ByteAt(text, 0), 0u);
-    EXPECT_EQ(ByteAt(text, 1), 3u);
-    EXPECT_EQ(ByteAt(text, 2), 6u);
-    EXPECT_EQ(ByteAt(text, 3), 9u);
-}
-
-TEST(Utf16OffsetCursor, Latin2ByteRoundTrip)
-{
-    // é = U+00E9 (UTF-8 2 bytes, UTF-16 1 wide unit)
-    // 'a'=0..1, 'é'=1..3, 'b'=3..4, 'c'=4..5 (utf8 byte / utf16 wide)
-    const std::string_view text = "aébc";
-    EXPECT_EQ(WideAt(text, 0), 0u);
-    EXPECT_EQ(WideAt(text, 1), 1u);
-    EXPECT_EQ(WideAt(text, 3), 2u);
-    EXPECT_EQ(WideAt(text, 4), 3u);
-    EXPECT_EQ(WideAt(text, 5), 4u);
-
-    EXPECT_EQ(ByteAt(text, 0), 0u);
-    EXPECT_EQ(ByteAt(text, 1), 1u);
-    EXPECT_EQ(ByteAt(text, 2), 3u);
-    EXPECT_EQ(ByteAt(text, 3), 4u);
-    EXPECT_EQ(ByteAt(text, 4), 5u);
-}
-
-TEST(Utf16OffsetCursor, SurrogatePairRoundTrip)
-{
-    // 😀 = U+1F600 (UTF-8 4 bytes, UTF-16 2 wide units = surrogate pair)
-    const std::string_view text = "A\xF0\x9F\x98\x80""B";
-
-    EXPECT_EQ(WideAt(text, 0), 0u);
-    EXPECT_EQ(WideAt(text, 1), 1u); // 絵文字 leading byte
-    EXPECT_EQ(WideAt(text, 5), 3u); // 'B' leading byte
-    EXPECT_EQ(WideAt(text, 6), 4u);
-
-    // wide=2 (サロゲートペア中央) は絵文字 leading (1) ではなく次文字の leading (5)。
-    EXPECT_EQ(ByteAt(text, 0), 0u);
-    EXPECT_EQ(ByteAt(text, 1), 1u);
-    EXPECT_EQ(ByteAt(text, 2), 5u);
-    EXPECT_EQ(ByteAt(text, 3), 5u);
-    EXPECT_EQ(ByteAt(text, 4), 6u);
-}
-
-// 回帰テスト: #183
-// テキスト末尾の文字を選択した際、HitTest で is_trailing=true により
-// wide_off = (文字数) - 1 + 1 = wide_size に達する直前の値が渡される。
-// 旧実装は continuation byte の index を返してしまい、ExtractSelectedText で
-// UTF-8 として不正な末尾バイト列が抽出され、貼り付け先で文字化けしていた。
-TEST(Utf16OffsetCursor, EndOfNonAsciiCharNeverReturnsContinuationByte)
-{
-    // 末尾「ト」の手前 (= 「ス」の右端) を指す wide=2 は「ト」の leading byte (= 6)。
-    EXPECT_EQ(ByteAt("テスト", 2), 6u);
-    // 「テ」の右端 (= 「ス」の左端) は byte 3 (= 「ス」の leading byte)
-    EXPECT_EQ(ByteAt("テスト", 1), 3u);
-}
-
-TEST(Utf16OffsetCursor, OutOfRangeClampsToBack)
-{
-    EXPECT_EQ(ByteAt("テスト", 3), 9u);
-    EXPECT_EQ(ByteAt("テスト", 100), 9u);
-    EXPECT_EQ(WideAt("テスト", 9), 3u);
-    EXPECT_EQ(WideAt("テスト", 100), 3u);
-}
-
-TEST(Utf16OffsetCursor, WideRangeForCjk)
-{
     // [3, 6) byte = 「ス」 = wide [1, 2)
-    Utf16OffsetCursor cursor{ "テスト" };
-    const auto r = cursor.WideRange(3, 3);
+    const auto r = Utf16OffsetCursor{ "テスト" }.WideRange(3, 3);
     EXPECT_EQ(r.startPosition, 1u);
     EXPECT_EQ(r.length, 1u);
 }
@@ -354,7 +279,8 @@ class FallbackFontMapTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        ASSERT_TRUE(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory_.GetAddressOf()))));
+        factory_ = SharedDWriteFactory();
+        ASSERT_TRUE(factory_);
     }
 
     ComPtr<IDWriteTextLayout> Build(std::wstring_view text, IDWriteTextFormat* format, const Style& style, const FallbackFontMap* fonts) const
@@ -383,6 +309,10 @@ protected:
     // 明示の有無でグリフ・位置・行の高さが同じか。
     ::testing::AssertionResult SameAsFallback(std::wstring_view text, IDWriteTextFormat* format, const FallbackFontMap& fonts, const Style& style = {}) const
     {
+        // 明示する文字が無ければ ApplyFallbackFonts は何も掛けないので、比べるまでもなく同じ。
+        if (std::ranges::none_of(text, [&](wchar_t c) { return fonts.FamilyFor(c) != nullptr; })) {
+            return ::testing::AssertionSuccess();
+        }
         const auto plain = Build(text, format, style, nullptr);
         const auto hinted = Build(text, format, style, &fonts);
         GlyphCollector a;
@@ -565,15 +495,22 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForEveryLanguage)
 TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForPaneItems)
 {
     constexpr const wchar_t* kTextLocales[]{ L"ja-jp", L"zh-cn", L"zh-tw", L"zh-hk", L"ko-kr" };
+    constexpr std::array kZooms{ ZOOM_STEPS[0], 1.0f, ZOOM_STEPS[ZOOM_STEP_COUNT - 1] };
     const float pane_size = GetLightTheme().pane_font_size;
-    for (const auto [zoom, locale] : std::views::cartesian_product(std::array{ ZOOM_STEPS[0], 1.0f, ZOOM_STEPS[ZOOM_STEP_COUNT - 1] }, kTextLocales)) {
+    const auto pairs = std::views::cartesian_product(kZooms, kTextLocales);
+    ExpectAllInParallel(pairs.size(), [&](size_t i) {
+        const auto [zoom, locale] = pairs[i];
         const float size = pane_size * zoom;
-        const auto format = CreateTextFormat(factory_.Get(), { .family = L"Segoe UI", .size = size, .locale = locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+        const auto format = CreateTextFormat(Factory(), { .family = L"Segoe UI", .size = size, .locale = locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
         const auto map = Map(L"Segoe UI", locale);
+        std::vector<std::string> failures;
         for (const wchar_t* const text : kCorpus) {
-            EXPECT_TRUE(SameAsFallback(text, format.Get(), *map)) << "size=" << size << " locale=" << Quote(locale) << " text=" << Quote(text);
+            if (const auto same = SameAsFallback(text, format.Get(), *map); !same) {
+                failures.push_back(std::format("size={} locale={} text={}: {}", size, Quote(locale), Quote(text), same.message()));
+            }
         }
-    }
+        return failures;
+    });
 }
 
 TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
@@ -588,6 +525,10 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
             lines.emplace_back(line.begin(), line.end());
         }
     }
+    // 行ごとに独立して比べるので、同じ行は 1 度でよい。
+    std::ranges::sort(lines);
+    const auto [dup_begin, dup_end] = std::ranges::unique(lines);
+    lines.erase(dup_begin, dup_end);
     // 対応は worker から同時に引ける。行の塊ごとに解決し直さないよう、主フォントごとに 1 つを共有する。
     std::vector<std::unique_ptr<FallbackFontMap>> maps;
     for (const auto* base : kBases) {

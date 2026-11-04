@@ -5,7 +5,6 @@
 #include "document_utils.h"
 #include "parser.h"
 #include "selection_html.h"
-#include "syntax.h"
 #include "test_helpers.h"
 #include "utf8_codec.h"
 #include "test_nodes.h"

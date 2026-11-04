@@ -14,58 +14,16 @@ protected:
 
 // ─── 基本状態 ───
 
+// 空の履歴では戻るも進むもできない。
 TEST_F(NavHistoryTest, InitiallyEmpty)
 {
     EXPECT_FALSE(hist_.CanGoBack());
     EXPECT_FALSE(hist_.CanGoForward());
     EXPECT_EQ(hist_.BackSize(), 0u);
     EXPECT_EQ(hist_.ForwardSize(), 0u);
-}
-
-TEST_F(NavHistoryTest, GoBackOnEmptyReturnsFalse)
-{
     NavEntry out;
     EXPECT_FALSE(hist_.GoBack({ L"a.md", 0, 0.0f }, out));
-}
-
-TEST_F(NavHistoryTest, GoForwardOnEmptyReturnsFalse)
-{
-    NavEntry out;
     EXPECT_FALSE(hist_.GoForward({ L"a.md", 0, 0.0f }, out));
-}
-
-// ─── Push / GoBack（プッシュ / 戻る） ───
-
-TEST_F(NavHistoryTest, PushThenGoBack)
-{
-    hist_.Push({ L"a.md", 3, 25.0f });
-    EXPECT_TRUE(hist_.CanGoBack());
-    EXPECT_FALSE(hist_.CanGoForward());
-
-    NavEntry out;
-    EXPECT_TRUE(hist_.GoBack({ L"b.md", 7, 12.0f }, out));
-    EXPECT_EQ(out.file_path, L"a.md");
-    EXPECT_EQ(out.node, 3);
-    EXPECT_FLOAT_EQ(out.offset, 25.0f);
-
-    // 戻った後は、進むが利用可能になるべき
-    EXPECT_TRUE(hist_.CanGoForward());
-    EXPECT_FALSE(hist_.CanGoBack());
-}
-
-// ─── GoBack後にGoForward（戻ってから進む） ───
-
-TEST_F(NavHistoryTest, GoBackThenGoForward)
-{
-    hist_.Push({ L"a.md", 0, 0.0f });
-
-    NavEntry out;
-    hist_.GoBack({ L"b.md", 2, 10.0f }, out);
-
-    EXPECT_TRUE(hist_.GoForward({ L"a.md", 0, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"b.md");
-    EXPECT_EQ(out.node, 2);
-    EXPECT_FLOAT_EQ(out.offset, 10.0f);
 }
 
 // ─── 新規ナビゲーションで進むスタックをクリア ───
@@ -83,7 +41,7 @@ TEST_F(NavHistoryTest, PushClearsForwardStack)
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
-// ─── 複数エントリ ───
+// ─── 戻る / 進む ───
 
 TEST_F(NavHistoryTest, MultipleBackForward)
 {
@@ -92,6 +50,7 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     hist_.Push({ L"b.md", 3, 4.0f });   // C を開く前
 
     EXPECT_EQ(hist_.BackSize(), 2u);
+    EXPECT_FALSE(hist_.CanGoForward());
 
     NavEntry out;
     // CからBへ戻る
@@ -99,6 +58,7 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_EQ(out.file_path, L"b.md");
     EXPECT_EQ(out.node, 3);
     EXPECT_FLOAT_EQ(out.offset, 4.0f);
+    EXPECT_TRUE(hist_.CanGoForward());
 
     // BからAへ戻る
     EXPECT_TRUE(hist_.GoBack({ L"b.md", 3, 4.0f }, out));

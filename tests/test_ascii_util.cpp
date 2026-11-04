@@ -2,55 +2,9 @@
 #include "ascii_util.h"
 #include <string>
 #include <string_view>
+#include <utility>
 
 // ── Find ──────────────────────────────────────────────────────
-
-TEST(SimdAsciiFindTest, EmptyQuery)
-{
-    EXPECT_EQ(ascii_util::Find("hello", "", 0), 0u);
-    EXPECT_EQ(ascii_util::Find("hello", "", 3), 3u);
-    EXPECT_EQ(ascii_util::Find("hello", "", 5), 5u);
-    EXPECT_EQ(ascii_util::Find("hello", "", 6), ascii_util::npos);
-}
-
-TEST(SimdAsciiFindTest, EmptyText)
-{
-    EXPECT_EQ(ascii_util::Find("", "a", 0), ascii_util::npos);
-}
-
-TEST(SimdAsciiFindTest, PartialPrefixOnly)
-{
-    // 候補位置に最初の文字だけ一致するが残りが違うケースで誤検出しないこと
-    const std::string t = "abXabXabXabXabcXabc";
-    EXPECT_EQ(ascii_util::Find(t, "abc", 0), 12u);
-}
-
-TEST(SimdAsciiFindTest, CrossingSimdBoundary)
-{
-    // SIMD 境界 (16 byte 単位) を跨ぐマッチを発生させる
-    std::string t(40, 'a');
-    t.replace(15, 3, "xyz"); // 位置 15..17 に xyz (16 byte 目を跨ぐ)
-    EXPECT_EQ(ascii_util::Find(t, "xyz", 0), 15u);
-    EXPECT_EQ(ascii_util::Find(t, "axyz", 0), 14u);
-}
-
-TEST(SimdAsciiFindTest, RepeatedMatches)
-{
-    const std::string t = "aaaaaaaaaaaaaaaaaa"; // 18 個の 'a'
-    EXPECT_EQ(ascii_util::Find(t, "aa", 0), 0u);
-    EXPECT_EQ(ascii_util::Find(t, "aa", 5), 5u);
-    EXPECT_EQ(ascii_util::Find(t, "aaa", 0), 0u);
-    EXPECT_EQ(ascii_util::Find(t, "aaa", 15), 15u);
-    EXPECT_EQ(ascii_util::Find(t, "aaa", 16), ascii_util::npos);
-}
-
-TEST(SimdAsciiFindTest, StartBeyondLast)
-{
-    const std::string t = "hello";
-    // start > tlen - qlen のケース
-    EXPECT_EQ(ascii_util::Find(t, "lo", 4), ascii_util::npos);
-    EXPECT_EQ(ascii_util::Find(t, "lo", 3), 3u);
-}
 
 // 1 バイトのクエリも 2 点一致の経路を通る。16 バイトのブロックと端数のどちらの位置でも見つかる。
 TEST(SimdAsciiFindTest, SingleByteAtEveryPosition)
@@ -92,12 +46,12 @@ TEST(AsciiUtilIequal, IstartsWith)
 
 namespace {
 
-// 各開始位置から参照実装 (std::string_view::find) と一致するかを総当たりで確かめる。
+// 各開始位置 (末尾の 1 つ先まで) から参照実装 (std::string_view::find) と一致するかを総当たりで確かめる。
 void ExpectFindMatchesReference(std::string_view text, std::string_view query)
 {
     const auto lower_text = ascii_util::ToLowerAsciiCopy(text);
     const auto lower_query = ascii_util::ToLowerAsciiCopy(query);
-    for (size_t start = 0; start <= text.size(); ++start) {
+    for (size_t start = 0; start <= text.size() + 1; ++start) {
         const size_t expected = text.find(query, start);
         EXPECT_EQ(ascii_util::Find(text, query, start), expected == std::string_view::npos ? ascii_util::npos : expected)
             << "start=" << start << " query=" << query;
@@ -120,11 +74,29 @@ TEST(AsciiUtilFind, MatchesReferenceAcrossSimdBoundaries)
     }
 }
 
-TEST(AsciiUtilFind, QueryLongerThanTextOrEmpty)
+// 空のクエリ・空の文字列・クエリより短い文字列、先頭だけ一致する候補、16 byte の境目をまたぐ一致、重なる一致、
+// 末尾に収まらない開始位置。
+TEST(AsciiUtilFind, MatchesReferenceForEdgeCases)
 {
-    EXPECT_EQ(ascii_util::Find("abc", "abcd", 0), ascii_util::npos);
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("ABC", "abcd", 0), ascii_util::npos);
-    EXPECT_EQ(ascii_util::Find("abc", "", 2), 2u);
+    std::string crossing(40, 'a');
+    crossing.replace(15, 3, "xyz");
+    const std::string repeated(18, 'a');
+    const std::pair<std::string_view, std::string_view> kCases[] = {
+        { "hello", "" },
+        { "", "a" },
+        { "abc", "abcd" },
+        { "ABC", "abcd" },
+        { "abXabXabXabXabcXabc", "abc" },
+        { crossing, "xyz" },
+        { crossing, "axyz" },
+        { repeated, "aa" },
+        { repeated, "aaa" },
+        { "hello", "lo" },
+    };
+    for (const auto& [text, query] : kCases) {
+        SCOPED_TRACE(text);
+        ExpectFindMatchesReference(text, query);
+    }
 }
 
 TEST(AsciiUtilFind, CaseInsensitiveDoesNotFoldNonAscii)
