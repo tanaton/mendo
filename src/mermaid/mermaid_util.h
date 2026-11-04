@@ -18,7 +18,7 @@ uint64_t DiagramCodeHash(const Node& node) noexcept;
 // cached は DiagramEntry::code_hash。0 (未計算) のときだけテキストを読む。
 uint64_t EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept;
 uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept;
-// mermaid は既定で useMaxWidth なので、幅の上限より狭く描けた図はどの幅でも同じ結果になる。
+// pele は幅の上限より狭く描けた図をどの幅でも同じに描く (mermaid の文書の例と test.md の 559 図で確かめた)。
 // その結果は幅を混ぜないこのキーでも引けるようにし、幅が変わっても描き直さない。
 uint64_t DiagramWidthFreeHash(uint64_t code_hash, bool dark_mode) noexcept;
 constexpr bool IsWidthFree(float css_width, float max_width) noexcept
@@ -27,14 +27,15 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 }
 
 // mermaid.html の message の受け口に送る要求。"<種類>:<要求 ID>:..." の形で、図のコードと TeX はエスケープせずに送る。
-// 図は "<種類>:<ID>:<ダーク 0/1>:<コード>" とコードを末尾に置く。
+// 図は "<種類>:<ID>:<ダーク 0/1>:<幅の上限 (CSS px)>:<本文のロケール>:<コード>" とコードを末尾に置く。
+// ロケールは日本語などのフォールバック先を本文 (Theme::text_locale) とそろえるのに使う。
 enum class PageRequest : uint8_t {
     Mermaid, // 表示用の図 (render-result で大きさを返す)
     Svg,     // クリップボード用の SVG (svg-result)
     View,    // 拡大表示用の SVG (svg-result)
     Math,    // インライン数式のまとめ描き (math-result)。PageMathBatchMessage で作る
 };
-std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8);
+std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, float max_width, std::wstring_view locale, std::string_view code_utf8);
 // インライン数式のまとめ描きは "math:<ID>:<ページの幅>:" に、数式ごとに AppendPageMathItem を続ける。
 std::wstring PageMathBatchMessage(unsigned id, int page_width);
 // "<文字の大きさ>:<TeX の長さ (UTF-16)>:<TeX>" を足す。
@@ -52,7 +53,7 @@ std::wstring ViewerSvgMessage(bool dark, std::wstring_view svg);
 
 int QuantizeWidth(float max_width) noexcept;
 
-// ページから届く値は、mermaid.js に XSS があれば任意に偽れる。描画とキャッシュに使う前に確かめる。
+// ページから届く値は、pele に XSS があれば任意に偽れる。描画とキャッシュに使う前に確かめる。
 constexpr bool IsPlausibleDpr(float dpr) noexcept
 {
     return dpr >= 0.25f && dpr <= 8.0f;
@@ -126,11 +127,5 @@ std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t 
 ByteBuffer AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout);
 // チャンクが無い・壊れている・数が expected と違う・ページの外を指す箱があれば nullopt。
 std::optional<MathBatchLayout> ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected);
-
-// FindResourceW は "#123" を数値 ID と読むので、# で始まる名前で引かせない。
-constexpr bool IsModulePath(std::wstring_view path) noexcept
-{
-    return path.ends_with(L".mjs") && !path.starts_with(L'#');
-}
 
 } // namespace mermaid_util

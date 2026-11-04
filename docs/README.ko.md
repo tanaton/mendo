@@ -22,7 +22,7 @@ winget install tanaton.mendo
 - **빠른 시작** — 창 생성과 파일 처리를 병렬로 진행하여 빠르게 시작합니다.
 - **적은 메모리 사용** — 브라우저 엔진을 쓰지 않고 Direct2D + DirectWrite로 Markdown을 직접 그립니다.
 - **실시간 다시 불러오기** — 열려 있는 파일의 변경을 감지하면 자동으로 표시를 갱신하고 변경된 위치로 스크롤합니다.
-- **Mermaid** — `mermaid` 코드 블록을 다이어그램으로 표시합니다. (WebView2 + Mermaid.js를 이용한 오프스크린 렌더링)
+- **Mermaid** — `mermaid` 코드 블록을 다이어그램으로 표시합니다. (WebView2 + [pele](https://pele.run/)를 이용한 오프스크린 렌더링)
 - **오프라인 동작** — 네트워크 연결 없이 동작합니다.
 - **구문 강조** — 여러 프로그래밍 언어와 설정 파일 형식 등의 코드 블록을 색으로 구분해 표시합니다.
 - **이미지 표시** — 로컬의 PNG, JPEG, BMP 등의 이미지를 표시합니다.
@@ -186,8 +186,8 @@ mendo.exe [파일 경로 | 폴더 경로]
 | GUI | Win32 API |
 | 2D 그리기 | Direct2D (`ID2D1DeviceContext`) |
 | 텍스트 그리기 | DirectWrite (`IDWriteTextLayout`) |
-| 다이어그램 | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| 수식 | [KaTeX](https://katex.org/) (Mermaid 내장) |
+| 다이어그램 | WebView2 + [pele](https://pele.run/) |
+| 수식 | [KaTeX](https://katex.org/) |
 | Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
 | 테스트 | Google Test v1.18.0 |
 | 벤치마크 | Google Benchmark v1.10.0 |

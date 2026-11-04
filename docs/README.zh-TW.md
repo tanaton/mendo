@@ -22,7 +22,7 @@ winget install tanaton.mendo
 - **快速啟動** — 視窗建立與檔案處理平行進行，啟動迅速。
 - **低記憶體用量** — 不使用瀏覽器引擎，透過 Direct2D + DirectWrite 直接繪製 Markdown。
 - **即時重新載入** — 偵測到開啟的檔案有變更時自動更新顯示，並捲動到變更的位置。
-- **Mermaid** — 將 `mermaid` 程式碼區塊顯示為圖表（透過 WebView2 + Mermaid.js 進行離屏繪製）。
+- **Mermaid** — 將 `mermaid` 程式碼區塊顯示為圖表（透過 WebView2 + [pele](https://pele.run/) 進行離屏繪製）。
 - **離線運作** — 不需要網路連線即可使用。
 - **語法醒目提示** — 為多種程式語言、設定檔格式等的程式碼區塊上色。
 - **圖片顯示** — 顯示本機的 PNG、JPEG、BMP 等圖片。
@@ -186,8 +186,8 @@ mendo.exe [檔案路徑 | 資料夾路徑]
 | GUI | Win32 API |
 | 2D 繪製 | Direct2D (`ID2D1DeviceContext`) |
 | 文字繪製 | DirectWrite (`IDWriteTextLayout`) |
-| 圖表 | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| 公式 | [KaTeX](https://katex.org/)（Mermaid 內建） |
+| 圖表 | WebView2 + [pele](https://pele.run/) |
+| 公式 | [KaTeX](https://katex.org/) |
 | Markdown 剖析器 | [md4c](https://github.com/mity/md4c)（SAX 式回呼） |
 | 測試 | Google Test v1.18.0 |
 | 基準測試 | Google Benchmark v1.10.0 |

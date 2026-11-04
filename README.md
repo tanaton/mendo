@@ -22,7 +22,7 @@ winget install tanaton.mendo
 - **高速起動** — ウインドウ生成とファイル処理を並列化する事で高速起動します。
 - **省メモリ** — Markdownの描画にブラウザを使わず、Direct2D + DirectWrite で直接描画します。
 - **ライブリロード** — 表示中ファイルの変更を検出し、自動で表示を更新します。また、変更位置に自動スクロールします。
-- **Mermaid** — `mermaid` コードブロックを図として表示します。（WebView2 + Mermaid.js によるオフスクリーンレンダリング）
+- **Mermaid** — `mermaid` コードブロックを図として表示します。（WebView2 + [pele](https://pele.run/) によるオフスクリーンレンダリング）
 - **オフライン動作** — ネットワーク接続無しで動作します。
 - **シンタックスハイライト** — 複数のプログラミング言語や設定ファイル等のコードブロックを色分け表示します。
 - **画像表示** — ローカルにあるPNG, JPEG, BMP等の画像を表示します。
@@ -186,8 +186,8 @@ mendo.exe [ファイルパス | フォルダパス]
 | GUI | Win32 API |
 | 2D描画 | Direct2D (`ID2D1DeviceContext`) |
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
-| ダイアグラム | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| 数式 | [KaTeX](https://katex.org/) (Mermaid同梱) |
+| ダイアグラム | WebView2 + [pele](https://pele.run/) |
+| 数式 | [KaTeX](https://katex.org/) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | テスト | Google Test v1.18.0 |
 | ベンチマーク | Google Benchmark v1.10.0 |

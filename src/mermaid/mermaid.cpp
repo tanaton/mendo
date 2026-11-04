@@ -3,7 +3,6 @@
 #include "d2d_util.h"
 #include "file_io.h"
 #include "i18n.h"
-#include "katex_chunk.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
 #include "task_scheduler.h"
@@ -56,20 +55,20 @@ constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
-// mermaid.html が KaTeX を読む名前。チャンクの相対 import が解決するよう、実物と同じフォルダに置く。
-constexpr std::wstring_view KATEX_ALIAS_PATH = L"chunks/mermaid.esm.min/katex.mjs";
-// mermaid.js に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
-// 通信を捕まえられないので、ページの CSP で止める。eval は mermaid の依存が使いうるので許す。
+constexpr std::wstring_view PELE_SCRIPT_PATH = L"pele.mjs";
+constexpr std::wstring_view KATEX_SCRIPT_PATH = L"katex.js";
+// pele や KaTeX に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
+// 通信を捕まえられないので、ページの CSP で止める。どちらも eval を使わないので許さない。
 constexpr wchar_t HTML_RESPONSE_HEADERS[] =
     L"Content-Type: text/html; charset=utf-8\r\n"
-    L"Content-Security-Policy: default-src 'none'; script-src https://app.local 'unsafe-inline' 'unsafe-eval'; "
+    L"Content-Security-Policy: default-src 'none'; script-src https://app.local 'unsafe-inline'; "
     L"style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src 'none'; base-uri 'none'; form-action 'none'";
 
 constexpr std::wstring_view MERMAID_VIEWER_CLASS = L"mendo_MermaidViewer";
 constexpr wchar_t APP_LOCAL_VIEWER_URL[] = L"https://app.local/viewer.html";
 constexpr std::wstring_view VIEWER_SCRIPT_PATH = L"viewer.js";
 // 図の SVG を DOM に入れて利用者が触るページなので、動くスクリプトを viewer.js だけに限り、SVG の中の
-// イベントハンドラと javascript: を止める。mermaid を読まないので eval も他のスクリプトも要らない。
+// イベントハンドラと javascript: を止める。pele を読まないので他のスクリプトは要らない。
 // nonce は固定値だと SVG 側からも付けられ、ハッシュはページを直すたびに書き直すことになるので、パスで指定する。
 constexpr wchar_t VIEWER_RESPONSE_HEADERS[] =
     L"Content-Type: text/html; charset=utf-8\r\n"
@@ -93,7 +92,7 @@ constexpr int VIEWER_SIZE_PERCENT = 90;
 constexpr int HOST_OFFSCREEN_POS = -32000;
 // キャプチャ直前にダイアグラムの実寸へ合わせ直すので、それ以外 (描き始めと待機中) は小さく保つ。WebView2 は
 // この大きさの描画面を確保してラスタライズする (4096^2 だと 1 面で 64MB)。
-// ダイアグラムの寸法は CSS 幅だけで決まり、ビューポートの高さには依存しない。
+// ダイアグラムの寸法は要求で渡す幅だけで決まり、ビューの大きさには依存しない。
 constexpr int HOST_SIZE = 256;
 
 // GPU やユーティリティのプロセスは WebView2 が立て直し、ページは生きている。
@@ -747,17 +746,15 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
         return;
     }
 
-    // mermaid の ESM ファイルは third_party/mermaid からの相対パスを名前にして埋め込んでいる。
-    // 名前で引けるのはそれだけなので、数値 ID の他のリソースは返らない。path は NUL 終端した uri の末尾。
     const bool is_index = url == APP_LOCAL_INDEX_URL;
     const bool is_viewer = url == APP_LOCAL_VIEWER_URL;
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
-    const auto body = is_index                           ? LoadRcData(IDR_MERMAID_HTML)
-                      : is_viewer                        ? LoadRcData(IDR_MERMAID_VIEWER_HTML)
-                      : path == VIEWER_SCRIPT_PATH       ? LoadRcData(IDR_MERMAID_VIEWER_JS)
-                      : path == KATEX_ALIAS_PATH         ? LoadRcData(KATEX_CHUNK_RESOURCE)
-                      : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
-                                                         : std::span<const std::byte>{};
+    const auto body = is_index                     ? LoadRcData(IDR_MERMAID_HTML)
+                      : is_viewer                  ? LoadRcData(IDR_MERMAID_VIEWER_HTML)
+                      : path == VIEWER_SCRIPT_PATH ? LoadRcData(IDR_MERMAID_VIEWER_JS)
+                      : path == PELE_SCRIPT_PATH   ? LoadRcData(IDR_PELE_JS)
+                      : path == KATEX_SCRIPT_PATH  ? LoadRcData(IDR_KATEX_JS)
+                                                   : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
     if (!body.empty()) {
         stream = CreateMemoryStream(body);
@@ -1601,7 +1598,7 @@ void MermaidRenderer::FreeWorker(Worker& worker)
 {
     worker.current_request = {};
     ProcessQueue();
-    // 待機中は図の大きさの描画面を持ち続けないよう戻す。次の要求があれば RenderInWorker が合わせ直す。
+    // 待機中は図の大きさの描画面を持ち続けないよう戻す。次の要求のキャプチャは ScheduleCapture が合わせ直す。
     // 描画面は GPU プロセス (ソフトウェア合成) に残り、縦に長いシーケンス図 1 枚の後で 126MB → 7MB、
     // mendo + WebView2 の commit が 418MB → 296MB になった。
     if (!worker.IsRendering() && worker.controller) {
@@ -1635,13 +1632,9 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         return;
     }
 
-    // CSS ビューポートが max_width (DIP) と等しくなるよう境界を物理ピクセルで設定する
-    // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
-    // 依存するため、PNG/SVG 両経路で同じ bounds を使う。
-    const int vp_phys = std::max(1, DipToPixelCeil(req.max_width, worker.dpr));
-    ResizeWorkerView(worker, vp_phys, HOST_SIZE);
-
-    PostToPage(worker, mermaid_util::PageRenderMessage(req.page, req.request_id, req.dark_mode, req.code));
+    // 幅はビューの大きさではなく要求で渡す。ビューの大きさの変更はページに遅れて届き、ページが先に描くと
+    // 待機中の大きさ (HOST_SIZE) に合わせて組んでしまう。
+    PostToPage(worker, mermaid_util::PageRenderMessage(req.page, req.request_id, req.dark_mode, req.max_width, i18n::TextLocale(), req.code));
 }
 
 void MermaidRenderer::RenderMathInWorker(Worker& worker)
@@ -1755,7 +1748,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         }
         return;
     case WebMessageKind::Failed:
-        // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
+        // pele の読み込みに失敗した場合、ページを再読み込みして再試行する
         if (w.init_retries < MAX_WORKER_RETRIES) {
             ++w.init_retries;
             LogHrFailure("Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));

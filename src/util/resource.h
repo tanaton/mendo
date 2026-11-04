@@ -20,3 +20,5 @@
 #define IDR_HELP_KO_MD    307
 #define IDR_MERMAID_VIEWER_HTML 308
 #define IDR_MERMAID_VIEWER_JS 309
+#define IDR_PELE_JS       310
+#define IDR_KATEX_JS      311

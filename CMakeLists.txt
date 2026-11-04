@@ -159,37 +159,6 @@ target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 # 日本語パス配下では MSVC `/utf-8` と衝突するため。
 target_precompile_headers(mendo_core PRIVATE <pch.h>)
 
-# ---- mermaid（ESM 版、本体 + 遅延読み込みのチャンク） ----
-# third_party/mermaid からの相対パスをそのままリソース名にして埋め込み、URL のパスで引く。
-# 日本語パスを rc.exe に渡さないよう、ファイルは res/mendo.rc からの相対パスで書く。
-file(GLOB_RECURSE _mendo_mermaid_files CONFIGURE_DEPENDS
-    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/*.mjs")
-set(_mendo_mermaid_rc "")
-foreach(_f IN LISTS _mendo_mermaid_files)
-    # rc.exe は数字で始まる名前を数値 ID と読み、記号によっては名前を区切る
-    if(NOT _f MATCHES "^[A-Za-z][A-Za-z0-9._/-]*$")
-        message(FATAL_ERROR "mendo: '${_f}' cannot be used as an rc resource name.")
-    endif()
-    string(APPEND _mendo_mermaid_rc "${_f} RCDATA \"../third_party/mermaid/${_f}\"\n")
-endforeach()
-file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mermaid_esm.rc" CONTENT "${_mendo_mermaid_rc}")
-unset(_mendo_mermaid_files)
-unset(_mendo_mermaid_rc)
-# 数式は mermaid 同梱の KaTeX を直接呼ぶ。チャンク名には mermaid の版ごとに変わるハッシュが付くので、
-# 実名をヘッダに書き出し、ページからは固定の別名で読ませる。
-file(GLOB _mendo_katex_chunk CONFIGURE_DEPENDS
-    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
-    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/chunks/mermaid.esm.min/katex-*.mjs")
-list(LENGTH _mendo_katex_chunk _mendo_katex_count)
-if(NOT _mendo_katex_count EQUAL 1)
-    message(FATAL_ERROR "mendo: expected exactly one KaTeX chunk in third_party/mermaid, found '${_mendo_katex_chunk}'.")
-endif()
-file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/katex_chunk.h"
-    CONTENT "#pragma once\ninline constexpr wchar_t KATEX_CHUNK_RESOURCE[] = L\"${_mendo_katex_chunk}\";\n")
-unset(_mendo_katex_chunk)
-unset(_mendo_katex_count)
-
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32
     src/main.cpp
@@ -200,7 +169,7 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE})
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 shcore delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )

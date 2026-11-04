@@ -7,6 +7,11 @@
   body { background: white; }
   body.dark { background: #1e1e1e; }
   #container { display: block; }
+  /* 数式のラベルの寸法を測る場所。画面には出さない。 */
+  #measure { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; }
+  #measure math, .pele-math math { display: inline math; }
+  /* クリップボード用の SVG に値を書き込む場所。visibility も書き込むので隠さず、画面の外に置く。 */
+  #bake { position: absolute; left: -100000px; top: 0; }
   /* インライン数式の型は黒で描いてアルファだけを使う (本文の色で塗る) ので、背景は透明にする。
      行の高さを詰めるため上揃えで並べ、ベースラインは幅 0 の目印 (.bl) の位置で測る。 */
   body.atlas-page { background: transparent; }
@@ -17,30 +22,94 @@
   .math-atlas math { display: inline math; }
 </style>
 <script>
-  let currentInitKey = null;
   let renderCount = 0;
 
-  function mermaidReady() {
-    return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
+  function peleReady() {
+    return typeof pele !== 'undefined' && typeof pele.render === 'function';
   }
 
-  // 表示用 (PNG キャプチャ経由) は htmlLabels:true でラベルの中の数式 (KaTeX) を描画させる。
-  // SVG コピー用は htmlLabels:false で <foreignObject> を避け Office/Inkscape 互換にする。
-  // 構文エラーだと、既定ではエラー図を body に残したまま投げ (12.2.0)、同じワーカーが後で撮る図や数式の下端に写る。
-  // エラーは C++ 側が文言で出すので、エラー図は描かせずに片付けさせる。
-  function ensureInitialized(isDark, htmlLabels) {
-    const wantTheme = isDark ? 'dark' : 'default';
-    const key = wantTheme + ':' + (htmlLabels ? '1' : '0');
-    if (currentInitKey !== key) {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme: wantTheme,
-        securityLevel: 'strict',
-        htmlLabels: htmlLabels,
-        suppressErrorRendering: true
-      });
-      currentInitKey = key;
+  // 本文 (Theme::font_family と theme_palette::kMonospaceFontCandidates) と同じ書体で組む。Segoe UI に無い文字は、
+  // 本文と同じくロケールで決まるフォントにする。ブラウザのフォールバックに任せると日本語の字幅が本文と変わる。
+  const CJK_FONTS = { 'ja-jp': 'Yu Gothic UI', 'zh-cn': 'Microsoft YaHei UI', 'zh-tw': 'Microsoft JhengHei UI',
+                      'zh-hk': 'Microsoft JhengHei UI', 'ko-kr': 'Malgun Gothic' };
+  function fonts(locale) {
+    const cjk = '"' + (CJK_FONTS[locale] || CJK_FONTS['ja-jp']) + '"';
+    return { fontFamily: '"Segoe UI", ' + cjk, fontFamilyMono: '"Cascadia Mono", Consolas, "Courier New", ' + cjk };
+  }
+
+  // ダークテーマの配色。SVG のルートに書き込み、拡大表示のページにもそのまま渡す。ライトは pele の既定のまま。
+  // 背景は body.dark と mermaid_viewer.html の背景にそろえる。
+  // 系列の色は pele の既定に白を 25% 混ぜる。円グラフの割合などは系列の色の上に背景色で書かれ、既定のままだと
+  // 青の上で 3.6:1 しかない (混ぜると全色 5.7:1 以上)。
+  const DARK_VARS = '--pele-bg:#1e1e1e;--pele-fg:#e0e0e0;--pele-muted:#a0a0a0;--pele-line:#d0d0d0;' +
+                    '--pele-surface:#2b2b2b;--pele-surface-alt:#363636;--pele-border:#7a7a7a;--pele-accent:#7c9be6;' +
+                    '--pele-series-1:#799abe;--pele-series-2:#f8a452;--pele-series-3:#7fb978;--pele-series-4:#eb8180;' +
+                    '--pele-series-5:#95c9c5;--pele-series-6:#f2d76c;--pele-series-7:#c59bb9;--pele-series-8:#b69886;';
+  function themed(svg, isDark) {
+    return isDark ? svg.replace(/^(<svg\b[^>]*?\sstyle=")/, '$1' + DARK_VARS) : svg;
+  }
+
+  // KaTeX は数式があるときだけ読む。UMD 版なので window.katex に入る。
+  let katexPromise = null;
+  function loadKatex() {
+    // 失敗は覚えず、次に使うときに読み直す (起動時の先読みが一度失敗しただけで、このワーカーの数式が描けなくなる)。
+    katexPromise ??= new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://app.local/katex.js';
+      s.onload = () => window.katex ? resolve(window.katex) : reject(new Error('KaTeX not loaded'));
+      s.onerror = () => reject(new Error('KaTeX not loaded'));
+      document.head.appendChild(s);
+    }).catch(e => {
+      katexPromise = null;
+      throw e;
+    });
+    return katexPromise;
+  }
+
+  function mathMarkup(tex, displayMode) {
+    return katex.renderToString(tex, { throwOnError: true, displayMode: displayMode, output: 'mathml' });
+  }
+
+  // 図のラベルの $$...$$。pele は寸法を同期で求めるので、ここで DOM に入れて測る。描けない数式は元の文字のまま出させる。
+  function labelMath(tex, size) {
+    let html;
+    try {
+      html = mathMarkup(tex, false);
+    } catch (e) {
+      return null;
     }
+    const m = document.getElementById('measure');
+    m.style.fontSize = size + 'px';
+    m.innerHTML = html;
+    const r = m.getBoundingClientRect();
+    m.innerHTML = '';
+    return { html: html, width: Math.ceil(r.width), height: Math.ceil(r.height) };
+  }
+
+  // withMath はラベルの数式を MathML で描く (<foreignObject> になる)。KaTeX はコードに $$ があるときだけ読む。
+  async function renderPele(code, maxWidth, locale, withMath) {
+    if (!peleReady()) {
+      throw new Error('pele not loaded');
+    }
+    let math;
+    if (withMath && code.includes('$$')) {
+      try {
+        await loadKatex();
+        math = labelMath;
+      } catch (e) {
+      }
+    }
+    renderCount++;
+    // links と images: mermaid の securityLevel 'strict' と同じく、図からの遷移と外部の画像を許さない。
+    // autoDirection: 狭いときに LR を TB に替えさせず、書いた向きのまま縮める。
+    return pele.render(code, Object.assign({
+      maxWidth: maxWidth,
+      autoDirection: false,
+      links: false,
+      images: false,
+      idPrefix: 'p' + renderCount,
+      math: math,
+    }, fonts(locale))).svg;
   }
 
   // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。まとめ描きの箱と同じく CSS px で切り上げ、
@@ -51,18 +120,14 @@
 
   // 描けなければ投げる。呼び出し側 (message の受け口) の catch が render-error でメッセージを返す。
   // 戻り値は sizeString。
-  async function renderMermaid(code, isDark) {
-    if (!mermaidReady()) {
-      throw new Error('mermaid not loaded');
-    }
+  async function renderDiagram(code, isDark, maxWidth, locale) {
+    const svg = await renderPele(code, maxWidth, locale, true);
     document.body.className = isDark ? 'dark' : '';
-    ensureInitialized(isDark, true);
     const container = document.getElementById('container');
-    container.innerHTML = '';
-    renderCount++;
-    const id = 'mmd-' + renderCount;
-    const { svg } = await mermaid.render(id, code);
-    container.innerHTML = svg;
+    // max-width:100% で縮める基準。ビューの大きさは要求より遅れて届くので、それには頼らない。
+    container.style.width = maxWidth + 'px';
+    container.lang = locale;
+    container.innerHTML = themed(svg, isDark);
     // getBoundingClientRect が同期レイアウトを強制するので描画フレームを待つ必要はない
     const svgEl = container.querySelector('svg');
     if (!svgEl) {
@@ -72,41 +137,115 @@
     return sizeString(rect.width, rect.height);
   }
 
-  // KaTeX のチャンク名は版ごとに変わるので、C++ が固定の別名で配信する (mermaid.cpp の KATEX_ALIAS_PATH)。
-  let katexPromise = null;
-  function loadKatex() {
-    // 失敗は覚えず、次に使うときに読み直す (起動時の先読みが一度失敗しただけで、このワーカーの数式が描けなくなる)。
-    katexPromise ??= import('https://app.local/chunks/mermaid.esm.min/katex.mjs').catch(e => {
-      katexPromise = null;
-      throw e;
-    });
-    return katexPromise;
+  // クリップボード用。Office や Inkscape は CSS 変数と color-mix() を読めないので、ブラウザが解決した値を
+  // 属性に書き込み、style と class を外す。
+  // opacity・display・visibility は継承しないので、<g> に style で付いたものも要素ごとに書き込む。
+  const PAINT_PROPS = ['fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray',
+                       'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'opacity',
+                       'display', 'visibility'];
+  const TEXT_PROPS = ['font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration-line'];
+  const hex2 = v => Math.round(+v).toString(16).padStart(2, '0');
+  // rgb()/rgba() は SVG 1.1 の読み手が読めないことがあるので #rrggbb と不透明度に分ける。
+  function splitColor(value) {
+    const m = /^rgba?\(([^)]*)\)$/.exec(value);
+    if (!m) {
+      return [value, 1];
+    }
+    const p = m[1].split(/[\s,/]+/).filter(Boolean);
+    return ['#' + hex2(p[0]) + hex2(p[1]) + hex2(p[2]), p.length > 3 ? +p[3] : 1];
+  }
+  function bakeElement(el) {
+    const cs = getComputedStyle(el);
+    const props = el instanceof SVGTextContentElement ? PAINT_PROPS.concat(TEXT_PROPS) : PAINT_PROPS;
+    for (const prop of props) {
+      const value = cs.getPropertyValue(prop);
+      if (prop === 'fill' || prop === 'stroke') {
+        const [color, alpha] = splitColor(value);
+        el.setAttribute(prop, color);
+        el.setAttribute(prop + '-opacity', String(alpha * +cs.getPropertyValue(prop + '-opacity')));
+      }
+      else if (prop === 'fill-opacity' || prop === 'stroke-opacity') {
+        // 色の不透明度と掛け合わせて fill / stroke と一緒に書いた。
+      }
+      else if (prop === 'text-decoration-line') {
+        if (value !== 'none') {
+          el.setAttribute('text-decoration', value);
+        }
+      }
+      else {
+        el.setAttribute(prop, value);
+      }
+    }
+    if (el instanceof SVGRectElement) {
+      for (const prop of ['rx', 'ry']) {
+        const value = cs.getPropertyValue(prop);
+        if (value !== 'auto') {
+          el.setAttribute(prop, parseFloat(value));
+        }
+      }
+    }
+  }
+  function bakeSvg(svgText, isDark, locale) {
+    const host = document.getElementById('bake');
+    host.lang = locale;
+    host.innerHTML = themed(svgText, isDark);
+    try {
+      const svg = host.querySelector('svg');
+      if (!svg) {
+        throw new Error('SVG not found');
+      }
+      const elements = [svg, ...svg.querySelectorAll('*')];
+      for (const el of elements) {
+        if (el instanceof SVGGraphicsElement) {
+          bakeElement(el);
+        }
+      }
+      // <g> などに残る var() は、子に解決済みの値を書いたので継承させなくてよい。
+      for (const el of elements) {
+        el.removeAttribute('style');
+        el.removeAttribute('class');
+        for (const a of [...el.attributes]) {
+          if (a.value.includes('var(') || a.value.includes('color-mix(')) {
+            el.removeAttribute(a.name);
+          }
+        }
+      }
+      return new XMLSerializer().serializeToString(svg);
+    } finally {
+      host.innerHTML = '';
+    }
   }
 
-  function errorText(e) {
-    return (e && e.message) || String(e);
+  // kind は 'svg' (クリップボード) か 'view' (拡大表示)。表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。
+  // 拡大表示は本文と同じ見た目にするので、数式のラベルも描き、色は CSS 変数のまま渡す。
+  async function renderSvg(kind, code, isDark, maxWidth, locale) {
+    if (kind === 'view') {
+      return themed(await renderPele(code, maxWidth, locale, true), isDark);
+    }
+    return bakeSvg(await renderPele(code, maxWidth, locale, false), isDark, locale);
   }
 
   // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
   // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
   // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
-  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
+  // MathML で出すのは KaTeX の CSS とフォントを持たずに済むため。
   // $...$ も文中の $$...$$ も displayMode で描く。GitHub は文中の数式をどちらも小さい形式で描くが、分数の中が本文の
   // 7 割になって読みにくいので、行が高くなっても大きい方にそろえる。\displaystyle を前に付ける方法だと align や \tag が描けない。
   async function renderMathBatch(items, pageWidth) {
-    const katex = await loadKatex();
+    await loadKatex();
     document.body.className = 'atlas-page';
     let html = '';
     for (const [tex, px] of items) {
       let math = null;
       try {
-        math = katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' });
+        math = mathMarkup(tex, true);
       } catch (e) {
       }
       html += math === null ? '<span class="m err"></span>'
                             : '<span class="m" style="font-size:' + px + 'px"><span class="bl"></span>' + math + '</span>';
     }
     const container = document.getElementById('container');
+    container.style.width = '';
     container.innerHTML = '<div class="math-atlas" style="width:' + pageWidth + 'px">' + html + '</div>';
     const atlas = container.firstChild;
     const o = atlas.getBoundingClientRect();
@@ -128,15 +267,8 @@
     return sizeString(right, bottom) + '|' + boxes.join(';');
   }
 
-  // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。
-  async function renderMermaidSvg(code, isDark, htmlLabels) {
-    if (!mermaidReady()) {
-      throw new Error('mermaid not loaded');
-    }
-    ensureInitialized(isDark, htmlLabels);
-    renderCount++;
-    const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
-    return svg;
+  function errorText(e) {
+    return (e && e.message) || String(e);
   }
 
   // C++ (mermaid_util::Page*Message) からの要求。"<種類>:<要求 ID>:..." の形で、図のコードは末尾に置き、
@@ -180,18 +312,19 @@
       task = renderMathBatch(items, +width);
     }
     else {
-      let dark;
+      let dark, width, locale;
       [dark, pos] = readField(msg, pos);
+      [width, pos] = readField(msg, pos);
+      [locale, pos] = readField(msg, pos);
       const code = msg.slice(pos);
       const isDark = dark === '1';
       if (kind === 'svg' || kind === 'view') {
-        // 拡大表示 (view) は本文と同じ見た目にするので、数式のラベルも描く htmlLabels で描く。
         result = 'svg-result';
-        task = renderMermaidSvg(code, isDark, kind === 'view');
+        task = renderSvg(kind, code, isDark, +width, locale);
       }
       else {
         result = 'render-result';
-        task = renderMermaid(code, isDark);
+        task = renderDiagram(code, isDark, +width, locale);
       }
     }
     task.then(r => result + ':' + id + ':' + r, err => 'render-error:' + id + ':' + errorText(err))
@@ -199,16 +332,14 @@
   });
 
   (async function() {
-    // 数式の要求は mermaid の準備完了の後に来るので、KaTeX を mermaid と並べて読み始める。準備完了から最初の数式の
-    // 結果までが約 42ms → 30ms。図だけの文書でも WebView2 のメモリ (約 135MB) に差は見えない。
+    // 数式の要求は準備完了の後に来るので、KaTeX を pele と並べて読み始める。
     // 失敗したら使うときに読み直すので、ここでは握りつぶす。
     loadKatex().catch(() => {});
     try {
-      // 図の種類ごとのチャンクは、mermaid が描くときに必要な分だけ読み込む
-      window.mermaid = (await import('https://app.local/mermaid.esm.min.mjs')).default;
+      window.pele = await import('https://app.local/pele.mjs');
       var dpr = window.devicePixelRatio || 1;
       window.chrome.webview.postMessage(
-        mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
+        peleReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
     } catch(e) {
       window.chrome.webview.postMessage('mermaid-failed');
     }
@@ -217,5 +348,7 @@
 </head>
 <body>
 <div id="container"></div>
+<div id="measure"></div>
+<div id="bake"></div>
 </body>
 </html>

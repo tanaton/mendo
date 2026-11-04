@@ -16,10 +16,10 @@ using namespace std::literals;
 // 図のコードはエスケープせずに末尾へ置く。区切りの ':' や引用符・改行を含んでもそのまま届く。
 TEST(PageMessage, RenderMessagePutsRawCodeLast)
 {
-    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Mermaid, 7, false, "graph TD;\n  A[\"a:b\"]-->B;"),
-              L"mermaid:7:0:graph TD;\n  A[\"a:b\"]-->B;");
-    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Svg, 8, true, "x"), L"svg:8:1:x");
-    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::View, 9, false, "x"), L"view:9:0:x");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Mermaid, 7, false, 800.0f, L"ja-jp", "graph TD;\n  A[\"a:b\"]-->B;"),
+              L"mermaid:7:0:800.00:ja-jp:graph TD;\n  A[\"a:b\"]-->B;");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Svg, 8, true, 612.4f, L"zh-hk", "x"), L"svg:8:1:612.40:zh-hk:x");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::View, 9, false, 1.5f, L"ko-kr", "x"), L"view:9:0:1.50:ko-kr:x");
 }
 
 // 文言は改行で区切るので、':' を含んでいても切り出せる。
@@ -417,15 +417,4 @@ TEST(DiagramWidthFreeHash, IsWidthFreeNeedsMargin)
     EXPECT_TRUE(mermaid_util::IsWidthFree(400.0f, 600.0f));
     EXPECT_FALSE(mermaid_util::IsWidthFree(599.5f, 600.0f));
     EXPECT_FALSE(mermaid_util::IsWidthFree(600.0f, 600.0f));
-}
-
-TEST(IsModulePath, AcceptsMjsExceptNumericIdSyntax)
-{
-    EXPECT_TRUE(mermaid_util::IsModulePath(L"mermaid.esm.min.mjs"sv));
-    EXPECT_TRUE(mermaid_util::IsModulePath(L"chunks/mermaid.esm.min/chunk-WLHZKB66.mjs"sv));
-    EXPECT_FALSE(mermaid_util::IsModulePath(L""sv));
-    EXPECT_FALSE(mermaid_util::IsModulePath(L"index.html"sv));
-    EXPECT_FALSE(mermaid_util::IsModulePath(L"mermaid.esm.min.mjs?v=1"sv));
-    // # で始まる名前は FindResourceW が数値 ID と読み、ESM 以外の埋め込みリソースに届きうる
-    EXPECT_FALSE(mermaid_util::IsModulePath(L"#304.mjs"sv));
 }

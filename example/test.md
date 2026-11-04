@@ -71,7 +71,7 @@ graph TB
     subgraph "外部・OS"
         MD[md4c]
         WV[WebView2]
-        MJ[mermaid.js]
+        MJ[pele / KaTeX]
         D2D_OS[Direct2D / DirectWrite / WIC]
         OS[Win32 API]
     end
@@ -1561,7 +1561,7 @@ sequenceDiagram
     participant MR as MermaidRenderer
     participant FC as MermaidFileCache
     participant WV as WebView2 (画面外ポップアップ)
-    participant JS as mermaid.js
+    participant JS as pele
     participant WIC as WIC
 
     APP->>RM: RequestMermaidRenders()
@@ -1578,7 +1578,7 @@ sequenceDiagram
     else キャッシュミス
         MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
         MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
-        WV->>JS: mermaid.render(code)
+        WV->>JS: pele.render(code)
         JS-->>WV: SVG文字列
         WV-->>MR: 寸法 (WebMessage)
         MR->>WV: CapturePreview(PNG)
@@ -1616,7 +1616,7 @@ public:
 
 `ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図は呼び出しごとの `changed` に積み、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
@@ -1686,7 +1686,7 @@ WebView2 は起動時には作らず、最初の描画要求（`RequestRender` /
 
 1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
 2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。`AbandonWebView` は `WEBVIEW_RETRY_AFTER`（30 秒）後を次に試す時刻にして図を要求し直させ、ディスクキャッシュに無い図を `DiagramError::Kind::WebViewUnavailable`（「WebView2 を利用できないため図を描画できません」）にする。このエラーはコードで決まる結果ではないので、キャッシュに入れず（`DiagramError::settled` が false）、文言を出したまま走査ごとに要求を続ける。その時刻までは `EnsureInitialized` が起動せず、SVG とインライン数式の要求もすぐ失敗で返す。時刻を過ぎた後の走査で起動を試すので、一時的な失敗からは操作なしで戻る
-3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と mermaid の ESM ファイル（`.mjs`）を RCDATA から無圧縮のまま配信する
+3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と pele（`IDR_PELE_JS`）・KaTeX（`IDR_KATEX_JS`）を RCDATA から無圧縮のまま配信する
 4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
 
 ---
@@ -3209,9 +3209,11 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 `mendo_core` には **DirectWrite / WebView2 抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（WebView2）と `Renderer`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
 
-### 6.4 mermaid の埋め込み
+### 6.4 pele と KaTeX の埋め込み
 
-mermaid は ESM 版（本体の `mermaid.esm.min.mjs` と、図の種類ごとに遅延読み込みされる `chunks/mermaid.esm.min/*.mjs`）を使う。CMake が `third_party/mermaid` 配下の `.mjs` を列挙して、相対パスをそのままリソース名にした RCDATA 定義（`build/generated/mermaid_esm.rc`）を生成し、`res/mendo.rc` がそれを `#include` して無圧縮のまま EXE に埋め込む。`WebResourceRequested` は `index.html` に HTML テンプレートを返し、それ以外は `.mjs` のパスだけを名前でリソースから引いてバイト列をそのまま配信する（見つからなければ 404）。名前で引けるのは ESM ファイルだけなので、数値 ID の他のリソースは返らない。CMake は rc.exe が名前として受け付けないファイル名を構成時にエラーにする。ページは必要なチャンクだけを読み込むので、使わない図の種類のコードはパースしない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
+図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`）の RCDATA として無圧縮のまま EXE に埋め込む。`WebResourceRequested` は `index.html` に HTML テンプレートを、`pele.mjs` と `katex.js` にそれぞれのライブラリを返し、それ以外は 404 にする。KaTeX は UMD 版なので `import` ではなく `<script>` で読み、数式の要求より先に pele と並べて読み始める。どちらも `eval` を使わないので、ページの CSP は `unsafe-eval` を許さない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
+
+pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、ブラウザが解決した値を属性に書き込んで渡す。
 
 ### 6.5 MSVC ビルド最適化
 
@@ -3576,7 +3578,8 @@ src/
 | md4c | 0.6.0 | Markdown パース | MIT |
 | WebView2 SDK | 1.0.3967.48 | Mermaid描画用ブラウザコントロール | BSD |
 | Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
-| mermaid.js | 12.2.0 | ダイアグラム描画 | MIT |
+| pele | 1.13.0 | ダイアグラム描画 | MIT |
+| KaTeX | 0.19.1 | 数式描画 | MIT |
 | Tracy | 0.14.1 | プロファイラ（`MENDO_USE_TRACY=ON` 時のみ） | BSD-3-Clause |
 
 ### 付録C: Markdown表示サンプル
@@ -5121,7 +5124,7 @@ gantt
 
 #### C.11 LaTeX 数式テスト
 
-`$$...$$` のみで構成される段落、文中のインライン `$...$`、文中や blockquote 内の `$$...$$` を KaTeX (mermaid.js にバンドル済み) で描画する。
+`$$...$$` のみで構成される段落、文中のインライン `$...$`、文中や blockquote 内の `$$...$$` を KaTeX で描画する。
 
 ##### 基本的な数式
 

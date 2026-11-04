@@ -35,15 +35,69 @@ IN THE SOFTWARE.
 
 ---
 
-## Mermaid.js
+## pele
 
-- **Description**: JavaScript-based diagramming and charting tool
-- **Website**: https://mermaid.js.org/
+- **Description**: Mermaid diagram renderer that outputs SVG
+- **Website**: https://pele.run/
 - **License**: MIT
-- **Included in**: `third_party/mermaid/` (ESM build: `mermaid.esm.min.mjs` + lazily loaded chunks, embedded in binary)
+- **Included in**: `third_party/pele/` (ESM build: `pele.mjs`, embedded in binary)
 
 ```
-Copyright (c) 2014 - 2022 Knut Sveidqvist
+MIT License
+
+Copyright (c) 2026 kepano
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+The reset icon of the zoom controls is "rotate-ccw" from Lucide v1.14.0
+(https://lucide.dev), under the ISC License:
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+---
+
+## KaTeX
+
+- **Description**: Math typesetting library for the web
+- **Website**: https://katex.org/
+- **License**: MIT
+- **Included in**: `third_party/katex/` (UMD build: `katex.min.js`, embedded in binary)
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2013-2020 Khan Academy and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -72,7 +126,7 @@ SOFTWARE.
 - **Website**: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
 - **License**: Microsoft Software License (redistributable)
 - **Obtained via**: CMake FetchContent (NuGet package)
-- **Usage**: Offscreen rendering of Mermaid diagrams
+- **Usage**: Offscreen rendering of Mermaid diagrams (pele) and math (KaTeX)
 
 The WebView2 SDK is subject to the Microsoft Software License Terms.
 See: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3967.48/License

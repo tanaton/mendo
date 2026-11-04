@@ -22,7 +22,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - **Fast startup** — Window creation and file processing run in parallel for a quick launch.
 - **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
 - **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
-- **Mermaid** — Renders `mermaid` code blocks as diagrams (offscreen rendering via WebView2 + Mermaid.js).
+- **Mermaid** — Renders `mermaid` code blocks as diagrams (offscreen rendering via WebView2 + [pele](https://pele.run/)).
 - **Offline** — Works without a network connection.
 - **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
 - **Images** — Displays local PNG, JPEG, BMP, and other images.
@@ -186,8 +186,8 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 | GUI | Win32 API |
 | 2D rendering | Direct2D (`ID2D1DeviceContext`) |
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
-| Diagrams | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| Math | [KaTeX](https://katex.org/) (bundled with Mermaid) |
+| Diagrams | WebView2 + [pele](https://pele.run/) |
+| Math | [KaTeX](https://katex.org/) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Tests | Google Test v1.18.0 |
 | Benchmarks | Google Benchmark v1.10.0 |

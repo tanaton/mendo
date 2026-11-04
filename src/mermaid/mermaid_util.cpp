@@ -13,10 +13,10 @@
 
 using namespace std::literals;
 
-std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8)
+std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, float max_width, std::wstring_view locale, std::string_view code_utf8)
 {
     static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"view", L"math" };
-    std::wstring msg = std::format(L"{}:{}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0);
+    std::wstring msg = std::format(L"{}:{}:{}:{:.2f}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0, max_width, locale);
     msg += string_convert::Utf8ToWide(code_utf8);
     return msg;
 }

@@ -245,7 +245,7 @@ private:
 
     // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
     static constexpr int MATH_PAGE_WIDTH = 1024;
-    // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
+    // 1 つ増やすごとにレンダラープロセスの起動と pele のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
     static constexpr int MAX_ENV_RETRIES = 3;

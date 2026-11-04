@@ -26,7 +26,8 @@ public:
     // 索引の書式か PNG の描き方を変えたら上げる。違う版のキャッシュはフォルダごと捨てる。
     // 2: 1 つずつ描いた図と数式も、WebView2 が 1px 広く撮った分を切り落とす。表示の大きさは切り出した画素数から決める。
     //    ヘッダの読まれない dpr を消す。
-    static constexpr uint32_t VERSION = 2;
+    // 3: 図を mermaid.js から pele に、数式を mermaid 同梱の KaTeX から npm の KaTeX に替えた。
+    static constexpr uint32_t VERSION = 3;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();
