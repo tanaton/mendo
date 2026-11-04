@@ -138,9 +138,9 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
+    // image/diagram bitmap も可視範囲外の分を捨てる。描いた図の
     // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
-    // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
+    // 全消去すると可視中の図まで捨てて描き直しの cliff を生むため。
     state_.document.layout_cache.EvictDiagramBitmapsOutside(keep->range.begin, keep->range.end);
 }
 

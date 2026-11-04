@@ -138,10 +138,8 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
         return {};
     case DiagramError::Kind::Render:
         return error.message.empty() ? i18n::S().diagram_error : std::wstring_view{ error.message };
-    case DiagramError::Kind::TooLarge:
-        return i18n::S().diagram_too_large;
-    case DiagramError::Kind::WebViewUnavailable:
-        return i18n::S().diagram_webview_unavailable;
+    case DiagramError::Kind::Unsupported:
+        return i18n::S().diagram_unsupported;
     }
     return {};
 }
@@ -799,14 +797,9 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
         return;
 
     case NodeType::Diagram:
-        if (diagram && diagram->HasImage()) {
+        if (diagram && diagram->commands) {
             const auto dest = MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top);
-            if (diagram->commands) {
-                cmds_->emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
-            }
-            else {
-                cmds_->emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), dest });
-            }
+            cmds_->emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
             GenOverlayButtons(node, diagram, x, cw, entry_text_top, node_index);
         }
         else {

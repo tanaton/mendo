@@ -16,7 +16,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// mermaid_viewer.html の #bar と同じ寸法 (DIP)。窓の右端からの位置は、スクロールバーがクライアント領域の外にあるので上と同じにする。
+// 右上のバーの寸法 (DIP)。窓の右端からの位置は、スクロールバーがクライアント領域の外にあるので上と同じにする。
 constexpr float kBarMargin = 12.0f;
 constexpr float kBarPadding = 4.0f;
 constexpr float kBarGap = 2.0f;
@@ -40,7 +40,7 @@ struct Palette {
     D2D1_COLOR_F shadow;
 };
 
-// mermaid_viewer.html の色と同じ。背景は図の背景 (DrawDiagram) とそろえる。
+// 背景は図の背景 (DrawDiagram) とそろえる。
 Palette PaletteFor(bool dark) noexcept
 {
     if (dark) {
@@ -87,16 +87,14 @@ DiagramView::DiagramView(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic)
     tooltip_.Init(hwnd);
 }
 
-// 窓は残して WebView2 の表示に替えることがあるので、出したスクロールバーを片付ける。
 DiagramView::~DiagramView()
 {
     KillTimer(hwnd_, kTooltipTimer);
-    ShowScrollBar(hwnd_, SB_BOTH, FALSE);
 }
 
 void DiagramView::ApplyLanguage()
 {
-    // mermaid_viewer.html と同じく、倍率と読み込み中は 13px、ボタンの記号は 16px。
+    // 倍率と読み込み中は 13px、ボタンの記号は 16px。
     const auto make = [&](float size) {
         return CreateTextFormat(dw_.Get(), { .family = L"Segoe UI",
                                                        .size = size,
@@ -175,7 +173,7 @@ D2D1_POINT_2F DiagramView::Origin() const noexcept
     const auto place = [](float content, float view, float scroll) {
         return content + diagram_view::kPadding * 2.0f <= view ? (view - content) / 2.0f : diagram_view::kPadding - scroll;
     };
-    return { place(drawing_->size.width * zoom_, view_width_, scroll_x_), place(drawing_->size.height * zoom_, view_height_, scroll_y_) };
+    return { place(drawing_->width * zoom_, view_width_, scroll_x_), place(drawing_->height * zoom_, view_height_, scroll_y_) };
 }
 
 void DiagramView::Paint()
@@ -291,7 +289,7 @@ void DiagramView::PaintBar(ID2D1SolidColorBrush* brush)
         glyph.a = enabled ? 1.0f : DISABLED_UI_ALPHA;
         brush->SetColor(glyph);
         if (b == Button::Fit) {
-            // mermaid_viewer.html の全体表示のアイコン (16x16 の四隅の鉤)。
+            // 全体表示のアイコン (16x16 の四隅の鉤)。
             const DipPoint c = RectCenter(r);
             const float ox = c.x - 8.0f;
             const float oy = c.y - 8.0f;
@@ -338,7 +336,7 @@ void DiagramView::Layout()
             rt_->Resize(D2D1::SizeU(rc.right, rc.bottom));
         }
         if (drawing_) {
-            fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->size.width, drawing_->size.height);
+            fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->width, drawing_->height);
             if (fitting_) {
                 zoom_ = fit_zoom_;
             }
@@ -369,8 +367,8 @@ void DiagramView::UpdateScrollBars()
         SetScrollInfo(hwnd_, bar, &si, TRUE);
     };
     const float pad = diagram_view::kPadding * 2.0f;
-    apply(SB_HORZ, drawing_ ? drawing_->size.width * zoom_ + pad : 0.0f, view_width_, scroll_x_);
-    apply(SB_VERT, drawing_ ? drawing_->size.height * zoom_ + pad : 0.0f, view_height_, scroll_y_);
+    apply(SB_HORZ, drawing_ ? drawing_->width * zoom_ + pad : 0.0f, view_width_, scroll_x_);
+    apply(SB_VERT, drawing_ ? drawing_->height * zoom_ + pad : 0.0f, view_height_, scroll_y_);
 }
 
 void DiagramView::ScrollTo(float x, float y)
@@ -379,8 +377,8 @@ void DiagramView::ScrollTo(float x, float y)
         return;
     }
     const float pad = diagram_view::kPadding * 2.0f;
-    x = std::clamp(x, 0.0f, std::max(0.0f, drawing_->size.width * zoom_ + pad - view_width_));
-    y = std::clamp(y, 0.0f, std::max(0.0f, drawing_->size.height * zoom_ + pad - view_height_));
+    x = std::clamp(x, 0.0f, std::max(0.0f, drawing_->width * zoom_ + pad - view_width_));
+    y = std::clamp(y, 0.0f, std::max(0.0f, drawing_->height * zoom_ + pad - view_height_));
     // 端を越えて送っても描き直さない。
     if (x == scroll_x_ && y == scroll_y_) {
         return;
@@ -630,7 +628,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             return false;
         }
 
-    // キーの配置に依らず、打った文字で倍率を変える (mermaid_viewer.js の keydown の e.key と同じ)。
+    // キーの配置に依らず、打った文字で倍率を変える。
     case WM_CHAR:
         if (GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0) {
             return false;

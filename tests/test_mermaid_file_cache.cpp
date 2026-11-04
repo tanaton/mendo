@@ -104,26 +104,26 @@ protected:
         scheduler_->Shutdown();
     }
 
-    void InitCache(float dpr = 1.0f)
+    void InitCache()
     {
-        cache_.Init(dpr, *scheduler_);
+        cache_.Init(*scheduler_);
     }
 
     // SaveIndex + スケジューラ再起動 → 再ロードのサイクルを実行する
-    void FlushAndReopen(float dpr = 1.0f)
+    void FlushAndReopen()
     {
         cache_.SaveIndex();
         scheduler_.emplace(2);
-        cache_.Init(dpr, *scheduler_);
+        cache_.Init(*scheduler_);
     }
 
     // 書き込みを着地させてから、同じディレクトリ (省略時は temp_dir_) を別インスタンスで開く。
-    std::unique_ptr<MermaidFileCache> OpenFreshCache(float dpr = 1.0f, const std::filesystem::path& dir = {})
+    std::unique_ptr<MermaidFileCache> OpenFreshCache(const std::filesystem::path& dir = {})
     {
         scheduler_.emplace(2);
         auto fresh = std::make_unique<MermaidFileCache>();
         fresh->SetCacheDir(dir.empty() ? temp_dir_ : dir);
-        fresh->Init(dpr, *scheduler_);
+        fresh->Init(*scheduler_);
         return fresh;
     }
 
@@ -133,7 +133,7 @@ protected:
         auto other = std::make_unique<MermaidFileCache>();
         other->SetCacheDir(temp_dir_);
         other->SetLimits(max_entries, kNoSizeLimit);
-        other->Init(1.0f, *scheduler_);
+        other->Init(*scheduler_);
         (void)other->EntryCount();
         return other;
     }
@@ -326,36 +326,12 @@ TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
 }
 
 // ═══════════════════════════════════════════════
-// DPR不一致によるキャッシュクリア
-// ═══════════════════════════════════════════════
-
-TEST_F(MermaidFileCacheTest, DprMismatchSeparatesEntries)
-{
-    InitCache(1.0f);
-
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
-    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(256));
-    EXPECT_EQ(cache_.EntryCount(), 2u);
-    cache_.SaveIndex();
-
-    // 異なる DPR で再初期化 → エントリは index 上に残るが、別キー扱いとなり
-    // 同じ external key での Lookup はミスになる（DPR ごとに独立してキャッシュ）。
-    auto fresh = OpenFreshCache(2.0f);
-    EXPECT_EQ(fresh->EntryCount(), 2u);
-
-    MermaidFileCache::CacheEntry entry;
-    PngBlob out;
-    EXPECT_FALSE(LookupAndRead(*fresh, 1, entry, out));
-    EXPECT_FALSE(LookupAndRead(*fresh, 2, entry, out));
-}
-
-// ═══════════════════════════════════════════════
 // SaveIndex / LoadIndex 永続化
 // ═══════════════════════════════════════════════
 
 TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
 {
-    InitCache(1.0f);
+    InitCache();
 
     cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
     cache_.StoreAsync(200, 320.0f, 240.0f, MakeDummyPng(512));
@@ -381,26 +357,26 @@ TEST_F(MermaidFileCacheTest, InitDoesNotTouchDisk)
 {
     const auto dir = temp_dir_ / L"lazy";
     cache_.SetCacheDir(dir);
-    InitCache(1.0f);
+    InitCache();
     EXPECT_FALSE(std::filesystem::exists(dir));
 }
 
 TEST_F(MermaidFileCacheTest, SaveIndexBeforeFirstUseKeepsIndex)
 {
-    InitCache(1.0f);
+    InitCache();
     cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
-    FlushAndReopen(1.0f);
+    FlushAndReopen();
 
     // 一度も参照しないまま終了しても既存の索引を空で上書きしないこと
-    FlushAndReopen(1.0f);
+    FlushAndReopen();
     EXPECT_EQ(cache_.EntryCount(), 1u);
 }
 
 TEST_F(MermaidFileCacheTest, SaveIndexSkipsWriteWhenUnchanged)
 {
-    InitCache(1.0f);
+    InitCache();
     cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
-    FlushAndReopen(1.0f);
+    FlushAndReopen();
     ASSERT_EQ(cache_.EntryCount(), 1u);
 
     // 読み込んだだけで変更していなければ書き出さない
@@ -676,7 +652,7 @@ TEST_F(MermaidFileCacheTest, UnusableIndexDiscardsWholeFolder)
         ASSERT_TRUE(WriteAllBytes(dir / L"0123456789abcdef.png", "x", 1));
         MermaidFileCache cache;
         cache.SetCacheDir(dir);
-        cache.Init(1.0f, *scheduler_);
+        cache.Init(*scheduler_);
 
         EXPECT_EQ(cache.EntryCount(), 0u);
         scheduler_->Shutdown();
@@ -743,7 +719,7 @@ TEST_F(MermaidFileCacheTest, ClearRemovesOnWorker)
     EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(2)));
     EXPECT_TRUE(std::filesystem::exists(unrelated));
 
-    const auto fresh = OpenFreshCache(1.0f, dir);
+    const auto fresh = OpenFreshCache(dir);
     MermaidFileCache::CacheEntry entry;
     PngBlob out;
     EXPECT_TRUE(LookupAndRead(*fresh, 1, entry, out)) << "消した後に書いた索引を消した";
@@ -764,25 +740,6 @@ TEST_F(MermaidFileCacheTest, StoreAfterClearPersists)
     PngBlob out;
     EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
     EXPECT_FALSE(LookupDimensions(*fresh, 1, entry));
-}
-
-// 図の解像度は描画するワーカーの DPR で決まるので、キーもその DPR に追従する。
-// Init 時の DPR に固定すると、別の DPR で描いた PNG を引いて図がぼやける・ずれる。
-TEST_F(MermaidFileCacheTest, SetDprSwitchesKeySpace)
-{
-    InitCache(1.0f);
-    cache_.StoreAsync(42, 400.0f, 300.0f, MakeDummyPng(64));
-    const auto path_at_1x = cache_.PngPath(42);
-    MermaidFileCache::CacheEntry entry;
-    ASSERT_TRUE(LookupDimensions(cache_, 42, entry));
-
-    cache_.SetDpr(2.0f);
-    EXPECT_NE(cache_.PngPath(42), path_at_1x);
-    EXPECT_FALSE(LookupDimensions(cache_, 42, entry));
-
-    cache_.SetDpr(1.0f);
-    EXPECT_EQ(cache_.PngPath(42), path_at_1x);
-    EXPECT_TRUE(LookupDimensions(cache_, 42, entry));
 }
 
 // ═══════════════════════════════════════════════

@@ -128,7 +128,7 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& fo
     if (t.underline) {
         layout->SetUnderline(TRUE, { 0, static_cast<UINT32>(t.text.size()) });
     }
-    // ページは 1 行ずつ送るので、ベースラインは最初の行のものを使う。
+    // 文字の並びは 1 行ずつなので、ベースラインは最初の行のものを使う。
     DWRITE_LINE_METRICS line{};
     UINT32 lines = 0;
     layout->GetLineMetrics(&line, 1, &lines);
@@ -154,20 +154,20 @@ void AppendFontKey(std::wstring& key, const DiagramFont& font)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// pele の SVG の解決。ブラウザ (mermaid.html の drawingOf) が getComputedStyle などで求めていた値を自分で求める。
+// pele の SVG の解決。ブラウザなら getComputedStyle などで求まる値を自分で求める。
 // pele の出力は語彙が狭い (g・図形・text・tspan・入れ子の svg・linearGradient) ので、その範囲の CSS だけを解く。
 // 利用者の style (classDef など) は pele を素通りするので、色名・hsl・単位・font-size のキーワードは読む。
-// 知らない要素があれば描かずに nullopt を返し、呼び出し側がブラウザに回す。
+// 知らない要素があれば描かずに nullopt を返し、描けない図として扱わせる。
 
 constexpr std::string_view kSpaces = " \t\r\n"sv;
 
-// mermaid.html の DARK_VARS と同じ。ダークの配色を SVG のルートの style の先頭に足す。
+// ダークの配色。SVG のルートの style の先頭に足す。
 constexpr std::string_view kDarkVars =
     "--pele-bg:#1e1e1e;--pele-fg:#e0e0e0;--pele-muted:#a0a0a0;--pele-line:#d0d0d0;"
     "--pele-surface:#2b2b2b;--pele-surface-alt:#363636;--pele-border:#7a7a7a;--pele-accent:#7c9be6;"
     "--pele-series-1:#799abe;--pele-series-2:#f8a452;--pele-series-3:#7fb978;--pele-series-4:#eb8180;"
     "--pele-series-5:#95c9c5;--pele-series-6:#f2d76c;--pele-series-7:#c59bb9;--pele-series-8:#b69886;"sv;
-constexpr uint32_t kLightBackground = 0xFFFFFF; // mermaid.html の body の背景
+constexpr uint32_t kLightBackground = 0xFFFFFF;
 constexpr uint32_t kDarkBackground = 0x1E1E1E;
 
 std::string_view Trim(std::string_view s) noexcept
@@ -1135,7 +1135,7 @@ void AppendHexColor(std::string& out, const Rgba& c)
     }
 }
 
-// mermaid.html の num() と同じく、小数 3 桁に丸めて短く書く。
+// 小数 3 桁に丸めて短く書く。
 void AppendNum(std::string& out, double v)
 {
     double r = std::round(v * 1000.0) / 1000.0;
@@ -2296,7 +2296,7 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
     const bool shape = tag == "path" || tag == "rect" || tag == "circle" || tag == "ellipse" || tag == "line" || tag == "polyline" || tag == "polygon";
     const bool container = tag == "g" || tag == "svg" || tag == "a";
     if (!shape && !container && tag != "text") {
-        // foreignObject・image・use・style など。ブラウザに描かせる。
+        // foreignObject・image・use・style など。一部だけ描いた図は誤解を招くので、図ごと描かない。
         return false;
     }
     const Style s = Compute(parent, el);
@@ -2358,12 +2358,12 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     }
     float w = *attr_w;
     float h = *attr_h;
-    // ページは SVG の style の max-width:100%;height:auto で、幅の上限まで縦横比を保って縮める。
+    // ブラウザと同じく SVG の style の max-width:100%;height:auto で、幅の上限まで縦横比を保って縮める。
     if (rs.fit_width && max_width > 0.0f && w > max_width) {
         h = h * max_width / w;
         w = max_width;
     }
-    // ブラウザのレイアウトは 1/64 px に切り捨てる。大きさの切り上げをページとそろえる (837x520 を幅 800 にすると高さ 497.013 → 497)。
+    // ブラウザのレイアウトは 1/64 px に切り捨てる。大きさの切り上げをブラウザとそろえる (837x520 を幅 800 にすると高さ 497.013 → 497)。
     w = std::floor(w * 64.0f) / 64.0f;
     h = std::floor(h * 64.0f) / 64.0f;
     Mat root_ctm;
@@ -2380,7 +2380,8 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     const float width = std::ceil(w);
     const float height = std::ceil(h);
     mermaid_util::DiagramDrawing out{
-        .size = { width, height, 0.0f },
+        .width = width,
+        .height = height,
         .background = dark ? kDarkBackground : kLightBackground,
     };
     std::string head;
@@ -3894,10 +3895,10 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
 {
     constexpr std::string_view kDefsEnd = "</defs>";
     std::string out;
-    AppendSvgHead(out, drawing.size.width, drawing.size.height);
+    AppendSvgHead(out, drawing.width, drawing.height);
     bool has_defs = false;
     for (const auto& layer : drawing.layers) {
-        // 層はどれも同じ <svg ...> と <defs> で始まり、</svg> で終わる (PeleSvgResolver::Run と mermaid.html の drawingOf)。
+        // 層はどれも同じ <svg ...> と <defs> で始まり、</svg> で終わる (PeleSvgResolver::Run)。
         const std::string_view svg = layer.shapes_svg;
         size_t begin = svg.find('>');
         const size_t end = svg.rfind("</svg>");
@@ -4007,8 +4008,8 @@ ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFa
 Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
                                                     const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale)
 {
-    const auto width = static_cast<UINT>(std::ceil(drawing.size.width * dpr));
-    const auto height = static_cast<UINT>(std::ceil(drawing.size.height * dpr));
+    const auto width = static_cast<UINT>(std::ceil(drawing.width * dpr));
+    const auto height = static_cast<UINT>(std::ceil(drawing.height * dpr));
     if (!d2d || !dw || !wic || width == 0 || height == 0) {
         return nullptr;
     }
@@ -4043,7 +4044,7 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
     dc->GetTransform(&base);
     // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。背景はキャプチャと同じく塗る。
     dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-    dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.size.width, drawing.size.height), brush.Get());
+    dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.width, drawing.height), brush.Get());
     DiagramTextMeasurer formats(dw, locale ? locale : L"");
     bool ok = true;
     for (const auto& layer : drawing.layers) {
@@ -4051,7 +4052,7 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
             const std::span bytes{ reinterpret_cast<const uint8_t*>(layer.shapes_svg.data()), layer.shapes_svg.size() };
             const auto stream = wic_util::CreateStreamOnMemory(wic, bytes);
             ComPtr<ID2D1SvgDocument> doc;
-            if (!stream || FAILED(dc->CreateSvgDocument(stream.Get(), D2D1::SizeF(drawing.size.width, drawing.size.height), &doc))) {
+            if (!stream || FAILED(dc->CreateSvgDocument(stream.Get(), D2D1::SizeF(drawing.width, drawing.height), &doc))) {
                 ok = false;
                 break;
             }

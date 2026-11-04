@@ -228,7 +228,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **Website**: https://github.com/quickjs-ng/quickjs
 - **License**: MIT
 - **Obtained via**: CMake FetchContent (v0.18.0 source tarball, SHA-256 verified)
-- **Usage**: Runs pele to render Mermaid diagrams without WebView2
+- **Usage**: Runs pele (Mermaid diagrams) and KaTeX (math)
 
 ```
 The MIT License (MIT)
@@ -256,19 +256,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
-
----
-
-## Microsoft WebView2 SDK
-
-- **Description**: Embeddable web view control for Windows
-- **Website**: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
-- **License**: Microsoft Software License (redistributable)
-- **Obtained via**: CMake FetchContent (NuGet package)
-- **Usage**: Offscreen rendering of Mermaid diagrams (pele) and math (KaTeX)
-
-The WebView2 SDK is subject to the Microsoft Software License Terms.
-See: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3967.48/License
 
 ---
 

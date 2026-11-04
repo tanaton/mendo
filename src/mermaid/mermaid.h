@@ -13,7 +13,6 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
-#include <WebView2.h>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -22,8 +21,6 @@
 #include <deque>
 #include <memory>
 #include <optional>
-#include <ranges>
-#include <span>
 #include <string>
 #include <unordered_set>
 
@@ -49,8 +46,7 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
 // (PeleEngine)、拡大表示 (DiagramView) とクリップボードの SVG もその描画命令から作る。図のラベルの数式とインライン数式は
-// 同じランタイムで KaTeX を動かして描く。描画命令にできない要素のある図だけをオフスクリーンの WebView2 で描き、
-// その図の拡大表示も WebView2 で見せる。
+// 同じランタイムで KaTeX を動かして描く。描画命令にできない図は描かず、描けないことを知らせる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
@@ -60,16 +56,13 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // wic は Renderer と共有する PNG デコード用。
-    // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
-    // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
-    // user_data_folder は WebView2 のセッションデータの保存先。
-    // on_update は準備完了・結果が出たとき・WebView2 を諦めたときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
-    // on_viewer_failed は拡大表示を開けなかった・続けられなくなったときに、ウィンドウを閉じてから呼ぶ。
-    void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
-              TaskScheduler& bg_scheduler,
-              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update,
-              std::move_only_function<void()> on_viewer_failed);
+    // wic は Renderer と共有する PNG エンコード用。
+    // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
+    // 完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
+    // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
+    // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
+    void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
+              std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
@@ -77,11 +70,8 @@ public:
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
-    // 図の保存・コピーに使う PNG。描画命令の図は今その場で描く (大きな図は画素数の上限まで縮める)。作れなければ null。
+    // 図の保存・コピーに使う PNG。本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。作れなければ null。
     PngBytes DiagramPng(const DiagramEntry& entry);
-    // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
-    // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
-    static float EstimateWorkerDpr() noexcept;
     // deadline を過ぎた分は残し、HasLeftoverDiskLoads が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
     void ProcessDiskLoads(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
@@ -93,13 +83,8 @@ public:
     void DropQueued() override;
     // 描画待ちのインライン数式の要求を取り消す (cancelled で返す)。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
-    void OnInitRetryTimer();
-    // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
-    void OnIdleTimer();
     // PeleEngine の使っていないランタイムを捨てる。
     void OnPeleTrimTimer();
-    // 図のある文書を書き換えながら見ている (変更の通知で読み直した) 間は、保存のたびにコールドスタートしないよう長めに残す。
-    void SetEditingDiagrams(bool editing);
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     void OpenViewer(std::string_view code, float max_width, bool dark_mode);
@@ -121,9 +106,12 @@ private:
         MathBatchCallback callback;
     };
 
+    // Display だけが結果をキャッシュに持つ。Svg は SVG文字列を svg_callback で、View は描画命令を drawing_callback で、
+    // Math は結果を math->callback で返す。
+    enum class RequestKind : uint8_t { Display, Svg, View, Math };
+
     struct RenderRequest {
-        // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
-        // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
+        // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
@@ -136,236 +124,92 @@ private:
         {
             return width_free ? width_free_hash : request_hash;
         }
-        // 表示の大きさ (DIP)。描いた結果は切り出す画素数を dpr で割った値 (SetCaptureBox)、ディスクキャッシュからは索引の値。
-        float css_width = 0.0f;
-        float css_height = 0.0f;
-        unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
-        // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
-        bool retried = false;
-
-        // Mermaid だけがキャッシュに入る。Svg と View は SVG文字列を svg_callback で、Math は結果を math->callback で返す。
-        // Math は PeleEngine だけで描き、WebView2 には回さない。
-        mermaid_util::PageRequest page = mermaid_util::PageRequest::Mermaid;
+        RequestKind kind = RequestKind::Display;
         SvgCallback svg_callback;
-        // native の拡大表示の要求だけが持つ。描けなければ drawing は null で、needs_browser なら描画命令にできない図。
-        std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, bool needs_browser)> drawing_callback;
+        // 拡大表示の要求だけが持つ。描けなければ drawing は null。
+        std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)> drawing_callback;
         // Math の要求だけが持つ (RequestMathBatch)。code などは使わない。
         std::unique_ptr<MathRequest> math;
-
-        // キャプチャから切り出す範囲 (物理 px)。撮るビューの大きさ。
-        WICRect page_rect{};
-        // 切り出す範囲を決め、表示の大きさをその画素数から決める。CSS px の実測値で描くと、css x dpr が整数でないとき
-        // ビットマップを 1px 未満だけ縮めて描くことになる。
-        void SetCaptureBox(const WICRect& rect, float dpr) noexcept;
-
-        bool is_math() const noexcept
-        {
-            return page == mermaid_util::PageRequest::Math;
-        }
-        bool is_svg() const noexcept
-        {
-            return page == mermaid_util::PageRequest::Svg || page == mermaid_util::PageRequest::View;
-        }
-        bool is_view() const noexcept
-        {
-            return page == mermaid_util::PageRequest::View;
-        }
-        // 図の結果をキャッシュに持つ要求か。
-        bool is_display() const noexcept
-        {
-            return page == mermaid_util::PageRequest::Mermaid;
-        }
     };
 
-    // 各ワーカーが独立したWebView2インスタンスを持ち、1つのダイアグラムを非同期レンダリングする。
-    struct Worker {
-        HWND hwnd = nullptr;
-        Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
-        Microsoft::WRL::ComPtr<ICoreWebView2> webview;
-        RenderRequest current_request;
-        float dpr = 1.0f;
-        int init_retries = 0;
-        bool ready = false;
-
-        // request_id は ProcessQueue で 1 以上を振り、完了・破棄で current_request ごと 0 に戻す。
-        bool IsRendering() const noexcept
-        {
-            return current_request.request_id != 0;
-        }
-        bool IsIdle() const noexcept
-        {
-            return ready && !IsRendering();
-        }
-    };
-
-    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く (native)。描画命令にできない要素のある図は、ワーカーが描いた
-    // SVG を見える WebView2 に渡す。
+    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く。
     // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
     struct Viewer {
         HWND hwnd = nullptr;
-        // 数式のラベルの無い図を描く。数式のラベルのある図を見せている間 (controller を使う間) は null。
         std::unique_ptr<DiagramView> view;
-        Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
-        Microsoft::WRL::ComPtr<ICoreWebView2> webview;
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
-        // ページが viewer-ready を返した。
-        bool page_ready = false;
-        // この図の SVG をページへ渡した。以後は描き直しに失敗しても窓を閉じない。
+        // この図を出した。以後は描き直しに失敗しても窓を閉じない。
         bool has_image = false;
-        // ページの準備より先に送ろうとした要求のうち最後のもの。読み込み中の表示も図も前の要求を打ち消すので 1 つで足りる。
-        std::wstring pending_msg;
     };
 
     struct DiskLoad {
         RenderRequest req;
-        // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
-        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
         // インライン数式の要求の結果。MathRequest::items と同じ順で、描けなかった数式は null。
         std::vector<std::shared_ptr<const MathDrawing>> maths;
-        // ディスクキャッシュに書く・から読んだ PNG か描画命令 (UTF-8)。PNG なら保存・コピーにも使う。
+        // 描いたばかりの図の、ディスクキャッシュに書く描画命令 (UTF-8)。
         PngBytes bytes;
-        // 描画命令を worker で解析したもの。UI で commands にする。
+        // 描画命令。UI で commands にする。
         std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
-        // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
-        Microsoft::WRL::ComPtr<IStream> captured_stream;
-        // ページが書き出した図の描画命令 (DrawResult の payload)。worker で解析して parsed と png にしたら解放する。
-        std::wstring drawing;
-        // ページから届いたばかりの結果 (キャプチャか描画命令)。成功時はディスクキャッシュへ書き出し、失敗は確定させる。
-        bool fresh = false;
+        // ディスクキャッシュを読めなかった。理由は read_error。
+        bool read_failed = false;
         DWORD read_error = 0;
         // 投入後に disk_drop_gen_ が進んだので読まずに返した。
         bool dropped = false;
-        // PeleEngine で描く要求。走っている数を数える。
+        // PeleEngine で描いた (ディスクキャッシュから読んだのではない)。成功はディスクキャッシュへ書き、失敗は確定させる。
+        // 走っている数も数える。
         bool native = false;
-        // PeleEngine で描画命令にできなかった (ブラウザに回す)。
-        bool needs_browser = false;
-        // PeleEngine が返したコードの誤りの文言。
-        std::wstring render_error;
-        // ディスクキャッシュの図のラベルの数式を組み直すのに PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
+        // 描けなかった理由。描画命令を記録できなかったときは空。
+        DiagramError error;
+        // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
         // クリップボード用に PeleEngine で作った SVG。
         std::wstring svg;
     };
 
-    // 1 つ増やすごとにレンダラープロセスの起動と pele のロードが要り、数十 MB 常駐する。
-    // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
-    static constexpr int MAX_WORKERS = 2;
-    static constexpr int MAX_ENV_RETRIES = 3;
-    static constexpr UINT ENV_RETRY_INTERVAL_MS = 500;
-    // 諦めてからこの間は起動し直さず、要求をすぐ失敗で返す。図は文言を出したまま走査ごとに要求するので、
-    // この後の走査で起動を試す。データフォルダの解放待ちのような一時的な失敗から、操作なしで戻るため。
-    static constexpr std::chrono::seconds WEBVIEW_RETRY_AFTER{ 30 };
-    static constexpr int MAX_WORKER_RETRIES = 3;
-    // ランタイムは 5ms ほどで作り直せるので、WebView2 より早く捨てる。読み進める間の描画の切れ目では捨てない長さにする。
+    // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
     static constexpr UINT PELE_TRIM_MS = 10000;
-    // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
-    static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
-    // 編集中は考えている間に閉じると保存のたびに 1 秒前後待たせるので、さらに長くする。
-    static constexpr UINT IDLE_SHUTDOWN_EDITING_MS = 10 * 60000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // ディスクキャッシュから戻せるので画像より控えめにする。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
-    // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
+    // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled);
     // インライン数式の要求なら、取り消したことを知らせて math->callback をクリアする。
     static void CancelMathCallbackIfAny(RenderRequest& req);
     // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を呼ぶ。SVG は失敗か取り消し、インライン数式は
-    // (WebView2 のワーカーに渡らないので) いつも取り消し。成功した要求は呼び済みで何もしない。
+    // いつも取り消し。成功した要求は呼び済みで何もしない。
     static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
     {
         InvokeSvgCallbackIfAny(req, {}, cancelled);
         CancelMathCallbackIfAny(req);
     }
-    // ページに要求 (mermaid_util::Page*Message) を送る。結果と失敗はページが postMessage で返す。
-    static void PostToPage(Worker& worker, const std::wstring& msg);
-    // ビューを描いたものの大きさ (PageRect) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
-    void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
-    // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
-    bool FitsCapture(const mermaid_util::RenderSize& size) const noexcept;
     void ApplyMathLoad(DiskLoad& r);
-    // queue (描画待ちか native_waiting_) から kind (is_display / is_view / is_math) に当たる要求を順を保って取り出す。
+    // queue から kind の要求を順を保って取り出す。
     // 後始末は呼び出し側が取り出した後で行う (コールバックから描画待ちに積み直しても壊れない)。
-    static std::vector<RenderRequest> TakePending(std::deque<RenderRequest>& queue, bool (RenderRequest::*kind)() const noexcept);
-    // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
+    static std::vector<RenderRequest> TakePending(std::deque<RenderRequest>& queue, RequestKind kind);
+    // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は pele の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
 
-    // 破棄したスロット (AbandonWorker) は飛ばす。
-    auto ActiveWorkers() noexcept
-    {
-        return std::span{ workers_, static_cast<size_t>(worker_count_) } | std::views::filter([](const Worker& w) static noexcept { return w.hwnd != nullptr; });
-    }
-    Worker* FindIdleWorker() noexcept;
-
-    void EnsureInitialized();
-    void CreateWebView2Environment();
-    void OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* env);
-    bool CreateWorkerWindow(int index);
-    // 全ワーカーが準備完了かつ描画中なのに待ちがあるときだけ 1 つ増やす。最初から最大数を
-    // 同時起動すると CPU を取り合って最初の図が遅れ、図が少ない文書でも renderer が常駐する。
-    void MaybeGrowWorkers();
-    void ScheduleIdleShutdown();
-    void ReleaseWebView();
-    // 応答できるワーカーが 1 つも残らないときの出口。環境を作れなかったときも通る。
-    void AbandonWebView();
-    bool IsWebViewGivenUp() const noexcept
-    {
-        return std::chrono::steady_clock::now() < webview_retry_at_;
-    }
-    // ワーカーの起動や再起動を諦める。処理中の要求を失敗で終え、最後の 1 つなら AbandonWebView へ進む。
-    void AbandonWorker(int index);
-    void SetupWorker(int index);
-    void OnControllerCreated(int index, ICoreWebView2Controller* controller);
-    void RegisterWebViewHandlers(int index);
-    // 開発者ツール等を止め、app.local の外への遷移と通信を遮断する。ワーカーもビューアも Navigate の前に掛ける。
-    void SecureWebView(ICoreWebView2* webview);
-    // 仮想ホスト app.local への要求に埋め込みリソースを返し、それ以外は遮断する。
-    void OnWebResourceRequested(ICoreWebView2WebResourceRequestedEventArgs* args);
-    // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。
-    void RecoverWorker(int index);
-    void DestroyWorker(Worker& w);
-    static void ResizeWorkerView(Worker& worker, int width, int height);
-
     static LRESULT CALLBACK ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    bool CreateViewerWindow();
-    void SetupViewer();
-    void OnViewerControllerCreated(ICoreWebView2Controller* controller);
-    void OnViewerMessage(std::wstring_view msg);
-    void ApplyViewerBounds();
-    void RequestViewerSvg();
-    void CreateNativeView();
-    // 同じ窓のまま、描画命令で見せるか (native) WebView2 で見せるかを切り替える。
-    void SetViewerNative(bool native);
+    bool CreateViewer();
     // 描けた図を出したら drawn。描けなければ、図が出ていなければ閉じる。
     void OnViewerResult(bool drawn);
+    void RequestViewerDrawing();
     // 今までの要求の結果を要らなくする。描画中の分は世代で捨て、待ちの分は描かせない (結果を待つ人がいないのでコールバックは
     // 呼ばない)。新しい世代を返す。
-    unsigned int InvalidateViewerSvg()
+    unsigned int InvalidateViewerDrawing()
     {
-        TakePending(pending_requests_, &RenderRequest::is_view);
-        std::erase_if(native_waiting_, [](const RenderRequest& r) { return r.is_view(); });
+        std::erase_if(native_waiting_, [](const RenderRequest& r) { return r.kind == RequestKind::View; });
         return ++viewer_render_;
     }
-    // ページの準備ができていなければ pending_msg に残し、準備ができたら送る。
-    void PostToViewer(std::wstring msg);
-    void PostViewerInit();
     void DestroyViewer();
     void FailViewer();
-    // FailViewer をウィンドウのメッセージに回す。ビュー自身のイベントの中で呼ぶ。
-    void PostViewerFailed();
 
-    void ProcessQueue();
-    void DrainPendingRequests(bool cancelled);
-    void RenderInWorker(Worker& worker);
-    // PeleEngine で描ける図はそちらへ、それ以外は WebView2 の描画待ちに積む。PeleEngine へ回したら true。
-    bool EnqueueRender(RenderRequest req);
-    // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。諦めている間は失敗で返す。
-    void EnqueueWebRender(RenderRequest req);
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
     void EnsurePele();
     // bg のワーカーで PeleEngine に描かせ、結果をディスクキャッシュの読み込みと同じ経路で返す。
@@ -376,73 +220,39 @@ private:
     template <typename Work>
     void PostDiskJob(DiskLoad job, Work work);
     // worker で呼ぶ。
-    void RenderNativeJob(DiskLoad& job, std::wstring_view locale, float dpr);
-    // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
-    void FinishWorkerRequest(Worker& worker);
-    // 要求をエラーで終える (SVG の要求なら失敗を知らせる)。
-    void FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg = {});
-    // 要求を inflight_ に残したまま、ワーカーを次の要求に回す。
-    void FreeWorker(Worker& worker);
+    void RenderNativeJob(DiskLoad& job, std::wstring_view locale);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
-        if (req.is_display()) {
+        if (req.kind == RequestKind::Display) {
             inflight_.erase(req.request_hash);
         }
     }
 
-    // captured_stream があればファイルは読まずにそれをデコードする。drawing (描画命令) があればそれを描く。
-    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr,
-                       std::wstring drawing = {});
+    void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。locale は図のラベルの数式を組み直すのに使う。
     void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path, std::wstring_view locale);
-    // 戻り値: 結果 (ビットマップかエラー) が出たか。
+    // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyDiskLoad(DiskLoad& r);
 
-    void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
-    void OnWorkerReady(Worker& worker, float dpr);
-    void OnRenderResult(Worker& w, const mermaid_util::RenderSize& size);
-    void OnDrawResult(Worker& w, std::wstring_view payload);
-    // worker で呼ぶ。
-    void ParseDrawingJob(DiskLoad& job);
-    static void SetDrawing(DiskLoad& job, std::string_view utf8, mermaid_util::DiagramDrawing drawing);
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
     // 図の文字を組む共有ファクトリ。図の無い文書の起動で読み込まないよう、最初に使うときに作る。
     IDWriteFactory* WriteFactory();
-    void DoCapturePreview(int worker_idx);
-    void OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, DiagramResult result);
     const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
-    // SVG とインライン数式の要求はキャッシュに入れないので、いつも描画させる。
-    const DiagramResult* FindCached(const RenderRequest& req)
-    {
-        return req.is_display() ? FindCached(req.request_hash, req.width_free_hash, req.max_width) : nullptr;
-    }
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
-    Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
-    std::wstring user_data_folder_;
-    int env_retry_count_ = 0;
-    std::chrono::steady_clock::time_point webview_retry_at_{};
 
     Viewer viewer_;
-    // 拡大表示の SVG の要求ごとに進め、新しい要求か閉じた後に届いた古い結果を捨てる。
+    // 拡大表示の要求ごとに進め、新しい要求か閉じた後に届いた古い結果を捨てる。
     unsigned int viewer_render_ = 0;
     std::move_only_function<void()> on_viewer_failed_;
 
-    Worker workers_[MAX_WORKERS];
-    // 使い始めたスロットの数。添字を捕まえた非同期コールバックが別のワーカーに届かないよう、破棄したスロットは使い回さない。
-    int worker_count_ = 0;
-    // 最初のワーカーの準備ができたか。アイドル解放で戻す。
-    bool ready_ = false;
-    bool editing_diagrams_ = false;
-    unsigned int request_counter_ = 0;
-    // 準備完了 (アイドル解放後の再初期化を含む)・結果が出たとき・諦めたときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
+    // 結果が出たときに呼ぶ。
     std::move_only_function<void()> on_update_;
 
-    std::deque<RenderRequest> pending_requests_;
     // 待機中・読み込み中・描画中の表示用リクエストのコードハッシュ。未完了の図はスクロールのたびに
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::unordered_set<uint64_t> inflight_;

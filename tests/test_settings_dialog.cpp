@@ -51,6 +51,7 @@ protected:
         dialog_.dwrite_factory = dwrite_.Get();
         dialog_.theme = &theme_;
         dialog_.cache_bytes = 1024 * 1024;
+        dialog_.can_clear = true;
         dialog_.on_language = [this](const i18n::Strings* chosen) {
             ++language_calls_;
             i18n::SetLanguage(chosen);
@@ -118,6 +119,17 @@ TEST_F(SettingsDialogLayoutTest, HitTestFindsEachControl)
 TEST_F(SettingsDialogLayoutTest, EmptyCacheCannotBeCleared)
 {
     dialog_.cache_bytes = 0;
+    dialog_.can_clear = false;
+    EXPECT_EQ(HitAt(dialog_.layout.clear), Hit{});
+}
+
+// 図のキャッシュが空でも、大きさに数えない物 (前の版の WebView2 のデータ) が残っていれば消せる。消したら押せなくなる。
+TEST_F(SettingsDialogLayoutTest, CanClearWhenDiagramCacheIsEmpty)
+{
+    dialog_.cache_bytes = 0;
+    EXPECT_EQ(HitAt(dialog_.layout.clear), (Hit{ HitKind::ClearCache }));
+    dialog_.Activate({ HitKind::ClearCache });
+    EXPECT_EQ(clear_calls_, 1);
     EXPECT_EQ(HitAt(dialog_.layout.clear), Hit{});
 }
 

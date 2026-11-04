@@ -36,9 +36,6 @@ BEGIN
     END
 END
 
-// Embedded HTML template for mermaid rendering host
-IDR_MERMAID_HTML RCDATA "mermaid.html"
-
 // Embedded libraries for offline rendering (pele: mermaid diagrams, KaTeX: math)
 IDR_PELE_JS  RCDATA "../third_party/pele/pele.mjs"
 IDR_KATEX_JS RCDATA "../third_party/katex/katex.min.js"
@@ -63,10 +60,6 @@ IDR_KATEX_JS RCDATA "../third_party/katex/katex.min.js"
 337 RCDATA "../third_party/katex/fonts/KaTeX_Size3-Regular.woff2"
 338 RCDATA "../third_party/katex/fonts/KaTeX_Size4-Regular.woff2"
 339 RCDATA "../third_party/katex/fonts/KaTeX_Typewriter-Regular.woff2"
-
-// Embedded HTML page of the diagram viewer window
-IDR_MERMAID_VIEWER_HTML RCDATA "mermaid_viewer.html"
-IDR_MERMAID_VIEWER_JS RCDATA "mermaid_viewer.js"
 
 // Embedded help documents (UTF-8 Markdown)
 IDR_HELP_MD    RCDATA "help_ja.md"

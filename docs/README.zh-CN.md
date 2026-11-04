@@ -22,7 +22,7 @@ winget install tanaton.mendo
 - **快速启动** — 窗口创建与文件处理并行进行，启动迅速。
 - **低内存占用** — 不使用浏览器引擎，通过 Direct2D + DirectWrite 直接绘制 Markdown。
 - **实时重新加载** — 检测到打开的文件发生变化时自动更新显示，并滚动到变化的位置。
-- **Mermaid** — 将 `mermaid` 代码块显示为图表（通过 WebView2 + [pele](https://pele.run/) 离屏渲染）。
+- **Mermaid** — 将 `mermaid` 代码块显示为图表（在 [QuickJS-ng](https://github.com/quickjs-ng/quickjs) 上运行 [pele](https://pele.run/)，用 Direct2D 绘制）。
 - **离线运行** — 无需网络连接即可使用。
 - **语法高亮** — 为多种编程语言、配置文件格式等的代码块着色。
 - **图像显示** — 显示本地的 PNG、JPEG、BMP 等图像。
@@ -44,7 +44,7 @@ winget install tanaton.mendo
 | 行内代码 | ✅ |
 | 代码块（围栏） | ✅ 带语法高亮。支持的语言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批处理）, Dockerfile, Makefile, diff |
 | 图像 (PNG / JPEG / BMP) | ✅ 异步加载 |
-| Mermaid 图表 | ✅ 使用 WebView2 渲染 |
+| Mermaid 图表 | ✅ pele + QuickJS-ng，用 Direct2D 绘制 |
 | LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 以正文颜色渲染（`\color` 无效）。全部以展示样式渲染，只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 按编号显示在文档末尾，引用与定义相互链接 |
@@ -186,7 +186,7 @@ mendo.exe [文件路径 | 文件夹路径]
 | GUI | Win32 API |
 | 2D 绘制 | Direct2D (`ID2D1DeviceContext`) |
 | 文本绘制 | DirectWrite (`IDWriteTextLayout`) |
-| 图表 | WebView2 + [pele](https://pele.run/) |
+| 图表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 公式 | [KaTeX](https://katex.org/) |
 | Markdown 解析器 | [md4c](https://github.com/mity/md4c)（SAX 式回调） |
 | 测试 | Google Test v1.18.0 |

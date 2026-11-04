@@ -70,7 +70,7 @@ graph TB
 
     subgraph "外部・OS"
         MD[md4c]
-        WV[WebView2]
+        QJS[QuickJS-ng]
         MJ[pele / KaTeX]
         D2D_OS[Direct2D / DirectWrite / WIC]
         OS[Win32 API]
@@ -89,8 +89,8 @@ graph TB
     CE & REN --> D2D_OS
     APP --> FLS & LS & NH & TS & SS_SVC & RM & HT
     FLS --> MD
-    RM --> WV
-    WV --> MJ
+    RM --> QJS
+    QJS --> MJ
 ```
 
 ### 2.2 アーキテクチャ原則
@@ -120,7 +120,7 @@ flowchart LR
 | **副作用の明示化** | `SideEffect`（単一variant、`src/app/side_effect.h`） |
 | **副作用の実行の一元化** | `App::Execute`（`src/app/app.cpp`） |
 | **DirectWrite 計測の抽象化** | `ITextMeasurer`（`src/layout/layout.h`） |
-| **WebView2 依存の隔離** | `IMermaidRenderer`（`src/mermaid/mermaid_renderer_interface.h`） |
+| **図の描画の抽象化** | `IMermaidRenderer`（`src/mermaid/mermaid_renderer_interface.h`） |
 | **D2D ファクトリ・デバイスの集約** | `Renderer`（`src/render/renderer.h`。デバイスとスワップチェーンは `renderer_device.cpp`） |
 | **ロジックとUI層の分離** | `mendo_core`（テスト可能）vs `mendo`（Win32/D2D 具象） |
 
@@ -1560,20 +1560,17 @@ sequenceDiagram
     participant MR as MermaidRenderer
     participant FC as MermaidFileCache
     participant PE as PeleEngine (bg のワーカー)
-    participant WV as WebView2 (画面外ポップアップ)
-    participant JS as pele
-    participant WIC as WIC
 
     APP->>RM: RequestMermaidRenders()
     RM->>MR: RequestRender(node, diagram_entry, max_width, dark_mode)
-    alt メモリキャッシュヒット (ビットマップかエラー)
+    alt メモリキャッシュヒット (描画命令かエラー)
         MR-->>RM: 結果を DiagramEntry へ書いて true（高さは RM が寸法から決める）
     else ディスクキャッシュヒット
         MR->>FC: Find(width_free_hash, hash, max_width)（初回のみ索引を読み込む）
         FC-->>MR: 当たったキー + CSS 寸法（PngPath でパス）
-        MR->>WIC: worker で PNG 読み込み + デコード (IWICBitmap)
-        WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
-        APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ (UI スレッド)
+        MR->>PE: worker で読み込み + 解析 (ParseDrawing)、ラベルの数式を組み直す (ResolveMaths)
+        PE-->>APP: WM_APP+7 MERMAID_DISK_LOADED
+        APP->>MR: ProcessDiskLoads → コマンドリストに記録してメモリキャッシュへ (UI スレッド)
         MR-->>RM: on_update → RequestMermaidRenders（要求し直してメモリキャッシュから受け取る）
     else キャッシュミス
         MR->>PE: worker で Render(code)（QuickJS-ng で pele.render を動かす。ラベルの $$ は KaTeX）
@@ -1582,23 +1579,8 @@ sequenceDiagram
         APP->>MR: ProcessDiskLoads → コマンドリストに記録してメモリキャッシュへ (RecordDrawing)
         MR->>FC: StoreAsync(hash, css_width, css_height, 描画命令)
         MR-->>RM: on_update → RequestMermaidRenders
-    else 描画命令にできない要素のある図 (PeleEngine が NeedsBrowser を返した)
-        MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
-        MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
-        WV->>JS: pele.render(code)
-        JS-->>WV: SVG文字列
-        alt 描画命令に書き出せる図
-            WV-->>MR: 描画命令 (draw-result)
-            MR->>MR: worker で解析し (ParseDrawing)、UI でコマンドリストに記録する (RecordDrawing)
-        else 書き出せない図
-            WV-->>MR: 寸法 (render-result)
-            MR->>WV: CapturePreview(PNG)
-            WV-->>MR: PNG ストリーム
-            MR->>WIC: worker でデコード (ディスク読み込みと同じ DiskLoad 経路)
-        end
-        WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
-        APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ
-        MR->>FC: StoreAsync(hash, css_width, css_height, png)
+    else 描画命令にできない要素のある図 (PeleEngine が Unsupported を返した)
+        MR->>MR: DiagramError::Kind::Unsupported を確定させる（「この図は描画できません」）
         MR-->>RM: on_update → RequestMermaidRenders
     end
 ```
@@ -1608,12 +1590,12 @@ sequenceDiagram
 ```cpp
 class IMermaidRenderer {
 public:
-    // svg 非空: 成功 / 空かつ cancelled=false: レンダリング失敗 / 空かつ cancelled=true: 終了時に破棄
-    using SvgCallback = std::move_only_function<void(std::wstring svg, bool cancelled)>;
+    // svg 非空: 成功 / 空かつ cancelled=false: 描けなかった / 空かつ cancelled=true: 終了時に破棄
+    using SvgCallback = std::move_only_function<void(std::wstring_view svg, bool cancelled)>;
 
     virtual ~IMermaidRenderer() = default;
 
-    // 結果 (ビットマップかエラー) が出ていれば diagram_entry に書いて true。まだなら描画を始めて false
+    // 結果 (描画命令かエラー) が出ていれば diagram_entry に書いて true。まだなら描画を始めて false
     // (始めていれば何もしない)。結果が出たら初期化時に渡した通知で知らせ、呼び出し側が要求し直す。
     // 要求と結果はコードのハッシュで引くので、ノードや diagram_entry を持ち続けない。
     virtual bool RequestRender(const Node& node, DiagramEntry& diagram_entry,
@@ -1628,27 +1610,21 @@ public:
 
 `ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図は呼び出しごとの `changed` に積み、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果は描画命令かエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持つ。
 
-図は WebView2 を起動せずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、WebView2 の経路と同じ描画命令（`DiagramDrawing`）にする。結果はディスクキャッシュの読み込みと同じ `DiskLoad` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。`<foreignObject>` のように描画命令にできない要素を含む図だけを WebView2 に回す。
+図はブラウザを使わずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、描画命令（`DiagramDrawing`）にする。結果は `DiskLoad` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。`<foreignObject>` のように描画命令にできない要素を含む図は描かず、`DiagramError::Kind::Unsupported`（「この図は描画できません」）にする。今の pele は数式を描けたラベルを `<svg class="pele-math">`、描けなかったラベルを TeX の文字で書き、画像は `images: false` で出させないので、mermaid の文書の例と本書の図（575 図）でこのエラーになる図は無い。
 
-数式も WebView2 を使わずに描く。`PeleEngine` の同じランタイムで KaTeX（`katex.min.js`）を動かして HTML 出力（`output: 'html'`、`displayMode`）を作り、`LayoutKatexHtml` が katex.css の使う範囲の CSS（vlist の表・inline-block・相対位置・絶対位置の SVG・`.katex-sizing` の大きさ）を解いて描画命令（`MathDrawing`。字形の並び・枠の矩形・SVG の path）にする。KaTeX は縦の位置と高さを自分で決めて em で書くので、解くのは横の並びと字幅だけでよい。書体は KaTeX の 20 書体（woff2、260KB）を EXE に埋め込み、DirectWrite が展開して読む（`KatexAssets`）。KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は送り幅の和で Chrome と一致する。KaTeX の書体に無い文字（`\text{}` の日本語など）は、本文と同じくシステムのフォールバックに尋ねる。描き方は Chrome に合わせ、罫線（分数の線など）の太さは CSS px に切り捨てて 1px 未満は 1px、SVG の箱とベースラインは装置の画素に合わせる。KaTeX の対応一覧と本書の 927 式を Edge で描いた KaTeX と比べると、幅の差は中央値 0.008px、1 画素のずれを許した画素の差は中央値 0% だった。大きさは KaTeX の CSS と同じ本文の 1.21 倍、`align` などの自動の式番号は数式ごとに (1) から振って式の右に置く。数式は色を持たず、描くときに周りの文字の色で描く（`\color` は効かず、`\colorbox` の背景も描かない）。
+数式もブラウザを使わずに描く。`PeleEngine` の同じランタイムで KaTeX（`katex.min.js`）を動かして HTML 出力（`output: 'html'`、`displayMode`）を作り、`LayoutKatexHtml` が katex.css の使う範囲の CSS（vlist の表・inline-block・相対位置・絶対位置の SVG・`.katex-sizing` の大きさ）を解いて描画命令（`MathDrawing`。字形の並び・枠の矩形・SVG の path）にする。KaTeX は縦の位置と高さを自分で決めて em で書くので、解くのは横の並びと字幅だけでよい。書体は KaTeX の 20 書体（woff2、260KB）を EXE に埋め込み、DirectWrite が展開して読む（`KatexAssets`）。KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は送り幅の和で Chrome と一致する。KaTeX の書体に無い文字（`\text{}` の日本語など）は、本文と同じくシステムのフォールバックに尋ねる。描き方は Chrome に合わせ、罫線（分数の線など）の太さは CSS px に切り捨てて 1px 未満は 1px、SVG の箱とベースラインは装置の画素に合わせる。KaTeX の対応一覧と本書の 927 式を Edge で描いた KaTeX と比べると、幅の差は中央値 0.008px、1 画素のずれを許した画素の差は中央値 0% だった。大きさは KaTeX の CSS と同じ本文の 1.21 倍、`align` などの自動の式番号は数式ごとに (1) から振って式の右に置く。数式は色を持たず、描くときに周りの文字の色で描く（`\color` は効かず、`\colorbox` の背景も描かない）。
 
-KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどなので、インライン数式はまとめ描きの組（`InlineMathPlan`）ごとに bg のワーカーで描き（`MermaidRenderer::RequestMathBatch`）、ディスクキャッシュには置かない。図のラベルの `$$...$$` は pele の `math` オプションで描く。KaTeX は JS のスタックを深く使い、pele の配置の奥で動かすとスタックの上限（512KB）を超えるので、pele と同じ正規表現でコードから TeX を拾って最上位で HTML にしておき、配置の途中では `LayoutKatexHtml`（C++ だけ）を呼ぶ（pele が切り出した TeX が拾ったものと違ったときだけ、もう一度配置する）。描画命令の層にはラベルの数式（`DrawingMath`）を置き、ディスクキャッシュには TeX だけを書いて、読んだときに組み直す（`PeleEngine::ResolveMaths`）。起動から最初に見える数式がそろうまでは、数式の見本の文書で 553 → 86ms、KaTeX の対応一覧で 563 → 95ms、mendo + WebView2 のメモリは 202 → 62MB と 211 → 59MB になった（キャッシュなし、3 回交互の中央値。WebView2 の起動が無くなった）。2 回目に開くとき（前はディスクキャッシュから読んだ）は時間が同じで、メモリは +3MB（前は数式の型を GPU のメモリに置いていた）。
+KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどなので、インライン数式はまとめ描きの組（`InlineMathPlan`）ごとに bg のワーカーで描き（`MermaidRenderer::RequestMathBatch`）、ディスクキャッシュには置かない。図のラベルの `$$...$$` は pele の `math` オプションで描く。KaTeX は JS のスタックを深く使い、pele の配置の奥で動かすとスタックの上限（512KB）を超えるので、pele と同じ正規表現でコードから TeX を拾って最上位で HTML にしておき、配置の途中では `LayoutKatexHtml`（C++ だけ）を呼ぶ（pele が切り出した TeX が拾ったものと違ったときだけ、もう一度配置する）。描画命令の層にはラベルの数式（`DrawingMath`）を置き、ディスクキャッシュには TeX だけを書いて、読んだときに組み直す（`PeleEngine::ResolveMaths`）。起動から最初に見える数式がそろうまでは、数式の見本の文書で 553 → 86ms、KaTeX の対応一覧で 563 → 95ms、mendo + WebView2 のメモリは 202 → 62MB と 211 → 59MB になった（WebView2 で描いていた頃との比較。キャッシュなし、3 回交互の中央値）。
 
-拡大表示（`DiagramView`）とクリップボードの SVG も `PeleEngine` の描画命令から作る。どちらも本文の幅で組んだ図を本文の幅に縮めずに描く（`Render` の `fit` を切る）。拡大表示は窓に `ID2D1HwndRenderTarget` を作り、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く。操作（右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ）は `mermaid_viewer.js` と同じにする。描画命令にできない要素のある図だけは、これまでどおり見える WebView2 で見せる（描いてから切り替え、窓の位置と大きさを保って中身だけを替える）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。
+拡大表示（`DiagramView`）とクリップボードの SVG も `PeleEngine` の描画命令から作る。どちらも本文の幅で組んだ図を本文の幅に縮めずに描く（`Render` の `fit` を切る）。拡大表示は窓に `ID2D1HwndRenderTarget` を作り、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く。操作は右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ。描けない図は窓を閉じて「図を開けませんでした」を出す（書き換えで描けなくなったときは、出ている図を残す）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。保存・コピーの PNG は本体の窓の DPR でその場で描く（`DiagramPng`）。
 
-`PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele は最初に 1 回だけ使い捨てのランタイムでコンパイルし（約 60ms）、各ランタイムはそのバイトコードを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpNativeRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）で捨てる（`app_timer::Id::PELE_TRIM` → `OnPeleTrimTimer`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
+`PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele は最初に 1 回だけ使い捨てのランタイムでコンパイルし（約 60ms）、各ランタイムはそのバイトコードを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpNativeRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）で捨てる（`app_timer::Id::PELE_TRIM` → `OnPeleTrimTimer`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（WebView2 で描いていた頃との比較。3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
-`mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
+`mendo_core` には `IMermaidRenderer` 抽象のみが入り、埋め込みリソース（pele・KaTeX・書体）を読む具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。
 
-ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置くので、エスケープは要らない。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、図のキャプチャは撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを CSS px で切り上げて返し、`PageRect` が物理 px へ切り上げる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
-
-PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の PNG はディスクへ保存したいので取り消さない。
-
-WebView2 の環境は `--disable-gpu` を付けて作る（`CoreWebView2EnvironmentOptions::put_AdditionalBrowserArguments`）。図は SVG 1 枚をオフスクリーンで描いて写すだけなので GPU で描く利点が無く、GPU プロセスが GPU ドライバを読み込んで D3D11 デバイスを作るコストと、キャプチャのときの GPU からの読み戻しだけが残るためである。シーケンス図 1 つで mendo + WebView2 の commit が 262MB → 171MB（GPU プロセスだけで 118MB → 22MB）、描き終わるまでも 1〜2 割縮む。写した図と数式は GPU ありと同じ。
-
-描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `App::HandleTimer` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、準備完了の印 (`ready_`) も戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了の通知（`on_update_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
+描画とディスクキャッシュの読み込みは UI スレッドで行わない。どちらも `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` で描画命令を作るか、ファイルを読んで解析する。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が描画命令をコマンドリストに記録してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。描いた直後の描画命令はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・解析できなかった図は描き直し、描いた直後の図が記録できなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の結果はディスクへ保存したいので取り消さない。
 
 #### 3.12.3 MermaidFileCache — 永続キャッシュ
 
@@ -1661,10 +1637,7 @@ public:
     };
 
     // 索引の読み込みは初回利用まで遅らせる (ディスクに触れない)。
-    void Init(float current_dpr, TaskScheduler& scheduler);
-    // 以降の参照・保存のキーに混ぜる DPR を差し替える。別の DPR のエントリは LRU で淘汰させる。
-    void SetDpr(float dpr) noexcept;
-    float Dpr() const noexcept;   // 当たった PNG はこの DPR で描いたもの
+    void Init(TaskScheduler& scheduler);
     struct Hit {
         uint64_t   key = 0;
         CacheEntry entry;
@@ -1676,11 +1649,11 @@ public:
     std::filesystem::path PngPath(uint64_t key) const;
     // ファイルが確実に存在しない場合のみ索引から除く。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
+    // png_data (描画命令の UTF-8) は表示側と共有し、書き込み用にコピーしない。
     // PngBytes は utility.h の std::shared_ptr<const ByteBuffer> (確保時に 0 で埋めないバイト列)。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();   // 索引に変更が無ければ書かない
-    void Clear();       // 索引と PNG をすべて消す (設定ダイアログ)。書き込み中の PNG は着地後に worker が消す
+    void Clear();       // 索引とファイルをすべて消す (設定ダイアログ)。書き込み中のファイルは着地後に worker が消す
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
     void Shutdown();
@@ -1690,7 +1663,7 @@ public:
     uint64_t TotalSize();
 
     static constexpr uint32_t MAGIC   = 0x4D454D43u;  // "MEMC"。index.bin はヘッダ (magic, version, 件数) 12 バイト + レコード 28 バイト
-    static constexpr uint32_t VERSION = 2;   // 索引の書式か PNG の描き方を変えたら上げる
+    static constexpr uint32_t VERSION = 5;   // 索引の書式か中身の描き方を変えたら上げる
 
 private:
     static constexpr size_t   DEFAULT_MAX_ENTRIES    = 4096;
@@ -1698,18 +1671,13 @@ private:
 };
 ```
 
-外部キーは内部で DPR 量子化値（1/100 単位、典型値 100/125/150/175/200）に定数 `0x9E3779B97F4A7C15` を乗じた値と XOR して内部キーに変換し、DPR ごとに独立したエントリとして保存する。これにより DPI 変更/モニタ切替時に全消去を発生させない。DPR は `Init` 時には画面外のワーカー位置のモニタから推定し（`MermaidRenderer::EstimateWorkerDpr`）、ワーカーの準備完了で実際に描く DPR が届いたら `SetDpr` で差し替える。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される。`pending_writes_`（書き込み中のキー → 書き込み中に追い出されたか）で同じキーの 2 本目の書き込みを出さず、書き込み中に追い出されたエントリの PNG は着地後にワーカーが消すので、索引に無いファイルは残らない。書き込み中のキーは読み込みに失敗しても `OnReadFailed` で索引から除かない。
+ファイルと関数の名前の png は、PNG を置いていた頃のまま。中身は描画命令の UTF-8 で DPR に依らないので、キーに DPR を混ぜない。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される。`pending_writes_`（書き込み中のキー → 書き込み中に追い出されたか）で同じキーの 2 本目の書き込みを出さず、書き込み中に追い出されたエントリのファイルは着地後にワーカーが消すので、索引に無いファイルは残らない。書き込み中のキーは読み込みに失敗しても `OnReadFailed` で索引から除かない。
 
-索引（`index.bin`）は `Init` では読まず、`Find` / `StoreAsync` などの初回利用時に、唯一の入口 `Index()` で読み込む。図を含まない文書の起動ではディスクに触れない。索引・合計サイズ・LRU シーケンス・変更フラグは `IndexState` にまとめ、`std::optional<IndexState>`（未読み込みは `nullopt`）で持つ。変更系の操作（`Add` / `Remove` / `Touch`）は `IndexState` 自身が `dirty` を立てる。索引本体は `std::unordered_map<uint64_t, IndexEntry>` 1 本で、各エントリが `last_used`（単調増加シーケンス）を持つ。追い出しは満杯時にしか起きないため、LRU 順の補助構造は持たず `last_used` の線形走査で最古を探す。終了時の `SaveIndex` は未読み込み（`nullopt`）か変更が無ければ書き戻さないので、空の索引でディスクを上書きすることは構造上起きない。違う版の索引かヘッダの壊れた索引を読んだら（`LoadIndex` が `nullopt`）、引けない PNG を索引に載らないまま残さないよう、`Clear` でフォルダごと捨てる。`Clear` はフォルダを列挙して消すファイルの名前を控え（`doomed_files_`）、worker で消す。満杯（4096 件）を UI スレッドで 1 件ずつ消すと 1 秒近く止まるためである。以前の版がフォルダを別名へ移して消し損ねた `.deleting-*` は、索引を初めて読むときに worker で掃除する。PNG の書き込み（worker）と `SaveIndex` は書く前に `KeepFile` で名前を控えから外し、書いた後に消されない。控えは専用のロックで守り、消す間はそれを持つので、UI の `StoreAsync` は待たない。索引が無い・ヘッダより短いときは空の索引から始める（別のインスタンスが書き込み中のフォルダを消さない）。
+索引（`index.bin`）は `Init` では読まず、`Find` / `StoreAsync` などの初回利用時に、唯一の入口 `Index()` で読み込む。図を含まない文書の起動ではディスクに触れない。索引・合計サイズ・LRU シーケンス・変更フラグは `IndexState` にまとめ、`std::optional<IndexState>`（未読み込みは `nullopt`）で持つ。変更系の操作（`Add` / `Remove` / `Touch`）は `IndexState` 自身が `dirty` を立てる。索引本体は `std::unordered_map<uint64_t, IndexEntry>` 1 本で、各エントリが `last_used`（単調増加シーケンス）を持つ。追い出しは満杯時にしか起きないため、LRU 順の補助構造は持たず `last_used` の線形走査で最古を探す。終了時の `SaveIndex` は未読み込み（`nullopt`）か変更が無ければ書き戻さないので、空の索引でディスクを上書きすることは構造上起きない。違う版の索引かヘッダの壊れた索引を読んだら（`LoadIndex` が `nullopt`）、引けないファイルを索引に載らないまま残さないよう、`Clear` でフォルダごと捨てる。`Clear` はフォルダを列挙して消すファイルの名前を控え（`doomed_files_`）、worker で消す。満杯（4096 件）を UI スレッドで 1 件ずつ消すと 1 秒近く止まるためである。以前の版がフォルダを別名へ移して消し損ねた `.deleting-*` は、索引を初めて読むときに worker で掃除する。ファイルの書き込み（worker）と `SaveIndex` は書く前に `KeepFile` で名前を控えから外し、書いた後に消されない。控えは専用のロックで守り、消す間はそれを持つので、UI の `StoreAsync` は待たない。索引が無い・ヘッダより短いときは空の索引から始める（別のインスタンスが書き込み中のフォルダを消さない）。
 
 #### 3.12.4 初期化
 
-WebView2 は起動時には作らず、最初の描画要求（`RequestRender` / `RequestSvg`）で `EnsureInitialized` が立ち上げる。
-
-1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
-2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。`AbandonWebView` は `WEBVIEW_RETRY_AFTER`（30 秒）後を次に試す時刻にして図を要求し直させ、ディスクキャッシュに無い図を `DiagramError::Kind::WebViewUnavailable`（「WebView2 を利用できないため図を描画できません」）にする。このエラーはコードで決まる結果ではないので、キャッシュに入れず（`DiagramError::settled` が false）、文言を出したまま走査ごとに要求を続ける。その時刻までは `EnsureInitialized` が起動せず、SVG の要求もすぐ失敗で返す。時刻を過ぎた後の走査で起動を試すので、一時的な失敗からは操作なしで戻る
-3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と pele（`IDR_PELE_JS`）・KaTeX（`IDR_KATEX_JS`）を RCDATA から無圧縮のまま配信する
-4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
+`PeleEngine` は起動時には作らず、最初の描画要求（`RequestRender` / `RequestSvg` / `RequestMathBatch`、ディスクキャッシュの読み込み）で `EnsurePele` が作る。pele・KaTeX・KaTeX の書体は RCDATA（`IDR_PELE_JS`・`IDR_KATEX_JS`・`IDR_KATEX_FONT_FIRST` から 20 個）から無圧縮のまま渡す。ランタイムが作れない・pele を読み込めないときも、その図は `Unsupported` になる。
 
 ---
 
@@ -3095,7 +3063,7 @@ flowchart TD
     CFG --> D2D[Renderer::Init&#40;hwnd, theme&#41;<br>D2D / DWrite / WIC ファクトリ + Formats<br>+ LayoutEngine::Init で計測の書式]
     D2D --> LSCHED[measurer の SetScheduler<br>ワーカーは初回 Post で起動]
     LSCHED --> FCACHE[MermaidFileCache::Init<br>索引は初回利用まで読まない]
-    FCACHE --> MERM[MermaidRenderer::Init<br>WebView2 は初回描画要求で起動]
+    FCACHE --> MERM[MermaidRenderer::Init<br>PeleEngine は初回描画要求で作る]
     MERM --> PANES[session::LoadPanes<br>ペインの表示・幅・倍率]
     PANES --> SHOWW[DWMWA_CLOAK で隠したまま<br>RestoreWindowPlacement / ShowWindow]
     SHOWW --> ATTACH{LoadInitialDocument<br>Attach で通知先を渡す}
@@ -3179,7 +3147,6 @@ graph TD
     CORE --> MD4C[md4c<br>third_party]
     CORE -.->|MENDO_USE_TRACY=ON| TRACY[Tracy v0.14.1<br>FetchContent]
     EXE --> CORE
-    EXE --> WV2[WebView2 SDK<br>v1.0.3967.48<br>WebView2LoaderStatic.lib]
     EXE --> RC[mendo.rc<br>リソース]
     TEST --> CORE
     TEST --> GTEST[Google Test v1.18.0<br>FetchContent]
@@ -3230,17 +3197,17 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |
 
-`mendo_core` には **DirectWrite / WebView2 抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（WebView2）と `Renderer`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
+`mendo_core` には **DirectWrite / 図の描画の抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（埋め込みリソースを読む）と `Renderer`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
 
 ### 6.4 pele と KaTeX の埋め込み
 
-図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き（KaTeX は描画に使う 20 書体の woff2 も `third_party/katex/fonts` に置く）、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`、書体は `IDR_KATEX_FONT_FIRST` から `kKatexFontFiles` の順）の RCDATA として無圧縮のまま EXE に埋め込む。ふだんは `PeleEngine` が QuickJS-ng で動かし、WebView2 は描画命令にできない図のときだけ使う。そのとき `WebResourceRequested` は `index.html` に HTML テンプレートを、`pele.mjs` と `katex.js` にそれぞれのライブラリを返し、それ以外は 404 にする。KaTeX は UMD 版なので `import` ではなく `<script>` で読み、ラベルに `$$` のある図を描くときだけ読む。どちらも `eval` を使わないので、ページの CSP は `unsafe-eval` を許さない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
+図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き（KaTeX は描画に使う 20 書体の woff2 も `third_party/katex/fonts` に置く）、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`、書体は `IDR_KATEX_FONT_FIRST` から `kKatexFontFiles` の順）の RCDATA として無圧縮のまま EXE に埋め込む。どちらも `PeleEngine` が QuickJS-ng で動かす。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開の方が高くつくためである。
 
-pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。
+pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `DrawingFromPeleSvg` が SVG のルートの style の先頭に CSS 変数として足す（`kDarkVars`）。
 
-表示用の図はキャプチャせず、ページが SVG を DOM に入れてブラウザが解決した値を描画命令（`draw-result`、`mermaid_util::ParseDrawing`）に書き出し、worker が解析して、UI スレッドが `DrawDiagram` で `ID2D1CommandList` に記録する（`MermaidRenderer::RecordDrawing`。描画中の Renderer とは別の DeviceContext を同じデバイスから作って使う）。図はビットマップを持たず、毎フレームそのコマンドリストを枠の幅に合わせて縮めて描く（`DrawDiagramCmd`）。図形は色・不透明度・変換を属性に確定させた SVG にして `ID2D1SvgDocument` で、文字は D2D の SVG が描かないので 1 行ずつの並びにして DirectWrite で描く。文字の位置はブラウザが置いた位置（`getStartPositionOfChar`）をそのまま使い、書体は本文と同じ Segoe UI にロケールで決まるフォールバック先を明示するので、DirectWrite の字幅との差は 1389 本の並びで平均 0.02px になる（明示しないと日本語のフォールバック先が分かれて最大 86px ずれる）。図形が前の文字に重なるときだけ層を分け、文書の順の重なりを保つ。D2D の SVG はグラデーションで塗るときの塗りの不透明度を無視するので、止まりの不透明度に掛けて書き出す。書き出せない図（数式のラベルの `<foreignObject>` など）はこれまでどおりキャプチャで描く。キャプチャ（1 図 60ms ほどの待ち）が無くなり、起動から図 4 個がそろうまでが 739 → 609ms、test.md の図 8〜11 で 915 → 685ms、sankey を含む 4 個で 795 → 543ms になった（キャッシュなし、3 回交互の中央値。WebView2 の起動を含む）。
+表示用の図は描画命令（`DiagramDrawing`）にして、UI スレッドが `DrawDiagram` で `ID2D1CommandList` に記録する（`MermaidRenderer::RecordDrawing`。描画中の Renderer とは別の DeviceContext を同じデバイスから作って使う）。図はビットマップを持たず、毎フレームそのコマンドリストを枠の幅に合わせて縮めて描く（`DrawDiagramCmd`）。図形は色・不透明度・変換を属性に確定させた SVG にして `ID2D1SvgDocument` で、文字は D2D の SVG が描かないので 1 行ずつの並びにして DirectWrite で描く。文字の位置は `text-anchor` と DirectWrite の字幅から求め、書体は pele の `measurer` と同じく本文と同じ Segoe UI にロケールで決まるフォールバック先を明示するので、pele の配置と一致する（明示しないと日本語のフォールバック先が分かれて最大 86px ずれる）。図形が前の文字に重なるときだけ層を分け、文書の順の重なりを保つ。D2D の SVG はグラデーションで塗るときの塗りの不透明度を無視するので、止まりの不透明度に掛けて書き出す。描画命令にできない要素のある図は描かず、描けないことを図の枠に出す。
 
-ベクタのまま持つのは、ビットマップがメモリの大半を占めるためである。図 30 個を持つと、ビットマップ（DPR 1.5）では GPU +161MB・private +125MB、コマンドリストでは GPU +0.8MB・private +4.3MB だった。代わりに毎フレーム描く手間が 1 図 0.1〜1.7ms（多くは 0.15〜0.4ms、ビットマップは 0.01〜0.11ms）かかる。mendo と WebView2 の合計は、図 4 個の文書で 221 → 201MB、test.md の図 8〜11 で 277 → 222MB、200 ノードで 243 → 179MB になった。どの倍率でもくっきり描け、ビットマップの大きさの上限も無くなる（1000 メッセージのシーケンス図も描ける）。コマンドリストは小さいので画面外へ出ても追い出さず、デバイスロストでは捨てて、ディスクキャッシュの描画命令から WebView2 を使わずに記録し直す。ディスクキャッシュには描画命令を UTF-8 で置き（図 1 個 平均 4KB、同じ図の PNG の約 1/20）、読むときは先頭のバイトで PNG（キャプチャした図）と見分ける。保存・コピーの PNG は、そのときに `RasterizeDiagram` で CPU で描く。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、解決した値を属性だけで書く（`DrawingToSvg`）。
+ベクタのまま持つのは、ビットマップがメモリの大半を占めるためである。図 30 個を持つと、ビットマップ（DPR 1.5）では GPU +161MB・private +125MB、コマンドリストでは GPU +0.8MB・private +4.3MB だった。代わりに毎フレーム描く手間が 1 図 0.1〜1.7ms（多くは 0.15〜0.4ms、ビットマップは 0.01〜0.11ms）かかる。mendo と WebView2 の合計は、図 4 個の文書で 221 → 201MB、test.md の図 8〜11 で 277 → 222MB、200 ノードで 243 → 179MB になった（WebView2 で描いていた頃の計測）。どの倍率でもくっきり描け、ビットマップの大きさの上限も無くなる（1000 メッセージのシーケンス図も描ける）。コマンドリストは小さいので画面外へ出ても追い出さず、デバイスロストでは捨てて、ディスクキャッシュの描画命令から記録し直す。ディスクキャッシュには描画命令を UTF-8 で置く（図 1 個 平均 4KB、同じ図の PNG の約 1/20）。保存・コピーの PNG は、そのときに `RasterizeDiagram` で CPU で描く。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、解決した値を属性だけで書く（`DrawingToSvg`）。
 
 ### 6.5 MSVC ビルド最適化
 
@@ -3273,7 +3240,7 @@ pie title テストカバレッジ（ファイル数ベース）
     "UIコード（テスト対象外）" : 13
 ```
 
-> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `mermaid/mermaid.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
+> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `mermaid/mermaid.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / 埋め込みリソース依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
 
 ### 7.3 テストソース一覧（抜粋）
 
@@ -3433,11 +3400,10 @@ enum class Id : UINT_PTR {
     TOAST,                 // 3
     TOOLTIP,               // 4
     BITMAP_MANAGE,         // 5
-    MERMAID_INIT_RETRY,    // 6
-    FILE_RELOAD_DEBOUNCE,  // 7
-    MERMAID_IDLE,          // 8
-    DEVICE_RECREATE_RETRY, // 9
-    INLINE_MATH_TABLES,    // 10 寸法を待つ表の組み直しを、前回から App::kMathTableRelayoutInterval (1 秒) 空けて行う
+    FILE_RELOAD_DEBOUNCE,  // 6
+    PELE_TRIM,             // 7 使っていない QuickJS のランタイムを捨てる
+    DEVICE_RECREATE_RETRY, // 8
+    INLINE_MATH_TABLES,    // 9 寸法を待つ表の組み直しを、前回から App::kMathTableRelayoutInterval (1 秒) 空けて行う
     END,  // 番兵。新規タイマーはこの直前に追加する。
 };
 
@@ -3488,7 +3454,6 @@ inline constexpr UINT INLINE_MATH_REQUESTED = WM_APP + 9;  // 計測ワーカー
 |:-----|:-----|
 | OS | Windows 10 1809 以降 / Windows 11（WebP 画像のデコーダ WebP Image Extension が 1809 以降のため） |
 | アーキテクチャ | x64 / arm64 |
-| ランタイム | WebView2 Runtime（Mermaid描画に必要） |
 | コンパイラ | MSVC (C++23) |
 | ビルドツール | CMake 4.2+（Visual Studio 2026 ジェネレータ） |
 
@@ -3563,7 +3528,7 @@ src/
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
 │   └── config_service.h / .cpp    # ConfigService + session:: + INI の読み書き (ini::Parse / Serialize)
 ├── mermaid/                       # Mermaid層
-│   ├── mermaid.h / mermaid.cpp    # MermaidRenderer (WebView2)
+│   ├── mermaid.h / mermaid.cpp    # MermaidRenderer
 │   ├── mermaid_renderer_interface.h # IMermaidRenderer
 │   ├── mermaid_util.h / .cpp      # ヘルパー
 │   └── mermaid_file_cache.h / .cpp # 永続キャッシュ (MEMC v1)
@@ -3603,7 +3568,6 @@ src/
 | ライブラリ | バージョン | 用途 | ライセンス |
 |:-----------|:----------|:-----|:----------|
 | md4c | 0.6.0 | Markdown パース | MIT |
-| WebView2 SDK | 1.0.3967.48 | 描画命令にできない図を描くブラウザコントロール | BSD |
 | Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
 | pele | 1.13.0 | ダイアグラム描画 | MIT |
 | KaTeX | 0.19.1 | 数式描画（20 書体の woff2 を同梱） | MIT（書体は SIL OFL 1.1） |
@@ -4309,11 +4273,10 @@ exit /b 0
     "TOAST":                 3,
     "TOOLTIP":               4,
     "BITMAP_MANAGE":         5,
-    "MERMAID_INIT_RETRY":    6,
-    "FILE_RELOAD_DEBOUNCE":  7,
-    "MERMAID_IDLE":          8,
-    "DEVICE_RECREATE_RETRY": 9,
-    "INLINE_MATH_TABLES":    10,
+    "FILE_RELOAD_DEBOUNCE":  6,
+    "PELE_TRIM":             7,
+    "DEVICE_RECREATE_RETRY": 8,
+    "INLINE_MATH_TABLES":    9,
   },
   /* カスタム Win32 メッセージ
      WM_APP+N の形式で識別子を採番している (+1, +3〜+5 は欠番) */

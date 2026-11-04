@@ -119,6 +119,7 @@ void SettingsDialog::Activate(const Hit& hit)
     case HitKind::ClearCache:
         on_clear_cache();
         cache_bytes = 0;
+        can_clear = false;
         cache_size_text = FormatByteSize(cache_bytes);
         break;
     }
@@ -148,6 +149,7 @@ void SettingsDialog::Show(HWND owner_hwnd, const SettingsDialogParams& params)
         return;
     }
     s.cache_bytes = params.diagram_cache_bytes;
+    s.can_clear = params.can_clear_cache;
     s.on_language = params.on_language;
     s.on_clear_cache = params.on_clear_cache;
     s.Rebuild();

@@ -17,7 +17,7 @@ constexpr size_t kJsStackBytes = 512 * 1024;
 // 壊れたコードで止まらずに確保し続けても、プロセスを道連れにしない。
 constexpr size_t kJsMemoryBytes = 256 * 1024 * 1024;
 
-// mermaid.html の fonts() と同じ。本文と同じ書体で組み、Segoe UI に無い文字はロケールで決まるフォントにする。
+// 本文と同じ書体で組み、Segoe UI に無い文字はロケールで決まるフォントにする。
 struct DiagramFonts {
     std::wstring_view sans;
     std::wstring_view mono;
@@ -267,7 +267,7 @@ bool PeleEngine::EnsurePele(PeleContext& context)
         return false;
     }
     // links・images: mermaid の securityLevel 'strict' と同じく、図からの遷移と外部の画像を許さない。
-    // autoDirection: 狭いときに LR を TB に替えさせず、書いた向きのまま縮める。mermaid.html の renderPele と同じ。
+    // autoDirection: 狭いときに LR を TB に替えさせず、書いた向きのまま縮める。
     // katexHtml はラベルに $$ があるときだけ渡す。KaTeX は JS のスタックを深く使い、pele の配置の奥 (math オプション) で動かすと
     // 512KB の上限を超えるので、pele と同じ正規表現でコードから TeX を拾い、最上位で HTML にしてから配置させる。
     // pele が切り出した TeX が拾ったものと違えば (文字参照を解いたものなど)、その TeX も HTML にしてもう一度配置する。
@@ -337,7 +337,7 @@ bool PeleEngine::EnsureKatex(PeleContext& context)
     if (!Evaluated(context, JS_EvalFunction(ctx, script))) {
         return false;
     }
-    // displayMode: $...$ も文中の $$...$$ も大きい形式で描く (分数が読みにくいので。WebView2 で描いていたときと同じ)。
+    // displayMode: $...$ も文中の $$...$$ も大きい形式で描く (分数が読みにくいので)。
     // trust は既定の false のまま (\href・\includegraphics・\htmlClass などを描かない)。
     constexpr std::string_view kWrapper = "tex => katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'html' })";
     context.katex = JS_Eval(ctx, kWrapper.data(), kWrapper.size(), "katex-wrapper.js", JS_EVAL_TYPE_GLOBAL);
@@ -472,8 +472,9 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            if (auto drawing = DrawingFromPeleSvg({ s, length }, dark, fit ? max_width : 0.0f, *context->measurer, context->labels)) {
-                out.status = Status::Drawn;
+            auto drawing = DrawingFromPeleSvg({ s, length }, dark, fit ? max_width : 0.0f, *context->measurer, context->labels);
+            out.status = drawing ? Status::Drawn : Status::Unsupported;
+            if (drawing) {
                 out.drawing = std::move(*drawing);
             }
             JS_FreeCString(ctx, s);

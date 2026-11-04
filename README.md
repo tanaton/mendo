@@ -22,7 +22,7 @@ winget install tanaton.mendo
 - **高速起動** — ウインドウ生成とファイル処理を並列化する事で高速起動します。
 - **省メモリ** — Markdownの描画にブラウザを使わず、Direct2D + DirectWrite で直接描画します。
 - **ライブリロード** — 表示中ファイルの変更を検出し、自動で表示を更新します。また、変更位置に自動スクロールします。
-- **Mermaid** — `mermaid` コードブロックを図として表示します。（[pele](https://pele.run/) を [QuickJS-ng](https://github.com/quickjs-ng/quickjs) で動かし、Direct2D で描画。ラベルに数式のある図だけ WebView2 で描画）
+- **Mermaid** — `mermaid` コードブロックを図として表示します。（[pele](https://pele.run/) を [QuickJS-ng](https://github.com/quickjs-ng/quickjs) で動かし、Direct2D で描画）
 - **オフライン動作** — ネットワーク接続無しで動作します。
 - **シンタックスハイライト** — 複数のプログラミング言語や設定ファイル等のコードブロックを色分け表示します。
 - **画像表示** — ローカルにあるPNG, JPEG, BMP等の画像を表示します。
@@ -44,7 +44,7 @@ winget install tanaton.mendo
 | インラインコード | ✅ |
 | コードブロック (フェンス) | ✅ シンタックスハイライト付き。対応言語: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (バッチ), Dockerfile, Makefile, diff |
 | 画像 (PNG / JPEG / BMP) | ✅ 非同期読み込み |
-| Mermaidダイアグラム | ✅ WebView2でレンダリング |
+| Mermaidダイアグラム | ✅ pele + QuickJS-ng で描画命令にし、Direct2D で描画 |
 | LaTeX数式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 本文の色で描画 (`\color` は無効)。すべてディスプレイ形式で描画し、`$$...$$` のみの段落と ` ```math ` はブロック数式にする |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 文書末尾に番号順で表示、参照と定義を相互にリンク |
@@ -186,7 +186,7 @@ mendo.exe [ファイルパス | フォルダパス]
 | GUI | Win32 API |
 | 2D描画 | Direct2D (`ID2D1DeviceContext`) |
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
-| ダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs)（ラベルの数式は WebView2） |
+| ダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 数式 | [KaTeX](https://katex.org/) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | テスト | Google Test v1.18.0 |

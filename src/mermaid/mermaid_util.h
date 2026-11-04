@@ -3,7 +3,6 @@
 #include <array>
 #include <memory>
 #include <optional>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,83 +28,11 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
     return css_width + 1.0f < max_width;
 }
 
-// mermaid.html の message の受け口に送る要求。"<種類>:<要求 ID>:..." の形で、図のコードと TeX はエスケープせずに送る。
-// 図は "<種類>:<ID>:<ダーク 0/1>:<幅の上限 (CSS px)>:<本文のロケール>:<コード>" とコードを末尾に置く。
-// ロケールは日本語などのフォールバック先を本文 (Theme::text_locale) とそろえるのに使う。
-enum class PageRequest : uint8_t {
-    Mermaid, // 表示用の図 (render-result で大きさを返す)
-    Svg,     // クリップボード用の SVG (svg-result)
-    View,    // 拡大表示用の SVG (svg-result)
-    Math,    // インライン数式。ページには送らず、PeleEngine が KaTeX で描く
-};
-std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, float max_width, std::wstring_view locale, std::string_view code_utf8);
-// 新しい大きさで描き直したら capture-ready を返させる。
-std::wstring PageCaptureMessage(unsigned id);
-
-// mermaid_viewer.js の message の受け口に送る要求。
-// "init:<ダーク 0/1>:" に続けて、文言を改行で区切って並べる (i18n の決まった文言なので改行を含まない)。
-std::wstring ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels);
-// "svg:<ダーク 0/1>:<SVG>"。SVG を末尾に置き、エスケープしない。
-std::wstring ViewerSvgMessage(bool dark, std::wstring_view svg);
-
 int QuantizeWidth(float max_width) noexcept;
-
-// ページから届く値は、pele に XSS があれば任意に偽れる。描画とキャッシュに使う前に確かめる。
-constexpr bool IsPlausibleDpr(float dpr) noexcept
-{
-    return dpr >= 0.25f && dpr <= 8.0f;
-}
-
-// キャプチャする物理ピクセルが max_side_px (ビットマップの最大辺) と 1 枚あたりの確保量の上限に収まるか。
-// 収まらない図はビットマップを作れず、描き直しを繰り返すことになる。
-bool FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept;
-// 1 枚の画素数の上限。
-inline constexpr double kMaxCapturePixels = 64.0 * 1024 * 1024;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
 // 切り詰める。切り詰め時は末尾に U+2026 を付ける。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
-
-struct RequestPrefix {
-    unsigned int id = 0;
-    bool valid = false;
-    bool has_payload = false;
-    std::wstring_view payload;
-};
-RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
-
-enum class WebMessageKind : uint8_t {
-    Unknown,
-    Ready,         // "mermaid-ready:<dpr>"
-    RenderResult,  // "render-result:<id>:<width>:<height>:<dpr>"
-    DrawResult,    // "draw-result:<id>:<payload>" (ParseDrawing)
-    CaptureReady,  // "capture-ready:<id>"
-    SvgResult,     // "svg-result:<id>:<payload>"
-    RenderError,   // "render-error:<id>:<message>"
-    Failed,        // "mermaid-failed"
-};
-
-// パース済み WebMessage。kind に応じてどのフィールドが有効か変わる:
-//  - Ready:       ready_dpr (devicePixelRatio)
-//  - Render*/Capture/Svg: request (id, payload)
-//  - Failed/Unknown: フィールドなし
-struct ParsedWebMessage {
-    WebMessageKind kind = WebMessageKind::Unknown;
-    float ready_dpr = 0.0f;
-    RequestPrefix request{};
-};
-
-ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
-
-// RenderResult の payload ("<width>:<height>:<dpr>")。欠けた寸法と有限でない寸法 (nan / inf) は 0、ありえない dpr は 1。
-struct RenderSize {
-    float width = 0.0f;
-    float height = 0.0f;
-    float dpr = 0.0f;
-
-    bool operator==(const RenderSize&) const = default;
-};
-RenderSize ParseRenderSize(std::wstring_view payload) noexcept;
 
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして、ベースラインの始点 (x, y) に置く。
 struct DrawingText {
@@ -150,21 +77,22 @@ struct DrawingLayer {
 
     bool operator==(const DrawingLayer&) const = default;
 };
-// ページが pele の SVG から書き出した描画命令 (DrawResult)。キャプチャの代わりにこれを CPU で描く。
-// 層は SVG の文書の順の重なりを保つためのもの。図形がその層の文字と重なるときだけ、ページが次の層を始める。
+// pele の SVG から作った描画命令。
+// 層は SVG の文書の順の重なりを保つためのもの。図形がその層の文字と重なるときだけ、次の層を始める。
 struct DiagramDrawing {
-    RenderSize size;         // 図の大きさ (CSS px、切り上げ済み) と dpr
+    float width = 0.0f; // 図の大きさ (CSS px、切り上げ済み)
+    float height = 0.0f;
     uint32_t background = 0; // 0xRRGGBB
     std::vector<DrawingLayer> layers;
 
     bool operator==(const DiagramDrawing&) const = default;
 };
-// DrawResult の payload。
-// "<幅>:<高さ>:<dpr>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並び、
+// ディスクキャッシュに置く描画命令の書式。
+// "<幅>:<高さ>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並び、
 // "<数式の数>:" と数式を置く。
 // 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-16 の単位。ページは XSS で偽れるので、欠け・余り・ありえない値があれば nullopt。
+// 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 // ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);

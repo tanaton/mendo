@@ -18,17 +18,18 @@ struct PeleContext;
 struct PeleOutcome {
     enum class Status : uint8_t {
         Drawn,
-        Error,        // コードの誤り。error に pele の文言
-        NeedsBrowser, // 描画命令にできない要素 (<foreignObject> など) があるか、エンジンを用意できなかった
+        // コードの誤りなら error に pele の文言。エンジンを用意できなかったときは error が空で、図のせいにしない。
+        Error,
+        Unsupported, // 描画命令にできない要素 (<foreignObject> など) がある
         Cancelled,
     };
-    Status status = Status::NeedsBrowser;
-    mermaid_util::DiagramDrawing drawing; // size.dpr は 0 のまま
+    Status status = Status::Error;
+    mermaid_util::DiagramDrawing drawing;
     std::wstring error;
 };
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で
-// 描画命令にする。WebView2 を使わない。
+// 描画命令にする。
 // どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイム (pele で約 2.9MB、KaTeX で約 2.6MB) を作って使い回す。
 // pele と KaTeX はどちらも最初に 1 回だけコンパイルし (約 60ms と約 20ms)、各ランタイムは使うときにバイトコードを読む (約 5ms と約 3ms)。
 class PeleEngine {
@@ -41,7 +42,7 @@ public:
     PeleEngine(const PeleEngine&) = delete;
     PeleEngine& operator=(const PeleEngine&) = delete;
 
-    // locale は本文のロケールで、日本語などのフォールバック先を決める (mermaid.html の fonts と同じ)。
+    // locale は本文のロケールで、日本語などのフォールバック先を決める。
     // fit は本文と同じく max_width まで縮める。拡大表示とクリップボードは縮めずに図の大きさのまま描く。
     // ラベルの $$...$$ は KaTeX で描く。
     PeleOutcome Render(std::string_view code, bool dark, float max_width, std::wstring_view locale, bool fit = true);

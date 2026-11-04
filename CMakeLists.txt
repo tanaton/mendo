@@ -57,19 +57,7 @@ if(MENDO_USE_TRACY)
     endif()
 endif()
 
-# ---- WebView2 SDK（Mermaid図表レンダリング用） ----
-FetchContent_Declare(
-    webview2
-    URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3967.48
-)
-FetchContent_MakeAvailable(webview2)
-
-# 展開されたWebView2のヘッダーとライブラリのパスを設定。SSE2 を直接使うので x64 だけを組む。
-set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
-set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
-set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
-
-# ---- QuickJS-ng（pele を WebView2 を使わずに動かす） ----
+# ---- QuickJS-ng（pele と KaTeX を動かす） ----
 # ライブラリの 4 ファイルだけを組む。SOURCE_SUBDIR を無い場所にして、同梱の CMakeLists (qjs などの実行ファイル) を読ませない。
 FetchContent_Declare(
     quickjs
@@ -103,7 +91,7 @@ set(MENDO_SRC_DIRS
     src/ui src/input src/io src/mermaid src/nav src/theme src/util
 )
 
-# ---- コアライブラリ（テストがリンクするコード。WinMain・App・WebView2 は含まない） ----
+# ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
     src/core/document.cpp
@@ -194,10 +182,7 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE})
-target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 shcore delayimp
-    "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
-)
+target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。

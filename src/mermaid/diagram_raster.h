@@ -72,8 +72,7 @@ struct PeleMathLabel {
     std::shared_ptr<const MathDrawing> drawing;
 };
 
-// pele の SVG を描画命令にする。max_width は pele に渡した幅の上限で、SVG はページと同じく max-width:100% で縮める (0 なら縮めない)。
-// size.dpr は 0 のままなので、呼び出し側が入れる。
+// pele の SVG を描画命令にする。max_width は pele に渡した幅の上限で、SVG はブラウザと同じく max-width:100% で縮める (0 なら縮めない)。
 // 書き出せない要素 (<foreignObject> や image など) を含む SVG と壊れた SVG は nullopt。
 std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
                                                                std::span<const PeleMathLabel> maths = {});

@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-// 確保した後で書き込んで埋めるバイト列 (ファイルの読み込み・WebView2 の出力)。std::vector と違い確保時に 0 で埋めない。
+// 確保した後で書き込んで埋めるバイト列 (ファイルの読み込みなど)。std::vector と違い確保時に 0 で埋めない。
 // 埋める分は読み込みの 2 割弱にあたる (温まったキャッシュから 50MB を読んで約 2.5ms / 15ms)。
 class ByteBuffer {
 public:

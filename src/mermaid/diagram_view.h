@@ -11,7 +11,6 @@
 
 struct ID2D1DeviceContext5;
 
-// 倍率の計算。mermaid_viewer.js と同じ。
 namespace diagram_view {
 
 // 8 倍は試作で確かめた範囲。
@@ -27,11 +26,9 @@ std::optional<float> NextZoom(float zoom, float fit_zoom, int dir) noexcept;
 } // namespace diagram_view
 
 // 拡大表示の窓の中身。図の描画命令を倍率を変えて描き、右上のボタン・ホイール (スクロール)・ドラッグ・キーで操作する。
-// 操作は mermaid_viewer.js (数式のラベルのある図を WebView2 で見せる拡大表示) と同じにする。
 // 窓は MermaidRenderer が作り、メッセージを HandleMessage に回す。
 class DiagramView {
 public:
-    // 窓の WM_TIMER の ID。MermaidRenderer の VIEWER_READY_TIMER と重ねない。
     static constexpr UINT_PTR kTooltipTimer = 2;
 
     DiagramView(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic);
@@ -50,7 +47,7 @@ public:
     bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
 
 private:
-    // 並びは右上のバーの左から (mermaid_viewer.html と同じ)。
+    // 並びは右上のバーの左から。
     enum class Button : uint8_t { None, ZoomOut, ZoomIn, Fit };
 
     bool EnsureTarget();

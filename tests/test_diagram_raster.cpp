@@ -26,9 +26,9 @@ protected:
         ASSERT_NE(wic_, nullptr);
     }
 
-    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing)
+    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing, float dpr = 1.0f)
     {
-        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, drawing.size.dpr, L"ja-jp");
+        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, dpr, L"ja-jp");
     }
 
     // 32bpp PBGRA の 1 画素を 0xAARRGGBB で返す。
@@ -69,12 +69,13 @@ protected:
 TEST_F(DiagramRasterTest, DrawsShapesScaledByDprOnOpaqueBackground)
 {
     const mermaid_util::DiagramDrawing drawing{
-        .size = { 20.0f, 10.0f, 2.0f },
+        .width = 20.0f,
+        .height = 10.0f,
         .background = 0x1E1E1E,
         .layers = { { .shapes_svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">)svg"
                                     R"svg(<rect transform="matrix(1 0 0 1 10 0)" x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>)svg" } },
     };
-    const auto bitmap = Rasterize(drawing);
+    const auto bitmap = Rasterize(drawing, 2.0f);
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(Pixel(bitmap.Get(), 5, 5), 0xFF1E1E1Eu);
     // CSS px の x=10〜20 は物理 px の 20〜40
@@ -89,7 +90,8 @@ TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
     auto text = Text(L"日本語 ABC", 0.0f, 16.0f);
     text.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
     const mermaid_util::DiagramDrawing drawing{
-        .size = { 100.0f, 40.0f, 1.0f },
+        .width = 100.0f,
+        .height = 40.0f,
         .background = 0xFFFFFF,
         .layers = { { .texts = { text } } },
     };
@@ -104,7 +106,8 @@ TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
 TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
 {
     const mermaid_util::DiagramDrawing drawing{
-        .size = { 100.0f, 40.0f, 1.0f },
+        .width = 100.0f,
+        .height = 40.0f,
         .background = 0xFFFFFF,
         .layers = {
             { .texts = { Text(L"ABCDEF", 0.0f, 30.0f) } },
@@ -121,7 +124,8 @@ TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
 TEST_F(DiagramRasterTest, ReturnsNullForMalformedSvg)
 {
     const mermaid_util::DiagramDrawing drawing{
-        .size = { 10.0f, 10.0f, 1.0f },
+        .width = 10.0f,
+        .height = 10.0f,
         .layers = { { .shapes_svg = "<svg" } },
     };
     EXPECT_EQ(Rasterize(drawing), nullptr);
@@ -285,8 +289,8 @@ TEST_F(PeleSvgTest, ShrinksToMaxWidth)
 {
     const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="10"/>)svg", false, 100.0f);
     ASSERT_TRUE(drawing);
-    EXPECT_EQ(drawing->size.width, 100.0f);
-    EXPECT_EQ(drawing->size.height, 50.0f);
+    EXPECT_EQ(drawing->width, 100.0f);
+    EXPECT_EQ(drawing->height, 50.0f);
     EXPECT_NE(drawing->layers[0].shapes_svg.find(R"svg(transform="matrix(0.5 0 0 0.5 0 0)")svg"), std::string::npos)
         << drawing->layers[0].shapes_svg;
 }

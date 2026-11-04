@@ -585,7 +585,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     const auto& indices = doc_.GetDiagramNodeIndices();
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
-        cache_.EnsureDiagram(i).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
+        cache_.EnsureDiagram(i).bitmap = &SharedStubBitmap();
     }
     SetWindowSize(state_, kContentWidth, 0.0f);
     viewport_.SetScrollY(0.0f);
@@ -593,7 +593,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     rm_.EvictOffscreenBitmaps();
 
     for (const size_t i : indices) {
-        EXPECT_NE(cache_.FindDiagram(i)->png, nullptr) << "node " << i;
+        EXPECT_NE(cache_.FindDiagram(i)->bitmap, nullptr) << "node " << i;
     }
 }
 
@@ -619,7 +619,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     }
 }
 
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesBitmapButKeepsSize)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
                  /*block_height=*/10000.0f);
@@ -627,7 +627,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
         auto& d = cache_.EnsureDiagram(i);
-        d.png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
+        d.bitmap = &SharedStubBitmap();
         d.width = 320.0f;
         d.height = 240.0f;
     }
@@ -637,8 +637,8 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
 
     const auto& near_diagram = *cache_.FindDiagram(indices[0]);
     const auto& far_diagram = *cache_.FindDiagram(indices[1]);
-    EXPECT_NE(near_diagram.png, nullptr);
-    EXPECT_EQ(far_diagram.png, nullptr);
+    EXPECT_NE(near_diagram.bitmap, nullptr);
+    EXPECT_EQ(far_diagram.bitmap, nullptr);
     EXPECT_FLOAT_EQ(far_diagram.width, 320.0f);
     EXPECT_FLOAT_EQ(far_diagram.height, 240.0f);
 }

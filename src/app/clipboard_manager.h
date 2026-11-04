@@ -27,7 +27,7 @@ public:
     void Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
 
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
-    // png は表示中ビットマップと同寿命の元 PNG (DiagramEntry::png) で、ボタンの表示条件と一致する。
+    // png は MermaidRenderer::DiagramPng が描画命令から描いたもの。
     void SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const;
     void CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark);
 

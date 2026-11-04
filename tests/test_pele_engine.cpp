@@ -69,13 +69,13 @@ protected:
 
 } // namespace
 
-// WebView2 を使わずに、図のコードから描画命令を作る。
+// 図のコードから描画命令を作る。
 TEST_F(PeleEngineTest, RendersDiagramToDrawing)
 {
     const auto out = engine_->Render("flowchart LR\n  A[開始] --> B[終了]", false, 800.0f, L"ja-jp");
     ASSERT_EQ(out.status, Status::Drawn) << string_convert::WideToUtf8(out.error);
-    EXPECT_GT(out.drawing.size.width, 0.0f);
-    EXPECT_GT(out.drawing.size.height, 0.0f);
+    EXPECT_GT(out.drawing.width, 0.0f);
+    EXPECT_GT(out.drawing.height, 0.0f);
     std::wstring all;
     for (const auto& layer : out.drawing.layers) {
         for (const auto& t : layer.texts) {
@@ -94,7 +94,7 @@ TEST_F(PeleEngineTest, ReturnsPeleErrorForInvalidCode)
     EXPECT_FALSE(out.error.empty());
 }
 
-// ラベルの $$...$$ も KaTeX で描画命令にする (WebView2 に回さない)。描けない TeX は pele がそのまま文字で書く。
+// ラベルの $$...$$ も KaTeX で描画命令にする。描けない TeX は pele がそのまま文字で書く。
 TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
 {
     const auto out = engine_->Render("flowchart LR\n  A[\"面積 $$\\frac{a}{b}$$\"] --> B[\"$$\\frac{a}$$\"]", false, 800.0f, L"ja-jp");
@@ -122,7 +122,6 @@ TEST_F(PeleEngineTest, ResolvesMathLabelsAfterParsing)
 {
     auto out = engine_->Render("flowchart LR\n  A[\"$$x^2$$\"]", true, 800.0f, L"ja-jp");
     ASSERT_EQ(out.status, Status::Drawn);
-    out.drawing.size.dpr = 1.0f;
     auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
@@ -219,7 +218,6 @@ TEST_F(PeleEngineTest, SerializedDrawingParsesBack)
 {
     auto out = engine_->Render("flowchart TD\n  A[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> B((円))", true, 800.0f, L"ja-jp");
     ASSERT_EQ(out.status, Status::Drawn);
-    out.drawing.size.dpr = 1.5f;
     const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
@@ -233,8 +231,8 @@ TEST_F(PeleEngineTest, KeepsNaturalSizeWhenNotFitting)
     const auto natural = engine_->Render(kWide, false, 200.0f, L"ja-jp", false);
     ASSERT_EQ(fitted.status, Status::Drawn);
     ASSERT_EQ(natural.status, Status::Drawn);
-    EXPECT_LE(fitted.drawing.size.width, 200.0f);
-    EXPECT_GT(natural.drawing.size.width, 200.0f);
+    EXPECT_LE(fitted.drawing.width, 200.0f);
+    EXPECT_GT(natural.drawing.width, 200.0f);
 }
 
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。

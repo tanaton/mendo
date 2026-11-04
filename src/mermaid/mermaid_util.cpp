@@ -1,7 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
 #include "utility.h"
-#include "ascii_util.h"
 #include "string_convert.h"
 #include <algorithm>
 #include <cmath>
@@ -9,38 +8,9 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <span>
 
 using namespace std::literals;
-
-std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, float max_width, std::wstring_view locale, std::string_view code_utf8)
-{
-    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"view", L"math" };
-    std::wstring msg = std::format(L"{}:{}:{}:{:.2f}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0, max_width, locale);
-    msg += string_convert::Utf8ToWide(code_utf8);
-    return msg;
-}
-
-std::wstring mermaid_util::PageCaptureMessage(unsigned id)
-{
-    return std::format(L"capture:{}:", id);
-}
-
-std::wstring mermaid_util::ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels)
-{
-    std::wstring msg = std::format(L"init:{}:", dark ? 1 : 0);
-    for (const std::wstring_view label : labels) {
-        msg += label;
-        msg += L'\n';
-    }
-    return msg;
-}
-
-std::wstring mermaid_util::ViewerSvgMessage(bool dark, std::wstring_view svg)
-{
-    std::wstring msg = std::format(L"svg:{}:", dark ? 1 : 0);
-    msg += svg;
-    return msg;
-}
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept
 {
@@ -65,81 +35,6 @@ float ParseFloatPrefix(std::wstring_view s) noexcept
     return std::isfinite(v) ? v : 0.0f;
 }
 
-} // namespace
-
-bool mermaid_util::FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept
-{
-    const double w = std::ceil(static_cast<double>(css_width) * dpr);
-    const double h = std::ceil(static_cast<double>(css_height) * dpr);
-    return w <= max_side_px && h <= max_side_px && w * h <= kMaxCapturePixels;
-}
-
-mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
-{
-    RequestPrefix out;
-    if (body.empty() || !ascii_util::IsAsciiDigit(body[0])) {
-        return out;
-    }
-    // wstring_view から直接桁を読み取る。unsigned int に収まらない ID は無効扱いにする。
-    constexpr uint64_t kMaxUint = std::numeric_limits<unsigned int>::max();
-    uint64_t acc = 0;
-    size_t i = 0;
-    for (; i < body.size(); ++i) {
-        const wchar_t c = body[i];
-        if (!ascii_util::IsAsciiDigit(c)) {
-            break;
-        }
-        acc = acc * 10 + static_cast<uint64_t>(c - L'0');
-        if (acc > kMaxUint) {
-            return out;
-        }
-    }
-    out.valid = true;
-    out.id = static_cast<unsigned int>(acc);
-    if (i < body.size() && body[i] == L':') {
-        out.has_payload = true;
-        out.payload = body.substr(i + 1);
-    }
-    return out;
-}
-
-mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view msg) noexcept
-{
-    ParsedWebMessage out;
-
-    constexpr auto kReadyPrefix = L"mermaid-ready:"sv;
-    if (msg.starts_with(kReadyPrefix)) {
-        out.kind = WebMessageKind::Ready;
-        out.ready_dpr = ParseFloatPrefix(msg.substr(kReadyPrefix.size()));
-        return out;
-    }
-    if (msg == L"mermaid-failed"sv) {
-        out.kind = WebMessageKind::Failed;
-        return out;
-    }
-    struct PrefixEntry {
-        std::wstring_view prefix;
-        WebMessageKind kind;
-    };
-    constexpr PrefixEntry kEntries[]{
-        { L"render-result:"sv, WebMessageKind::RenderResult },
-        { L"draw-result:"sv,   WebMessageKind::DrawResult   },
-        { L"capture-ready:"sv, WebMessageKind::CaptureReady },
-        { L"svg-result:"sv,    WebMessageKind::SvgResult    },
-        { L"render-error:"sv,  WebMessageKind::RenderError  },
-    };
-    for (const auto& e : kEntries) {
-        if (msg.starts_with(e.prefix)) {
-            out.kind = e.kind;
-            out.request = ParseRequestPrefix(msg.substr(e.prefix.size()));
-            return out;
-        }
-    }
-    return out;
-}
-
-namespace {
-
 // sep で区切った数を先頭から out に読む。足りない分は 0 のまま。
 void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noexcept
 {
@@ -154,13 +49,6 @@ void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noex
 }
 
 } // namespace
-
-mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload) noexcept
-{
-    float values[3]{};
-    ParseFloatList(payload, L':', values);
-    return { values[0], values[1], IsPlausibleDpr(values[2]) ? values[2] : 1.0f };
-}
 
 namespace {
 
@@ -299,7 +187,7 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
     std::string out;
     const auto out_it = std::back_inserter(out);
     // {} の浮動小数は最短の往復表記なので、wcstof で同じ値に読み戻せる。
-    std::format_to(out_it, "{}:{}:{}:{}:{}:", drawing.size.width, drawing.size.height, drawing.size.dpr, drawing.background, drawing.layers.size());
+    std::format_to(out_it, "{}:{}:{}:{}:", drawing.width, drawing.height, drawing.background, drawing.layers.size());
     for (const auto& layer : drawing.layers) {
         std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes_svg), layer.shapes_svg, layer.texts.size());
         for (const auto& t : layer.texts) {
@@ -336,14 +224,14 @@ size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
 
 std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstring_view payload)
 {
-    // 先頭の "<幅>:<高さ>:<dpr>" は RenderResult と同じ。
     std::wstring_view s = payload;
-    for (int i = 0; i < 3; ++i) {
-        if (!TakeField(s)) {
-            return std::nullopt;
-        }
+    const auto width_field = TakeField(s);
+    const auto height_field = width_field ? TakeField(s) : std::nullopt;
+    if (!height_field) {
+        return std::nullopt;
     }
-    const RenderSize size = ParseRenderSize(payload.substr(0, payload.size() - s.size()));
+    const float width = ParseFloatPrefix(*width_field);
+    const float height = ParseFloatPrefix(*height_field);
     // 数だけ大きく偽って確保させないよう、数の上限は残りの長さから決める (層は少なくとも 4 文字、並びは 30 文字ある)。
     const auto take_count = [&s](uint32_t min_chars) {
         const auto field = TakeField(s);
@@ -353,11 +241,12 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
     const auto background_field = TakeField(s);
     const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
     const auto layer_count = background ? take_count(4) : std::nullopt;
-    if (!layer_count || !(size.width > 0.0f) || !(size.height > 0.0f)) {
+    if (!layer_count || !(width > 0.0f) || !(height > 0.0f)) {
         return std::nullopt;
     }
     DiagramDrawing out{
-        .size = size,
+        .width = width,
+        .height = height,
         .background = *background,
     };
     out.layers.reserve(*layer_count);

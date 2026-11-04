@@ -14,12 +14,9 @@
 
 #define IDR_HELP_MD       302
 #define IDR_HELP_EN_MD    303
-#define IDR_MERMAID_HTML  304
 #define IDR_HELP_ZH_MD    305
 #define IDR_HELP_ZH_HANT_MD 306
 #define IDR_HELP_KO_MD    307
-#define IDR_MERMAID_VIEWER_HTML 308
-#define IDR_MERMAID_VIEWER_JS 309
 #define IDR_PELE_JS       310
 #define IDR_KATEX_JS      311
 #define IDR_THIRD_PARTY_LICENSES_MD 312

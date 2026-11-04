@@ -79,7 +79,7 @@ void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
     max_total_size_ = max_total_size;
 }
 
-std::filesystem::path MermaidFileCache::GetPngPath(uint64_t key) const
+std::filesystem::path MermaidFileCache::PngPath(uint64_t key) const
 {
     wchar_t name[24];
     const auto r = std::format_to_n(name, std::ranges::size(name) - 1, L"{:016x}.png", key);
@@ -91,12 +91,9 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     return cache_dir_ / kIndexFileName;
 }
 
-void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
+void MermaidFileCache::Init(TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
-    // DPR ごとに InternalKey() が別キーに振り分けるため、DPR 不一致でも消去せず
-    // LRU で自然淘汰させる。
-    current_dpr_ = current_dpr;
     index_.reset();
 }
 
@@ -253,7 +250,6 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
         return;
     }
     auto& index = Index();
-    key = InternalKey(key);
     const auto it = index.entries.find(key);
     if (it == index.entries.end()) {
         return;
@@ -273,10 +269,10 @@ std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_
 {
     auto& index = Index();
     uint64_t key = width_free_key;
-    auto it = index.entries.find(InternalKey(key));
+    auto it = index.entries.find(key);
     if (it == index.entries.end() || !mermaid_util::IsWidthFree(it->second.css_width, max_width)) {
         key = sized_key;
-        it = index.entries.find(InternalKey(key));
+        it = index.entries.find(key);
         if (it == index.entries.end()) {
             return std::nullopt;
         }
@@ -295,7 +291,6 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         return;
     }
     auto& index = Index();
-    key = InternalKey(key);
 
     const uint32_t png_size = static_cast<uint32_t>(png_data->size());
 
@@ -325,7 +320,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         }
     }
 
-    scheduler_->Post([this, key, path = GetPngPath(key), data = std::move(png_data), latch_guard = latch_.Acquire()] {
+    scheduler_->Post([this, key, path = PngPath(key), data = std::move(png_data), latch_guard = latch_.Acquire()] {
         PrepareWrite(path);
 
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
@@ -361,7 +356,7 @@ void MermaidFileCache::EvictIfNeeded(IndexState& index, size_t new_entries, uint
         }
         if (!pending) {
             const std::lock_guard lock(doomed_mutex_);
-            doomed_files_.insert(GetPngPath(oldest->first).filename().native());
+            doomed_files_.insert(PngPath(oldest->first).filename().native());
             doomed = true;
         }
         index.Remove(oldest);
@@ -430,6 +425,28 @@ void MermaidFileCache::RemoveDoomedFiles()
         const auto name = doomed_files_.extract(doomed_files_.begin());
         std::error_code ec;
         std::filesystem::remove(cache_dir_ / name.value(), ec);
+    }
+}
+
+std::filesystem::path MermaidFileCache::GetLegacyDataPath() const
+{
+    return cache_dir_.parent_path() / L"WebView2Data";
+}
+
+bool MermaidFileCache::HasLegacyData() const
+{
+    std::error_code ec;
+    return !cache_dir_.empty() && std::filesystem::exists(GetLegacyDataPath(), ec);
+}
+
+void MermaidFileCache::RemoveLegacyDataAsync()
+{
+    // ファイルが多いので UI では消さない。
+    if (scheduler_ && !cache_dir_.empty()) {
+        scheduler_->Post([dir = GetLegacyDataPath()] {
+            std::error_code ec;
+            std::filesystem::remove_all(dir, ec);
+        });
     }
 }
 

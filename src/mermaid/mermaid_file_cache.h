@@ -12,10 +12,9 @@
 
 class TaskScheduler;
 
-// Mermaidダイアグラムの描画済みPNGをファイルに永続化するキャッシュ。図は描画命令 (UTF-8) のことが多く、PNG は
-// キャプチャで描いた図 (数式のラベルなど) とインライン数式のまとめ描きだけ。中身は読む側が先頭のバイトで見分ける。
-// 幅は mermaid_util::QuantizeWidth で量子化し、コード・テーマの組み合わせごとにPNGを保持する。
-// PNG書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
+// Mermaidダイアグラムの描画命令 (UTF-8) をファイルに永続化するキャッシュ。ファイルと関数の名前の png は、PNG を置いていた頃のまま。
+// 幅は mermaid_util::QuantizeWidth で量子化し、コード・テーマの組み合わせごとに保持する。
+// 書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
 // インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
 // 書く直前に読み直して、他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある
@@ -29,7 +28,8 @@ public:
     //    ヘッダの読まれない dpr を消す。
     // 3: 図を mermaid.js から pele に、数式を mermaid 同梱の KaTeX から npm の KaTeX に替えた。図は描画命令で置く。
     // 4: 描画命令の層に数式のラベルの数を足した。インライン数式の組の PNG は置かなくなった。
-    static constexpr uint32_t VERSION = 4;
+    // 5: WebView2 でキャプチャした図の PNG を置かなくなった。キーに DPR を混ぜない。
+    static constexpr uint32_t VERSION = 5;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();
@@ -43,17 +43,7 @@ public:
     };
 
     // 索引の読み込みは初回利用まで遅らせ、図を含まない文書の起動を塞がない。
-    void Init(float current_dpr, TaskScheduler& scheduler);
-    // 以降の参照・保存のキーに混ぜる DPR を差し替える。別の DPR のエントリは LRU で淘汰させる。
-    void SetDpr(float dpr) noexcept
-    {
-        current_dpr_ = dpr;
-    }
-    // 当たった PNG はこの DPR で描いたもの。
-    float Dpr() const noexcept
-    {
-        return current_dpr_;
-    }
+    void Init(TaskScheduler& scheduler);
     struct Hit {
         uint64_t key = 0;
         CacheEntry entry;
@@ -62,17 +52,17 @@ public:
     // touch なら当たった項目の LRU を更新する (使えない幅なしの項目では更新しない)。寸法だけ見るときは更新しない。
     std::optional<Hit> Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch);
     // PNG の読み込み (ReadAllBytes) は呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
-    std::filesystem::path PngPath(uint64_t key) const
-    {
-        return GetPngPath(InternalKey(key));
-    }
+    std::filesystem::path PngPath(uint64_t key) const;
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
     // 索引と PNG をすべて消す。書き込み中の PNG は着地後に worker が消す。
     void Clear();
+    // 前の版が図の描画に使った WebView2 のデータ (設定フォルダの WebView2Data) が残っている。
+    bool HasLegacyData() const;
+    // それを worker で消す。利用者がキャッシュの削除を選んだときだけ呼ぶ (Clear は版の違う索引を読んだときにも呼ぶ)。
+    void RemoveLegacyDataAsync();
     void Shutdown();
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
@@ -131,8 +121,8 @@ private:
         }
     };
 
-    std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
+    std::filesystem::path GetLegacyDataPath() const;
     // 初回呼び出しで index.bin を読み込む唯一の入口。
     IndexState& Index();
     // 違う版か、ヘッダの壊れた索引なら nullopt。索引が無いときは空の索引。
@@ -150,17 +140,7 @@ private:
     void RemoveDoomedFilesAsync();
     void RemoveDoomedFiles();
 
-    // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
-    // DPI 変更/モニタ切替時の全消去を避ける。
-    constexpr uint64_t InternalKey(uint64_t external_key) const noexcept
-    {
-        // DPR を 1/100 単位で量子化（典型値 100/125/150/175/200）。
-        const uint32_t dpr_q = static_cast<uint32_t>(current_dpr_ * 100.0f + 0.5f);
-        return external_key ^ (static_cast<uint64_t>(dpr_q) * kGoldenRatio64);
-    }
-
     std::filesystem::path cache_dir_;
-    float current_dpr_ = 0.0f;
 
     // 未読み込みは nullopt。
     std::optional<IndexState> index_;

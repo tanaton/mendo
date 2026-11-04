@@ -416,22 +416,16 @@ struct DiagramError {
         None,
         // message を出す。空なら汎用の文言を出す。
         Render,
-        TooLarge,
-        // WebView2 を起動できない。コードで決まる結果ではないので文言だけを出し、要求は続ける。
-        WebViewUnavailable,
+        // 描画命令にできない要素がある。
+        Unsupported,
     };
     Kind kind = Kind::None;
-    // Mermaid が返した文言 (表示用に整形済み)。Mermaid の文言は訳さないのでそのまま持つ。
+    // pele が返した文言 (表示用に整形済み)。pele の文言は訳さないのでそのまま持つ。
     std::wstring message;
 
     bool empty() const noexcept
     {
         return kind == Kind::None;
-    }
-    // コードで決まる失敗。同じコードを描き直しても変わらない。
-    bool settled() const noexcept
-    {
-        return kind == Kind::Render || kind == Kind::TooLarge;
     }
     void clear() noexcept
     {
@@ -446,17 +440,16 @@ struct DiagramDrawing;
 
 struct DiagramResult {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    // 描画命令から描く図 (キャプチャしない図) はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
+    // 画像はビットマップを描く。図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
     // 1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
-    // クリップボードコピー・保存用の元 PNG か、PNG を描く元の描画命令。bitmap / commands と同時に設定する。
+    // 図の描画命令。クリップボードコピー・保存の PNG と拡大表示の元。commands と同時に設定する。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
-    PngBytes png;
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
-    // レンダリング失敗の理由。非空なら bitmap は持たず、プレースホルダにその文言を表示する。
-    // 確定した失敗 (settled) は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
+    // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
+    // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
     // クリアされ再試行の契機になる。オフスクリーン evict では保持する。
     DiagramError error;
 };
@@ -465,7 +458,7 @@ struct DiagramEntry : DiagramResult {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
-    // 絵 (bitmap / commands)・寸法・png は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
+    // 絵 (bitmap / commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
 
@@ -476,13 +469,13 @@ struct DiagramEntry : DiagramResult {
     // 保存・コピーの元があるか (ボタンを出すか)。
     bool CanExport() const noexcept
     {
-        return HasImage() && (png || drawing);
+        return HasImage() && drawing;
     }
 
-    // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。
+    // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。失敗はコードで決まり、同じコードを描き直しても変わらない。
     bool NeedsRender() const noexcept
     {
-        return (!HasImage() || stale) && !error.settled();
+        return (!HasImage() || stale) && error.empty();
     }
 
     // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
@@ -493,7 +486,6 @@ struct DiagramEntry : DiagramResult {
             return;
         }
         bitmap.Reset();
-        png.reset();
         stale = false;
     }
 

@@ -76,12 +76,11 @@ bool App::Init(HWND hwnd)
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
-    file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
+    file_cache_.Init(scheduler_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
-                           config_.GetConfigPath(L"WebView2Data"), [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -543,12 +542,6 @@ void App::HandleTimer(UINT_PTR timer_id)
     case BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
         return;
-    case MERMAID_INIT_RETRY:
-        mermaid_renderer_.OnInitRetryTimer();
-        return;
-    case MERMAID_IDLE:
-        mermaid_renderer_.OnIdleTimer();
-        return;
     case PELE_TRIM:
         mermaid_renderer_.OnPeleTrimTimer();
         return;
@@ -839,8 +832,6 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
-    // 開いただけの文書は読むだけかもしれないので、変更の通知で読み直すまでは短く閉じる。
-    mermaid_renderer_.SetEditingDiagrams(false);
 }
 
 void App::ReloadCurrentFile()
@@ -918,7 +909,6 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     Dispatch(ReloadSettledAction{});
 
-    mermaid_renderer_.SetEditingDiagrams(!state_.document.doc.GetDiagramNodeIndices().empty());
     if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), viewer_node_, NodeType::Diagram)) {
         mermaid_renderer_.UpdateViewerCode(node->GetText());
     }
@@ -1651,11 +1641,18 @@ PopupEnv App::MakePopupEnv() const noexcept
 
 void App::ShowSettingsDialog()
 {
+    const uint64_t cache_bytes = file_cache_.TotalSize();
     const SettingsDialogParams params{
         .env = MakePopupEnv(),
-        .diagram_cache_bytes = file_cache_.TotalSize(),
+        .diagram_cache_bytes = cache_bytes,
+        // 前の版の WebView2 のデータは大きさに数えないが、図のキャッシュと一緒に消すので、それだけでも消せる。
+        .can_clear_cache = cache_bytes > 0 || file_cache_.HasLegacyData(),
         .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
-        .on_clear_cache = [this] { file_cache_.Clear(); },
+        .on_clear_cache =
+            [this] {
+                file_cache_.Clear();
+                file_cache_.RemoveLegacyDataAsync();
+            },
     };
     SettingsDialog::Show(hwnd_, params);
 }
