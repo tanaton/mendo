@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "diagram_view.h"
 #include "inline_math.h"
 #include "layout_cache.h"
 #include "transposition_cache.h"
@@ -57,7 +58,8 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 using MathPageGate = std::move_only_function<bool(size_t page_bytes)>;
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
-// (PeleEngine)、ラベルに数式のある図・インライン数式・拡大表示・クリップボードの SVG はオフスクリーンの WebView2 で描く。
+// (PeleEngine)、拡大表示 (DiagramView) とクリップボードの SVG もその描画命令から作る。ラベルに数式のある図と
+// インライン数式はオフスクリーンの WebView2 で描き、数式のラベルのある図の拡大表示も WebView2 で見せる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
@@ -164,6 +166,8 @@ private:
         // Mermaid だけがキャッシュに入る。Svg と View は SVG文字列を svg_callback で、Math は結果を math->callback で返す。
         mermaid_util::PageRequest page = mermaid_util::PageRequest::Mermaid;
         SvgCallback svg_callback;
+        // native の拡大表示の要求だけが持つ。描けなければ drawing は null で、needs_browser なら描画命令にできない図。
+        std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, bool needs_browser)> drawing_callback;
         // Math の要求だけが持つ (RequestMathBatch)。code などは使わない。
         std::unique_ptr<MathRequest> math;
 
@@ -213,10 +217,13 @@ private:
         }
     };
 
-    // 図の拡大表示ウィンドウ。ワーカーが描いた SVG を見えるビューに渡すだけで、mermaid はここでは動かない。
+    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く (native)。数式のラベルのある図は、ワーカーが描いた SVG を
+    // 見える WebView2 に渡す。
     // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
     struct Viewer {
         HWND hwnd = nullptr;
+        // 数式のラベルの無い図を描く。数式のラベルのある図を見せている間 (controller を使う間) は null。
+        std::unique_ptr<DiagramView> view;
         Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
         Microsoft::WRL::ComPtr<ICoreWebView2> webview;
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
@@ -258,6 +265,8 @@ private:
         bool needs_browser = false;
         // PeleEngine が返したコードの誤りの文言。
         std::wstring render_error;
+        // クリップボード用に PeleEngine で作った SVG。
+        std::wstring svg;
     };
 
     // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
@@ -357,11 +366,17 @@ private:
     void OnViewerMessage(std::wstring_view msg);
     void ApplyViewerBounds();
     void RequestViewerSvg();
+    void CreateNativeView();
+    // 同じ窓のまま、描画命令で見せるか (native) WebView2 で見せるかを切り替える。
+    void SetViewerNative(bool native);
+    // 描けた図を出したら drawn。描けなければ、図が出ていなければ閉じる。
+    void OnViewerResult(bool drawn);
     // 今までの要求の結果を要らなくする。描画中の分は世代で捨て、待ちの分は描かせない (結果を待つ人がいないのでコールバックは
     // 呼ばない)。新しい世代を返す。
     unsigned int InvalidateViewerSvg()
     {
         TakePending(&RenderRequest::is_view);
+        std::erase_if(native_waiting_, [](const RenderRequest& r) { return r.is_view(); });
         return ++viewer_render_;
     }
     // ページの準備ができていなければ pending_msg に残し、準備ができたら送る。
@@ -388,7 +403,6 @@ private:
     void PostDiskJob(DiskLoad job, Work work);
     // worker で呼ぶ。
     void RenderNativeJob(DiskLoad& job, std::wstring_view locale, float dpr);
-    void EnqueueSvg(mermaid_util::PageRequest page, std::string_view code, float max_width, bool dark_mode, SvgCallback callback);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
     // 要求をエラーで終える (SVG の要求なら失敗を知らせる)。

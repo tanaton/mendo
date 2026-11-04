@@ -9,7 +9,9 @@
 #include <utility>
 #include <vector>
 
+struct ID2D1CommandList;
 struct ID2D1DeviceContext5;
+struct ID2D1RenderTarget;
 struct ID2D1Factory;
 struct IDWriteFactory;
 struct IDWriteFontCollection;
@@ -57,15 +59,25 @@ private:
     std::unordered_map<std::wstring, float> widths_;
 };
 
-// pele の SVG を描画命令にする。max_width は pele に渡した幅の上限で、SVG はページと同じく max-width:100% で縮める。
+// pele の SVG を描画命令にする。max_width は pele に渡した幅の上限で、SVG はページと同じく max-width:100% で縮める (0 なら縮めない)。
 // size.dpr は 0 のままなので、呼び出し側が入れる。
 // 書き出せない要素 (数式のラベルの <foreignObject> など) を含む SVG と壊れた SVG は nullopt。
 std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer);
+
+// 描画命令をそのまま 1 枚の SVG (UTF-8) にする。クリップボード用で、Office や Inkscape が読めるよう CSS を使わず属性だけで書く。
+// 図形は層の SVG の中身をそのまま、文字は 1 行ずつの <text> にする。背景は塗らない。
+std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing);
 
 // dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。
 // wic は図形の SVG を読むストリームに使う。描けなければ false (描きかけのまま)。
 bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
                  const wchar_t* locale);
+
+// target と同じデバイスで、図をコマンドリストに記録する DeviceContext を作る。描いている target とは別に要る。
+Microsoft::WRL::ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target);
+// 図をコマンドリストに記録する (毎フレームそれを描く)。記録できなければ null。
+Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                                       const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale);
 
 // 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの PNG)。CSS px を dpr 倍した 32bpp PBGRA に描く。
 // locale は文字の書式のロケール。描けなければ null。

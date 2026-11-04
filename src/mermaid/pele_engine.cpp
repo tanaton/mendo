@@ -239,7 +239,7 @@ void PeleEngine::Trim()
     }
 }
 
-PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, std::wstring_view locale)
+PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, std::wstring_view locale, bool fit)
 {
     using Status = PeleOutcome::Status;
     if (cancel_.load(std::memory_order_relaxed)) {
@@ -278,7 +278,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            if (auto drawing = DrawingFromPeleSvg({ s, length }, dark, max_width, *context->measurer)) {
+            if (auto drawing = DrawingFromPeleSvg({ s, length }, dark, fit ? max_width : 0.0f, *context->measurer)) {
                 out.status = Status::Drawn;
                 out.drawing = std::move(*drawing);
             }

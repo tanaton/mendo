@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "diagram_raster.h"
 #include "example_files.h"
 #include "mermaid_util.h"
 #include "pele_engine.h"
@@ -103,4 +104,33 @@ TEST_F(PeleEngineTest, SerializedDrawingParsesBack)
     const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
+}
+
+// 拡大表示とクリップボードは本文の幅に縮めない。
+TEST_F(PeleEngineTest, KeepsNaturalSizeWhenNotFitting)
+{
+    constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
+    const auto fitted = engine_->Render(kWide, false, 200.0f, L"ja-jp");
+    const auto natural = engine_->Render(kWide, false, 200.0f, L"ja-jp", false);
+    ASSERT_EQ(fitted.status, Status::Drawn);
+    ASSERT_EQ(natural.status, Status::Drawn);
+    EXPECT_LE(fitted.drawing.size.width, 200.0f);
+    EXPECT_GT(natural.drawing.size.width, 200.0f);
+}
+
+// クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。
+TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
+{
+    const auto out = engine_->Render("flowchart LR\n  A[\"a &\"] --> B[円]", true, 800.0f, L"ja-jp", false);
+    ASSERT_EQ(out.status, Status::Drawn);
+    const std::string svg = DrawingToSvg(out.drawing);
+    EXPECT_TRUE(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+    EXPECT_TRUE(svg.ends_with("</svg>"));
+    EXPECT_EQ(svg.find("<svg", 1), std::string::npos);
+    EXPECT_NE(svg.find("<rect"), std::string::npos);
+    EXPECT_NE(svg.find("font-family=\"&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;\""), std::string::npos) << svg;
+    EXPECT_NE(svg.find("xml:space=\"preserve\">a &amp;</text>"), std::string::npos) << svg;
+    EXPECT_NE(svg.find("円</text>"), std::string::npos);
+    EXPECT_EQ(svg.find("var("), std::string::npos);
+    EXPECT_EQ(svg.find("style="), std::string::npos);
 }

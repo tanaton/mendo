@@ -141,6 +141,7 @@ add_library(mendo_core STATIC
     src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
+    src/mermaid/diagram_view.cpp
     # nav - ナビゲーション
     src/nav/nav.cpp
     # theme - テーマ管理

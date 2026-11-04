@@ -42,7 +42,8 @@ public:
         return code.find("$$") == std::string_view::npos;
     }
     // locale は本文のロケールで、日本語などのフォールバック先を決める (mermaid.html の fonts と同じ)。
-    PeleOutcome Render(std::string_view code, bool dark, float max_width, std::wstring_view locale);
+    // fit は本文と同じく max_width まで縮める。拡大表示とクリップボードは縮めずに図の大きさのまま描く。
+    PeleOutcome Render(std::string_view code, bool dark, float max_width, std::wstring_view locale, bool fit = true);
     // 描画中のものを止め、以後の Render を Cancelled で返す。終了時に、描き終わりを待つ前に呼ぶ。
     void Cancel() noexcept
     {

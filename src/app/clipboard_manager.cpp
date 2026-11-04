@@ -88,7 +88,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     // 進行中リクエストのコールバックを誤って stale 化しない。同期コピー (SVG キャッシュヒット) は
     // 保留中の非同期コールバックの上書きを防ぐため世代を進める。
 
-    // SVG + 画像。SVG は WebView2 経由の非同期取得のためキャッシュ優先。
+    // SVG + 画像。SVG は bg のワーカーで描く非同期の取得なのでキャッシュ優先。
     if (const auto* hit = svg_cache_.Find(key)) {
         ++copy_generation_;
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), *hit));

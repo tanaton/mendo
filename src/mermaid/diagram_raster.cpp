@@ -1124,6 +1124,18 @@ void AppendAttr(std::string& out, std::string_view name, const Rgba& c)
     out += '"';
 }
 
+void AppendSvgHead(std::string& out, float width, float height)
+{
+    out += "<svg xmlns=\"http://www.w3.org/2000/svg\"";
+    AppendAttr(out, "width", width);
+    AppendAttr(out, "height", height);
+    out += " viewBox=\"0 0 ";
+    AppendNum(out, width);
+    out += ' ';
+    AppendNum(out, height);
+    out += "\">";
+}
+
 // ---- スタイル ----
 
 struct Paint {
@@ -2256,14 +2268,8 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
         .size = { width, height, 0.0f },
         .background = dark ? kDarkBackground : kLightBackground,
     };
-    std::string head = "<svg xmlns=\"http://www.w3.org/2000/svg\"";
-    AppendAttr(head, "width", width);
-    AppendAttr(head, "height", height);
-    head += " viewBox=\"0 0 ";
-    AppendNum(head, width);
-    head += ' ';
-    AppendNum(head, height);
-    head += "\">";
+    std::string head;
+    AppendSvgHead(head, width, height);
     if (!defs_.empty()) {
         head += "<defs>" + defs_ + "</defs>";
     }
@@ -2385,6 +2391,61 @@ std::pair<float, float> DiagramTextMeasurer::Extent(const DiagramFont& font)
     return *entry.extent;
 }
 
+std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
+{
+    constexpr std::string_view kDefsEnd = "</defs>";
+    std::string out;
+    AppendSvgHead(out, drawing.size.width, drawing.size.height);
+    bool has_defs = false;
+    for (const auto& layer : drawing.layers) {
+        // 層はどれも同じ <svg ...> と <defs> で始まり、</svg> で終わる (PeleSvgResolver::Run と mermaid.html の drawingOf)。
+        const std::string_view svg = layer.shapes_svg;
+        size_t begin = svg.find('>');
+        const size_t end = svg.rfind("</svg>");
+        if (begin != std::string_view::npos && end != std::string_view::npos && ++begin <= end) {
+            if (svg.substr(begin).starts_with("<defs>")) {
+                const size_t defs_end = svg.find(kDefsEnd, begin);
+                if (defs_end != std::string_view::npos && defs_end < end) {
+                    if (!std::exchange(has_defs, true)) {
+                        out += svg.substr(begin, defs_end + kDefsEnd.size() - begin);
+                    }
+                    begin = defs_end + kDefsEnd.size();
+                }
+            }
+            out += svg.substr(begin, end - begin);
+        }
+        for (const auto& t : layer.texts) {
+            out += "<text transform=\"matrix(";
+            for (const float v : t.transform) {
+                AppendNum(out, v);
+                out += ' ';
+            }
+            out.back() = ')';
+            out += '"';
+            AppendAttr(out, "x", t.x);
+            AppendAttr(out, "y", t.y);
+            AppendAttr(out, "font-family", string_convert::WideToUtf8(t.family));
+            AppendAttr(out, "font-size", t.font_size);
+            AppendAttr(out, "font-weight", static_cast<double>(t.weight));
+            if (t.italic) {
+                out += " font-style=\"italic\"";
+            }
+            if (t.underline) {
+                out += " text-decoration=\"underline\"";
+            }
+            AppendAttr(out, "fill", FromRgb(t.rgb));
+            if (t.alpha < 1.0f) {
+                AppendAttr(out, "fill-opacity", t.alpha);
+            }
+            out += " xml:space=\"preserve\">";
+            AppendEscaped(out, string_convert::WideToUtf8(t.text));
+            out += "</text>";
+        }
+    }
+    out += "</svg>";
+    return out;
+}
+
 std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer)
 {
     XmlDoc doc;
@@ -2392,6 +2453,40 @@ std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view 
         return std::nullopt;
     }
     return PeleSvgResolver(doc, measurer).Run(dark, max_width);
+}
+
+ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
+{
+    ComPtr<ID2D1DeviceContext> dc;
+    ComPtr<ID2D1Device> device;
+    ComPtr<ID2D1DeviceContext> record;
+    ComPtr<ID2D1DeviceContext5> out;
+    if (target && SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&dc)))) {
+        dc->GetDevice(&device);
+        if (device && SUCCEEDED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &record))) {
+            record.As(&out);
+        }
+    }
+    return out;
+}
+
+ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                       const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale)
+{
+    ComPtr<ID2D1CommandList> commands;
+    if (!record_dc || !dw || FAILED(record_dc->CreateCommandList(&commands))) {
+        return nullptr;
+    }
+    record_dc->SetTarget(commands.Get());
+    record_dc->BeginDraw();
+    record_dc->SetTransform(D2D1::Matrix3x2F::Identity());
+    const bool ok = DrawDiagram(record_dc, dw, wic, drawing, locale);
+    const HRESULT hr = record_dc->EndDraw();
+    record_dc->SetTarget(nullptr);
+    if (!ok || FAILED(hr) || FAILED(commands->Close())) {
+        return nullptr;
+    }
+    return commands;
 }
 
 Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,

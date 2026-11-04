@@ -23,9 +23,9 @@ public:
     // 要求と結果はコードのハッシュで引くので、ノードや diagram_entry を持ち続けない。
     // ノードの高さは呼び出し側が寸法から決める。
     virtual bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) = 0;
-    // PNG レンダリングと同じワーカー枠を共有する。
+    // クリップボード用の SVG。本文の図と同じく bg のワーカーで描き、本文の幅には縮めない。
     // code (UTF-8) は内部でコピーされるため呼び出し後に解放してよい。
-    // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、PNG と同じ値を渡す。
+    // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、本文と同じ値を渡す。
     virtual void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
     // 描画待ちの表示用要求だけを捨てる (描画中と、SVG・インライン数式の要求は維持)。大きく移動した後や幅・テーマの変更後に、
     // 不要になった図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。

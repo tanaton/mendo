@@ -405,13 +405,19 @@ void MermaidRenderer::Shutdown()
     }
     inflight_.clear();
 
-    native_waiting_.clear();
+    for (auto& req : std::exchange(native_waiting_, {})) {
+        FailCallbacksIfAny(req, true);
+    }
     disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
     disk_results_.TakeAll();
     if (pele_) {
         pele_->Cancel();
     }
     latch_.Wait();
+    // 待つ間に描き終えた SVG の要求も、取り消しで返す。
+    for (auto& r : disk_results_.TakeAll()) {
+        FailCallbacksIfAny(r.req, true);
+    }
     pele_.reset();
     native_running_ = 0;
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
@@ -538,7 +544,7 @@ void MermaidRenderer::OnIdleTimer()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE));
     // 拡大表示は同じ環境で動いている。閉じたときに張り直す。
-    if (!pending_requests_.empty() || viewer_.hwnd) {
+    if (!pending_requests_.empty() || (viewer_.hwnd && !viewer_.view)) {
         return;
     }
     // 起動途中や描画中のワーカーがあれば閉じない (非同期ハンドラが閉じたスロットを触らないように)。
@@ -625,7 +631,7 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
     for (int i = 0; i < worker_count_; i++) {
         SetupWorker(i);
     }
-    if (viewer_.hwnd) {
+    if (viewer_.hwnd && !viewer_.view) {
         SetupViewer();
     }
 }
@@ -800,16 +806,7 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
     render_target_ = render_target;
     // ビットマップを作れなかった・大きすぎたなど、旧デバイスで確定したエラーも捨てて再試行させる。
     cache_.Clear();
-    record_dc_.Reset();
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
-    Microsoft::WRL::ComPtr<ID2D1Device> device;
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> record;
-    if (render_target && SUCCEEDED(render_target->QueryInterface(IID_PPV_ARGS(&dc)))) {
-        dc->GetDevice(&device);
-        if (device && SUCCEEDED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &record))) {
-            record.As(&record_dc_);
-        }
-    }
+    record_dc_ = CreateRecordContext(render_target);
 }
 
 void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
@@ -882,9 +879,14 @@ void MermaidRenderer::DropQueued()
     for (auto& req : TakePending(&RenderRequest::is_display)) {
         ReleaseInflight(req);
     }
-    for (auto& req : std::exchange(native_waiting_, {})) {
+    // SVG と拡大表示の要求は頼み直す仕組みが無いので残す。
+    std::erase_if(native_waiting_, [this](const RenderRequest& req) {
+        if (!req.is_display()) {
+            return false;
+        }
         ReleaseInflight(req);
-    }
+        return true;
+    });
 }
 
 void MermaidRenderer::DropQueuedMath()
@@ -1084,21 +1086,7 @@ IDWriteFactory* MermaidRenderer::WriteFactory()
 
 Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing)
 {
-    IDWriteFactory* dw = WriteFactory();
-    Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
-    if (!record_dc_ || !dw || FAILED(record_dc_->CreateCommandList(&commands))) {
-        return nullptr;
-    }
-    record_dc_->SetTarget(commands.Get());
-    record_dc_->BeginDraw();
-    record_dc_->SetTransform(D2D1::Matrix3x2F::Identity());
-    const bool ok = DrawDiagram(record_dc_.Get(), dw, wic_factory_.Get(), drawing, i18n::TextLocale());
-    const HRESULT hr = record_dc_->EndDraw();
-    record_dc_->SetTarget(nullptr);
-    if (!ok || FAILED(hr) || FAILED(commands->Close())) {
-        return nullptr;
-    }
-    return commands;
+    return RecordDiagram(record_dc_.Get(), WriteFactory(), wic_factory_.Get(), drawing, i18n::TextLocale());
 }
 
 PngBytes MermaidRenderer::DiagramPng(const DiagramEntry& entry)
@@ -1233,6 +1221,21 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         ApplyMathLoad(r);
         return false;
     }
+    if (r.req.is_view()) {
+        if (auto callback = std::move(r.req.drawing_callback); callback && !r.dropped) {
+            callback(std::move(r.parsed), r.needs_browser);
+        }
+        return false;
+    }
+    if (r.req.is_svg()) {
+        if (r.needs_browser) {
+            EnqueueWebRender(std::move(r.req));
+        }
+        else {
+            InvokeSvgCallbackIfAny(r.req, r.svg, r.dropped);
+        }
+        return false;
+    }
     // 表示に要るなら要求し直される。
     if (r.dropped) {
         ReleaseInflight(r.req);
@@ -1336,7 +1339,8 @@ void MermaidRenderer::PumpNativeRenders()
 void MermaidRenderer::RenderNativeJob(DiskLoad& job, std::wstring_view locale, float dpr)
 {
     using Status = PeleOutcome::Status;
-    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, locale);
+    // 拡大表示とクリップボードは本文の幅に縮めない (pele の配置は本文と同じ幅で組む)。
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, locale, job.req.is_display());
     switch (out.status) {
     case Status::Cancelled:
         job.dropped = true;
@@ -1350,6 +1354,14 @@ void MermaidRenderer::RenderNativeJob(DiskLoad& job, std::wstring_view locale, f
         return;
     case Status::Drawn:
         break;
+    }
+    if (job.req.is_view()) {
+        job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
+        return;
+    }
+    if (job.req.is_svg()) {
+        job.svg = string_convert::Utf8ToWide(DrawingToSvg(out.drawing));
+        return;
     }
     job.fresh = true;
     // 保存・コピーの PNG をこの DPR で描く (WebView2 で描いた図はワーカーの DPR)。
@@ -1375,18 +1387,14 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
     ProcessQueue();
 }
 
+// 数式のラベルも KaTeX で描かず元の文字のまま書く (Office や Inkscape は MathML を読めない)。WebView2 で焼き込んでいたときと同じ。
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    EnqueueSvg(mermaid_util::PageRequest::Svg, code, max_width, dark_mode, std::move(callback));
-}
-
-void MermaidRenderer::EnqueueSvg(mermaid_util::PageRequest page, std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
-{
-    EnqueueWebRender(RenderRequest{
+    StartNativeRender(RenderRequest{
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
-        .page = page,
+        .page = mermaid_util::PageRequest::Svg,
         .svg_callback = std::move(callback),
     });
 }
@@ -1403,12 +1411,23 @@ void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool da
     viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
     viewer_.has_image = false;
+    // 数式のラベルのある図だけ、KaTeX で描くために WebView2 で見せる。
+    const bool native = PeleEngine::CanRender(code);
     if (viewer_.hwnd) {
-        PostToViewer(mermaid_util::ViewerLoadingMessage(dark_mode));
+        SetViewerNative(native);
+        if (viewer_.view) {
+            viewer_.view->ShowLoading();
+        }
+        else {
+            PostToViewer(mermaid_util::ViewerLoadingMessage(dark_mode));
+        }
     }
     else if (!CreateViewerWindow()) {
         FailViewer();
         return;
+    }
+    else if (native) {
+        CreateNativeView();
     }
     else if (webview_env_) {
         SetupViewer();
@@ -1434,6 +1453,9 @@ void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
     }
     viewer_.dark_mode = dark_mode;
     ApplyDarkModeToWindow(viewer_.hwnd, dark_mode);
+    if (viewer_.view) {
+        viewer_.view->SetDarkMode(dark_mode);
+    }
     InvalidateRect(viewer_.hwnd, nullptr, TRUE);
     if (viewer_.controller) {
         SetViewerBackground(viewer_.controller.Get(), dark_mode);
@@ -1447,6 +1469,8 @@ void MermaidRenderer::UpdateViewerCode(std::string_view code)
         return;
     }
     viewer_.code.assign(code);
+    // 数式のラベルを足した・消したら、窓の位置と大きさを保って見せ方を替える。
+    SetViewerNative(PeleEngine::CanRender(code));
     RequestViewerSvg();
 }
 
@@ -1456,6 +1480,9 @@ void MermaidRenderer::ApplyViewerLanguage()
         return;
     }
     SetWindowTextW(viewer_.hwnd, i18n::S().viewer_title.data());
+    if (viewer_.view) {
+        viewer_.view->ApplyLanguage();
+    }
     // 準備前なら viewer-ready で新しい文言を送る。
     if (viewer_.page_ready) {
         PostViewerInit();
@@ -1466,6 +1493,7 @@ void MermaidRenderer::DestroyViewer()
 {
     InvalidateViewerSvg();
     Viewer viewer = std::exchange(viewer_, {});
+    viewer.view.reset();
     if (viewer.controller) {
         viewer.controller->Close();
     }
@@ -1494,6 +1522,9 @@ LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wPar
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
     auto& viewer = self->viewer_;
+    if (LRESULT result = 0; viewer.view && viewer.view->HandleMessage(msg, wParam, lParam, result)) {
+        return result;
+    }
     switch (msg) {
     case WM_CLOSE:
         self->CloseViewer();
@@ -1713,31 +1744,91 @@ void MermaidRenderer::ApplyViewerBounds()
     }
 }
 
+void MermaidRenderer::CreateNativeView()
+{
+    viewer_.view = std::make_unique<DiagramView>(viewer_.hwnd, WriteFactory(), wic_factory_.Get());
+    viewer_.view->SetDarkMode(viewer_.dark_mode);
+    viewer_.view->ApplyLanguage();
+    viewer_.view->ShowLoading();
+}
+
+void MermaidRenderer::SetViewerNative(bool native)
+{
+    if ((viewer_.view != nullptr) == native) {
+        return;
+    }
+    viewer_.has_image = false;
+    if (native) {
+        KillTimer(viewer_.hwnd, VIEWER_READY_TIMER);
+        if (viewer_.controller) {
+            viewer_.controller->Close();
+        }
+        viewer_.controller.Reset();
+        viewer_.webview.Reset();
+        viewer_.page_ready = false;
+        viewer_.pending_msg.clear();
+        CreateNativeView();
+        return;
+    }
+    viewer_.view.reset();
+    InvalidateRect(viewer_.hwnd, nullptr, TRUE);
+    // 環境がまだ無ければ、要求が起動した環境の完了 (OnEnvironmentCreated) でビューを作る。
+    if (webview_env_) {
+        SetupViewer();
+    }
+}
+
+// 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+void MermaidRenderer::OnViewerResult(bool drawn)
+{
+    if (drawn) {
+        viewer_.has_image = true;
+    }
+    else if (!viewer_.has_image) {
+        FailViewer();
+    }
+}
+
 void MermaidRenderer::RequestViewerSvg()
 {
     const unsigned int render = InvalidateViewerSvg();
-    // clang-format off
-    EnqueueSvg(
-        mermaid_util::PageRequest::View,
-        viewer_.code,
-        viewer_.max_width,
-        viewer_.dark_mode,
-        [this, render](std::wstring_view svg, bool cancelled) {
+    RenderRequest req{
+        .code = viewer_.code,
+        .max_width = viewer_.max_width,
+        .dark_mode = viewer_.dark_mode,
+        .page = mermaid_util::PageRequest::View,
+    };
+    if (viewer_.view) {
+        req.drawing_callback = [this, render](std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, bool needs_browser) {
             if (render != viewer_render_) {
                 return;
             }
-            if (!svg.empty()) {
-                viewer_.has_image = true;
-                PostToViewer(mermaid_util::ViewerSvgMessage(viewer_.dark_mode, svg));
+            // 描画命令にできない要素のある図は、同じ窓のまま WebView2 で見せる。
+            if (needs_browser) {
+                SetViewerNative(false);
+                RequestViewerSvg();
+                return;
             }
-            // 取り消されるのは Shutdown の中だけで、この後ウィンドウごと閉じる。
-            // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
-            else if (!cancelled && !viewer_.has_image) {
-                FailViewer();
+            const bool drawn = drawing != nullptr;
+            if (drawn) {
+                viewer_.view->SetDrawing(std::move(drawing));
             }
+            OnViewerResult(drawn);
+        };
+        StartNativeRender(std::move(req));
+        return;
+    }
+    req.svg_callback = [this, render](std::wstring_view svg, bool cancelled) {
+        // 取り消されるのは Shutdown の中だけで、この後ウィンドウごと閉じる。
+        if (render != viewer_render_ || cancelled) {
+            return;
         }
-    );
-    // clang-format on
+        if (!svg.empty()) {
+            PostToViewer(mermaid_util::ViewerSvgMessage(viewer_.dark_mode, svg));
+        }
+        OnViewerResult(!svg.empty());
+    };
+    EnqueueWebRender(std::move(req));
 }
 
 void MermaidRenderer::PostToViewer(std::wstring msg)
