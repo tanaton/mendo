@@ -43,9 +43,20 @@ TEST(HelpDocumentTest, FromMarkdownWithHelpPath)
     EXPECT_TRUE(IsHelpPath(doc.GetFilePath()));
 }
 
+// 埋め込みの文書はヘルプとサードパーティのライセンスだけ。ヘルプ扱い (言語の切り替えで読み直す) はヘルプだけ。
+TEST(HelpPathTest, EmbeddedPathsAreHelpAndLicenses)
+{
+    EXPECT_TRUE(IsEmbeddedPath(HELP_PATH));
+    EXPECT_TRUE(IsEmbeddedPath(LICENSES_PATH));
+    EXPECT_FALSE(IsHelpPath(LICENSES_PATH));
+    EXPECT_FALSE(IsEmbeddedPath(L"mendo://other"));
+    EXPECT_FALSE(IsEmbeddedPath(L"C:\\docs\\THIRD_PARTY_LICENSES.md"));
+}
+
 TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
 {
     EXPECT_FALSE(Document::FromMarkdown("# Help", HELP_PATH).HasBackingFile());
+    EXPECT_FALSE(Document::FromMarkdown("# Licenses", LICENSES_PATH).HasBackingFile());
     EXPECT_FALSE(Document::FromMarkdown("# Empty", L"").HasBackingFile());
     EXPECT_TRUE(Document::FromMarkdown("# File", L"C:/docs/readme.md").HasBackingFile());
 }
@@ -56,7 +67,7 @@ TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
 }
 
 // ═══════════════════════════════════════════════
-// ヘルプを開いたときのレイアウト (App::ShowHelpResource と同じ手順)
+// ヘルプを開いたときのレイアウト (App::ShowEmbeddedResource と同じ手順)
 // ═══════════════════════════════════════════════
 
 class HelpLayoutTest : public MockLayoutTestBase {};
@@ -88,4 +99,18 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
             EXPECT_GT(cache[i].height, 0.0f) << "ノード " << i;
         }
     }
+}
+
+// 配布する zip には exe だけを入れるので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
+// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開けるようにする。
+TEST(HelpDocumentTest, EveryHelpLinksToLicenses)
+{
+    for (const auto name : { u8"help_ja.md", u8"help_en.md", u8"help_zh.md", u8"help_zh_hant.md", u8"help_ko.md" }) {
+        SCOPED_TRACE(reinterpret_cast<const char*>(name));
+        const auto text = ReadFileBytes(std::filesystem::path(MENDO_RES_DIR) / name);
+        EXPECT_NE(text.find("](mendo://licenses)"), std::string::npos);
+    }
+    const auto licenses = ReadFileBytes(std::filesystem::path(MENDO_RES_DIR) / ".." / "THIRD_PARTY_LICENSES.md");
+    EXPECT_NE(licenses.find("SIL OPEN FONT LICENSE Version 1.1"), std::string::npos);
+    EXPECT_EQ(ClassifyLinkClick("mendo://licenses").type, LinkClickResult::Type::Embedded);
 }

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "d2d_util.h"
 #include "draw_command.h"
+#include "diagram_raster.h"
 #include "inline_math.h"
 #include "test_helpers.h"
 #include "wic_util.h"
@@ -162,7 +163,7 @@ protected:
     }
 
     UINT size_ = 32;
-    InlineMathMasks no_math_;
+    InlineMathDrawings no_math_;
     ComPtr<IDWriteFactory> dw_factory_;
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
@@ -334,29 +335,27 @@ TEST_F(CommandExecutorIntegrationTest, TrimmingSignMatchesDrawTextLayout)
     EXPECT_EQ(RenderTextLayout(cmd, true), expected);
 }
 
-// 間引き範囲より下の行の数式は、型が無くても描き直しを頼まない (数式か見分ける前に飛ばす)。
-TEST_F(CommandExecutorIntegrationTest, InlineMathBelowCullIsNotRequested)
+// インライン数式は描画命令を周りの文字の色で、箱の左上をベースラインから height だけ上にして描く。
+// 描画命令の無い数式 (描けなかった・まだ届いていない) は何も描かない。
+TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsDrawingInTextColor)
 {
-    constexpr UINT32 kCount = 20;
-    std::wstring text;
-    for (UINT32 i = 0; i < kCount; i++) {
-        text += L"￼\n";
-    }
-    const auto layout = CreateTextLayout(text, L"Segoe UI", L"en-us", 100.0f, 1000.0f);
+    const auto layout = CreateTextLayout(L"\uFFFC \uFFFC", L"Segoe UI", L"en-us", 100.0f, 32.0f);
     ASSERT_TRUE(layout);
-    for (UINT32 i = 0; i < kCount; i++) {
-        ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(i, { 10.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ i * 2, 1 }));
-    }
+    ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(1, { 10.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ 0, 1 }));
+    ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(2, { 10.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ 2, 1 }));
+    auto drawing = std::make_shared<MathDrawing>(MathDrawing{ .width = 10.0f, .height = 8.0f, .depth = 2.0f });
+    drawing->items.emplace_back(MathDrawing::Rect{ .x = 0.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Top });
+    InlineMathDrawings math;
+    *math.drawings.TryEmplace(1).first = std::move(drawing);
     DrawCommandList cmds;
     cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
-    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
-    InlineMathMasks math;
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
     rt_->BeginDraw();
+    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
     ExecuteDrawCommands(cmds, rt_.Get(), brushes, math);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
-
-    EXPECT_NE(std::ranges::find(math.missing, 0u), math.missing.end()) << "見える行の数式を頼んでいない";
-    EXPECT_TRUE(std::ranges::all_of(math.missing, [](uint64_t key) static { return key < kCount / 2; })) << "見えない行の数式を頼んだ";
+    const auto pixels = ReadAllPixels();
+    EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100) << "1 つ目の数式の 10x10 だけを文字の色で塗る";
 }
 
 // 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた
@@ -446,66 +445,4 @@ TEST_F(CommandExecutorIntegrationTest, HorizontalCullKeepsPixelsInsideClip)
         EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
         EXPECT_EQ(render(true), expected);
     }
-}
-
-class InlineMathMasksTest : public CommandExecutorIntegrationTest {
-protected:
-    InlineMathPage& AddPage()
-    {
-        const auto props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        ComPtr<ID2D1Bitmap> bitmap;
-        EXPECT_HRESULT_SUCCEEDED(rt_->CreateBitmap(D2D1::SizeU(10, 10), props, &bitmap));
-        return math_.AddPage(bitmap);
-    }
-
-    InlineMathMasks math_;
-};
-
-// ページが上限を超えたら、このフレームで描いていないページを古い順に捨て、その型も消す。
-TEST_F(InlineMathMasksTest, EvictsLeastRecentlyDrawnPages)
-{
-    std::vector<InlineMathPage*> pages;
-    for (uint64_t i = 0; i < 4; ++i) {
-        pages.push_back(&AddPage());
-        math_.Assign(i, InlineMathMask{ pages.back(), {}, {} });
-    }
-    ASSERT_EQ(math_.page_bytes, 400u);
-    math_.frame = 5;
-    pages[1]->last_drawn = 3;
-    pages[2]->last_drawn = 5;
-    pages[3]->last_drawn = 4;
-
-    math_.EvictPages(400);
-    EXPECT_EQ(math_.pages.size(), 4u) << "上限以内なら捨てない";
-    math_.EvictPages(250);
-    EXPECT_EQ(math_.page_bytes, 200u);
-    EXPECT_EQ(math_.pages.size(), 2u);
-    EXPECT_EQ(math_.Find(0), nullptr);
-    EXPECT_EQ(math_.Find(1), nullptr);
-    EXPECT_NE(math_.Find(2), nullptr);
-    EXPECT_NE(math_.Find(3), nullptr);
-    math_.EvictPages(0);
-    EXPECT_EQ(math_.pages.size(), 1u) << "このフレームで描いたページは捨てない";
-    EXPECT_NE(math_.Find(2), nullptr);
-}
-
-// 読み直しで型がすべて別のページへ移ったら、前のページを捨てる。一部が残るページは残す。
-TEST_F(InlineMathMasksTest, AssignDropsPagesWithoutMasks)
-{
-    auto& old_page = AddPage();
-    math_.Assign(1, InlineMathMask{ &old_page, {}, {} });
-    math_.Assign(2, InlineMathMask{ &old_page, {}, {} });
-    auto& new_page = AddPage();
-    math_.Assign(1, InlineMathMask{ &new_page, {}, {} });
-    EXPECT_EQ(math_.pages.size(), 2u);
-    EXPECT_EQ(old_page.masks, 1u);
-
-    math_.Assign(2, InlineMathMask{ &new_page, {}, {} });
-    ASSERT_EQ(math_.pages.size(), 1u);
-    EXPECT_EQ(math_.pages[0].get(), &new_page);
-    EXPECT_EQ(math_.page_bytes, 100u);
-    EXPECT_EQ(new_page.masks, 2u);
-
-    math_.Assign(2, InlineMathMask{ &new_page, {}, {} });
-    EXPECT_EQ(new_page.masks, 2u) << "同じページへの置き換えでは数が変わらない";
 }

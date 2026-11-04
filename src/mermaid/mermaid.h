@@ -36,30 +36,21 @@ struct InlineMathBatchResult {
         uint64_t key = 0;
         // 描けなかった数式 (KaTeX のエラー) は空。
         InlineMathMetrics metrics;
-        // page があるときだけ使う。
-        D2D1_RECT_F src{};  // page の中の位置 (ピクセル)
-        D2D1_RECT_F dest{}; // 数式の箱の左上を原点とする描画先 (DIP)
+        // 描けた数式の描画命令。原点は箱の左端のベースライン (metrics.baseline)。
+        std::shared_ptr<const MathDrawing> drawing;
     };
-    // 数式の形をアルファに持つ A8 のビットマップ。描けなかったときと、受け取らない (MathPageGate) と答えたときは null。
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
     // 要求と同じ順。
     std::vector<Item> items;
-    // MathPageGate が受け取ると答えたページのバイト数。答えていなければ 0。呼び出し側が取り置いた分を戻すのに使う。
-    size_t reserved_bytes = 0;
-    // まとめて描けなかった。items の metrics はすべて空。
-    bool failed = false;
-    // 描く前に取り消した (終了・文書の差し替え)。数式のエラーではないので、後で頼み直してよい。
+    // 描く前に取り消した (終了・文書の差し替え)。items の metrics はすべて空。数式のエラーではないので、後で頼み直してよい。
     bool cancelled = false;
 };
 // 描けたとき・失敗したとき・取り消したときのどれでも 1 回だけ呼ぶ。
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
-// ページを型として受け取るか。ページの大きさ (A8 のバイト数) が分かったときに UI スレッドで 1 回だけ呼ぶ。
-// false ならページをデコードも GPU へ転送もせず、寸法だけを返す。
-using MathPageGate = std::move_only_function<bool(size_t page_bytes)>;
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
-// (PeleEngine)、拡大表示 (DiagramView) とクリップボードの SVG もその描画命令から作る。ラベルに数式のある図と
-// インライン数式はオフスクリーンの WebView2 で描き、数式のラベルのある図の拡大表示も WebView2 で見せる。
+// (PeleEngine)、拡大表示 (DiagramView) とクリップボードの SVG もその描画命令から作る。図のラベルの数式とインライン数式は
+// 同じランタイムで KaTeX を動かして描く。描画命令にできない要素のある図だけをオフスクリーンの WebView2 で描き、
+// その図の拡大表示も WebView2 で見せる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
@@ -82,11 +73,9 @@ public:
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
-    // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
-    // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
-    // items は kMaxInlineMathPerChunk 個までにする。ページは cache_key (InlineMathChunk::key) で図と同じ
-    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。
-    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page);
+    // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
+    // 速いのでディスクキャッシュには置かない。
+    void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // 図の保存・コピーに使う PNG。描画命令の図は今その場で描く (大きな図は画素数の上限まで縮める)。作れなければ null。
     PngBytes DiagramPng(const DiagramEntry& entry);
@@ -130,15 +119,6 @@ private:
     struct MathRequest {
         std::vector<InlineMathItem> items;
         MathBatchCallback callback;
-        uint64_t cache_key = 0;
-        // 呼んだら空にして、答えを accept_page に持つ (DecideMathPage)。
-        MathPageGate want_page;
-        bool accept_page = true;
-        // InlineMathBatchResult::reserved_bytes。
-        size_t reserved_bytes = 0;
-        // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
-        // キャプチャの切り出しに使う。
-        mermaid_util::MathBatchLayout layout;
     };
 
     struct RenderRequest {
@@ -164,6 +144,7 @@ private:
         bool retried = false;
 
         // Mermaid だけがキャッシュに入る。Svg と View は SVG文字列を svg_callback で、Math は結果を math->callback で返す。
+        // Math は PeleEngine だけで描き、WebView2 には回さない。
         mermaid_util::PageRequest page = mermaid_util::PageRequest::Mermaid;
         SvgCallback svg_callback;
         // native の拡大表示の要求だけが持つ。描けなければ drawing は null で、needs_browser なら描画命令にできない図。
@@ -217,8 +198,8 @@ private:
         }
     };
 
-    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く (native)。数式のラベルのある図は、ワーカーが描いた SVG を
-    // 見える WebView2 に渡す。
+    // 図の拡大表示ウィンドウ。描画命令を DiagramView で描く (native)。描画命令にできない要素のある図は、ワーカーが描いた
+    // SVG を見える WebView2 に渡す。
     // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
     struct Viewer {
         HWND hwnd = nullptr;
@@ -242,10 +223,8 @@ private:
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-        // インライン数式の要求では bitmap の代わりに、キャプチャのアルファだけを取り出す (幅 x 高さ、1 行 alpha_width バイト)。
-        std::vector<uint8_t> alpha;
-        UINT alpha_width = 0;
-        UINT alpha_height = 0;
+        // インライン数式の要求の結果。MathRequest::items と同じ順で、描けなかった数式は null。
+        std::vector<std::shared_ptr<const MathDrawing>> maths;
         // ディスクキャッシュに書く・から読んだ PNG か描画命令 (UTF-8)。PNG なら保存・コピーにも使う。
         PngBytes bytes;
         // 描画命令を worker で解析したもの。UI で commands にする。
@@ -265,12 +244,12 @@ private:
         bool needs_browser = false;
         // PeleEngine が返したコードの誤りの文言。
         std::wstring render_error;
+        // ディスクキャッシュの図のラベルの数式を組み直すのに PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
+        bool used_pele = false;
         // クリップボード用に PeleEngine で作った SVG。
         std::wstring svg;
     };
 
-    // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
-    static constexpr int MATH_PAGE_WIDTH = 1024;
     // 1 つ増やすごとにレンダラープロセスの起動と pele のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
@@ -293,32 +272,25 @@ private:
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled);
-    // インライン数式の要求なら、描けなかったことを知らせて math->callback をクリアする。
-    static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
-    // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を失敗か取り消しで呼ぶ。成功した要求は呼び済みで何もしない。
+    // インライン数式の要求なら、取り消したことを知らせて math->callback をクリアする。
+    static void CancelMathCallbackIfAny(RenderRequest& req);
+    // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を呼ぶ。SVG は失敗か取り消し、インライン数式は
+    // (WebView2 のワーカーに渡らないので) いつも取り消し。成功した要求は呼び済みで何もしない。
     static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
     {
         InvokeSvgCallbackIfAny(req, {}, cancelled);
-        FailMathCallbackIfAny(req, cancelled);
+        CancelMathCallbackIfAny(req);
     }
-    void RenderMathInWorker(Worker& worker);
     // ページに要求 (mermaid_util::Page*Message) を送る。結果と失敗はページが postMessage で返す。
     static void PostToPage(Worker& worker, const std::wstring& msg);
-    void OnMathResult(Worker& w, std::wstring_view payload);
     // ビューを描いたものの大きさ (PageRect) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
     void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
     bool FitsCapture(const mermaid_util::RenderSize& size) const noexcept;
-    // ページの大きさが分かったら、デコードする前に want_page に聞く。ディスクキャッシュから読めずに描き直すときは
-    // 前の答えを使う。
-    static void DecideMathPage(MathRequest& math, const mermaid_util::RenderSize& page);
-    // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す (受け取らないページはデコードしない)。
-    // ディスクキャッシュなら箱の一覧も読み、キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
-    void LoadMathJob(DiskLoad& job);
     void ApplyMathLoad(DiskLoad& r);
-    // 描画待ちから kind (is_display / is_math) に当たる要求を順を保って取り出す。後始末は呼び出し側が取り出した後で行う
-    // (コールバックから描画待ちに積み直しても壊れない)。
-    std::vector<RenderRequest> TakePending(bool (RenderRequest::*kind)() const noexcept);
+    // queue (描画待ちか native_waiting_) から kind (is_display / is_view / is_math) に当たる要求を順を保って取り出す。
+    // 後始末は呼び出し側が取り出した後で行う (コールバックから描画待ちに積み直しても壊れない)。
+    static std::vector<RenderRequest> TakePending(std::deque<RenderRequest>& queue, bool (RenderRequest::*kind)() const noexcept);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
@@ -375,7 +347,7 @@ private:
     // 呼ばない)。新しい世代を返す。
     unsigned int InvalidateViewerSvg()
     {
-        TakePending(&RenderRequest::is_view);
+        TakePending(pending_requests_, &RenderRequest::is_view);
         std::erase_if(native_waiting_, [](const RenderRequest& r) { return r.is_view(); });
         return ++viewer_render_;
     }
@@ -394,6 +366,8 @@ private:
     bool EnqueueRender(RenderRequest req);
     // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。諦めている間は失敗で返す。
     void EnqueueWebRender(RenderRequest req);
+    // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
+    void EnsurePele();
     // bg のワーカーで PeleEngine に描かせ、結果をディスクキャッシュの読み込みと同じ経路で返す。
     void StartNativeRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
@@ -419,8 +393,8 @@ private:
     // captured_stream があればファイルは読まずにそれをデコードする。drawing (描画命令) があればそれを描く。
     void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr,
                        std::wstring drawing = {});
-    // worker で呼ぶ。
-    void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
+    // worker で呼ぶ。locale は図のラベルの数式を組み直すのに使う。
+    void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path, std::wstring_view locale);
     // 戻り値: 結果 (ビットマップかエラー) が出たか。
     bool ApplyDiskLoad(DiskLoad& r);
 

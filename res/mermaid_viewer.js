@@ -183,12 +183,6 @@ window.chrome.webview.addEventListener('message', e => {
     [buttons.in.title, buttons.out.title, buttons.fit.title, loading.textContent] = msg.slice(pos).split('\n');
     stage.focus();
   }
-  else if (kind === 'loading') {
-    svg = null;
-    host.textContent = '';
-    bar.hidden = true;
-    loading.hidden = false;
-  }
   else if (kind === 'svg') {
     showSvg(msg.slice(pos));
   }

@@ -92,7 +92,6 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
 
     if (!p.loading_angle) {
         cmd_generator_.GenerateMdPane(frame_cmds_, p.md, DpiScaleFrom(dpi_));
-        ++p.inline_math.frame;
     }
     GenOverlays(p);
     MENDO_PLOT("draw.command_count", static_cast<int64_t>(frame_cmds_.size()));

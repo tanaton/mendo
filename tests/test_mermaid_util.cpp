@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 #include "mermaid_util.h"
 #include "parser.h"
+#include "string_convert.h"
 #include "test_nodes.h"
 #include "utility.h"
 #include <algorithm>
-#include <span>
 #include <vector>
 
 using namespace std::literals;
@@ -30,25 +30,12 @@ TEST(PageMessage, ViewerInitSeparatesLabelsByNewline)
     EXPECT_EQ(mermaid_util::ViewerInitMessage(false, {}), L"init:0:");
 }
 
-TEST(PageMessage, ViewerLoading)
-{
-    EXPECT_EQ(mermaid_util::ViewerLoadingMessage(true), L"loading:1:");
-}
 
 // SVG は末尾に置くので、':' を含んでいてもそのまま読める。
 TEST(PageMessage, ViewerSvgPutsSvgLast)
 {
     EXPECT_EQ(mermaid_util::ViewerSvgMessage(false, L"<svg style=\"a:b\"/>"), L"svg:0:<svg style=\"a:b\"/>");
     EXPECT_EQ(mermaid_util::ViewerSvgMessage(true, L"x"), L"svg:1:x");
-}
-
-// まとめ描きの数式は UTF-16 の長さで区切るので、TeX に ':' や BMP 外の文字 (サロゲートペア) があっても切り出せる。
-TEST(PageMessage, MathBatchPrefixesUtf16Length)
-{
-    auto msg = mermaid_util::PageMathBatchMessage(3, 1024);
-    mermaid_util::AppendPageMathItem(msg, "a:b", 16.0f);
-    mermaid_util::AppendPageMathItem(msg, "\xF0\x9D\x91\xA5", 13.5f); // U+1D465 (UTF-16 で 2)
-    EXPECT_EQ(msg, L"math:3:1024:16.000:3:a:b13.500:2:\U0001D465");
 }
 
 // ═══════════════════════════════════════════════
@@ -83,97 +70,6 @@ TEST(QuantizeWidth, RoundsUpToMultipleOf32)
     }
 }
 
-// ============================================================
-// ParseMathBatch
-// ============================================================
-
-TEST(ParseMathBatch, ParsesBoxesAndFailedItems)
-{
-    const auto layout = mermaid_util::ParseMathBatch(L"1024:40:1.5|2,2,30.5,20,15;e;40,2,10,24,18", 3);
-    ASSERT_TRUE(layout);
-    EXPECT_FLOAT_EQ(layout->size.width, 1024.0f);
-    EXPECT_FLOAT_EQ(layout->size.dpr, 1.5f);
-    ASSERT_EQ(layout->boxes.size(), 3u);
-    EXPECT_FLOAT_EQ(layout->boxes[0].width, 30.5f);
-    EXPECT_FLOAT_EQ(layout->boxes[0].baseline, 15.0f);
-    EXPECT_FLOAT_EQ(layout->boxes[1].width, 0.0f);
-    EXPECT_FLOAT_EQ(layout->boxes[2].x, 40.0f);
-}
-
-// 数が合わない結果や、ページの外を指す箱は使わない (型の外を切り出させない)。
-TEST(ParseMathBatch, RejectsMismatchedCountAndOutOfPageBoxes)
-{
-    for (const auto* payload : {
-             L"100:40:1|2,2,10,10,8",
-             L"100:40:1|2,2,10,10,8;2,2,10,10,8;2,2,10,10,8",
-             L"100:40:1|95,2,10,10,8;2,2,10,10,8",
-             L"100:40:1|2,35,10,10,8;2,2,10,10,8",
-             L"100:40:1|-1,2,10,10,8;2,2,10,10,8",
-             L"100:40:1|2,2,10,10,30;2,2,10,10,8",
-             L"0:40:1|e;e",
-             L"100:40:1",
-         }) {
-        SCOPED_TRACE(testing::PrintToString(std::wstring{ payload }));
-        EXPECT_FALSE(mermaid_util::ParseMathBatch(payload, 2));
-    }
-}
-
-namespace {
-
-// 箱のチャンクの読み書きだけを確かめる PNG の形。IHDR の中身と CRC は読まないので適当でよい。
-std::vector<uint8_t> MinimalPng()
-{
-    std::vector<uint8_t> png{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
-    const uint8_t ihdr[]{ 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0, 0, 0, 0 };
-    const uint8_t iend[]{ 0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82 };
-    png.insert(png.end(), std::begin(ihdr), std::end(ihdr));
-    png.insert(png.end(), std::begin(iend), std::end(iend));
-    return png;
-}
-
-mermaid_util::MathBatchLayout SampleLayout()
-{
-    return { .size = { 1024.0f, 40.0f, 1.5f }, .boxes = { { 2.0f, 2.0f, 30.5f, 20.0f, 15.0f }, {}, { 40.0f, 2.0f, 10.0f, 24.0f, 18.0f } } };
-}
-
-} // namespace
-
-// ディスクキャッシュのページは PNG のまま置き、箱の一覧 (描けなかった数式を含む) を IEND の前のチャンクに埋める。
-TEST(MathBoxesChunk, RoundTripsBeforeIend)
-{
-    const auto png = MinimalPng();
-    const auto with_boxes = mermaid_util::AppendMathBoxesChunk(png, SampleLayout());
-    ASSERT_GT(with_boxes.size(), png.size());
-    EXPECT_TRUE(std::ranges::equal(std::span{ with_boxes }.last(12), std::span{ png }.last(12)));
-    const auto read = mermaid_util::ReadMathBoxesChunk(with_boxes, 3);
-    ASSERT_TRUE(read);
-    EXPECT_FLOAT_EQ(read->size.width, 1024.0f);
-    EXPECT_FLOAT_EQ(read->size.dpr, 1.5f);
-    ASSERT_EQ(read->boxes.size(), 3u);
-    EXPECT_FLOAT_EQ(read->boxes[0].baseline, 15.0f);
-    EXPECT_FLOAT_EQ(read->boxes[1].width, 0.0f);
-    EXPECT_FLOAT_EQ(read->boxes[2].x, 40.0f);
-}
-
-// 壊れたファイルや別の組のファイルは使わず、描き直させる。
-TEST(MathBoxesChunk, RejectsMissingCorruptOrMismatched)
-{
-    const auto png = MinimalPng();
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(png, 3)) << "チャンクが無い";
-    auto with_boxes = mermaid_util::AppendMathBoxesChunk(png, SampleLayout());
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 2)) << "数が違う";
-    with_boxes.data()[with_boxes.size() - 20] ^= 0xFF;
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 3)) << "CRC が合わない";
-
-    auto outside = SampleLayout();
-    outside.boxes[2].x = 1020.0f;
-    const auto outside_png = mermaid_util::AppendMathBoxesChunk(png, outside);
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(outside_png, 3)) << "ページの外を指す";
-
-    const std::vector<uint8_t> not_png(64, 0);
-    EXPECT_TRUE(mermaid_util::AppendMathBoxesChunk(not_png, SampleLayout()).empty());
-}
-
 TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
 {
     struct Case {
@@ -206,15 +102,16 @@ TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
     }
 }
 
-// 文字の並びの本文と書体は長さで切るので、区切りの ':' や ',' を含んでもそのまま読める。
-TEST(ParseDrawing, ParsesShapesAndTextRuns)
+// 文字の並びの本文と書体、数式の TeX は長さで切るので、区切りの ':' や ',' を含んでもそのまま読める。
+TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 {
     const auto d = mermaid_util::ParseDrawing(
         L"400:300.5:1.5:2039583:2:"
         L"12:<svg>あ</svg>2:"
         L"1,0,0,1,10.5,20,3,4.25,16,700,1,0,16711680,0.5:10:Segoe UI,x5:a:b,c"
         L"0,1,-1,0,0,0,0,0,12,400,0,1,0,1:0:0:"
-        L"0:0:"sv);
+        L"1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
+        L"0:0:0:"sv);
     ASSERT_TRUE(d.has_value());
     EXPECT_EQ(d->size.width, 400.0f);
     EXPECT_EQ(d->size.height, 300.5f);
@@ -241,22 +138,56 @@ TEST(ParseDrawing, ParsesShapesAndTextRuns)
     EXPECT_TRUE(texts[1].underline);
     EXPECT_TRUE(texts[1].family.empty());
     EXPECT_TRUE(texts[1].text.empty());
+    ASSERT_EQ(d->layers[0].maths.size(), 1u);
+    const auto& m = d->layers[0].maths[0];
+    EXPECT_EQ(m.x, 7.0f);
+    EXPECT_EQ(m.y, 8.5f);
+    EXPECT_EQ(m.font_size, 14.0f);
+    EXPECT_EQ(m.rgb, 0xFFu);
+    EXPECT_EQ(m.alpha, 0.75f);
+    EXPECT_EQ(m.tex, "x_{a:b},c");
+    EXPECT_EQ(m.drawing, nullptr) << "描画命令は読んだ後に組み直す";
+    EXPECT_TRUE(d->layers[1].maths.empty());
+}
+
+// 数式も書いた形のまま読み戻せる (TeX の BMP 外の文字は UTF-16 で 2 単位に数える)。
+TEST(ParseDrawing, SerializedMathsParseBack)
+{
+    mermaid_util::DiagramDrawing drawing{ .size = { 10.0f, 20.0f, 1.5f }, .background = 0xFFFFFF };
+    drawing.layers.push_back({ .maths = { { .transform = { 2.0f, 0.0f, 0.0f, 2.0f, 1.0f, 2.0f },
+                                            .x = 0.5f,
+                                            .y = 12.25f,
+                                            .font_size = 16.0f,
+                                            .rgb = 0x123456,
+                                            .alpha = 1.0f,
+                                            .tex = "\\mathcal{A}\xF0\x9D\x91\xA5" } } });
+    const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(drawing)));
+    ASSERT_TRUE(back);
+    EXPECT_EQ(*back, drawing);
 }
 
 // ページは XSS で偽れるので、欠け・余り・ありえない値は全体を捨てる。
 TEST(ParseDrawing, RejectsMalformedPayloads)
 {
     constexpr std::wstring_view kRun = L"1,0,0,1,0,0,0,0,16,400,0,0,0,1:0:1:a"sv;
-    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:1:0:1:0:1:" } + std::wstring{ run }; };
+    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:1:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
+    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:1:0:1:0:0:1:" } + std::wstring{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_math(L"1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
     const std::wstring kBad[] = {
         L"",
-        L"0:20:1:0:1:0:0:",               // 幅が 0
-        L"10:20:1:16777216:1:0:0:",       // 背景が 24 ビットを超える
-        L"10:20:1:0:1:9:<svg>0:",         // SVG の長さが足りない
-        L"10:20:1:0:1:0:0:x",             // 余り
-        L"10:20:1:0:2:0:0:",              // 層が足りない
-        L"10:20:1:0:1:0:2:" + std::wstring{ kRun }, // 並びが足りない
+        L"0:20:1:0:1:0:0:0:",             // 幅が 0
+        L"10:20:1:16777216:1:0:0:0:",     // 背景が 24 ビットを超える
+        L"10:20:1:0:1:9:<svg>0:0:",       // SVG の長さが足りない
+        L"10:20:1:0:1:0:0:0:x",           // 余り
+        L"10:20:1:0:2:0:0:0:",            // 層が足りない
+        L"10:20:1:0:1:0:0:",              // 数式の数が無い
+        L"10:20:1:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
+        with_math(L""),                                  // 数式が足りない
+        with_math(L"1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
+        with_math(L"1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
+        with_math(L"1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
+        with_math(L"1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
         with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
         with_run(L"1,0,0,1,0,0,0,0,0,400,0,0,0,1:0:1:a"),       // 大きさが 0
         with_run(L"1,0,0,1,0,0,0,0,16,0,0,0,0,1:0:1:a"),        // 太さが 0
@@ -395,7 +326,8 @@ TEST(ParseWebMessage, ClassifiesMessagesAndParsesRequest)
         { L"svg-result:3:<svg/>"sv, Kind::SvgResult, true, 3, L"<svg/>"sv },
         { L"draw-result:4:10:20:1:0:0:"sv, Kind::DrawResult, true, 4, L"10:20:1:0:0:"sv },
         { L"capture-ready:5"sv, Kind::CaptureReady, true, 5, L""sv },
-        { L"math-result:7:100:40:1|e"sv, Kind::MathResult, true, 7, L"100:40:1|e"sv },
+        // インライン数式は WebView2 で描かなくなった。
+        { L"math-result:7:100:40:1|e"sv, Kind::Unknown, false, 0, L""sv },
         { L"render-error:9"sv, Kind::RenderError, true, 9, L""sv },
         { L"mermaid-failed"sv, Kind::Failed, false, 0, L""sv },
         // ID が数字でなければ kind は決まるが request は無効 (呼び出し側で破棄する)

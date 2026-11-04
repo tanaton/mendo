@@ -1,6 +1,7 @@
 #pragma once
 #include "utility.h"
 #include <array>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -9,6 +10,7 @@
 #include <cstdint>
 
 struct Node;
+struct MathDrawing;
 
 namespace mermaid_util {
 
@@ -34,21 +36,15 @@ enum class PageRequest : uint8_t {
     Mermaid, // 表示用の図 (render-result で大きさを返す)
     Svg,     // クリップボード用の SVG (svg-result)
     View,    // 拡大表示用の SVG (svg-result)
-    Math,    // インライン数式のまとめ描き (math-result)。PageMathBatchMessage で作る
+    Math,    // インライン数式。ページには送らず、PeleEngine が KaTeX で描く
 };
 std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, float max_width, std::wstring_view locale, std::string_view code_utf8);
-// インライン数式のまとめ描きは "math:<ID>:<ページの幅>:" に、数式ごとに AppendPageMathItem を続ける。
-std::wstring PageMathBatchMessage(unsigned id, int page_width);
-// "<文字の大きさ>:<TeX の長さ (UTF-16)>:<TeX>" を足す。
-void AppendPageMathItem(std::wstring& msg, std::string_view tex_utf8, float font_size);
 // 新しい大きさで描き直したら capture-ready を返させる。
 std::wstring PageCaptureMessage(unsigned id);
 
 // mermaid_viewer.js の message の受け口に送る要求。
 // "init:<ダーク 0/1>:" に続けて、文言を改行で区切って並べる (i18n の決まった文言なので改行を含まない)。
 std::wstring ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels);
-// "loading:<ダーク 0/1>:"。図を消して読み込み中の表示に戻す。
-std::wstring ViewerLoadingMessage(bool dark);
 // "svg:<ダーク 0/1>:<SVG>"。SVG を末尾に置き、エスケープしない。
 std::wstring ViewerSvgMessage(bool dark, std::wstring_view svg);
 
@@ -86,7 +82,6 @@ enum class WebMessageKind : uint8_t {
     CaptureReady,  // "capture-ready:<id>"
     SvgResult,     // "svg-result:<id>:<payload>"
     RenderError,   // "render-error:<id>:<message>"
-    MathResult,    // "math-result:<id>:<payload>" (ParseMathBatch)
     Failed,        // "mermaid-failed"
 };
 
@@ -129,11 +124,29 @@ struct DrawingText {
 
     bool operator==(const DrawingText&) const = default;
 };
+// 図のラベルの数式 ($$...$$)。KaTeX で組んだ描画命令を、ベースラインの左端 (x, y) に置いて文字の色で描く。
+struct DrawingMath {
+    std::array<float, 6> transform{ 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f }; // DrawingText と同じ
+    float x = 0.0f;
+    float y = 0.0f;
+    float font_size = 0.0f; // ラベルの文字の大きさ。KaTeX と同じくこの 1.21 倍で組む
+    uint32_t rgb = 0;       // 0xRRGGBB
+    float alpha = 1.0f;
+    std::string tex; // UTF-8。ディスクキャッシュには描画命令でなくこれを置き、読んだときに組み直す
+    // 組めなかった (読んだ後にまだ組んでいない) なら null。比べない。
+    std::shared_ptr<const MathDrawing> drawing;
+
+    bool operator==(const DrawingMath& o) const noexcept
+    {
+        return transform == o.transform && x == o.x && y == o.y && font_size == o.font_size && rgb == o.rgb && alpha == o.alpha && tex == o.tex;
+    }
+};
 // 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) で、
 // ID2D1SvgDocument が読める要素だけを使う。
 struct DrawingLayer {
     std::string shapes_svg;
     std::vector<DrawingText> texts;
+    std::vector<DrawingMath> maths; // 文字の後に描く
 
     bool operator==(const DrawingLayer&) const = default;
 };
@@ -147,35 +160,15 @@ struct DiagramDrawing {
     bool operator==(const DiagramDrawing&) const = default;
 };
 // DrawResult の payload。
-// "<幅>:<高さ>:<dpr>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並びを置く。
+// "<幅>:<高さ>:<dpr>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並び、
+// "<数式の数>:" と数式を置く。
 // 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
+// 数式は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
 // 長さは UTF-16 の単位。ページは XSS で偽れるので、欠け・余り・ありえない値があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 // ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
 size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
-
-// まとめて描いたインライン数式 1 つの箱 (CSS px、ページの左上が原点)。baseline は箱の上端から。幅 0 は描けなかった数式。
-struct MathBox {
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-    float baseline = 0.0f;
-};
-struct MathBatchLayout {
-    RenderSize size; // ページ全体
-    std::vector<MathBox> boxes;
-};
-// MathResult の payload ("<w>:<h>:<dpr>|<x>,<y>,<w>,<h>,<baseline>;..."、描けなかった数式は "e")。
-// 数が expected と違うか、ページの外を指す箱があれば nullopt。
-std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t expected);
-
-// まとめ描きのページはディスクキャッシュに図と同じく PNG 1 枚で置き、箱の一覧は PNG の独自チャンク (mdMB) に埋める。
-// PNG でなければ空を返す。
-ByteBuffer AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout);
-// チャンクが無い・壊れている・数が expected と違う・ページの外を指す箱があれば nullopt。
-std::optional<MathBatchLayout> ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected);
 
 } // namespace mermaid_util

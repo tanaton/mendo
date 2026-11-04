@@ -195,7 +195,7 @@ private:
 };
 ```
 
-`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。デバイスに依存しない起動時の通知（ファイルペインの列挙完了 `FILE_LISTED`・インライン数式の描画の依頼 `INLINE_MATH_REQUESTED`）は、デバイスの作成を待つ前と後の `TakeStartupMessages` で取り込む（一覧の行の文字レイアウトとディスクキャッシュにある数式の読み込みを、デバイスの作成と並行して進める）。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）で、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。Edit は comctl32 を読み込ませるので、起動時には作らず、初めて検索欄にフォーカスするときに `EnsureSearchEdit` で作る。
+`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。デバイスに依存しない起動時の通知（ファイルペインの列挙完了 `FILE_LISTED`・インライン数式の描画の依頼 `INLINE_MATH_REQUESTED`）は、デバイスの作成を待つ前と後の `TakeStartupMessages` で取り込む（一覧の行の文字レイアウトと数式の描画を、デバイスの作成と並行して進める）。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）で、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。Edit は comctl32 を読み込ませるので、起動時には作らず、初めて検索欄にフォーカスするときに `EnsureSearchEdit` で作る。
 
 `App` は `Win32Window` を参照で受け取り（`app.h` は前方宣言だけで持つ）、検索欄のフォーカス（`effect::SearchFocus` / `SearchUnfocus`）をその場で頼む（メッセージを投げて後で処理させない）。描画後にホバーを引き直すときの非クライアント判定は、`WM_NCHITTEST` を送って引く。フォーカスの移動や入力欄の書き換えは `EN_CHANGE`・`WM_IME_ENDCOMPOSITION`・選択の同期を通じて `App::Dispatch` に入り直すが、`Dispatch` は副作用の一覧を呼び出しごとに持つので、外側の `Execute` の途中でも壊れない。文書の切り替えでは `DocumentOpenedAction` の reducer が先にクエリを空にしているので、入力欄を空にした `EN_CHANGE` は何もせず終わる。入力欄のドラッグ選択ではマウスが動くたびに `SearchFocus` が来るので、既にフォーカスがあれば選択（`EM_SETSEL`）を変えるだけにする。見えない Edit の置き場所は IME の変換窓の位置にしか効かないので、開くとき・`WM_SIZE`・変換の開始（`WM_IME_STARTCOMPOSITION`）で置き直す。
 
@@ -322,7 +322,7 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`RelayoutViewport`, `SettleLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理、ファイル読み込み（`LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示 `OpenDocument` とリロードでの差し替え `ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる。リロードの開始 `ReloadCurrentFile`、`ShowHelpResource`）、マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, `OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick`, `OnMouseHover` 等。点が指すものの判定は `app_controller` に任せる） |
+| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`RelayoutViewport`, `SettleLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理、ファイル読み込み（`LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示 `OpenDocument` とリロードでの差し替え `ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる。リロードの開始 `ReloadCurrentFile`、埋め込みの文書（ヘルプ・サードパーティのライセンス）を開く `ShowEmbeddedResource`）、マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, `OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick`, `OnMouseHover` 等。点が指すものの判定は `app_controller` に任せる） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG のキャッシュを内包） |
 | `app_controller.h / .cpp` | `app_controller::HandleKeyDown` / `HandleSearchEditKeyDown`（キー → アクション）と、AppState とペイン配置だけから点が指すものを求める判定（`MakeMdPaneHitContext`, `ResolveMdPaneHit`, `ResolveSidePaneHit`, `ResolvePointerHover`, `IsOverMdScrollbar`） |
 | `reducer.h / .cpp` | `Reduce(state, action, layout, resource)`（in-place 更新、副作用リストを返す。計測は `NodeLayoutAccess` で App に頼む）と、ドメイン別の `Reduce*` 関数（スクロール・入力・ナビゲーション・検索・UI・システム）。`Reduce*` と、左ドラッグの終了とキャプチャ解放をまとめた `EndLeftDrag` は無名名前空間に置く |
@@ -758,7 +758,7 @@ void App::Dispatch(const AppAction& action)
 
 ### 3.5 レンダーステート構築
 
-各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代・`App` が持つインライン数式の型 `InlineMathMasks`）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
+各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代・`App` が持つインライン数式の描画命令 `InlineMathDrawings`）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
 
 Markdown ペインの描画コマンドは `Renderer`（具象、`renderer.cpp`）が `CommandGenerator` を直接呼んで作り（テーマ・本文の文字列の書式 `MdPaneFormats`・`TextLayoutCache` は `Init` で 1 回だけ渡し、`Renderer` が持つものを参照させる。1 回の `GenerateMdPane` の間に使う値は `FrameContext` のメンバに置く）、自由関数 `ExecuteDrawCommands`（宣言は `draw_command.h`、実装は `command_executor.cpp`）で描く。1 フレームのコマンドは `Renderer` の 1 本の列（`frame_cmds_`）に、タイトルバーとサイドペイン（`Renderer::PrepareChrome`）→ 本文（`GenerateMdPane` が列の後ろに積む）→ 本文に重ねるもの（`GenOverlays`）の順に積み、`BeginDraw` の後に 1 回だけ実行する。タイトルバーとサイドペインの組み立て自体は `command_generator.h` の自由関数 `chrome::EmitTitleBar` / `chrome::EmitSidePanes` が行い（重ね描きの `overlay::` と同じく HWND やデバイスなしでテストできる）、`Renderer` は書式とキャッシュを渡すだけである。
 
@@ -1111,12 +1111,11 @@ using DrawCommandList = std::vector<DrawCommand>;
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
 
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない (実装は command_executor.cpp)。
-// math が無ければインライン数式は描かない。math には描いたページの last_drawn と、型の無かった数式 (missing) を書く。
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes,
-                         InlineMathMasks* math = nullptr);
+                         const InlineMathDrawings& math);
 ```
 
-`DrawCommandList` は `DrawCommand` variant の単一 `std::vector` である。毎フレーム構築して 1 回読むだけのリストなので、型別ベクタや発行順テーブルは持たない。`Renderer` は毎フレーム `frame_cmds_` を clear して容量を使い回し（`CommandGenerator::GenerateMdPane` は渡された列の後ろに積む）、自由関数 `ExecuteDrawCommands` は先頭から `std::visit` で順に実行する。第 4 引数のインライン数式の型（`App` が持つ `InlineMathMasks`）は、`Renderer::Render` が `MdPaneParams::inline_math` をそのまま渡す。
+`DrawCommandList` は `DrawCommand` variant の単一 `std::vector` である。毎フレーム構築して 1 回読むだけのリストなので、型別ベクタや発行順テーブルは持たない。`Renderer` は毎フレーム `frame_cmds_` を clear して容量を使い回し（`CommandGenerator::GenerateMdPane` は渡された列の後ろに積む）、自由関数 `ExecuteDrawCommands` は先頭から `std::visit` で順に実行する。第 4 引数のインライン数式の描画命令（`App` が持つ `InlineMathDrawings`）は、`Renderer::Render` が `MdPaneParams::inline_math` をそのまま渡す。
 
 各コマンドは値型で、`IDWriteTextLayout*` や `ID2D1Bitmap*` などのポインタは **非所有**（ライフタイムは `LayoutCache` / `TextLayoutCache` / `Renderer` が管理）。色はすべて `BrushId`（`brush_id.h`）で固定ブラシを指し、`Renderer` が保持する `FixedBrushArray` を `ExecuteDrawCommands` が配列ルックアップで引く。半透明は `opacity` で掛ける。アラートの背景も固定ブラシ（`AlertNoteBg` 〜 `AlertCautionBg`）、オーバーレイボタンはテーマが白（ダーク）か黒（ライト）に決めた固定ブラシ（`BrushId::Overlay`）に不透明度を掛けて描くので、コマンドが任意の色を持つことはない。ブラシが未作成のコマンドは描かない。
 
@@ -1126,7 +1125,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
 
 コードブロックの構文色も描画時に付ける。`DrawTextLayoutCmd::syntax_tokens`（同じ `NodeLayoutEntry` が持つ UTF-16 位置のトークン、非所有）があれば、`VisibleRunRenderer` はグリフランを `clusterMap` でトークン境界に分け、種別ごとの固定ブラシ（`SyntaxKeyword` 〜 `SyntaxDeleted`）で描く。右から左のランも分割し、境界がクラスタ（合字等）の途中にあればそのクラスタは後ろのトークンの色になる。`SetDrawingEffect` は 1 回ごとに既存の範囲数に比例して重くなり、巨大なコードブロックで O(n²) になるため構文色には使わない。トークンは計測ワーカーが text_layout と一緒に作り、トークン間の空白だけの隙間は直前のトークンに含めて同種をまとめ、グリフランの分割を減らしておく。
 
-インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectOf` が QueryInterface で見分け、key と倍率を返す）は `InlineMathMasks` の型を本文の色で塗り（幅に収まらないブロック数式は倍率で縮める）、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
+インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectOf` が QueryInterface で見分け、key と倍率を返す）は `InlineMathDrawings` の描画命令を `DrawMath` で本文の色で描き（幅に収まらないブロック数式は倍率で縮める）、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
 
 #### 3.8.3 Renderer のデバイスとスワップチェーン
 
@@ -1576,14 +1575,14 @@ sequenceDiagram
         WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
         APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ (UI スレッド)
         MR-->>RM: on_update → RequestMermaidRenders（要求し直してメモリキャッシュから受け取る）
-    else キャッシュミスで、ラベルに数式 ($$) が無い図
-        MR->>PE: worker で Render(code)（QuickJS-ng で pele.render を動かす）
+    else キャッシュミス
+        MR->>PE: worker で Render(code)（QuickJS-ng で pele.render を動かす。ラベルの $$ は KaTeX）
         PE->>PE: SVG を DrawingFromPeleSvg で描画命令にする
         PE-->>APP: WM_APP+7 MERMAID_DISK_LOADED
         APP->>MR: ProcessDiskLoads → コマンドリストに記録してメモリキャッシュへ (RecordDrawing)
         MR->>FC: StoreAsync(hash, css_width, css_height, 描画命令)
         MR-->>RM: on_update → RequestMermaidRenders
-    else キャッシュミスで、数式のラベルがある図 (と描画命令にできない図)
+    else 描画命令にできない要素のある図 (PeleEngine が NeedsBrowser を返した)
         MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
         MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
         WV->>JS: pele.render(code)
@@ -1591,7 +1590,7 @@ sequenceDiagram
         alt 描画命令に書き出せる図
             WV-->>MR: 描画命令 (draw-result)
             MR->>MR: worker で解析し (ParseDrawing)、UI でコマンドリストに記録する (RecordDrawing)
-        else 数式のラベルなど書き出せない図
+        else 書き出せない図
             WV-->>MR: 寸法 (render-result)
             MR->>WV: CapturePreview(PNG)
             WV-->>MR: PNG ストリーム
@@ -1631,15 +1630,19 @@ public:
 
 要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
 
-図は WebView2 を起動せずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、WebView2 の経路と同じ描画命令（`DiagramDrawing`）にする。結果はディスクキャッシュの読み込みと同じ `DiskLoad` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。ラベルに `$$` のある図（KaTeX の MathML を描く）と、`<foreignObject>` のように描画命令にできない要素を含む図だけを WebView2 に回す。インライン数式も WebView2 で描く。
+図は WebView2 を起動せずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、WebView2 の経路と同じ描画命令（`DiagramDrawing`）にする。結果はディスクキャッシュの読み込みと同じ `DiskLoad` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。`<foreignObject>` のように描画命令にできない要素を含む図だけを WebView2 に回す。
 
-拡大表示（`DiagramView`）とクリップボードの SVG も `PeleEngine` の描画命令から作る。どちらも本文の幅で組んだ図を本文の幅に縮めずに描く（`Render` の `fit` を切る）。拡大表示は窓に `ID2D1HwndRenderTarget` を作り、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く。操作（右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ）は `mermaid_viewer.js` と同じにする。ラベルに `$$` のある図と、描画命令にできない要素のある図だけは、数式を KaTeX で描くために、これまでどおり見える WebView2 で見せる（編集で見せ方が変わっても、窓の位置と大きさを保って中身だけを替える）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは元の TeX の文字のまま書く（WebView2 で焼き込んでいたときと同じ）。
+数式も WebView2 を使わずに描く。`PeleEngine` の同じランタイムで KaTeX（`katex.min.js`）を動かして HTML 出力（`output: 'html'`、`displayMode`）を作り、`LayoutKatexHtml` が katex.css の使う範囲の CSS（vlist の表・inline-block・相対位置・絶対位置の SVG・`.katex-sizing` の大きさ）を解いて描画命令（`MathDrawing`。字形の並び・枠の矩形・SVG の path）にする。KaTeX は縦の位置と高さを自分で決めて em で書くので、解くのは横の並びと字幅だけでよい。書体は KaTeX の 20 書体（woff2、260KB）を EXE に埋め込み、DirectWrite が展開して読む（`KatexAssets`）。KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は送り幅の和で Chrome と一致する。KaTeX の書体に無い文字（`\text{}` の日本語など）は、本文と同じくシステムのフォールバックに尋ねる。描き方は Chrome に合わせ、罫線（分数の線など）の太さは CSS px に切り捨てて 1px 未満は 1px、SVG の箱とベースラインは装置の画素に合わせる。KaTeX の対応一覧と本書の 927 式を Edge で描いた KaTeX と比べると、幅の差は中央値 0.008px、1 画素のずれを許した画素の差は中央値 0% だった。大きさは KaTeX の CSS と同じ本文の 1.21 倍、`align` などの自動の式番号は数式ごとに (1) から振って式の右に置く。数式は色を持たず、描くときに周りの文字の色で描く（`\color` は効かず、`\colorbox` の背景も描かない）。
+
+KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどなので、インライン数式はまとめ描きの組（`InlineMathPlan`）ごとに bg のワーカーで描き（`MermaidRenderer::RequestMathBatch`）、ディスクキャッシュには置かない。図のラベルの `$$...$$` は pele の `math` オプションで描く。KaTeX は JS のスタックを深く使い、pele の配置の奥で動かすとスタックの上限（512KB）を超えるので、pele と同じ正規表現でコードから TeX を拾って最上位で HTML にしておき、配置の途中では `LayoutKatexHtml`（C++ だけ）を呼ぶ（pele が切り出した TeX が拾ったものと違ったときだけ、もう一度配置する）。描画命令の層にはラベルの数式（`DrawingMath`）を置き、ディスクキャッシュには TeX だけを書いて、読んだときに組み直す（`PeleEngine::ResolveMaths`）。起動から最初に見える数式がそろうまでは、数式の見本の文書で 553 → 86ms、KaTeX の対応一覧で 563 → 95ms、mendo + WebView2 のメモリは 202 → 62MB と 211 → 59MB になった（キャッシュなし、3 回交互の中央値。WebView2 の起動が無くなった）。2 回目に開くとき（前はディスクキャッシュから読んだ）は時間が同じで、メモリは +3MB（前は数式の型を GPU のメモリに置いていた）。
+
+拡大表示（`DiagramView`）とクリップボードの SVG も `PeleEngine` の描画命令から作る。どちらも本文の幅で組んだ図を本文の幅に縮めずに描く（`Render` の `fit` を切る）。拡大表示は窓に `ID2D1HwndRenderTarget` を作り、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く。操作（右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ）は `mermaid_viewer.js` と同じにする。描画命令にできない要素のある図だけは、これまでどおり見える WebView2 で見せる（描いてから切り替え、窓の位置と大きさを保って中身だけを替える）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。
 
 `PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele は最初に 1 回だけ使い捨てのランタイムでコンパイルし（約 60ms）、各ランタイムはそのバイトコードを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpNativeRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）で捨てる（`app_timer::Id::PELE_TRIM` → `OnPeleTrimTimer`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
-ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置き、まとめ描きの数式は UTF-16 の長さを前に置いて区切るので、エスケープは要らない。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、図のキャプチャは撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。インライン数式のページも、アルファを取り出すときに同じ大きさ（`PageRect`）に切り出す。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを CSS px で切り上げて返し、`PageRect` が物理 px へ切り上げる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
+ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置くので、エスケープは要らない。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、図のキャプチャは撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを CSS px で切り上げて返し、`PageRect` が物理 px へ切り上げる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
 
 PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の PNG はディスクへ保存したいので取り消さない。
 
@@ -1704,7 +1707,7 @@ private:
 WebView2 は起動時には作らず、最初の描画要求（`RequestRender` / `RequestSvg`）で `EnsureInitialized` が立ち上げる。
 
 1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
-2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。`AbandonWebView` は `WEBVIEW_RETRY_AFTER`（30 秒）後を次に試す時刻にして図を要求し直させ、ディスクキャッシュに無い図を `DiagramError::Kind::WebViewUnavailable`（「WebView2 を利用できないため図を描画できません」）にする。このエラーはコードで決まる結果ではないので、キャッシュに入れず（`DiagramError::settled` が false）、文言を出したまま走査ごとに要求を続ける。その時刻までは `EnsureInitialized` が起動せず、SVG とインライン数式の要求もすぐ失敗で返す。時刻を過ぎた後の走査で起動を試すので、一時的な失敗からは操作なしで戻る
+2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。`AbandonWebView` は `WEBVIEW_RETRY_AFTER`（30 秒）後を次に試す時刻にして図を要求し直させ、ディスクキャッシュに無い図を `DiagramError::Kind::WebViewUnavailable`（「WebView2 を利用できないため図を描画できません」）にする。このエラーはコードで決まる結果ではないので、キャッシュに入れず（`DiagramError::settled` が false）、文言を出したまま走査ごとに要求を続ける。その時刻までは `EnsureInitialized` が起動せず、SVG の要求もすぐ失敗で返す。時刻を過ぎた後の走査で起動を試すので、一時的な失敗からは操作なしで戻る
 3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と pele（`IDR_PELE_JS`）・KaTeX（`IDR_KATEX_JS`）を RCDATA から無圧縮のまま配信する
 4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
 
@@ -3098,7 +3101,7 @@ flowchart TD
     SHOWW --> ATTACH{LoadInitialDocument<br>Attach で通知先を渡す}
 
     ATTACH -->|読み込み中| AWAIT[AwaitInitialParseBeforeDevice<br>D3D デバイスの先行作成を待つ間に<br>PARSE_COMPLETE が届けば OnParseComplete<br>長引けばスピナー]
-    ATTACH -->|読み込んでいない| HELP[ShowHelpResource]
+    ATTACH -->|読み込んでいない| HELP[ShowEmbeddedResource]
 
     AWAIT --> TAKE[TakeStartupMessages<br>FILE_LISTED / INLINE_MATH_REQUESTED を<br>デバイスを待つ前に取り込む]
     HELP --> TAKE
@@ -3222,7 +3225,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | ターゲット | 種別 | 説明 |
 |:-----------|:-----|:-----|
 | `md4c` | 静的ライブラリ | サードパーティ Markdown パーサ |
-| `quickjs` | 静的ライブラリ | QuickJS-ng（pele を動かす JS エンジン。FetchContent で v0.18.0 を SHA-256 で検証して取得し、ライブラリの 4 ファイルだけを組む） |
+| `quickjs` | 静的ライブラリ | QuickJS-ng（pele と KaTeX を動かす JS エンジン。FetchContent で v0.18.0 を SHA-256 で検証して取得し、ライブラリの 4 ファイルだけを組む） |
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・`App`・レンダラ実装を含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |
@@ -3231,7 +3234,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 ### 6.4 pele と KaTeX の埋め込み
 
-図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`）の RCDATA として無圧縮のまま EXE に埋め込む。`WebResourceRequested` は `index.html` に HTML テンプレートを、`pele.mjs` と `katex.js` にそれぞれのライブラリを返し、それ以外は 404 にする。KaTeX は UMD 版なので `import` ではなく `<script>` で読み、数式の要求より先に pele と並べて読み始める。どちらも `eval` を使わないので、ページの CSP は `unsafe-eval` を許さない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
+図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き（KaTeX は描画に使う 20 書体の woff2 も `third_party/katex/fonts` に置く）、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`、書体は `IDR_KATEX_FONT_FIRST` から `kKatexFontFiles` の順）の RCDATA として無圧縮のまま EXE に埋め込む。ふだんは `PeleEngine` が QuickJS-ng で動かし、WebView2 は描画命令にできない図のときだけ使う。そのとき `WebResourceRequested` は `index.html` に HTML テンプレートを、`pele.mjs` と `katex.js` にそれぞれのライブラリを返し、それ以外は 404 にする。KaTeX は UMD 版なので `import` ではなく `<script>` で読み、ラベルに `$$` のある図を描くときだけ読む。どちらも `eval` を使わないので、ページの CSP は `unsafe-eval` を許さない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
 
 pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。
 
@@ -3518,7 +3521,7 @@ src/
 │   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 + ブラシ・フォーマット (タイトルバー・サイドペイン・オーバーレイのコマンドは command_generator の chrome:: / overlay::)
 │   ├── renderer_device.cpp        # Renderer のデバイス部分 (D3D11 デバイス / スワップチェーン / フレーム待ち)
 │   ├── render_params.h            # レンダリングパラメータ (MdPaneParams / RenderParams 等)
-│   ├── draw_command.h             # DrawCommand variant + DrawCommandList (vector) + FixedBrushArray + インライン数式の型 (InlineMathMasks) / ExecuteDrawCommands 宣言
+│   ├── draw_command.h             # DrawCommand variant + DrawCommandList (vector) + FixedBrushArray + インライン数式の描画命令 (InlineMathDrawings) / ExecuteDrawCommands 宣言
 │   ├── command_generator.h / .cpp # 描画コマンド生成 (テーブル / ハイライトを含む) + TextLayoutCache (繰り返し描く短い文字列のテキストレイアウト作り置き)
 │   └── command_executor.cpp       # 描画コマンド実行 (固定ブラシ・可視グリフランの描画と構文色付け)
 ├── core/                          # コアドメイン
@@ -3600,10 +3603,10 @@ src/
 | ライブラリ | バージョン | 用途 | ライセンス |
 |:-----------|:----------|:-----|:----------|
 | md4c | 0.6.0 | Markdown パース | MIT |
-| WebView2 SDK | 1.0.3967.48 | Mermaid描画用ブラウザコントロール | BSD |
+| WebView2 SDK | 1.0.3967.48 | 描画命令にできない図を描くブラウザコントロール | BSD |
 | Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
 | pele | 1.13.0 | ダイアグラム描画 | MIT |
-| KaTeX | 0.19.1 | 数式描画 | MIT |
+| KaTeX | 0.19.1 | 数式描画（20 書体の woff2 を同梱） | MIT（書体は SIL OFL 1.1） |
 | Tracy | 0.14.1 | プロファイラ（`MENDO_USE_TRACY=ON` 時のみ） | BSD-3-Clause |
 
 ### 付録C: Markdown表示サンプル
@@ -5189,7 +5192,7 @@ $$
 \end{aligned}
 $$
 
-`align` のようなディスプレイ専用の環境も描画される。式の番号 `\tag` は環境の外なら描画されるが、環境の行ごとの `\tag` は番号が表示されない。`align`・`gather`・`equation` の自動番号も表示されない。
+`align` のようなディスプレイ専用の環境も描画される。`align`・`gather`・`equation` の自動番号は数式ごとに (1) から振り、式の右に置く (文書の通し番号にはしない)。`\tag` は環境の外でも行ごとでも、書いた番号を置く。
 
 $$
 \begin{align}

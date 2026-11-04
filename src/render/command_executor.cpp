@@ -1,5 +1,6 @@
 #include "draw_command.h"
 #include "d2d_util.h"
+#include "diagram_raster.h"
 #include "inline_math.h"
 #include "profiler.h"
 #include "ui_constants.h"
@@ -60,7 +61,7 @@ private:
 // スタック上でのみ使うので参照カウントは持たない。
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, InlineMathMasks& math) noexcept
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineMathDrawings& math) noexcept
         : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), math_(math)
     {
         rt->GetTransform(&transform_);
@@ -122,13 +123,12 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インライン数式は型を塗る。型が無ければ (受け取らなかったページ・捨てたページ・デバイスロストで読み直し中) 何も描かない。
-    // ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
+    // インライン数式は描画命令を周りの文字の色で描く。ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void* context, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL sideways, BOOL rtl, IUnknown* effect) noexcept override
     {
-        // 見えない行のものは数式か見分ける (QueryInterface の参照カウントの往復) 前に飛ばす。型は箱よりインクの幅と
-        // 物理 px への丸め (1px 未満) の分だけ広く切り出してあるので、その分広く見る。
-        constexpr float kInkPad = INLINE_MATH_INK_MARGIN + 1.0f;
+        // 見えない行のものは数式か見分ける (QueryInterface の参照カウントの往復) 前に飛ばす。積分記号の端などのインクは
+        // 箱から少しはみ出すので、その分広く見る。
+        constexpr float kInkPad = 8.0f;
         DWRITE_INLINE_OBJECT_METRICS m{};
         if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cmd_.cull_top || y - kInkPad > cmd_.cull_bottom) {
             return S_OK;
@@ -137,19 +137,14 @@ public:
         if (!math) {
             return object->Draw(context, this, x, y, sideways, rtl, effect);
         }
-        const auto* mask = math_.Find(math->key);
-        if (!mask) {
-            math_.missing.push_back(math->key);
+        const MathDrawing* drawing = math_.Find(math->key);
+        if (!drawing) {
             return S_OK;
         }
         const float s = math->scale;
-        const D2D1_RECT_F dest = D2D1::RectF(x + mask->dest.left * s, y + mask->dest.top * s, x + mask->dest.right * s, y + mask->dest.bottom * s);
-        mask->page->last_drawn = math_.frame;
-        // FillOpacityMask は ALIASED のときしか描かない。
-        const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();
-        rt_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-        rt_->FillOpacityMask(mask->page->bitmap.Get(), BrushFor(effect), D2D1_OPACITY_MASK_CONTENT_GRAPHICS, &dest, &mask->src);
-        rt_->SetAntialiasMode(mode);
+        rt_->SetTransform(D2D1::Matrix3x2F::Scale(s, s) * D2D1::Matrix3x2F::Translation(x, y) * *D2D1::Matrix3x2F::ReinterpretBaseType(&transform_));
+        DrawMath(rt_, *drawing, 0.0f, drawing->height, BrushFor(effect));
+        rt_->SetTransform(transform_);
         return S_OK;
     }
 
@@ -236,57 +231,12 @@ private:
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
     const FixedBrushArray& brushes_;
-    InlineMathMasks& math_;
+    const InlineMathDrawings& math_;
 };
 
 } // namespace
 
-InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap)
-{
-    auto& page = *pages.emplace_back(std::make_unique<InlineMathPage>(InlineMathPage{ .bitmap = std::move(bitmap), .last_drawn = frame }));
-    page_bytes += BitmapBytes(page.bitmap.Get());
-    return page;
-}
-
-void InlineMathMasks::Assign(uint64_t key, const InlineMathMask& mask)
-{
-    ++mask.page->masks;
-    const auto [slot, inserted] = masks.TryEmplace(key);
-    InlineMathPage* const old = std::exchange(*slot, mask).page;
-    if (!inserted && --old->masks == 0) {
-        page_bytes -= BitmapBytes(old->bitmap.Get());
-        std::erase_if(pages, [old](const auto& p) { return p.get() == old; });
-    }
-}
-
-void InlineMathMasks::EvictPages(size_t budget)
-{
-    if (page_bytes <= budget) {
-        return;
-    }
-    std::vector<InlineMathPage*> order;
-    for (const auto& p : pages) {
-        if (p->last_drawn != frame) {
-            order.push_back(p.get());
-        }
-    }
-    if (order.empty()) {
-        return;
-    }
-    std::ranges::sort(order, {}, &InlineMathPage::last_drawn);
-    for (auto* p : order) {
-        if (page_bytes <= budget) {
-            break;
-        }
-        page_bytes -= BitmapBytes(p->bitmap.Get());
-        // ビットマップを手放したページを捨てる印にする。
-        p->bitmap.Reset();
-    }
-    masks.EraseIf([](const InlineMathMask& m) static { return !m.page->bitmap; });
-    std::erase_if(pages, [](const auto& p) static { return !p->bitmap; });
-}
-
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks& math)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathDrawings& math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
     // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。

@@ -110,12 +110,14 @@ struct LinkClickResult {
     enum class Type : uint8_t {
         None,
         Anchor,
-        ExternalUrl
+        ExternalUrl,
+        Embedded, // 埋め込みの文書 (mendo://help・mendo://licenses)
     };
     Type type = Type::None;
     // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
     // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
     // ExternalUrl: URL (UTF-8)。App::ShellOpenAsync に渡す直前で wstring 化する。
+    // Embedded: 仮想パス (UTF-8)。OpenPathAction で開く。
     std::string target;
 };
 

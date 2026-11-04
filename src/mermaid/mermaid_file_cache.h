@@ -28,7 +28,8 @@ public:
     // 2: 1 つずつ描いた図と数式も、WebView2 が 1px 広く撮った分を切り落とす。表示の大きさは切り出した画素数から決める。
     //    ヘッダの読まれない dpr を消す。
     // 3: 図を mermaid.js から pele に、数式を mermaid 同梱の KaTeX から npm の KaTeX に替えた。図は描画命令で置く。
-    static constexpr uint32_t VERSION = 3;
+    // 4: 描画命令の層に数式のラベルの数を足した。インライン数式の組の PNG は置かなくなった。
+    static constexpr uint32_t VERSION = 4;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();

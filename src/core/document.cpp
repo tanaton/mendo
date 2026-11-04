@@ -28,7 +28,7 @@ Document Document::FromMarkdown(std::string utf8, std::wstring_view path)
 
 bool Document::HasBackingFile() const noexcept
 {
-    return !file_path_.empty() && !IsHelpPath(file_path_);
+    return !file_path_.empty() && !IsEmbeddedPath(file_path_);
 }
 
 int Document::FindAnchorIndex(std::string_view anchor)

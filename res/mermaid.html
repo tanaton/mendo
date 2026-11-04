@@ -12,14 +12,6 @@
   #measure math, .pele-math math { display: inline math; }
   /* クリップボード用の SVG に値を書き込む場所。visibility も書き込むので隠さず、画面の外に置く。 */
   #bake { position: absolute; left: -100000px; top: 0; }
-  /* インライン数式の型は黒で描いてアルファだけを使う (本文の色で塗る) ので、背景は透明にする。
-     行の高さを詰めるため上揃えで並べ、ベースラインは幅 0 の目印 (.bl) の位置で測る。 */
-  body.atlas-page { background: transparent; }
-  .math-atlas { color: #000; }
-  .math-atlas .m { display: inline-block; vertical-align: top; margin: 2px; }
-  .math-atlas .bl { display: inline-block; width: 0; height: 0; }
-  /* displayMode の math はブロックになり、箱とベースラインが変わる。 */
-  .math-atlas math { display: inline math; }
 </style>
 <script>
   let renderCount = 0;
@@ -52,7 +44,7 @@
   // KaTeX は数式があるときだけ読む。UMD 版なので window.katex に入る。
   let katexPromise = null;
   function loadKatex() {
-    // 失敗は覚えず、次に使うときに読み直す (起動時の先読みが一度失敗しただけで、このワーカーの数式が描けなくなる)。
+    // 失敗は覚えず、次に使うときに読み直す (一度失敗しただけで、このワーカーの数式が描けなくならないように)。
     katexPromise ??= new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = 'https://app.local/katex.js';
@@ -66,15 +58,11 @@
     return katexPromise;
   }
 
-  function mathMarkup(tex, displayMode) {
-    return katex.renderToString(tex, { throwOnError: true, displayMode: displayMode, output: 'mathml' });
-  }
-
   // 図のラベルの $$...$$。pele は寸法を同期で求めるので、ここで DOM に入れて測る。描けない数式は元の文字のまま出させる。
   function labelMath(tex, size) {
     let html;
     try {
-      html = mathMarkup(tex, false);
+      html = katex.renderToString(tex, { throwOnError: true, displayMode: false, output: 'mathml' });
     } catch (e) {
       return null;
     }
@@ -112,8 +100,7 @@
     }, fonts(locale))).svg;
   }
 
-  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。まとめ描きの箱と同じく CSS px で切り上げ、
-  // 1 つずつ描いてもまとめて描いても同じ大きさに切り出させる。
+  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。CSS px で切り上げる。
   function sizeString(width, height) {
     return Math.ceil(width) + ':' + Math.ceil(height) + ':' + (window.devicePixelRatio || 1);
   }
@@ -370,7 +357,8 @@
     let out = [width, height, window.devicePixelRatio || 1, isDark ? BACKGROUND.dark : BACKGROUND.light, layers.length].join(':') + ':';
     for (const layer of layers) {
       const shapes = layer.shapes ? head + layer.shapes + '</svg>' : '';
-      out += shapes.length + ':' + shapes + layer.texts.length + ':' + layer.texts.map(t => t.markup).join('');
+      // 最後の 0 は数式のラベルの数。数式のラベルは C++ が KaTeX で描くので、ページの描画命令には無い。
+      out += shapes.length + ':' + shapes + layer.texts.length + ':' + layer.texts.map(t => t.markup).join('') + '0:';
     }
     return out;
   }
@@ -485,64 +473,15 @@
     return bakeSvg(await renderPele(code, maxWidth, locale, false), isDark, locale);
   }
 
-  // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
-  // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
-  // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
-  // MathML で出すのは KaTeX の CSS とフォントを持たずに済むため。
-  // $...$ も文中の $$...$$ も displayMode で描く。GitHub は文中の数式をどちらも小さい形式で描くが、分数の中が本文の
-  // 7 割になって読みにくいので、行が高くなっても大きい方にそろえる。\displaystyle を前に付ける方法だと align や \tag が描けない。
-  async function renderMathBatch(items, pageWidth) {
-    await loadKatex();
-    document.body.className = 'atlas-page';
-    let html = '';
-    for (const [tex, px] of items) {
-      let math = null;
-      try {
-        math = mathMarkup(tex, true);
-      } catch (e) {
-      }
-      html += math === null ? '<span class="m err"></span>'
-                            : '<span class="m" style="font-size:' + px + 'px"><span class="bl"></span>' + math + '</span>';
-    }
-    const container = document.getElementById('container');
-    container.style.width = '';
-    container.innerHTML = '<div class="math-atlas" style="width:' + pageWidth + 'px">' + html + '</div>';
-    const atlas = container.firstChild;
-    const o = atlas.getBoundingClientRect();
-    // ページより幅の広い数式は右へはみ出すので、ページの大きさははみ出した分まで含める。
-    let right = o.width;
-    let bottom = o.height;
-    const boxes = [];
-    for (const m of atlas.children) {
-      if (m.classList.contains('err')) {
-        boxes.push('e');
-        continue;
-      }
-      const r = m.getBoundingClientRect();
-      const baseline = m.firstChild.getBoundingClientRect().top - r.top;
-      right = Math.max(right, r.right - o.left);
-      bottom = Math.max(bottom, r.bottom - o.top);
-      boxes.push([r.left - o.left, r.top - o.top, r.width, r.height, baseline].map(v => v.toFixed(2)).join(','));
-    }
-    return sizeString(right, bottom) + '|' + boxes.join(';');
-  }
-
   function errorText(e) {
     return (e && e.message) || String(e);
   }
 
-  // C++ (mermaid_util::Page*Message) からの要求。"<種類>:<要求 ID>:..." の形で、図のコードは末尾に置き、
-  // まとめて描く数式は "<文字の大きさ>:<TeX の長さ>:<TeX>" を並べてある。
+  // C++ (mermaid_util::Page*Message) からの要求。"<種類>:<要求 ID>:..." の形で、図のコードは末尾に置く。
   // 結果は "<結果の種類>:<要求 ID>:<中身>" で、描けなければ "render-error:<要求 ID>:<文言>" で返す。
   function readField(msg, pos) {
     const end = msg.indexOf(':', pos);
     return [msg.slice(pos, end), end + 1];
-  }
-  // "<長さ>:<本文>" を読む。
-  function readText(msg, pos) {
-    let len;
-    [len, pos] = readField(msg, pos);
-    return [msg.substr(pos, +len), pos + +len];
   }
   window.chrome.webview.addEventListener('message', function(e) {
     const msg = e.data;
@@ -558,40 +497,23 @@
     }
     // task は [結果の種類, 中身] を返す。
     let task;
-    if (kind === 'math') {
-      let width;
-      [width, pos] = readField(msg, pos);
-      const items = [];
-      while (pos < msg.length) {
-        let px, tex;
-        [px, pos] = readField(msg, pos);
-        [tex, pos] = readText(msg, pos);
-        items.push([tex, +px]);
-      }
-      task = renderMathBatch(items, +width).then(r => ['math-result', r]);
+    let dark, width, locale;
+    [dark, pos] = readField(msg, pos);
+    [width, pos] = readField(msg, pos);
+    [locale, pos] = readField(msg, pos);
+    const code = msg.slice(pos);
+    const isDark = dark === '1';
+    if (kind === 'svg' || kind === 'view') {
+      task = renderSvg(kind, code, isDark, +width, locale).then(r => ['svg-result', r]);
     }
     else {
-      let dark, width, locale;
-      [dark, pos] = readField(msg, pos);
-      [width, pos] = readField(msg, pos);
-      [locale, pos] = readField(msg, pos);
-      const code = msg.slice(pos);
-      const isDark = dark === '1';
-      if (kind === 'svg' || kind === 'view') {
-        task = renderSvg(kind, code, isDark, +width, locale).then(r => ['svg-result', r]);
-      }
-      else {
-        task = renderDiagram(code, isDark, +width, locale);
-      }
+      task = renderDiagram(code, isDark, +width, locale);
     }
     task.then(([result, body]) => result + ':' + id + ':' + body, err => 'render-error:' + id + ':' + errorText(err))
         .then(reply => window.chrome.webview.postMessage(reply));
   });
 
   (async function() {
-    // 数式の要求は準備完了の後に来るので、KaTeX を pele と並べて読み始める。
-    // 失敗したら使うときに読み直すので、ここでは握りつぶす。
-    loadKatex().catch(() => {});
     try {
       window.pele = await import('https://app.local/pele.mjs');
       var dpr = window.devicePixelRatio || 1;

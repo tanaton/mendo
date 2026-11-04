@@ -22,3 +22,6 @@
 #define IDR_MERMAID_VIEWER_JS 309
 #define IDR_PELE_JS       310
 #define IDR_KATEX_JS      311
+#define IDR_THIRD_PARTY_LICENSES_MD 312
+// KaTeX の書体 20 個 (kKatexFontFiles の順) は IDR_KATEX_FONT_FIRST から続けて置く。
+#define IDR_KATEX_FONT_FIRST 320

@@ -26,6 +26,14 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 {
     return path == HELP_PATH;
 }
+// 埋め込みのサードパーティのライセンス (THIRD_PARTY_LICENSES.md) を表す仮想パス。配布する zip には exe だけを入れるので、
+// ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記はヘルプのリンクから開けるようにして添える。
+inline constexpr std::wstring_view LICENSES_PATH = L"mendo://licenses";
+// ファイルとしては読めない、埋め込みの文書の仮想パス。
+inline constexpr bool IsEmbeddedPath(std::wstring_view path) noexcept
+{
+    return path == HELP_PATH || path == LICENSES_PATH;
+}
 
 class Document {
 public:

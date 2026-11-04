@@ -1,4 +1,5 @@
 #include "diagram_raster.h"
+#include "doc_dwrite_bridge.h"
 #include "ascii_util.h"
 #include "string_convert.h"
 #include "theme_palette.h"
@@ -19,7 +20,9 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 using namespace std::literals;
@@ -316,6 +319,12 @@ struct Mat {
 };
 
 // m の後に n を先に当てる (m ∘ n)。子の変換は Compose(親, 子)。
+std::array<float, 6> ToArray(const Mat& m) noexcept
+{
+    return { static_cast<float>(m.a), static_cast<float>(m.b), static_cast<float>(m.c), static_cast<float>(m.d), static_cast<float>(m.e),
+             static_cast<float>(m.f) };
+}
+
 Mat Compose(const Mat& m, const Mat& n) noexcept
 {
     return { m.a * n.a + m.c * n.b, m.b * n.a + m.d * n.b, m.a * n.c + m.c * n.d,
@@ -445,15 +454,27 @@ void AddArcBounds(Bounds& out, double x1, double y1, double rx, double ry, doubl
     out.Add(cx + hx, cy + hy);
 }
 
-// path の d の外接矩形 (曲線は制御点を含める)。読めないところで止め、そこまでの範囲を返す (ブラウザも誤りの手前まで描く)。
-Bounds PathBounds(std::string_view d)
+// path の d を、絶対座標の区間にして visitor に順に渡す。S・T の 1 つ目の制御点は鏡映で求めて渡す。
+// visitor は Move(x, y)・Line(x, y)・Cubic(x1, y1, x2, y2, x, y)・Quad(x1, y1, x, y)・
+// Arc(x1, y1, rx, ry, rotation, large, sweep, x2, y2)・Close() を持つ。
+// 読めないところで止めて false を返す (ブラウザも誤りの手前まで描く)。
+template <class Visitor>
+bool WalkPath(std::string_view d, Visitor& visitor)
 {
-    Bounds out;
     double x = 0.0, y = 0.0, start_x = 0.0, start_y = 0.0;
-    char command = 0;
+    double ctrl_x = 0.0, ctrl_y = 0.0; // 直前の C/S・Q/T の制御点
+    char command = 0, last = 0;
     const auto number = [&](double& v) {
         SkipSeparators(d);
         return TakeNumber(d, v);
+    };
+    const auto numbers = [&](double* v, int n) {
+        for (int i = 0; i < n; ++i) {
+            if (!number(v[i])) {
+                return false;
+            }
+        }
+        return true;
     };
     const auto flag = [&](bool& v) {
         SkipSeparators(d);
@@ -467,83 +488,132 @@ Bounds PathBounds(std::string_view d)
     for (;;) {
         SkipSeparators(d);
         if (d.empty()) {
-            return out;
+            return true;
         }
         if ((d[0] >= 'A' && d[0] <= 'Z') || (d[0] >= 'a' && d[0] <= 'z')) {
             command = d[0];
             d.remove_prefix(1);
         }
         else if (command == 0) {
-            return out;
+            return false;
         }
         const bool rel = command >= 'a';
         const double ox = rel ? x : 0.0;
         const double oy = rel ? y : 0.0;
+        const char upper = static_cast<char>(command & ~0x20);
         double v[6]{};
-        switch (command & ~0x20) {
+        switch (upper) {
         case 'Z':
+            visitor.Close();
             x = start_x;
             y = start_y;
             command = 0;
+            last = 'Z';
             continue;
         case 'M':
+            if (!numbers(v, 2)) {
+                return false;
+            }
+            x = start_x = ox + v[0];
+            y = start_y = oy + v[1];
+            visitor.Move(x, y);
+            command = rel ? 'l' : 'L';
+            last = 'M';
+            continue;
         case 'L':
-        case 'T':
-            if (!number(v[0]) || !number(v[1])) {
-                return out;
+            if (!numbers(v, 2)) {
+                return false;
             }
             x = ox + v[0];
             y = oy + v[1];
-            if ((command & ~0x20) == 'M') {
-                start_x = x;
-                start_y = y;
-                command = rel ? 'l' : 'L';
-            }
-            out.Add(x, y);
+            visitor.Line(x, y);
             break;
         case 'H':
-            if (!number(v[0])) {
-                return out;
-            }
-            x = ox + v[0];
-            out.Add(x, y);
-            break;
         case 'V':
-            if (!number(v[0])) {
-                return out;
+            if (!numbers(v, 1)) {
+                return false;
             }
-            y = oy + v[0];
-            out.Add(x, y);
+            (upper == 'H' ? x : y) = (upper == 'H' ? ox : oy) + v[0];
+            visitor.Line(x, y);
             break;
         case 'C':
-        case 'S':
-        case 'Q': {
-            const int pairs = (command & ~0x20) == 'C' ? 3 : 2;
-            for (int i = 0; i < pairs; ++i) {
-                if (!number(v[i * 2]) || !number(v[i * 2 + 1])) {
-                    return out;
-                }
-                out.Add(ox + v[i * 2], oy + v[i * 2 + 1]);
+        case 'S': {
+            const bool smooth = upper == 'S';
+            const int n = smooth ? 4 : 6;
+            if (!numbers(v, n)) {
+                return false;
             }
-            x = ox + v[pairs * 2 - 2];
-            y = oy + v[pairs * 2 - 1];
+            const bool reflect = last == 'C' || last == 'S';
+            const double c1x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x : x;
+            const double c1y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y : y;
+            ctrl_x = ox + v[n - 4];
+            ctrl_y = oy + v[n - 3];
+            x = ox + v[n - 2];
+            y = oy + v[n - 1];
+            visitor.Cubic(c1x, c1y, ctrl_x, ctrl_y, x, y);
+            break;
+        }
+        case 'Q':
+        case 'T': {
+            const bool smooth = upper == 'T';
+            const int n = smooth ? 2 : 4;
+            if (!numbers(v, n)) {
+                return false;
+            }
+            const bool reflect = last == 'Q' || last == 'T';
+            ctrl_x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x : x;
+            ctrl_y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y : y;
+            x = ox + v[n - 2];
+            y = oy + v[n - 1];
+            visitor.Quad(ctrl_x, ctrl_y, x, y);
             break;
         }
         case 'A': {
             bool large = false;
             bool sweep = false;
             if (!number(v[0]) || !number(v[1]) || !number(v[2]) || !flag(large) || !flag(sweep) || !number(v[3]) || !number(v[4])) {
-                return out;
+                return false;
             }
-            AddArcBounds(out, x, y, v[0], v[1], v[2], large, sweep, ox + v[3], oy + v[4]);
+            const double x1 = x;
+            const double y1 = y;
             x = ox + v[3];
             y = oy + v[4];
+            visitor.Arc(x1, y1, v[0], v[1], v[2], large, sweep, x, y);
             break;
         }
         default:
-            return out;
+            return false;
         }
+        last = upper;
     }
+}
+
+// path の d の外接矩形 (曲線は制御点を含める)。読めないところで止め、そこまでの範囲を返す。
+Bounds PathBounds(std::string_view d)
+{
+    struct Visitor {
+        Bounds out;
+        void Move(double x, double y) { out.Add(x, y); }
+        void Line(double x, double y) { out.Add(x, y); }
+        void Cubic(double x1, double y1, double x2, double y2, double x, double y)
+        {
+            out.Add(x1, y1);
+            out.Add(x2, y2);
+            out.Add(x, y);
+        }
+        void Quad(double x1, double y1, double x, double y)
+        {
+            out.Add(x1, y1);
+            out.Add(x, y);
+        }
+        void Arc(double x1, double y1, double rx, double ry, double rotation, bool large, bool sweep, double x2, double y2)
+        {
+            AddArcBounds(out, x1, y1, rx, ry, rotation, large, sweep, x2, y2);
+        }
+        void Close() {}
+    } visitor;
+    WalkPath(d, visitor);
+    return visitor.out;
 }
 
 // ---- XML ----
@@ -1479,7 +1549,8 @@ bool ViewportTransform(const XmlNode& el, double x, double y, double width, doub
 
 class PeleSvgResolver {
 public:
-    PeleSvgResolver(const XmlDoc& doc, DiagramTextMeasurer& measurer) : nodes_(doc.nodes), measurer_(measurer)
+    PeleSvgResolver(const XmlDoc& doc, DiagramTextMeasurer& measurer, std::span<const PeleMathLabel> maths)
+        : nodes_(doc.nodes), measurer_(measurer), maths_(maths)
     {
     }
 
@@ -1489,7 +1560,8 @@ private:
     struct Layer {
         std::string shapes;
         std::vector<mermaid_util::DrawingText> texts;
-        std::vector<Bounds> text_bounds;
+        std::vector<mermaid_util::DrawingMath> maths;
+        std::vector<Bounds> text_bounds; // 数式も含む
     };
     struct Piece {
         std::string_view raw;
@@ -1514,6 +1586,7 @@ private:
     bool Walk(uint32_t index, const Style& parent, const Mat& ctm, float opacity);
     bool Shape(const XmlNode& el, const Style& s, const Mat& ctm, float opacity);
     bool Text(uint32_t index, const Style& s, const Mat& ctm, float opacity);
+    bool MathLabel(const XmlNode& el, const Style& s, const Mat& ctm, float opacity);
     bool CollectText(uint32_t index, const Style& s, float opacity, bool underline, float shift, std::vector<Piece>& pieces,
                      std::optional<float>& pending_x, std::optional<float>& pending_y);
     void AppendPaint(std::string& out, std::string_view name, const Paint& paint, const Style& s, float paint_opacity);
@@ -1523,6 +1596,7 @@ private:
 
     const std::vector<XmlNode>& nodes_;
     DiagramTextMeasurer& measurer_;
+    std::span<const PeleMathLabel> maths_;
     std::deque<std::string> strings_;
     std::deque<std::wstring> wide_strings_;
     std::deque<Vars> vars_;
@@ -2156,8 +2230,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
         Layer& layer = layers_.back();
         layer.text_bounds.push_back(box.Transformed(ctm));
         layer.texts.push_back({
-            .transform = { static_cast<float>(ctm.a), static_cast<float>(ctm.b), static_cast<float>(ctm.c), static_cast<float>(ctm.d),
-                           static_cast<float>(ctm.e), static_cast<float>(ctm.f) },
+            .transform = ToArray(ctm),
             .x = piece.left,
             .y = baseline,
             .font_size = ps.font_size,
@@ -2173,6 +2246,45 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
     return true;
 }
 
+// <svg class="pele-math" x y width height color opacity><g data-mendo-math="番号"/></svg>。pele は箱を行の中央に置く。
+bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ctm, float opacity)
+{
+    const auto number = [&]() -> std::optional<size_t> {
+        if (el.children.size() != 1) {
+            return std::nullopt;
+        }
+        const auto attr = nodes_[el.children[0]].Attr("data-mendo-math");
+        size_t n = 0;
+        if (!attr || std::from_chars(attr->data(), attr->data() + attr->size(), n).ec != std::errc{} || n >= maths_.size()) {
+            return std::nullopt;
+        }
+        return n;
+    }();
+    if (!number || !maths_[*number].drawing) {
+        return false;
+    }
+    const PeleMathLabel& label = maths_[*number];
+    const MathDrawing& math = *label.drawing;
+    const float x = AttrLength(el, "x", s.font_size).value_or(0.0f);
+    const float top = AttrLength(el, "y", s.font_size).value_or(0.0f);
+    Bounds box;
+    box.Add(x, top);
+    box.Add(x + math.width, top + math.height + math.depth);
+    Layer& layer = layers_.back();
+    layer.text_bounds.push_back(box.Transformed(ctm));
+    layer.maths.push_back({
+        .transform = ToArray(ctm),
+        .x = x,
+        .y = top + math.height,
+        .font_size = label.font_size,
+        .rgb = ToRgb(s.color),
+        .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
+        .tex = label.tex,
+        .drawing = label.drawing,
+    });
+    return true;
+}
+
 bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, float opacity)
 {
     const XmlNode& el = nodes_[index];
@@ -2184,7 +2296,7 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
     const bool shape = tag == "path" || tag == "rect" || tag == "circle" || tag == "ellipse" || tag == "line" || tag == "polyline" || tag == "polygon";
     const bool container = tag == "g" || tag == "svg" || tag == "a";
     if (!shape && !container && tag != "text") {
-        // foreignObject (数式のラベル)・image・use・style など。ブラウザに描かせる。
+        // foreignObject・image・use・style など。ブラウザに描かせる。
         return false;
     }
     const Style s = Compute(parent, el);
@@ -2198,6 +2310,9 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
         if (ParseTransform(*transform, t)) {
             m = Compose(m, t);
         }
+    }
+    if (tag == "svg" && el.Attr("class") == "pele-math"sv) {
+        return MathLabel(el, s, m, own_opacity);
     }
     if (tag == "svg") {
         const auto w = AttrLength(el, "width", s.font_size);
@@ -2282,12 +2397,1396 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
             svg += layer.shapes;
             svg += "</svg>";
         }
-        out.layers.push_back({ .shapes_svg = std::move(svg), .texts = std::move(layer.texts) });
+        out.layers.push_back({ .shapes_svg = std::move(svg), .texts = std::move(layer.texts), .maths = std::move(layer.maths) });
     }
     return out;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// KaTeX の HTML 出力の配置。katex.css が使う範囲の CSS (vlist の表・inline-block・相対位置・絶対位置の SVG) だけを解く。
+// KaTeX は縦の位置 (vlist の top と pstrut) と高さを自分で決めて em で書くので、ブラウザに頼るのは横の並びと字幅だけ。
+// KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は hmtx の送り幅の和になる (Chrome の HarfBuzz と同じ)。
+
+enum class KFamily : uint8_t { Main, Math, AMS, Caligraphic, Fraktur, SansSerif, Script, Size1, Size2, Size3, Size4, Typewriter };
+
+struct KFaceEntry {
+    KFamily family;
+    bool bold;
+    bool italic;
+};
+// kKatexFontFiles と同じ順。
+constexpr KFaceEntry kKatexFaces[]{
+    { KFamily::AMS, false, false },        { KFamily::Caligraphic, true, false }, { KFamily::Caligraphic, false, false },
+    { KFamily::Fraktur, true, false },     { KFamily::Fraktur, false, false },    { KFamily::Main, true, false },
+    { KFamily::Main, true, true },         { KFamily::Main, false, true },        { KFamily::Main, false, false },
+    { KFamily::Math, true, true },         { KFamily::Math, false, true },        { KFamily::SansSerif, true, false },
+    { KFamily::SansSerif, false, true },   { KFamily::SansSerif, false, false },  { KFamily::Script, false, false },
+    { KFamily::Size1, false, false },      { KFamily::Size2, false, false },      { KFamily::Size3, false, false },
+    { KFamily::Size4, false, false },      { KFamily::Typewriter, false, false },
+};
+static_assert(std::size(kKatexFaces) == std::size(kKatexFontFiles));
+
+struct KFont {
+    KFamily family = KFamily::Main;
+    bool bold = false;
+    bool italic = false;
+};
+
+// CSS の書体の選び方。字形の傾きを先に合わせ、無ければ斜体を合成する。太さが無ければ太字を合成する。
+// 斜体しか無い書体 (KaTeX_Math) に立体を求めたときは、合成せずに斜体を使う。
+std::pair<size_t, uint32_t> MatchKatexFace(const KFont& font) noexcept
+{
+    const auto has = [&](bool italic) {
+        return std::ranges::any_of(kKatexFaces, [&](const KFaceEntry& e) { return e.family == font.family && e.italic == italic; });
+    };
+    const bool style_found = has(font.italic);
+    const bool italic = style_found ? font.italic : !font.italic;
+    uint32_t sim = font.italic && !style_found ? DWRITE_FONT_SIMULATIONS_OBLIQUE : 0;
+    size_t best = std::size(kKatexFaces);
+    for (size_t i = 0; i < std::size(kKatexFaces); ++i) {
+        const auto& e = kKatexFaces[i];
+        if (e.family != font.family || e.italic != italic) {
+            continue;
+        }
+        if (best == std::size(kKatexFaces) || e.bold == font.bold) {
+            best = i;
+        }
+    }
+    if (best == std::size(kKatexFaces)) {
+        return { 8, 0 }; // Main-Regular
+    }
+    if (font.bold && !kKatexFaces[best].bold) {
+        sim |= DWRITE_FONT_SIMULATIONS_BOLD;
+    }
+    return { best, sim };
+}
+
+enum class KAlign : uint8_t { Left, Center, Right };
+
+// 継承する値。
+struct KInherit {
+    float font_size = 16.0f;
+    KFont font;
+    KAlign align = KAlign::Center;
+    std::optional<std::pair<float, float>> shadow; // text-shadow の x, y
+};
+
+struct KLen {
+    float v = 0.0f;
+    bool pct = false; // v は 0〜1
+};
+
+enum class KDisplay : uint8_t { Inline, InlineBlock, Block };
+enum class KPosition : uint8_t { Static, Relative, Absolute };
+
+// 継承しない値。長さは CSS px に直してある (% を除く)。
+struct KOwn {
+    KDisplay display = KDisplay::Inline;
+    KPosition position = KPosition::Static;
+    std::optional<KLen> width;
+    std::optional<float> height;
+    std::optional<float> min_width;
+    float min_height = 0.0f;
+    float margin_l = 0.0f, margin_r = 0.0f;
+    float padding_l = 0.0f, padding_r = 0.0f;
+    std::array<float, 4> border{}; // top, right, bottom, left
+    std::array<bool, 4> dashed{};
+    bool border_box = false;
+    std::optional<float> vertical_align; // 上向きが正
+    std::optional<KLen> top, left, right, bottom;
+    bool reflect = false;
+};
+
+constexpr float kKatexSizes[]{ 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f, 1.44f, 1.728f, 2.074f, 2.488f };
+
+struct KBox {
+    float w = 0.0f;
+    float asc = 0.0f;
+    float desc = 0.0f;
+    bool has_content = false; // 行の中身 (文字・inline-block) がある。無い inline-block のベースラインは下端
+    bool pct = false;         // 含む塊の幅に依る。幅が決まってから置き直す
+    std::vector<MathDrawing::Item> items;
+};
+
+// 百分率の基準。nullopt は「まだ決まっていない」(列の幅を求める 1 回目)。
+struct KCtx {
+    std::optional<float> cb_w;     // 含む塊の幅
+    std::optional<float> pos_cb_w; // 位置指定した祖先の幅 (絶対位置の SVG の width:100%)
+};
+
+void TranslateItems(std::vector<MathDrawing::Item>& items, float dx, float dy)
+{
+    if (dx == 0.0f && dy == 0.0f) {
+        return;
+    }
+    for (auto& item : items) {
+        std::visit(
+            [&](auto& it) {
+                using T = std::decay_t<decltype(it)>;
+                if constexpr (std::is_same_v<T, MathDrawing::Path>) {
+                    it.transform[4] += dx;
+                    it.transform[5] += dy;
+                    it.clip[0] += dx;
+                    it.clip[1] += dy;
+                    it.clip[2] += dx;
+                    it.clip[3] += dy;
+                }
+                else {
+                    it.x += dx;
+                    it.y += dy;
+                }
+            },
+            item);
+    }
+}
+
+void AppendItems(KBox& out, KBox&& box, float dx, float dy)
+{
+    TranslateItems(box.items, dx, dy);
+    if (out.items.empty()) {
+        out.items = std::move(box.items);
+    }
+    else {
+        out.items.insert(out.items.end(), std::make_move_iterator(box.items.begin()), std::make_move_iterator(box.items.end()));
+    }
+}
+
+// class 属性の語を順に f に渡す。f が true を返したらやめて true を返す。
+template <class F>
+bool AnyClass(std::string_view classes, F&& f)
+{
+    while (!classes.empty()) {
+        const size_t sp = classes.find(' ');
+        if (f(classes.substr(0, sp))) {
+            return true;
+        }
+        if (sp == std::string_view::npos) {
+            break;
+        }
+        classes.remove_prefix(sp + 1);
+    }
+    return false;
+}
+
+bool HasClass(std::string_view classes, std::string_view name) noexcept
+{
+    return AnyClass(classes, [name](std::string_view c) { return c == name; });
+}
+
+// "reset-size6" や "size3" の番号。無ければ 0。
+int SizeClass(std::string_view classes, std::string_view prefix) noexcept
+{
+    int found = 0;
+    AnyClass(classes, [&](std::string_view c) {
+        int n = 0;
+        const auto digits = c.substr(std::min(prefix.size(), c.size()));
+        const auto [ptr, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), n);
+        if (!c.starts_with(prefix) || ec != std::errc{} || ptr != digits.data() + digits.size() || n < 1 || n > 11) {
+            return false;
+        }
+        found = n;
+        return true;
+    });
+    return found;
+}
+
+std::optional<float> ParsePx(std::string_view v, float font_size)
+{
+    float px = 0.0f;
+    return ParseLength(v, font_size, px) ? std::optional{ px } : std::nullopt;
+}
+
+// 長さか百分率。em は font_size、% は KLen::pct (0〜1)。
+std::optional<KLen> ParseKLen(std::string_view v, float font_size)
+{
+    v = Trim(v);
+    if (float fraction = 0.0f; v.ends_with('%')) {
+        return ParseNumberOrPercent(v, 1.0f, fraction) ? std::optional{ KLen{ fraction, true } } : std::nullopt;
+    }
+    const auto px = ParsePx(v, font_size);
+    return px ? std::optional{ KLen{ *px } } : std::nullopt;
+}
+
+float RunWidth(const MathDrawing::Glyphs& g) noexcept
+{
+    float w = 0.0f;
+    for (const float a : g.advances) {
+        w += a;
+    }
+    return w;
+}
+
+float AlignOffset(KAlign align, float slack) noexcept
+{
+    return slack <= 0.0f ? 0.0f : align == KAlign::Center ? slack / 2 : align == KAlign::Right ? slack : 0.0f;
+}
+
+// 箱を行の右に gap 空けて足す。
+void AppendInline(KBox& row, KBox&& box, float gap = 0.0f)
+{
+    row.asc = std::max(row.asc, box.asc);
+    row.desc = std::max(row.desc, box.desc);
+    row.has_content |= box.has_content;
+    row.pct |= box.pct;
+    const float x = row.w + gap;
+    row.w = x + box.w;
+    AppendItems(row, std::move(box), x, 0.0f);
+}
+
+// 隣り合う字形の並びのうち、同じ書体・大きさ・ベースラインで左から右へ続くものを 1 本にする。KaTeX は記号を 1 つずつ
+// span に入れるので、そのままだと x^2+y^2 で 9 本になり、毎フレームの DrawGlyphRun の数とメモリが増える。
+// 間の空き (mspace など) は前の字の送り幅に足す。色は 1 色なので描く順は変わってよい。
+void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
+{
+    std::vector<MathDrawing::Item> out;
+    out.reserve(items.size());
+    for (auto& item : items) {
+        auto* g = std::get_if<MathDrawing::Glyphs>(&item);
+        auto* prev = out.empty() ? nullptr : std::get_if<MathDrawing::Glyphs>(&out.back());
+        if (g && prev && !g->mirror && !prev->mirror && prev->face == g->face && prev->size == g->size && prev->y == g->y && !prev->advances.empty()) {
+            const float gap = g->x - (prev->x + RunWidth(*prev));
+            if (gap >= -0.01f) {
+                prev->advances.back() += std::max(gap, 0.0f);
+                prev->glyphs.insert(prev->glyphs.end(), g->glyphs.begin(), g->glyphs.end());
+                prev->advances.insert(prev->advances.end(), g->advances.begin(), g->advances.end());
+                continue;
+            }
+        }
+        out.push_back(std::move(item));
+    }
+    for (auto& item : out) {
+        if (auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+            g->glyphs.shrink_to_fit();
+            g->advances.shrink_to_fit();
+        }
+    }
+    out.shrink_to_fit();
+    items = std::move(out);
+}
+
+// UTF-8 の文字の並びを 1 文字ずつ。
+template <class F>
+void ForEachCp(std::string_view text, F&& f)
+{
+    for (uint32_t i = 0; i < text.size();) {
+        const auto d = utf8_codec::DecodeAt(text, i);
+        f(d.cp);
+        i += std::max<uint32_t>(d.len, 1);
+    }
+}
+
+ComPtr<ID2D1PathGeometry> BuildPathGeometry(ID2D1Factory* d2d, std::string_view d)
+{
+    ComPtr<ID2D1PathGeometry> geometry;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(d2d->CreatePathGeometry(&geometry)) || FAILED(geometry->Open(&sink))) {
+        return nullptr;
+    }
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    struct Visitor {
+        ID2D1GeometrySink* sink;
+        D2D1_POINT_2F at{};
+        bool open = false;
+
+        static D2D1_POINT_2F Pt(double x, double y) { return D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)); }
+        void Begin()
+        {
+            if (!open) {
+                sink->BeginFigure(at, D2D1_FIGURE_BEGIN_FILLED);
+                open = true;
+            }
+        }
+        void End(D2D1_FIGURE_END end)
+        {
+            if (open) {
+                sink->EndFigure(end);
+                open = false;
+            }
+        }
+        void Move(double x, double y)
+        {
+            End(D2D1_FIGURE_END_OPEN);
+            at = Pt(x, y);
+        }
+        void Line(double x, double y)
+        {
+            Begin();
+            sink->AddLine(at = Pt(x, y));
+        }
+        void Cubic(double x1, double y1, double x2, double y2, double x, double y)
+        {
+            Begin();
+            sink->AddBezier(D2D1::BezierSegment(Pt(x1, y1), Pt(x2, y2), at = Pt(x, y)));
+        }
+        void Quad(double x1, double y1, double x, double y)
+        {
+            Begin();
+            sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(Pt(x1, y1), at = Pt(x, y)));
+        }
+        void Arc(double, double, double rx, double ry, double rotation, bool large, bool sweep, double x2, double y2)
+        {
+            Begin();
+            sink->AddArc(D2D1::ArcSegment(at = Pt(x2, y2), D2D1::SizeF(static_cast<float>(std::abs(rx)), static_cast<float>(std::abs(ry))),
+                                          static_cast<float>(rotation), sweep ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                                          large ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+        }
+        void Close() { End(D2D1_FIGURE_END_CLOSED); }
+    } visitor{ sink.Get() };
+    const bool ok = WalkPath(d, visitor);
+    visitor.End(D2D1_FIGURE_END_OPEN);
+    if (FAILED(sink->Close()) || !ok) {
+        return nullptr;
+    }
+    return geometry;
+}
+
+class KatexLayout {
+public:
+    KatexLayout(const XmlDoc& doc, KatexAssets& assets) : doc_(doc), assets_(assets)
+    {
+        parent_.assign(doc.nodes.size(), kNone);
+        eqn_number_.assign(doc.nodes.size(), 0);
+        // 自動の式番号 (.eqn-num::before の CSS カウンタ)。数式ごとに 1 から、文書の順に振る。vlist は列の幅を決めてから
+        // 置き直すことがあるので、配置の途中で数えずに先に決めておく。
+        uint32_t eqn = 0;
+        for (uint32_t i = 0; i < doc.nodes.size(); ++i) {
+            for (const uint32_t c : doc.nodes[i].children) {
+                parent_[c] = i;
+            }
+            if (HasClass(doc.nodes[i].Attr("class").value_or(""), "eqn-num")) {
+                eqn_number_[i] = ++eqn;
+            }
+        }
+    }
+
+    std::optional<MathDrawing> Run(float font_size);
+
+private:
+    static constexpr uint32_t kNone = UINT32_MAX;
+
+    std::string_view Classes(uint32_t i) const noexcept
+    {
+        return i == kNone ? std::string_view{} : doc_.nodes[i].Attr("class").value_or(std::string_view{});
+    }
+    void Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own);
+    KBox Element(uint32_t i, const KInherit& parent, const KCtx& ctx, bool force_inline_block = false);
+    void Flow(uint32_t i, const KInherit& inh, const KCtx& ctx, KBox& out, std::vector<uint32_t>& absolutes);
+    KBox VList(uint32_t i, const KInherit& inh);
+    void Text(std::string_view text, const KInherit& inh, KBox& out);
+    void Svg(uint32_t i, const KInherit& inh, float x, float y, float w, std::optional<float> h, KBox& out);
+    bool IsAbsolute(uint32_t i) const noexcept;
+    void Fail()
+    {
+        failed_ = true;
+    }
+
+    const XmlDoc& doc_;
+    KatexAssets& assets_;
+    std::vector<uint32_t> parent_;
+    std::vector<uint32_t> eqn_number_;
+    bool failed_ = false;
+};
+
+bool KatexLayout::IsAbsolute(uint32_t i) const noexcept
+{
+    const auto& n = doc_.nodes[i];
+    if (n.name == "svg") {
+        return true;
+    }
+    const auto c = Classes(i);
+    return HasClass(c, "halfarrow-left") || HasClass(c, "halfarrow-right") || HasClass(c, "brace-left") || HasClass(c, "brace-center") ||
+           HasClass(c, "brace-right") || HasClass(c, "katex-inner") || HasClass(c, "cd-label-left") || HasClass(c, "cd-label-right");
+}
+
+void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own)
+{
+    inh = parent;
+    const auto c = Classes(i);
+    const uint32_t p = parent_[i];
+    const auto pc = Classes(p);
+    const auto has = [&](std::string_view name) { return HasClass(c, name); };
+
+    // 文字の大きさ (.katex-sizing.reset-sizeA.sizeB)。em は親の大きさ。
+    if (has("katex-sizing") || has("fontsize-ensurer")) {
+        const int from = SizeClass(c, "reset-size");
+        const int to = SizeClass(c, "size");
+        if (from && to) {
+            inh.font_size = parent.font_size * kKatexSizes[to - 1] / kKatexSizes[from - 1];
+        }
+    }
+    // 書体 (katex.css の順。後の規則が勝つ)。
+    struct FontRule {
+        std::string_view cls;
+        std::optional<KFamily> family;
+        std::optional<bool> bold;
+        std::optional<bool> italic;
+    };
+    static constexpr FontRule kFontRules[]{
+        { "textbf", {}, true, {} },
+        { "textit", {}, {}, true },
+        { "textrm", KFamily::Main, {}, {} },
+        { "textsf", KFamily::SansSerif, {}, {} },
+        { "texttt", KFamily::Typewriter, {}, {} },
+        { "mathnormal", KFamily::Math, {}, true },
+        { "mathit", KFamily::Main, {}, true },
+        { "mathrm", {}, {}, false },
+        { "mathbf", KFamily::Main, true, {} },
+        { "boldsymbol", KFamily::Math, true, true },
+        { "amsrm", KFamily::AMS, {}, {} },
+        { "mathbb", KFamily::AMS, {}, {} },
+        { "textbb", KFamily::AMS, {}, {} },
+        { "mathcal", KFamily::Caligraphic, {}, {} },
+        { "mathfrak", KFamily::Fraktur, {}, {} },
+        { "textfrak", KFamily::Fraktur, {}, {} },
+        { "mathboldfrak", KFamily::Fraktur, true, {} },
+        { "textboldfrak", KFamily::Fraktur, true, {} },
+        { "mathtt", KFamily::Typewriter, {}, {} },
+        { "mathscr", KFamily::Script, {}, {} },
+        { "textscr", KFamily::Script, {}, {} },
+        { "mathsf", KFamily::SansSerif, {}, {} },
+        { "mathboldsf", KFamily::SansSerif, true, {} },
+        { "textboldsf", KFamily::SansSerif, true, {} },
+        { "mathsfit", KFamily::SansSerif, {}, true },
+        { "mathitsf", KFamily::SansSerif, {}, true },
+        { "textitsf", KFamily::SansSerif, {}, true },
+        { "mainrm", KFamily::Main, {}, false },
+    };
+    for (const auto& r : kFontRules) {
+        if (has(r.cls)) {
+            inh.font.family = r.family.value_or(inh.font.family);
+            inh.font.bold = r.bold.value_or(inh.font.bold);
+            inh.font.italic = r.italic.value_or(inh.font.italic);
+        }
+    }
+    // 詳細度の高い規則 (.delimsizing.size1 など)。
+    if (has("delimsizing")) {
+        if (const int n = SizeClass(c, "size"); n >= 1 && n <= 4) {
+            inh.font.family = static_cast<KFamily>(static_cast<int>(KFamily::Size1) + n - 1);
+        }
+    }
+    if (has("op-symbol")) {
+        if (has("small-op")) {
+            inh.font.family = KFamily::Size1;
+        }
+        else if (has("large-op")) {
+            inh.font.family = KFamily::Size2;
+        }
+    }
+    if (doc_.nodes[i].name == "span" && (HasClass(pc, "delim-size1") || HasClass(pc, "delim-size4"))) {
+        inh.font.family = HasClass(pc, "delim-size1") ? KFamily::Size1 : KFamily::Size4;
+    }
+
+    // text-align (継承する)。
+    if (has("msupsub") || has("svg-align") || has("cd-label-left")) {
+        inh.align = KAlign::Left;
+    }
+    if (has("x-arrow") || has("mover") || has("munder")) {
+        inh.align = KAlign::Center;
+    }
+    if (has("cd-label-right")) {
+        inh.align = KAlign::Right;
+    }
+    if (has("vlist-t")) {
+        if (HasClass(pc, "op-limits") || HasClass(pc, "katex-accent") || HasClass(pc, "col-align-c")) {
+            inh.align = KAlign::Center;
+        }
+        else if (HasClass(pc, "col-align-l")) {
+            inh.align = KAlign::Left;
+        }
+        else if (HasClass(pc, "col-align-r")) {
+            inh.align = KAlign::Right;
+        }
+    }
+    if (has("vlist-r") && p != kNone && HasClass(Classes(parent_[p]), "mfrac")) {
+        inh.align = KAlign::Center; // .mfrac > span > span
+    }
+
+    const float em = inh.font_size;
+    own = {};
+    if (has("katex-base") || has("katex-strut") || has("mspace") || has("frac-line") || has("nulldelimiter") || has("katex-rule") ||
+        has("overline-line") || has("underline-line") || has("katex-hline") || has("katex-hdashline") || has("vertical-separator") ||
+        has("arraycolsep") || has("katex-fix") || has("reflectbox") || has("cd-vert-arrow") || has("katex-vbox") || has("katex-thinbox") ||
+        has("llap") || has("rlap") || has("clap")) {
+        own.display = KDisplay::InlineBlock;
+    }
+    if (has("katex-overlay") || has("katex-stretchy") || has("katex-newline")) {
+        own.display = KDisplay::Block;
+    }
+    if (has("katex-base") || has("delimcenter") || has("op-symbol") || has("accent-body") || has("katex-rule") || has("llap") || has("rlap") ||
+        has("clap") || has("cd-vert-arrow") || has("katex-stretchy") || has("hide-tail")) {
+        own.position = KPosition::Relative;
+    }
+    if (IsAbsolute(i)) {
+        own.position = KPosition::Absolute;
+        own.display = KDisplay::Block;
+    }
+    // .vlist > span は位置指定した塊。
+    if (HasClass(pc, "vlist") && doc_.nodes[i].name == "span") {
+        own.position = KPosition::Relative;
+    }
+    if (has("nulldelimiter")) {
+        own.width = KLen{ 0.12f * em };
+    }
+    if (has("katex-thinbox") || has("llap") || has("rlap") || has("clap") || (has("accent-body") && !has("accent-full"))) {
+        own.width = KLen{ 0.0f };
+    }
+    if (has("frac-line") || has("overline-line") || has("underline-line") || has("katex-hline") || has("katex-hdashline")) {
+        own.width = KLen{ 1.0f, true };
+        own.min_height = 1.0f;
+        own.dashed[2] = has("katex-hdashline");
+    }
+    if (has("vertical-separator")) {
+        own.min_width = 1.0f;
+    }
+    if (has("katex-stretchy") || has("hide-tail")) {
+        own.width = KLen{ 1.0f, true };
+    }
+    if (has("halfarrow-left") || has("halfarrow-right")) {
+        own.width = KLen{ 0.502f, true };
+        (has("halfarrow-left") ? own.left : own.right) = KLen{ 0.0f };
+    }
+    if (has("brace-left") || has("brace-right")) {
+        own.width = KLen{ 0.251f, true };
+        (has("brace-left") ? own.left : own.right) = KLen{ 0.0f };
+    }
+    if (has("brace-center")) {
+        own.width = KLen{ 0.5f, true };
+        own.left = KLen{ 0.25f, true };
+    }
+    if (has("katex-root") && HasClass(pc, "sqrt")) {
+        own.margin_l = 0.2777777778f * em;
+        own.margin_r = -0.5555555556f * em;
+    }
+    if (has("x-arrow-pad")) {
+        own.padding_l = own.padding_r = 0.5f * em;
+    }
+    if (has("cd-arrow-pad")) {
+        own.padding_l = 0.27778f * em;
+        own.padding_r = 0.55556f * em;
+    }
+    if (has("boxpad")) {
+        own.padding_l = own.padding_r = 0.3f * em;
+    }
+    if (has("cancel-pad")) {
+        own.padding_l = own.padding_r = 0.2f * em;
+    }
+    if (has("anglpad")) {
+        own.padding_l = own.padding_r = 0.03889f * em;
+    }
+    if (has("fbox") || has("fcolorbox")) {
+        own.border_box = true;
+        own.border.fill(0.04f * em);
+    }
+    if (has("cancel-lap")) {
+        own.margin_l = own.margin_r = -0.2f * em;
+    }
+    if (has("katex-sout")) {
+        own.border[2] = 0.08f * em;
+    }
+    if (has("angl")) {
+        own.border_box = true;
+        own.border[0] = own.border[1] = 0.049f * em;
+        own.margin_r = 0.03889f * em;
+    }
+    own.reflect = has("reflectbox");
+
+    // style 属性。
+    const auto style = doc_.nodes[i].Attr("style");
+    if (!style) {
+        return;
+    }
+    for (const auto decl : SplitTopLevel(*style, ';')) {
+        const size_t colon = decl.find(':');
+        if (colon == std::string_view::npos) {
+            continue;
+        }
+        const auto name = Trim(decl.substr(0, colon));
+        const auto value = Trim(decl.substr(colon + 1));
+        bool ok = true;
+        const auto px = [&](float& out) {
+            const auto v = ParsePx(value, em);
+            ok = v.has_value();
+            out = v.value_or(out);
+        };
+        if (name == "height") {
+            float h = 0.0f;
+            px(h);
+            own.height = h;
+        }
+        else if (name == "width" || name == "min-width") {
+            const auto v = ParseKLen(value, em);
+            ok = v.has_value();
+            if (v && name == "width") {
+                own.width = v;
+            }
+            else if (v && !v->pct) {
+                own.min_width = v->v;
+            }
+        }
+        else if (name == "vertical-align") {
+            float v = 0.0f;
+            px(v);
+            own.vertical_align = v;
+        }
+        else if (name == "top" || name == "left" || name == "right" || name == "bottom") {
+            const auto v = ParseKLen(value, em);
+            ok = v.has_value();
+            (name == "top" ? own.top : name == "left" ? own.left : name == "right" ? own.right : own.bottom) = v;
+        }
+        else if (name == "margin-left") {
+            px(own.margin_l);
+        }
+        else if (name == "margin-right") {
+            px(own.margin_r);
+        }
+        else if (name == "margin") {
+            const auto parts = SplitTopLevel(value, ' ');
+            std::vector<float> v;
+            for (const auto part : parts) {
+                if (!Trim(part).empty()) {
+                    const auto len = ParsePx(part, em);
+                    ok = ok && len.has_value();
+                    v.push_back(len.value_or(0.0f));
+                }
+            }
+            if (ok && !v.empty()) {
+                own.margin_r = v.size() >= 2 ? v[1] : v[0];
+                own.margin_l = v.size() >= 4 ? v[3] : own.margin_r;
+            }
+        }
+        else if (name == "padding-left") {
+            px(own.padding_l);
+        }
+        else if (name == "border-bottom-width") {
+            px(own.border[2]);
+        }
+        else if (name == "border-right-width") {
+            px(own.border[1]);
+        }
+        else if (name == "border-top-width") {
+            px(own.border[0]);
+        }
+        else if (name == "border-width") {
+            float w = 0.0f;
+            px(w);
+            own.border.fill(w);
+        }
+        else if (name == "border-right-style") {
+            own.dashed[1] = value == "dashed";
+        }
+        else if (name == "border-style") {
+            own.dashed.fill(value == "dashed");
+        }
+        else if (name == "position") {
+            own.position = value == "absolute" ? KPosition::Absolute : value == "relative" ? KPosition::Relative : KPosition::Static;
+        }
+        else if (name == "color" || name == "background-color" || name == "border-color") {
+            // 数式は本文の色で描く (\color は使わない)。\colorbox の背景は本文の色で塗ると中の文字が隠れるので描かない。
+        }
+        else if (name == "text-shadow") {
+            const auto parts = SplitTopLevel(value, ' ');
+            std::vector<float> v;
+            for (const auto part : parts) {
+                if (const auto len = ParsePx(part, em)) {
+                    v.push_back(*len);
+                }
+            }
+            if (v.size() >= 2) {
+                inh.shadow = std::pair{ v[0], v[1] };
+            }
+        }
+        else {
+            ok = false;
+        }
+        if (!ok) {
+            Fail();
+        }
+    }
+}
+
+void KatexLayout::Text(std::string_view text, const KInherit& inh, KBox& out)
+{
+    const auto [file, sim] = MatchKatexFace(inh.font);
+    IDWriteFontFace* primary = assets_.Face(file, sim);
+    if (!primary) {
+        Fail();
+        return;
+    }
+    DWRITE_FONT_METRICS pm{};
+    primary->GetMetrics(&pm);
+    const float size = inh.font_size;
+    out.asc = std::max(out.asc, pm.ascent * size / pm.designUnitsPerEm);
+    out.desc = std::max(out.desc, pm.descent * size / pm.designUnitsPerEm);
+    MathDrawing::Glyphs* run = nullptr;
+    float x = out.w;
+    bool prev_space = false;
+    ForEachCp(text, [&](uint32_t cp) {
+        if (cp == 0x200B) {
+            return;
+        }
+        // white-space: nowrap は続く空白を 1 つにまとめる。
+        const bool space = cp == ' ' || cp == '\t' || cp == '\n';
+        if (space && prev_space) {
+            return;
+        }
+        prev_space = space;
+        cp = space ? ' ' : cp;
+        IDWriteFontFace* face = primary;
+        UINT16 glyph = 0;
+        face->GetGlyphIndices(&cp, 1, &glyph);
+        if (glyph == 0 && cp == 0xA0) {
+            const UINT32 sp = ' ';
+            face->GetGlyphIndices(&sp, 1, &glyph);
+        }
+        if (glyph == 0) {
+            if (IDWriteFontFace* fb = assets_.Fallback(cp, inh.font.bold, inh.font.italic)) {
+                UINT16 g = 0;
+                fb->GetGlyphIndices(&cp, 1, &g);
+                if (g != 0) {
+                    face = fb;
+                    glyph = g;
+                }
+            }
+        }
+        DWRITE_FONT_METRICS fm = pm;
+        if (face != primary) {
+            face->GetMetrics(&fm);
+        }
+        DWRITE_GLYPH_METRICS gm{};
+        face->GetDesignGlyphMetrics(&glyph, 1, &gm, FALSE);
+        const float advance = gm.advanceWidth * size / fm.designUnitsPerEm;
+        if (!run || run->face.Get() != face) {
+            run = &std::get<MathDrawing::Glyphs>(out.items.emplace_back(MathDrawing::Glyphs{ .face = face, .size = size, .x = x }));
+        }
+        run->glyphs.push_back(glyph);
+        run->advances.push_back(advance);
+        x += advance;
+    });
+    if (inh.shadow) {
+        // \pmb は少しずらした写しで太く見せる。写しは元より先に描く (CSS の影)。
+        const auto [sx, sy] = *inh.shadow;
+        std::vector<MathDrawing::Item> copies;
+        for (auto& item : out.items) {
+            if (auto* g = std::get_if<MathDrawing::Glyphs>(&item); g && g->x >= out.w) {
+                auto copy = *g;
+                copy.x += sx;
+                copy.y += sy;
+                copies.emplace_back(std::move(copy));
+            }
+        }
+        out.items.insert(out.items.end(), copies.begin(), copies.end());
+    }
+    out.w = x;
+    out.has_content = true;
+}
+
+void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float w, std::optional<float> h, KBox& out)
+{
+    const auto& n = doc_.nodes[i];
+    const float em = inh.font_size;
+    if (!h) {
+        h = AttrLength(n, "height", em);
+    }
+    // viewBox が無ければ利用者の座標は CSS px。
+    Mat m;
+    if (!h || !ViewportTransform(n, x0, y0, w, *h, m)) {
+        Fail();
+        return;
+    }
+    const std::array<float, 4> clip{ x0, y0, x0 + w, y0 + *h };
+    for (const uint32_t c : n.children) {
+        const auto& child = doc_.nodes[c];
+        if (child.name == "path") {
+            const auto d = child.Attr("d");
+            if (!d) {
+                Fail();
+                return;
+            }
+            out.items.emplace_back(MathDrawing::Path{ .shape = assets_.Shape(*d), .transform = ToArray(m), .clip = clip });
+        }
+        else if (child.name == "line") {
+            // 座標の % はビューポートに対して。viewBox の無い SVG だけで使われる。
+            const auto coord = [&](std::string_view attr, float full) {
+                const auto v = child.Attr(attr) ? ParseKLen(*child.Attr(attr), em) : std::optional{ KLen{} };
+                return !v ? 0.0f : v->pct ? v->v * full : v->v;
+            };
+            const float x1 = coord("x1", w), y1 = coord("y1", *h), x2 = coord("x2", w), y2 = coord("y2", *h);
+            const float stroke = AttrLength(child, "stroke-width", em).value_or(1.0f);
+            std::string d = "M";
+            AppendNum(d, x1);
+            d += ' ';
+            AppendNum(d, y1);
+            d += 'L';
+            AppendNum(d, x2);
+            d += ' ';
+            AppendNum(d, y2);
+            out.items.emplace_back(
+                MathDrawing::Path{ .shape = assets_.Shape(d), .transform = { 1.0f, 0.0f, 0.0f, 1.0f, x0, y0 }, .clip = clip, .stroke = stroke });
+        }
+        else {
+            Fail();
+            return;
+        }
+    }
+}
+
+KBox KatexLayout::VList(uint32_t i, const KInherit& inh)
+{
+    KBox out;
+    const auto& rows = doc_.nodes[i].children;
+    if (rows.empty()) {
+        return out;
+    }
+    struct Row {
+        KBox box;
+        float ml = 0.0f, mr = 0.0f, y = 0.0f;
+        uint32_t content = kNone;
+        KInherit wrap_inh;
+    };
+    std::vector<Row> placed;
+    for (size_t r = 0; r < rows.size(); ++r) {
+        const uint32_t row = rows[r];
+        KInherit row_inh;
+        KOwn row_own;
+        Compute(row, inh, row_inh, row_own);
+        for (const uint32_t cell : doc_.nodes[row].children) {
+            if (HasClass(Classes(cell), "vlist-s")) {
+                continue;
+            }
+            KInherit cell_inh;
+            KOwn cell_own;
+            Compute(cell, row_inh, cell_inh, cell_own);
+            const float h = cell_own.height.value_or(0.0f);
+            if (r == 0) {
+                out.asc = h;
+            }
+            else {
+                out.desc = h;
+                continue;
+            }
+            for (const uint32_t wrap : doc_.nodes[cell].children) {
+                const auto& wn = doc_.nodes[wrap];
+                if (wn.children.empty()) {
+                    continue;
+                }
+                Row placed_row;
+                KOwn wrap_own;
+                Compute(wrap, cell_inh, placed_row.wrap_inh, wrap_own);
+                float pstrut = 0.0f;
+                for (const uint32_t c : wn.children) {
+                    if (HasClass(Classes(c), "pstrut")) {
+                        KInherit pi;
+                        KOwn po;
+                        Compute(c, placed_row.wrap_inh, pi, po);
+                        pstrut = po.height.value_or(0.0f);
+                    }
+                    else if (placed_row.content == kNone) {
+                        placed_row.content = c;
+                    }
+                    else {
+                        Fail();
+                    }
+                }
+                if (placed_row.content == kNone) {
+                    continue;
+                }
+                const float top = wrap_own.top && !wrap_own.top->pct ? wrap_own.top->v : 0.0f;
+                placed_row.y = top + pstrut;
+                placed_row.ml = wrap_own.margin_l;
+                placed_row.mr = wrap_own.margin_r;
+                placed_row.box = Element(placed_row.content, placed_row.wrap_inh, KCtx{}, true);
+                placed.push_back(std::move(placed_row));
+            }
+        }
+    }
+    float col = 0.0f;
+    for (const auto& row : placed) {
+        col = std::max(col, row.ml + row.box.w + row.mr);
+    }
+    for (auto& row : placed) {
+        const float avail = col - row.ml - row.mr;
+        if (row.box.pct) {
+            row.box = Element(row.content, row.wrap_inh, KCtx{ avail, avail }, true);
+        }
+        const float x = row.ml + AlignOffset(row.wrap_inh.align, avail - row.box.w);
+        AppendItems(out, std::move(row.box), x, row.y);
+    }
+    out.w = col;
+    out.has_content = true;
+    return out;
+}
+
+void KatexLayout::Flow(uint32_t i, const KInherit& inh, const KCtx& ctx, KBox& out, std::vector<uint32_t>& absolutes)
+{
+    for (const uint32_t c : doc_.nodes[i].children) {
+        const auto& n = doc_.nodes[c];
+        if (n.name.empty()) {
+            Text(n.text, inh, out);
+            continue;
+        }
+        if (IsAbsolute(c)) {
+            absolutes.push_back(c);
+            continue;
+        }
+        AppendInline(out, Element(c, inh, ctx));
+    }
+}
+
+KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, bool force_inline_block)
+{
+    const auto& n = doc_.nodes[i];
+    if (n.name != "span") {
+        Fail();
+        return {};
+    }
+    KInherit inh;
+    KOwn own;
+    Compute(i, parent, inh, own);
+    const auto c = Classes(i);
+    // .vlist > span > span の inline-block は .katex-stretchy の block にも勝つ。
+    if (force_inline_block) {
+        own.display = KDisplay::InlineBlock;
+    }
+    const bool vlist = HasClass(c, "vlist-t");
+    if (HasClass(c, "katex-newline")) {
+        Fail();
+        return {};
+    }
+
+    // 幅 (inline-block と block)。
+    std::optional<float> width;
+    bool pct = false;
+    if (own.display != KDisplay::Inline && own.width) {
+        if (!own.width->pct) {
+            width = own.width->v;
+        }
+        else if (ctx.cb_w) {
+            width = own.width->v * *ctx.cb_w;
+        }
+        else {
+            pct = true;
+        }
+    }
+    const float bl = own.border[3], br = own.border[1], bt = own.border[0], bb = own.border[2];
+    const float edge_l = own.margin_l + bl + own.padding_l;
+    const float edge_r = own.padding_r + br + own.margin_r;
+    const float frame_w = bl + br + own.padding_l + own.padding_r; // 枠と詰め物の横幅
+    std::optional<float> content_w = width;
+    if (content_w && own.border_box) {
+        content_w = std::max(0.0f, *content_w - frame_w);
+    }
+
+    KBox content;
+    std::vector<uint32_t> absolutes;
+    if (vlist) {
+        content = VList(i, inh);
+    }
+    else {
+        if (const uint32_t eqn = eqn_number_[i]) {
+            Text("(" + std::to_string(eqn) + ")", inh, content);
+        }
+        KCtx inner{ content_w, ctx.pos_cb_w };
+        Flow(i, inh, inner, content, absolutes);
+    }
+    KBox out;
+    out.pct = pct || (own.display == KDisplay::Inline && content.pct);
+
+    float cw = content.w;
+    float top = 0.0f, bottom = 0.0f; // 内容の箱 (ベースラインからの y)
+    if (own.display == KDisplay::Inline) {
+        out.w = edge_l + content.w + edge_r;
+        out.asc = content.asc;
+        out.desc = content.desc;
+        out.has_content = content.has_content || out.w != 0.0f;
+        top = -content.asc;
+        bottom = content.desc;
+        if (bb > 0.0f) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, content.w + frame_w, bb, MathDrawing::Rect::Side::Bottom, own.dashed[2] });
+        }
+        AppendItems(out, std::move(content), edge_l, 0.0f);
+    }
+    else {
+        cw = content_w.value_or(content.w);
+        if (own.min_width) {
+            cw = std::max(cw, *own.min_width - (own.border_box ? frame_w : 0.0f));
+        }
+        const bool flow_content = content.has_content || vlist;
+        float h = 0.0f;
+        if (own.height) {
+            h = own.border_box ? std::max(0.0f, *own.height - bt - bb) : *own.height;
+        }
+        else if (flow_content) {
+            h = content.asc + content.desc;
+        }
+        h = std::max(h, own.min_height);
+        if (flow_content) {
+            top = -content.asc;
+            bottom = top + h;
+        }
+        else {
+            bottom = -bb;
+            top = bottom - h;
+        }
+        float va = own.vertical_align.value_or(0.0f);
+        out.w = own.margin_l + bl + own.padding_l + cw + own.padding_r + br + own.margin_r;
+        out.asc = -(top - bt) + va;
+        out.desc = bottom + bb - va;
+        out.has_content = true;
+        top -= va;
+        bottom -= va;
+        const float pad_l = own.margin_l + bl;
+        const float pad_w = own.padding_l + cw + own.padding_r;
+        // 枠は外側の端に合わせる (MathDrawing::Rect の rule)。
+        if (bt > 0.0f) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, top - bt, bl + pad_w + br, bt, MathDrawing::Rect::Side::Top, own.dashed[0] });
+        }
+        if (bb > 0.0f) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, bl + pad_w + br, bb, MathDrawing::Rect::Side::Bottom, own.dashed[2] });
+        }
+        if (bl > 0.0f) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, top - bt, bl, bt + (bottom - top) + bb, MathDrawing::Rect::Side::Left, own.dashed[3] });
+        }
+        if (br > 0.0f) {
+            out.items.emplace_back(MathDrawing::Rect{ pad_l + pad_w, top - bt, br, bt + (bottom - top) + bb, MathDrawing::Rect::Side::Right, own.dashed[1] });
+        }
+        AppendItems(out, std::move(content), edge_l + AlignOffset(inh.align, cw - content.w), -va);
+    }
+
+    // 絶対位置の子。位置指定した要素なら自分の詰め物の箱、そうでなければ祖先の箱の幅を基準に、自分の内容の左上から置く。
+    const bool positioned = own.position != KPosition::Static;
+    const float cb_x = own.margin_l + bl;
+    const float cb_w = own.padding_l + cw + own.padding_r;
+    for (const uint32_t a : absolutes) {
+        const auto& an = doc_.nodes[a];
+        const std::optional<float> abs_cb = positioned ? std::optional{ cb_w } : ctx.pos_cb_w;
+        if (an.name == "svg") {
+            KInherit si;
+            KOwn so;
+            Compute(a, inh, si, so);
+            float w = so.width && !so.width->pct ? so.width->v : abs_cb.value_or(0.0f) * (so.width ? so.width->v : 1.0f);
+            if (!abs_cb && !(so.width && !so.width->pct)) {
+                out.pct = true;
+            }
+            // height: inherit。親の高さが auto なら属性の高さ。
+            const std::optional<float> h = own.height ? std::optional{ own.border_box ? *own.height - bt - bb : *own.height } : std::nullopt;
+            Svg(a, si, positioned ? cb_x : edge_l, top, w, h, out);
+            continue;
+        }
+        KInherit ai;
+        KOwn ao;
+        Compute(a, inh, ai, ao);
+        const auto resolve = [&](const std::optional<KLen>& v) -> std::optional<float> {
+            if (!v) {
+                return std::nullopt;
+            }
+            return v->pct ? std::optional{ v->v * abs_cb.value_or(0.0f) } : std::optional{ v->v };
+        };
+        const bool inner = HasClass(an.Attr("class").value_or(""), "katex-inner");
+        KCtx actx{ abs_cb, abs_cb };
+        if (ao.width && ao.width->pct && !abs_cb) {
+            out.pct = true;
+        }
+        KBox box = Element(a, inh, actx, !inner);
+        if (inner) {
+            // \rlap などの中身。ベースラインをそろえ、llap は右端、clap は中央を 0 に置く。
+            float x = edge_l;
+            if (HasClass(c, "llap")) {
+                x -= box.w;
+            }
+            else if (HasClass(c, "clap")) {
+                x -= box.w / 2;
+            }
+            AppendItems(out, std::move(box), x, 0.0f);
+            continue;
+        }
+        float x = cb_x;
+        if (const auto left = resolve(ao.left)) {
+            x = cb_x + *left;
+        }
+        else if (const auto right = resolve(ao.right)) {
+            x = cb_x + cb_w - box.w - *right;
+        }
+        float y = top + box.asc; // 箱の上端を内容の上端に
+        if (const auto b = resolve(ao.bottom)) {
+            y = bottom - box.desc - *b;
+        }
+        AppendItems(out, std::move(box), x, y);
+    }
+
+    // 相対位置。箱は動かさず、描く物だけをずらす。
+    if (own.position == KPosition::Relative) {
+        float dx = 0.0f, dy = 0.0f;
+        if (own.left && !own.left->pct) {
+            dx = own.left->v;
+        }
+        else if (own.right && !own.right->pct) {
+            dx = -own.right->v;
+        }
+        if (own.top && !own.top->pct) {
+            dy = own.top->v;
+        }
+        else if (own.bottom && !own.bottom->pct) {
+            dy = -own.bottom->v;
+        }
+        TranslateItems(out.items, dx, dy);
+    }
+    if (own.reflect) {
+        for (auto& item : out.items) {
+            if (auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+                g->x = out.w - g->x - RunWidth(*g);
+                g->mirror = !g->mirror;
+            }
+        }
+    }
+    return out;
+}
+
+std::optional<MathDrawing> KatexLayout::Run(float font_size)
+{
+    uint32_t html = kNone;
+    for (uint32_t i = 0; i < doc_.nodes.size(); ++i) {
+        if (HasClass(Classes(i), "katex-html")) {
+            html = i;
+            break;
+        }
+    }
+    if (html == kNone) {
+        return std::nullopt;
+    }
+    KInherit root;
+    root.font_size = font_size * 1.21f;
+    KBox body;
+    std::vector<uint32_t> tags;
+    for (const uint32_t c : doc_.nodes[html].children) {
+        if (HasClass(Classes(c), "katex-tag")) {
+            tags.push_back(c);
+            continue;
+        }
+        if (doc_.nodes[c].name.empty()) {
+            Text(doc_.nodes[c].text, root, body);
+            continue;
+        }
+        AppendInline(body, Element(c, root, KCtx{}));
+    }
+    // 式番号は本体の右に 1em 空けて置く。
+    for (const uint32_t t : tags) {
+        AppendInline(body, Element(t, root, KCtx{}), root.font_size);
+    }
+    if (failed_) {
+        return std::nullopt;
+    }
+    MergeGlyphRuns(body.items);
+    return MathDrawing{ .width = body.w, .height = body.asc, .depth = body.desc, .items = std::move(body.items) };
+}
+
 } // namespace
+
+struct KatexAssets::Impl {
+    ComPtr<IDWriteFactory5> dw;
+    ComPtr<IDWriteInMemoryFontFileLoader> loader;
+    std::array<ComPtr<IDWriteFontFile>, std::size(kKatexFontFiles)> files;
+    std::wstring locale;
+    std::mutex mutex;
+    std::array<std::array<ComPtr<IDWriteFontFace>, 4>, std::size(kKatexFontFiles)> faces;
+    std::unordered_map<uint64_t, ComPtr<IDWriteFontFace>> fallback_faces;
+    // KaTeX の path は決まった形 (根号・矢印・括弧) の組み合わせなので、種類は数十に収まる。
+    std::unordered_map<std::string, std::shared_ptr<const MathDrawing::Shape>, StringTransparentHash, std::equal_to<>> shapes;
+
+    ~Impl()
+    {
+        if (dw && loader) {
+            dw->UnregisterFontFileLoader(loader.Get());
+        }
+    }
+};
+
+KatexAssets::KatexAssets(IDWriteFactory* dw, std::span<const std::span<const std::byte>> woff2, std::wstring locale) : impl_(std::make_unique<Impl>())
+{
+    auto& m = *impl_;
+    m.locale = std::move(locale);
+    if (!dw || woff2.size() != std::size(kKatexFontFiles) || FAILED(dw->QueryInterface(IID_PPV_ARGS(&m.dw))) ||
+        FAILED(m.dw->CreateInMemoryFontFileLoader(&m.loader))) {
+        return;
+    }
+    if (FAILED(m.dw->RegisterFontFileLoader(m.loader.Get()))) {
+        m.loader.Reset();
+        return;
+    }
+    for (size_t i = 0; i < woff2.size(); ++i) {
+        ComPtr<IDWriteFontFileStream> stream;
+        UINT64 size = 0;
+        const void* data = nullptr;
+        void* context = nullptr;
+        if (FAILED(m.dw->UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, woff2[i].data(), static_cast<UINT32>(woff2[i].size()), &stream)) ||
+            FAILED(stream->GetFileSize(&size)) || FAILED(stream->ReadFileFragment(&data, 0, size, &context))) {
+            return;
+        }
+        // 持ち主を渡さないと DirectWrite が写しを持つ。
+        const HRESULT hr = m.loader->CreateInMemoryFontFileReference(m.dw.Get(), data, static_cast<UINT32>(size), nullptr, &m.files[i]);
+        stream->ReleaseFileFragment(context);
+        if (FAILED(hr)) {
+            return;
+        }
+    }
+    ok_ = true;
+}
+
+KatexAssets::~KatexAssets() = default;
+
+IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
+{
+    auto& m = *impl_;
+    if (!ok_ || file >= m.files.size() || simulations > 3) {
+        return nullptr;
+    }
+    const std::lock_guard lock(m.mutex);
+    auto& face = m.faces[file][simulations];
+    if (!face) {
+        m.dw->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, m.files[file].GetAddressOf(), 0, static_cast<DWRITE_FONT_SIMULATIONS>(simulations),
+                             &face);
+    }
+    return face.Get();
+}
+
+IDWriteFontFace* KatexAssets::Fallback(uint32_t cp, bool bold, bool italic)
+{
+    auto& m = *impl_;
+    if (!ok_) {
+        return nullptr;
+    }
+    const uint64_t key = (static_cast<uint64_t>(cp) << 2) | (bold ? 1u : 0u) | (italic ? 2u : 0u);
+    const std::lock_guard lock(m.mutex);
+    if (const auto it = m.fallback_faces.find(key); it != m.fallback_faces.end()) {
+        return it->second.Get();
+    }
+    ComPtr<IDWriteFontFace> face;
+    if (const auto font = MapSystemFallback(m.dw.Get(), cp, kDefaultFamily.data(), bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                                            italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, m.locale.c_str())) {
+        font->CreateFontFace(&face);
+    }
+    return m.fallback_faces.emplace(key, std::move(face)).first->second.Get();
+}
+
+std::shared_ptr<const MathDrawing::Shape> KatexAssets::Shape(std::string_view d)
+{
+    auto& m = *impl_;
+    const std::lock_guard lock(m.mutex);
+    if (const auto it = m.shapes.find(d); it != m.shapes.end()) {
+        return it->second;
+    }
+    auto shape = std::make_shared<const MathDrawing::Shape>(MathDrawing::Shape{ .d = std::string{ d } });
+    m.shapes.emplace(shape->d, shape);
+    return shape;
+}
+
+std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_size, KatexAssets& assets)
+{
+    XmlDoc doc;
+    if (!assets.ok() || !ParseXml(html, doc)) {
+        return std::nullopt;
+    }
+    return KatexLayout(doc, assets).Run(font_size);
+}
+
+void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush)
+{
+    D2D1::Matrix3x2F base;
+    rt->GetTransform(&base);
+    ComPtr<ID2D1Factory> factory;
+    rt->GetFactory(&factory);
+    // 装置の画素に合わせる。描く先の変換は拡大と平行移動だけ (図とインライン数式の縮小) とみなす。
+    float dpi_x = 96.0f, dpi_y = 96.0f;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    const float scale_x = base._11 * dpi_x / 96.0f, scale_y = base._22 * dpi_y / 96.0f;
+    const float offset_x = base._31 * dpi_x / 96.0f, offset_y = base._32 * dpi_y / 96.0f;
+    const auto snap_x = [&](float v) { return scale_x > 0.0f ? (std::round(v * scale_x + offset_x) - offset_x) / scale_x : v; };
+    const auto snap_y = [&](float v) { return scale_y > 0.0f ? (std::round(v * scale_y + offset_y) - offset_y) / scale_y : v; };
+    // 罫線の太さ。Chrome の border と同じく CSS px に切り捨て、1px 未満は 1px にする (分数の線 0.04em は DPR 1.5 で 1.5 画素)。
+    const auto thickness = [](float v) { return v < 1.0f ? 1.0f : std::floor(v + 1e-3f); };
+    for (const auto& item : math.items) {
+        if (const auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+            DWRITE_GLYPH_RUN run{};
+            run.fontFace = g->face.Get();
+            run.fontEmSize = g->size;
+            run.glyphCount = static_cast<UINT32>(g->glyphs.size());
+            run.glyphIndices = g->glyphs.data();
+            run.glyphAdvances = g->advances.data();
+            // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
+            const float gy = snap_y(y + g->y);
+            if (g->mirror) {
+                rt->SetTransform(D2D1::Matrix3x2F::Scale(-1.0f, 1.0f, D2D1::Point2F(x + g->x + RunWidth(*g) / 2, gy)) * base);
+            }
+            rt->DrawGlyphRun(D2D1::Point2F(x + g->x, gy), &run, brush, DWRITE_MEASURING_MODE_NATURAL);
+            if (g->mirror) {
+                rt->SetTransform(base);
+            }
+        }
+        else if (const auto* r = std::get_if<MathDrawing::Rect>(&item)) {
+            using Side = MathDrawing::Rect::Side;
+            float left = snap_x(x + r->x), right = snap_x(x + r->x + r->w);
+            float top = snap_y(y + r->y), bottom = snap_y(y + r->y + r->h);
+            switch (r->side) {
+            case Side::Top:
+                bottom = top + thickness(r->h);
+                break;
+            case Side::Bottom:
+                top = bottom - thickness(r->h);
+                break;
+            case Side::Left:
+                right = left + thickness(r->w);
+                break;
+            case Side::Right:
+                left = right - thickness(r->w);
+                break;
+            }
+            if (right <= left || bottom <= top) {
+                continue;
+            }
+            if (!r->dashed) {
+                rt->FillRectangle(D2D1::RectF(left, top, right, bottom), brush);
+                continue;
+            }
+            // Chrome の破線に近い、太さの 3 倍の線と隙間。
+            const bool horizontal = right - left >= bottom - top;
+            const float t = horizontal ? bottom - top : right - left;
+            const float len = horizontal ? right - left : bottom - top;
+            for (float p = 0.0f; p < len; p += t * 6) {
+                const float e = std::min(len, p + t * 3);
+                rt->FillRectangle(horizontal ? D2D1::RectF(left + p, top, left + e, bottom) : D2D1::RectF(left, top + p, right, top + e), brush);
+            }
+        }
+        else if (const auto* p = std::get_if<MathDrawing::Path>(&item)) {
+            const auto& shape = *p->shape;
+            ComPtr<ID2D1PathGeometry> geometry = shape.geometry;
+            if (shape.factory != factory) {
+                // 拡大表示や保存の PNG は本体と別のファクトリで描くので、そのときだけ作って捨てる。
+                geometry = BuildPathGeometry(factory.Get(), shape.d);
+                if (!shape.factory && geometry) {
+                    shape.factory = factory;
+                    shape.geometry = geometry;
+                }
+            }
+            if (!geometry) {
+                continue;
+            }
+            // SVG の箱は Chrome と同じく左上を装置の画素に合わせる (\xlongequal の線が 0.7 画素ずれた)。
+            const auto origin = D2D1::Matrix3x2F::Translation(snap_x(x + p->clip[0]) - p->clip[0], snap_y(y + p->clip[1]) - p->clip[1]) * base;
+            rt->SetTransform(origin);
+            rt->PushAxisAlignedClip(D2D1::RectF(p->clip[0], p->clip[1], p->clip[2], p->clip[3]), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            const auto& t = p->transform;
+            rt->SetTransform(D2D1::Matrix3x2F(t[0], t[1], t[2], t[3], t[4], t[5]) * origin);
+            if (p->stroke > 0.0f) {
+                rt->DrawGeometry(geometry.Get(), brush, p->stroke);
+            }
+            else {
+                rt->FillGeometry(geometry.Get(), brush);
+            }
+            rt->SetTransform(origin);
+            rt->PopAxisAlignedClip();
+            rt->SetTransform(base);
+        }
+    }
+}
 
 std::vector<std::wstring> ResolveFontFamilies(IDWriteFontCollection* fonts, std::wstring_view css_family)
 {
@@ -2414,18 +3913,29 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             }
             out += svg.substr(begin, end - begin);
         }
-        for (const auto& t : layer.texts) {
+        // 文字の並びと数式で共通の <text の属性。この後に字体の属性と >本文</text> を続ける。
+        const auto open_text = [&out](const std::array<float, 6>& transform, float x, float y, std::string_view family, float size) {
             out += "<text transform=\"matrix(";
-            for (const float v : t.transform) {
+            for (const float v : transform) {
                 AppendNum(out, v);
                 out += ' ';
             }
             out.back() = ')';
             out += '"';
-            AppendAttr(out, "x", t.x);
-            AppendAttr(out, "y", t.y);
-            AppendAttr(out, "font-family", string_convert::WideToUtf8(t.family));
-            AppendAttr(out, "font-size", t.font_size);
+            AppendAttr(out, "x", x);
+            AppendAttr(out, "y", y);
+            AppendAttr(out, "font-family", family);
+            AppendAttr(out, "font-size", size);
+        };
+        const auto fill = [&out](uint32_t rgb, float alpha) {
+            AppendAttr(out, "fill", FromRgb(rgb));
+            if (alpha < 1.0f) {
+                AppendAttr(out, "fill-opacity", alpha);
+            }
+            out += " xml:space=\"preserve\">";
+        };
+        for (const auto& t : layer.texts) {
+            open_text(t.transform, t.x, t.y, string_convert::WideToUtf8(t.family), t.font_size);
             AppendAttr(out, "font-weight", static_cast<double>(t.weight));
             if (t.italic) {
                 out += " font-style=\"italic\"";
@@ -2433,26 +3943,31 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             if (t.underline) {
                 out += " text-decoration=\"underline\"";
             }
-            AppendAttr(out, "fill", FromRgb(t.rgb));
-            if (t.alpha < 1.0f) {
-                AppendAttr(out, "fill-opacity", t.alpha);
-            }
-            out += " xml:space=\"preserve\">";
+            fill(t.rgb, t.alpha);
             AppendEscaped(out, string_convert::WideToUtf8(t.text));
             out += "</text>";
+        }
+        // 数式は Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ にする。書体は総称の読み替えと同じ本文の書体。
+        for (const auto& m : layer.maths) {
+            open_text(m.transform, m.x, m.y, string_convert::WideToUtf8(kDefaultFamily), m.font_size);
+            fill(m.rgb, m.alpha);
+            out += "$$";
+            AppendEscaped(out, m.tex);
+            out += "$$</text>";
         }
     }
     out += "</svg>";
     return out;
 }
 
-std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer)
+std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
+                                                               std::span<const PeleMathLabel> maths)
 {
     XmlDoc doc;
     if (!ParseXml(svg, doc)) {
         return std::nullopt;
     }
-    return PeleSvgResolver(doc, measurer).Run(dark, max_width);
+    return PeleSvgResolver(doc, measurer, maths).Run(dark, max_width);
 }
 
 ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
@@ -2545,6 +4060,15 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
         }
         for (const auto& t : layer.texts) {
             DrawRun(dc, dw, formats, brush.Get(), base, t);
+        }
+        for (const auto& m : layer.maths) {
+            if (!m.drawing) {
+                continue;
+            }
+            const auto& t = m.transform;
+            dc->SetTransform(D2D1::Matrix3x2F(t[0], t[1], t[2], t[3], t[4], t[5]) * base);
+            brush->SetColor(D2D1::ColorF(m.rgb, m.alpha));
+            DrawMath(dc, *m.drawing, m.x, m.y, brush.Get());
         }
     }
     dc->SetTransform(base);

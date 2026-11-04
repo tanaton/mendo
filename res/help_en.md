@@ -72,3 +72,7 @@ A lightweight, high-speed Markdown viewer.
 - **Per-Area Zoom**: The document, file pane, and TOC pane each have their own zoom level. You can also change it from the "Zoom" row (−, +, reset) in the right-click menu, which stays open while you adjust
 - **Pane Resizing**: Drag the pane border to resize
 - **Reset Window Position**: Right-click the taskbar button and choose "Reset Window Position"
+
+## Licenses
+
+The licenses of the libraries and fonts used by mendo are listed in [Third-Party Licenses](mendo://licenses).

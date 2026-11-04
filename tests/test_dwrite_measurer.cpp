@@ -476,55 +476,32 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
 }
 
-// 組は結果を待つ間は取り出せず、描けたらまた取り出せる (型を捨てた後に読み直す)。
+// 組は結果を待つ間は取り出せず、描けたらまた取り出せる。
 TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
 {
     InlineMathPlan plan;
     plan.Build(ParseNodes("$a$ $b$\n"), GetLightTheme());
     ASSERT_EQ(plan.Chunks().size(), 1u);
     const uint64_t key = plan.Chunks()[0].key;
-    EXPECT_EQ(plan.TakeChunk(0, false), plan.Chunks().data());
-    EXPECT_EQ(plan.TakeChunk(0, false), nullptr);
-    EXPECT_FALSE(plan.IsWanted(0, key));
-    plan.FinishChunk(0, key, false);
-    EXPECT_EQ(plan.TakeChunk(0, true), plan.Chunks().data());
-    EXPECT_TRUE(plan.IsWanted(0, key));
-    plan.FinishChunk(0, key, false);
-    EXPECT_FALSE(plan.IsWanted(0, key));
+    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
+    EXPECT_EQ(plan.TakeChunk(0), nullptr);
+    plan.FinishChunk(0, key);
+    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
 }
 
-// 待っている間に見えた組は、見えている数式のために頼んだことになる (ページを上限を超えても受け取る)。
-TEST(InlineMathPlan, WantedWhileRequested)
-{
-    InlineMathPlan plan;
-    plan.Build(ParseNodes("$a$\n"), GetLightTheme());
-    const uint64_t key = plan.Chunks()[0].key;
-    ASSERT_NE(plan.TakeChunk(0, false), nullptr);
-    EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
-    EXPECT_TRUE(plan.IsWanted(0, key));
-}
-
-// 描けなかった組は、計画を作り直すまで取り出させない。作り直す前に頼んだ組の結果は状態を変えない。
-TEST(InlineMathPlan, FailedAndStaleChunks)
+// 計画を作り直す前に頼んだ組 (番号か key が合わない) の結果は状態を変えない。
+TEST(InlineMathPlan, StaleChunksDoNotFinish)
 {
     InlineMathPlan plan;
     const auto nodes = ParseNodes("$a$\n");
     plan.Build(nodes, GetLightTheme());
     const uint64_t key = plan.Chunks()[0].key;
-    ASSERT_NE(plan.TakeChunk(0, true), nullptr);
-    plan.FinishChunk(0, key, true);
-    EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
-
-    plan.Build(nodes, GetLightTheme());
-    ASSERT_NE(plan.TakeChunk(0, true), nullptr);
-    EXPECT_TRUE(plan.IsWanted(0, key));
-    EXPECT_FALSE(plan.IsWanted(0, key + 1));
-    EXPECT_FALSE(plan.IsWanted(1, key));
-    plan.FinishChunk(0, key + 1, true);
-    plan.FinishChunk(1, key, true);
-    EXPECT_EQ(plan.TakeChunk(0, false), nullptr) << "まだ待っている";
-    plan.FinishChunk(0, key, false);
-    EXPECT_NE(plan.TakeChunk(0, false), nullptr);
+    ASSERT_NE(plan.TakeChunk(0), nullptr);
+    plan.FinishChunk(0, key + 1);
+    plan.FinishChunk(1, key);
+    EXPECT_EQ(plan.TakeChunk(0), nullptr) << "まだ待っている";
+    plan.FinishChunk(0, key);
+    EXPECT_NE(plan.TakeChunk(0), nullptr);
 }
 
 // 数式を 1 つ足しても、変わる組はその前後だけで、残りの組はディスクキャッシュに当たり続ける。組は上限を超えない。

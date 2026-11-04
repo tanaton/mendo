@@ -56,7 +56,9 @@ function Update-NpmPackage([string]$name, [string]$version, [hashtable]$files) {
         }
         New-Item -ItemType Directory $dest | Out-Null
         foreach ($src in $files.Keys) {
-            Copy-Item (Join-Path $out "package/$src") (Join-Path $dest $files[$src])
+            $target = Join-Path $dest $files[$src]
+            New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null
+            Copy-Item (Join-Path $out "package/$src") $target
         }
     }
     finally {
@@ -65,9 +67,20 @@ function Update-NpmPackage([string]$name, [string]$version, [hashtable]$files) {
     return $resolved
 }
 
-# pele は ESM の 1 ファイル版 (全種類の図を含む)。KaTeX は UMD の縮小版を <script> で読む (window.katex)。
+# pele は ESM の 1 ファイル版 (全種類の図を含む)。KaTeX は UMD の縮小版 (QuickJS で globalThis.katex になる) と、
+# 描画に使う書体 20 個の woff2 (DirectWrite が展開して読む)。書体の一覧は diagram_raster.h の kKatexFontFiles と同じ。
+$katexFonts = @(
+    'AMS-Regular', 'Caligraphic-Bold', 'Caligraphic-Regular', 'Fraktur-Bold', 'Fraktur-Regular',
+    'Main-Bold', 'Main-BoldItalic', 'Main-Italic', 'Main-Regular', 'Math-BoldItalic',
+    'Math-Italic', 'SansSerif-Bold', 'SansSerif-Italic', 'SansSerif-Regular', 'Script-Regular',
+    'Size1-Regular', 'Size2-Regular', 'Size3-Regular', 'Size4-Regular', 'Typewriter-Regular'
+)
+$katexFiles = @{ 'dist/katex.min.js' = 'katex.min.js'; 'LICENSE' = 'LICENSE' }
+foreach ($font in $katexFonts) {
+    $katexFiles["dist/fonts/KaTeX_$font.woff2"] = "fonts/KaTeX_$font.woff2"
+}
 $peleVersion = Update-NpmPackage 'pele' $Pele @{ 'dist/pele.js' = 'pele.mjs'; 'LICENSE' = 'LICENSE' }
-$katexVersion = Update-NpmPackage 'katex' $Katex @{ 'dist/katex.min.js' = 'katex.min.js'; 'LICENSE' = 'LICENSE' }
+$katexVersion = Update-NpmPackage 'katex' $Katex $katexFiles
 
 Write-Host @"
 
