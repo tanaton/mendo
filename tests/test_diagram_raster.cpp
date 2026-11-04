@@ -57,7 +57,7 @@ protected:
 
     static mermaid_util::DrawingText Text(std::wstring text, float x, float y)
     {
-        return { .x = x, .y = y, .font_size = 16.0f, .family = L"\"Segoe UI\", \"Yu Gothic UI\"", .text = std::move(text) };
+        return { .at = { .x = x, .y = y, .font_size = 16.0f }, .family = L"\"Segoe UI\", \"Yu Gothic UI\"", .text = std::move(text) };
     }
 
     ComPtr<ID2D1Factory1> d2d_;
@@ -105,7 +105,7 @@ TEST_F(DiagramRasterTest, DrawsLayersWithSharedDefs)
 TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
 {
     auto text = Text(L"日本語 ABC", 0.0f, 16.0f);
-    text.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
+    text.at.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
     const mermaid_util::DiagramDrawing drawing{
         .width = 100.0f,
         .height = 40.0f,
@@ -280,20 +280,20 @@ TEST_F(PeleSvgTest, PlacesTextChunksByAnchor)
     const float two = Width(L"2", 16.0f / 1.2f);
     const float o = Width(L"O");
     const float left = -(h + two + o) / 2.0f;
-    EXPECT_NEAR(texts[0].x, left, 0.01f);
-    EXPECT_NEAR(texts[1].x, left + h, 0.01f);
-    EXPECT_NEAR(texts[2].x, left + h + two, 0.01f);
-    EXPECT_EQ(texts[0].y, 5.0f);
-    EXPECT_GT(texts[1].y, 5.0f);
-    EXPECT_EQ(texts[2].y, 5.0f);
-    EXPECT_NEAR(texts[1].font_size, 16.0f / 1.2f, 1e-4f);
-    EXPECT_EQ(texts[0].rgb, 0x1F1F1Fu);
+    EXPECT_NEAR(texts[0].at.x, left, 0.01f);
+    EXPECT_NEAR(texts[1].at.x, left + h, 0.01f);
+    EXPECT_NEAR(texts[2].at.x, left + h + two, 0.01f);
+    EXPECT_EQ(texts[0].at.y, 5.0f);
+    EXPECT_GT(texts[1].at.y, 5.0f);
+    EXPECT_EQ(texts[2].at.y, 5.0f);
+    EXPECT_NEAR(texts[1].at.font_size, 16.0f / 1.2f, 1e-4f);
+    EXPECT_EQ(texts[0].at.rgb, 0x1F1F1Fu);
     EXPECT_EQ(texts[0].family, L"\"Segoe UI\", \"Yu Gothic UI\"");
-    EXPECT_EQ(texts[0].transform[4], 100.0f);
-    EXPECT_EQ(texts[0].transform[5], 50.0f);
-    EXPECT_EQ(texts[3].x, 10.0f);
+    EXPECT_EQ(texts[0].at.transform[4], 100.0f);
+    EXPECT_EQ(texts[0].at.transform[5], 50.0f);
+    EXPECT_EQ(texts[3].at.x, 10.0f);
     EXPECT_EQ(texts[3].weight, 700);
-    EXPECT_EQ(texts[3].rgb, 0xFFFFFFu);
+    EXPECT_EQ(texts[3].at.rgb, 0xFFFFFFu);
 }
 
 // xml:space が無ければ空白を畳み、先頭と末尾の空白を除く。

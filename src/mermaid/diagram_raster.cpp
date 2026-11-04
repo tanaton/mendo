@@ -134,13 +134,20 @@ D2D1::Matrix3x2F ToD2D(const std::array<float, 6>& m) noexcept
     return D2D1::Matrix3x2F(m[0], m[1], m[2], m[3], m[4], m[5]);
 }
 
+// at の変換を base に重ね、筆を at の色にする。
+void Place(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base, const mermaid_util::DrawingPlacement& at)
+{
+    dc->SetTransform(ToD2D(at.transform) * base);
+    brush->SetColor(D2D1::ColorF(at.rgb, at.alpha));
+}
+
 void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& formats, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base,
              const mermaid_util::DrawingText& t)
 {
     if (t.text.empty()) {
         return;
     }
-    IDWriteTextFormat* format = formats.Format({ .family = t.family, .size = t.font_size, .weight = t.weight, .italic = t.italic });
+    IDWriteTextFormat* format = formats.Format({ .family = t.family, .size = t.at.font_size, .weight = t.weight, .italic = t.italic });
     ComPtr<IDWriteTextLayout> layout;
     if (!format || FAILED(dw->CreateTextLayout(t.text.data(), static_cast<UINT32>(t.text.size()), format, 1.0e6f, 1.0e6f, &layout))) {
         return;
@@ -155,9 +162,8 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& fo
     if (lines == 0) {
         return;
     }
-    dc->SetTransform(ToD2D(t.transform) * base);
-    brush->SetColor(D2D1::ColorF(t.rgb, t.alpha));
-    dc->DrawTextLayout(D2D1::Point2F(t.x, t.y - line.baseline), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    Place(dc, brush, base, t.at);
+    dc->DrawTextLayout(D2D1::Point2F(t.at.x, t.at.y - line.baseline), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
 }
 
 void AppendFontKey(std::wstring& key, const DiagramFont& font)
@@ -2372,15 +2378,17 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
         box.Add(piece.left + piece.width, baseline + descent);
         text_bounds_.push_back(box.Transformed(ctm));
         layers_.back().texts.push_back({
-            .transform = ToArray(ctm),
-            .x = piece.left,
-            .y = baseline,
-            .font_size = ps.font_size,
+            .at = {
+                .transform = ToArray(ctm),
+                .x = piece.left,
+                .y = baseline,
+                .font_size = ps.font_size,
+                .rgb = ToRgb(*color),
+                .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
+            },
             .weight = ps.weight,
             .italic = ps.italic,
             .underline = piece.underline,
-            .rgb = ToRgb(*color),
-            .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
             .family = std::wstring{ ps.font_family },
             .text = std::move(piece.text),
         });
@@ -2414,12 +2422,14 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
     box.Add(x + math.width, top + math.height + math.depth);
     text_bounds_.push_back(box.Transformed(ctm));
     layers_.back().maths.push_back({
-        .transform = ToArray(ctm),
-        .x = x,
-        .y = top + math.height,
-        .font_size = label.font_size,
-        .rgb = ToRgb(s.color),
-        .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
+        .at = {
+            .transform = ToArray(ctm),
+            .x = x,
+            .y = top + math.height,
+            .font_size = label.font_size,
+            .rgb = ToRgb(s.color),
+            .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
+        },
         .tex = label.tex,
         .drawing = label.drawing,
     });
@@ -4008,23 +4018,23 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
         out += "</defs>";
     }
     // 文字の並びと数式で共通の <text の属性。この後に字体の属性と >本文</text> を続ける。
-    const auto open_text = [&out](const std::array<float, 6>& transform, float x, float y, std::string_view family, float size) {
+    const auto open_text = [&out](const mermaid_util::DrawingPlacement& at, std::string_view family) {
         out += "<text";
-        AppendTransform(out, transform);
-        AppendAttr(out, "x", x);
-        AppendAttr(out, "y", y);
+        AppendTransform(out, at.transform);
+        AppendAttr(out, "x", at.x);
+        AppendAttr(out, "y", at.y);
         AppendAttr(out, "font-family", family);
-        AppendAttr(out, "font-size", size);
+        AppendAttr(out, "font-size", at.font_size);
     };
-    const auto fill = [&out](uint32_t rgb, float alpha) {
-        AppendAttr(out, "fill", FromRgb(rgb));
-        AppendAttrUnlessInitial(out, "fill-opacity", alpha, 1.0);
+    const auto fill = [&out](const mermaid_util::DrawingPlacement& at) {
+        AppendAttr(out, "fill", FromRgb(at.rgb));
+        AppendAttrUnlessInitial(out, "fill-opacity", at.alpha, 1.0);
         out += " xml:space=\"preserve\">";
     };
     for (const auto& layer : drawing.layers) {
         out += layer.shapes;
         for (const auto& t : layer.texts) {
-            open_text(t.transform, t.x, t.y, string_convert::WideToUtf8(t.family), t.font_size);
+            open_text(t.at, string_convert::WideToUtf8(t.family));
             AppendAttrUnlessInitial(out, "font-weight", t.weight, 400.0);
             if (t.italic) {
                 out += " font-style=\"italic\"";
@@ -4032,14 +4042,14 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             if (t.underline) {
                 out += " text-decoration=\"underline\"";
             }
-            fill(t.rgb, t.alpha);
+            fill(t.at);
             AppendEscaped(out, string_convert::WideToUtf8(t.text));
             out += "</text>";
         }
         // 数式は Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ にする。書体は総称の読み替えと同じ本文の書体。
         for (const auto& m : layer.maths) {
-            open_text(m.transform, m.x, m.y, kDefaultFamilyUtf8, m.font_size);
-            fill(m.rgb, m.alpha);
+            open_text(m.at, kDefaultFamilyUtf8);
+            fill(m.at);
             out += "$$";
             AppendEscaped(out, m.tex);
             out += "$$</text>";
@@ -4123,9 +4133,8 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
             if (!m.drawing) {
                 continue;
             }
-            dc->SetTransform(ToD2D(m.transform) * base);
-            brush->SetColor(D2D1::ColorF(m.rgb, m.alpha));
-            DrawMath(dc, *m.drawing, m.x, m.y, brush.Get());
+            Place(dc, brush.Get(), base, m.at);
+            DrawMath(dc, *m.drawing, m.at.x, m.at.y, brush.Get());
         }
     }
     dc->SetTransform(base);

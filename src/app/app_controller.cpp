@@ -41,6 +41,26 @@ constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
 
 } // namespace
 
+std::optional<AppAction> TitleBarClickAction(TitleBarHitZone zone)
+{
+    switch (zone) {
+    case TitleBarHitZone::OpenFile:
+        return OpenFileAction{};
+    case TitleBarHitZone::Help:
+        return ShowHelpAction{};
+    case TitleBarHitZone::Search:
+        return OpenSearchBarAction{};
+    case TitleBarHitZone::ThemeToggle:
+        return ToggleDarkModeAction{};
+    case TitleBarHitZone::FileToggle:
+        return TogglePaneAction{ PaneTarget::File };
+    case TitleBarHitZone::TocToggle:
+        return TogglePaneAction{ PaneTarget::Toc };
+    default:
+        return std::nullopt;
+    }
+}
+
 std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
 {
     // AltGr は Ctrl+Alt として届く。ドイツ語配列の AltGr+0 (}) などを検索欄で打つとズームが動くので、

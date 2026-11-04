@@ -64,7 +64,7 @@ TEST(ReducerHomeKey, ShortDocumentDoesNotExceedMaxScroll)
 // ---- スクロール不変条件 ----
 // reducer 経由のどのスクロール操作の後も
 //   (a) 0 <= scroll_y <= max_scroll
-//   (b) scroll_y が変わったら 再描画 (InvalidateWindow) を積む (目次は描画時に同期する)
+//   (b) scroll_y が変わったら 再描画 (InvalidateWindow) を積む (目次は描画時に同期する)。積むのは 1 件だけ
 // が成り立つこと。(a) が破れると後続のホイールで位置が一気に補正されて「飛ぶ」(issue#224)。
 
 namespace {
@@ -192,6 +192,7 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
             if (y != before) {
                 ASSERT_TRUE(HasEffect<effect::InvalidateWindow>(effects)) << "history:" << history;
             }
+            ASSERT_LE(CountEffect<effect::InvalidateWindow>(effects), 1) << "history:" << history;
         }
     }
 }

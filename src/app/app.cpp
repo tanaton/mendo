@@ -1295,27 +1295,14 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
         return false;
     }
 
-    switch (state_.window.titlebar.HitTest(dip_x, dip_y)) {
-    case TitleBarHitZone::OpenFile:
-        Dispatch(OpenFileAction{});
-        break;
-    case TitleBarHitZone::Help:
-        Dispatch(ShowHelpAction{});
-        break;
+    const TitleBarHitZone zone = state_.window.titlebar.HitTest(dip_x, dip_y);
+    if (const auto action = app_controller::TitleBarClickAction(zone)) {
+        Dispatch(*action);
+        return true;
+    }
+    switch (zone) {
     case TitleBarHitZone::Settings:
         ShowSettingsDialog();
-        break;
-    case TitleBarHitZone::Search:
-        Dispatch(OpenSearchBarAction{});
-        break;
-    case TitleBarHitZone::ThemeToggle:
-        Dispatch(ToggleDarkModeAction{});
-        break;
-    case TitleBarHitZone::FileToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::File });
-        break;
-    case TitleBarHitZone::TocToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::Toc });
         break;
     case TitleBarHitZone::Minimize:
         ShowWindow(hwnd_, SW_MINIMIZE);

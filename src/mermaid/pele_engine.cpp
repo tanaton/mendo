@@ -388,7 +388,7 @@ bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
         for (auto& math : layer.maths) {
             if (!math.drawing) {
                 pending.push_back(&math);
-                sources.push_back({ math.tex, math.font_size });
+                sources.push_back({ math.tex, math.at.font_size });
             }
         }
     }

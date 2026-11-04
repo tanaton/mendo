@@ -99,19 +99,45 @@ std::optional<std::wstring_view> TakeText(std::wstring_view& s, uint32_t max_len
 constexpr uint32_t kMaxRgb = 0xFFFFFF;
 constexpr uint32_t kMaxFamilyLength = 1024;
 
+// 置き方の数 (変換 6・x・y・大きさ・色・不透明度)。文字と数式の数の並びの先頭に書く。
+constexpr size_t kPlacementNumbers = 11;
+
+// 数の並びのうち先頭 kPlacementNumbers 個を読む。大きさと色が範囲の外なら nullopt。
+std::optional<mermaid_util::DrawingPlacement> ToPlacement(std::span<const float> v) noexcept
+{
+    const float font_size = v[8];
+    const float rgb = v[9];
+    if (!(font_size > 0.0f && font_size <= 1000.0f) || !(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
+        return std::nullopt;
+    }
+    return mermaid_util::DrawingPlacement{
+        .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
+        .x = v[6],
+        .y = v[7],
+        .font_size = font_size,
+        .rgb = static_cast<uint32_t>(rgb),
+        .alpha = std::clamp(v[10], 0.0f, 1.0f),
+    };
+}
+
+template <class Out>
+void AppendPlacement(Out out, const mermaid_util::DrawingPlacement& p)
+{
+    const auto& m = p.transform;
+    std::format_to(out, "{},{},{},{},{},{},{},{},{},{},{}", m[0], m[1], m[2], m[3], m[4], m[5], p.x, p.y, p.font_size, p.rgb, p.alpha);
+}
+
 std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
 {
     const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, L',') != 13) {
+    if (!numbers || std::ranges::count(*numbers, L',') != kPlacementNumbers + 2) {
         return std::nullopt;
     }
-    float v[14]{};
+    float v[kPlacementNumbers + 3]{};
     ParseFloatList(*numbers, L',', v);
-    const float font_size = v[8];
-    const float weight = v[9];
-    const float rgb = v[12];
-    if (!(font_size > 0.0f && font_size <= 1000.0f) || !(weight >= 1.0f && weight <= 1000.0f) || (v[10] != 0.0f && v[10] != 1.0f) ||
-        (v[11] != 0.0f && v[11] != 1.0f) || !(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
+    const auto at = ToPlacement(v);
+    const float weight = v[11];
+    if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || (v[13] != 0.0f && v[13] != 1.0f)) {
         return std::nullopt;
     }
     const auto family = TakeText(s, kMaxFamilyLength);
@@ -120,15 +146,10 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
         return std::nullopt;
     }
     return mermaid_util::DrawingText{
-        .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
-        .x = v[6],
-        .y = v[7],
-        .font_size = font_size,
+        .at = *at,
         .weight = static_cast<uint16_t>(weight),
-        .italic = v[10] != 0.0f,
-        .underline = v[11] != 0.0f,
-        .rgb = static_cast<uint32_t>(rgb),
-        .alpha = std::clamp(v[13], 0.0f, 1.0f),
+        .italic = v[12] != 0.0f,
+        .underline = v[13] != 0.0f,
         .family = std::wstring{ *family },
         .text = std::wstring{ *text },
     };
@@ -140,29 +161,17 @@ constexpr uint32_t kMaxTexLength = 64 * 1024;
 std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
 {
     const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, L',') != 10) {
+    if (!numbers || std::ranges::count(*numbers, L',') != kPlacementNumbers - 1) {
         return std::nullopt;
     }
-    float v[11]{};
+    float v[kPlacementNumbers]{};
     ParseFloatList(*numbers, L',', v);
-    const float font_size = v[8];
-    const float rgb = v[9];
-    if (!(font_size > 0.0f && font_size <= 1000.0f) || !(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
-        return std::nullopt;
-    }
-    const auto tex = TakeText(s, kMaxTexLength);
+    const auto at = ToPlacement(v);
+    const auto tex = at ? TakeText(s, kMaxTexLength) : std::nullopt;
     if (!tex) {
         return std::nullopt;
     }
-    return mermaid_util::DrawingMath{
-        .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
-        .x = v[6],
-        .y = v[7],
-        .font_size = font_size,
-        .rgb = static_cast<uint32_t>(rgb),
-        .alpha = std::clamp(v[10], 0.0f, 1.0f),
-        .tex = string_convert::WideToUtf8(*tex),
-    };
+    return mermaid_util::DrawingMath{ .at = *at, .tex = string_convert::WideToUtf8(*tex) };
 }
 
 } // namespace
@@ -192,16 +201,14 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
     for (const auto& layer : drawing.layers) {
         std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes), layer.shapes, layer.texts.size());
         for (const auto& t : layer.texts) {
-            const auto& m = t.transform;
-            std::format_to(out_it, "{},{},{},{},{},{},{},{},{},{},{},{},{},{}:", m[0], m[1], m[2], m[3], m[4], m[5], t.x, t.y, t.font_size, t.weight,
-                           t.italic ? 1 : 0, t.underline ? 1 : 0, t.rgb, t.alpha);
+            AppendPlacement(out_it, t.at);
+            std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.underline ? 1 : 0);
             std::format_to(out_it, "{}:{}{}:{}", t.family.size(), string_convert::WideToUtf8(t.family), t.text.size(), string_convert::WideToUtf8(t.text));
         }
         std::format_to(out_it, "{}:", layer.maths.size());
         for (const auto& m : layer.maths) {
-            const auto& t = m.transform;
-            std::format_to(out_it, "{},{},{},{},{},{},{},{},{},{},{}:{}:{}", t[0], t[1], t[2], t[3], t[4], t[5], m.x, m.y, m.font_size, m.rgb, m.alpha,
-                           Utf16Length(m.tex), m.tex);
+            AppendPlacement(out_it, m.at);
+            std::format_to(out_it, ":{}:{}", Utf16Length(m.tex), m.tex);
         }
     }
     return out;

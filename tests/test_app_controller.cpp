@@ -107,6 +107,32 @@ TEST(AppControllerTest, HandleKeyDown)
     }
 }
 
+// タイトルバーのボタンはキーと同じアクションにする。ウィンドウの操作と設定ダイアログは App が直接行う。
+TEST(AppControllerTest, TitleBarClickAction)
+{
+    struct Case {
+        TitleBarHitZone zone;
+        std::optional<AppAction> expected;
+    };
+    const Case kCases[]{
+        { TitleBarHitZone::OpenFile, OpenFileAction{} },
+        { TitleBarHitZone::Help, ShowHelpAction{} },
+        { TitleBarHitZone::Search, OpenSearchBarAction{} },
+        { TitleBarHitZone::ThemeToggle, ToggleDarkModeAction{} },
+        { TitleBarHitZone::FileToggle, TogglePaneAction{ PaneTarget::File } },
+        { TitleBarHitZone::TocToggle, TogglePaneAction{ PaneTarget::Toc } },
+        { TitleBarHitZone::Settings, std::nullopt },
+        { TitleBarHitZone::Minimize, std::nullopt },
+        { TitleBarHitZone::Maximize, std::nullopt },
+        { TitleBarHitZone::Close, std::nullopt },
+        { TitleBarHitZone::Caption, std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(static_cast<int>(c.zone));
+        ExpectSameAction(app_controller::TitleBarClickAction(c.zone), c.expected);
+    }
+}
+
 TEST(AppControllerTest, HandleSearchEditKeyDown)
 {
     // nullopt は入力欄 (EDIT) に処理させるキー。
