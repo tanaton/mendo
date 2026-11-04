@@ -57,6 +57,8 @@ struct InlineMathChunk {
     // 組の数式のキーの並びから決まる。計画を作り直す前に頼んだ組の結果を見分けるのに使う。
     uint64_t key = 0;
     std::vector<InlineMathItem> items;
+    // 描画を頼んで結果を待っている (TakeChunk から FinishChunk まで)。
+    bool requested = false;
 };
 
 // 文書の数式を組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
@@ -76,18 +78,9 @@ public:
     void FinishChunk(size_t chunk, uint64_t key) noexcept;
 
 private:
-    enum class State : uint8_t { Idle, Requested };
-
-    // 計画を作り直す前に頼んだ組は、番号と key が合わない。
-    bool IsCurrent(size_t chunk, uint64_t key) const noexcept
-    {
-        return chunk < chunks_.size() && chunks_[chunk].key == key;
-    }
-
     std::vector<InlineMathChunk> chunks_;
     // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない (数式 12000 個で 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
-    std::vector<State> states_;
 };
 
 // 数式の寸法表。計測ワーカーが引き、まだ無ければ描画を頼む。描画の結果は UI スレッドが書く。

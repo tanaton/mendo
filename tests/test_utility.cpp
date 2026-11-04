@@ -120,40 +120,6 @@ TEST(FlatHashMap, AnyKeyValueIsUsable)
     EXPECT_EQ(*map.Find(kMax), 3);
 }
 
-TEST(FlatHashMap, EraseIfKeepsTheRest)
-{
-    FlatHashMap<int> map;
-    for (int i = 1; i <= 100; ++i) {
-        *map.TryEmplace(static_cast<uint64_t>(i)).first = i;
-    }
-    map.EraseIf([](int value) static { return value % 2 == 0; });
-    EXPECT_EQ(map.size(), 50u);
-    for (int i = 1; i <= 100; ++i) {
-        EXPECT_EQ(map.Find(static_cast<uint64_t>(i)) != nullptr, i % 2 != 0) << i;
-    }
-}
-
-// 消した要素の後ろに詰まっていた要素も、配列の端をまたぐものも引ける。
-TEST(FlatHashMap, EraseIfKeepsProbeChains)
-{
-    FlatHashMap<uint64_t> map;
-    constexpr uint64_t kCount = 5000;
-    for (uint64_t i = 0; i < kCount; ++i) {
-        *map.TryEmplace(i * 0x9E3779B1ULL).first = i;
-    }
-    for (const uint64_t divisor : { 2u, 3u, 5u }) {
-        map.EraseIf([divisor](uint64_t value) { return value % divisor == 0; });
-    }
-    for (uint64_t i = 0; i < kCount; ++i) {
-        const bool kept = i % 2 != 0 && i % 3 != 0 && i % 5 != 0;
-        const auto* const value = map.Find(i * 0x9E3779B1ULL);
-        ASSERT_EQ(value != nullptr, kept) << i;
-        if (kept) {
-            EXPECT_EQ(*value, i);
-        }
-    }
-}
-
 // 既存のキーを引くだけでは配列が伸びず、ポインタも動かない。
 TEST(FlatHashMap, TryEmplaceOnExistingKeyDoesNotGrow)
 {

@@ -246,42 +246,50 @@ TEST(SidePaneLocalY, OffsetsByContentTopAndScroll)
 // HitTestUniformList
 // ============================================================
 
+// 高さ item_h の項目が count 個並ぶ一覧で、y にある項目。外や項目が無いときと、高さが未確定 (0 以下) のときは -1 (0 除算しない)。
 TEST(HitTestUniformList, ReturnsIndexOfItemUnderY)
 {
-    EXPECT_EQ(HitTestUniformList(0.0f, 20.0f, 3), 0);
-    EXPECT_EQ(HitTestUniformList(19.9f, 20.0f, 3), 0);
-    EXPECT_EQ(HitTestUniformList(20.0f, 20.0f, 3), 1);
-    EXPECT_EQ(HitTestUniformList(59.9f, 20.0f, 3), 2);
-}
-
-TEST(HitTestUniformList, OutOfRangeReturnsMinusOne)
-{
-    EXPECT_EQ(HitTestUniformList(-0.1f, 20.0f, 3), -1);
-    EXPECT_EQ(HitTestUniformList(60.0f, 20.0f, 3), -1);
-    EXPECT_EQ(HitTestUniformList(0.0f, 20.0f, 0), -1);
-}
-
-// 項目高さが未確定 (0) のときに 0 除算しない。
-TEST(HitTestUniformList, NonPositiveItemHeightReturnsMinusOne)
-{
-    EXPECT_EQ(HitTestUniformList(10.0f, 0.0f, 3), -1);
-    EXPECT_EQ(HitTestUniformList(10.0f, -5.0f, 3), -1);
+    struct Case {
+        float y;
+        float item_h;
+        int count;
+        int expected;
+    };
+    constexpr Case kCases[] = {
+        { 0.0f, 20.0f, 3, 0 },
+        { 19.9f, 20.0f, 3, 0 },
+        { 20.0f, 20.0f, 3, 1 },
+        { 59.9f, 20.0f, 3, 2 },
+        { -0.1f, 20.0f, 3, -1 },
+        { 60.0f, 20.0f, 3, -1 },
+        { 0.0f, 20.0f, 0, -1 },
+        { 10.0f, 0.0f, 3, -1 },
+        { 10.0f, -5.0f, 3, -1 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.y << " / " << c.item_h << " x" << c.count);
+        EXPECT_EQ(HitTestUniformList(c.y, c.item_h, c.count), c.expected);
+    }
 }
 
 // ============================================================
 // ToPaneTarget
 // ============================================================
 
-TEST(PaneZoneConversion, SidePanesMapToTargets)
+// サイドペインだけが対象のペインを持つ。
+TEST(PaneZoneConversion, OnlySidePanesMapToTargets)
 {
-    EXPECT_EQ(ToPaneTarget(PaneZone::FilePane), PaneTarget::File);
-    EXPECT_EQ(ToPaneTarget(PaneZone::TocPane), PaneTarget::Toc);
-}
-
-TEST(PaneZoneConversion, NonSidePaneZonesHaveNoTarget)
-{
-    for (const auto zone : { PaneZone::None, PaneZone::Splitter1, PaneZone::Splitter2, PaneZone::MdPane }) {
-        EXPECT_FALSE(ToPaneTarget(zone).has_value());
+    const std::pair<PaneZone, std::optional<PaneTarget>> kCases[] = {
+        { PaneZone::FilePane, PaneTarget::File },
+        { PaneZone::TocPane, PaneTarget::Toc },
+        { PaneZone::None, std::nullopt },
+        { PaneZone::Splitter1, std::nullopt },
+        { PaneZone::Splitter2, std::nullopt },
+        { PaneZone::MdPane, std::nullopt },
+    };
+    for (const auto& [zone, target] : kCases) {
+        SCOPED_TRACE(static_cast<int>(zone));
+        EXPECT_EQ(ToPaneTarget(zone), target);
     }
 }
 
@@ -392,54 +400,43 @@ TEST_F(PaneControllerTest, ResetScrollStates)
 // スプリッタードラッグ制約
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
+// ドラッグした幅はペインの最小幅を割らず、本文ペインに最小幅を残す。非表示のペインのスプリッターも同じく制約する。
+// 既定の幅は file 220・toc 220、スプリッターは 4。
+TEST_F(PaneControllerTest, DragSplitterRespectsMinWidths)
 {
-    panes_.DragSplitterTo(PaneTarget::File, 10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_MIN_WIDTH);
-}
-
-TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
-{
-    // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
-    // MDペインに残るのは12のみ(< 200)なので、制約されるべき
-    panes_.DragSplitterTo(PaneTarget::File, 960.0f, 1200.0f, 4.0f);
-    float remaining = 1200.0f - panes_.GetSidePaneWidth(PaneTarget::File) - 4.0f - 220.0f - 4.0f;
-    EXPECT_GE(remaining, ::MD_PANE_MIN_WIDTH);
-}
-
-TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
-{
-    // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
-    panes_.DragSplitterTo(PaneTarget::Toc, panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_MIN_WIDTH);
-}
-
-TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
-{
-    // 目次ペインの幅を非常に大きくドラッグ
-    panes_.DragSplitterTo(PaneTarget::Toc, 1190.0f, 1200.0f, 4.0f);
-    float layout_width = panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + panes_.GetSidePaneWidth(PaneTarget::Toc) + 4.0f;
-    float md_width = 1200.0f - layout_width;
-    EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
-}
-
-// ═══════════════════════════════════════════════
-// スプリッタードラッグ — ファイルペイン非表示時
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
-{
-    panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
-    // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
-    panes_.DragSplitterTo(PaneTarget::File, 300.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_MIN_WIDTH);
-}
-
-TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
-{
-    panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
-    panes_.DragSplitterTo(PaneTarget::Toc, 1000.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_MIN_WIDTH);
+    struct Case {
+        const char* name;
+        PaneTarget target;
+        float x;
+        bool from_file_right = false; // x をファイルペインの右端 (+ スプリッター) からの距離とみなす
+        std::optional<PaneTarget> hidden = std::nullopt;
+    };
+    const Case kCases[] = {
+        { "FileToMin", PaneTarget::File, 10.0f },
+        // file 960 だと本文ペインに 12 しか残らない
+        { "FileToMaxLeavesMdPane", PaneTarget::File, 960.0f },
+        { "TocToMin", PaneTarget::Toc, 10.0f, true },
+        { "TocToMaxLeavesMdPane", PaneTarget::Toc, 1190.0f },
+        { "HiddenFile", PaneTarget::File, 300.0f, false, PaneTarget::File },
+        { "HiddenToc", PaneTarget::Toc, 1000.0f, false, PaneTarget::Toc },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        PaneController panes;
+        if (c.hidden) {
+            panes.ToggleSidePane(*c.hidden);
+        }
+        const float x = c.from_file_right ? panes.GetSidePaneWidth(PaneTarget::File) + 4.0f + c.x : c.x;
+        panes.DragSplitterTo(c.target, x, 1200.0f, 4.0f);
+        EXPECT_GE(panes.GetSidePaneWidth(c.target), SIDE_PANE_MIN_WIDTH);
+        float md_width = 1200.0f;
+        for (const auto side : { PaneTarget::File, PaneTarget::Toc }) {
+            if (panes.IsSidePaneVisible(side)) {
+                md_width -= panes.GetSidePaneWidth(side) + 4.0f;
+            }
+        }
+        EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
+    }
 }
 
 // ═══════════════════════════════════════════════

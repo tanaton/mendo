@@ -139,7 +139,16 @@ struct ReduceContext {
     // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
     // 直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
+    bool invalidated = false;
 };
+
+// 描き直させる。1 回の Reduce で何度呼んでも、最初に呼んだ位置に 1 件だけ積む (モーダルの副作用より前の位置を保つ)。
+void Invalidate(ReduceContext& c)
+{
+    if (!std::exchange(c.invalidated, true)) {
+        PushEffect(c.effects, effect::InvalidateWindow{});
+    }
+}
 
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
 void ClearTooltip(ReduceContext& c)
@@ -155,7 +164,7 @@ void ClearTooltip(ReduceContext& c)
 void EmitScrollChangedSideEffects(ReduceContext& c)
 {
     ClearTooltip(c);
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
     // ライブリサイズ中に上限へ収めても図や画像を取りに行かない。幅が決まるのはサイズ変更の終わり。
     if (!c.state.window.is_sizing) {
         PushEffect(c.effects, effect::BitmapManage{});
@@ -228,7 +237,7 @@ void NotifyVWheel(ReduceContext& c, uint64_t tick)
     swipe.NotifyVScroll(tick);
     if (had_overlay) {
         PushEffect(c.effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -243,7 +252,7 @@ void ReduceWheelScroll(ReduceContext& c, const MouseWheelAction& a)
     }
     const auto ctx = GetSidePaneContext(c.state, *pane);
     if (c.state.view.panes.ScrollSidePaneBy(*pane, amount, ctx.info.max_scroll)) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -259,7 +268,7 @@ void On(ReduceContext& c, const HWheelAction& a)
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
         if (SetBlockScrollX(c.state, c.state.view.GetBlockScrollX(geom) + dx, geom)) {
-            PushEffect(c.effects, effect::InvalidateWindow{});
+            Invalidate(c);
         }
         return;
     }
@@ -269,7 +278,7 @@ void On(ReduceContext& c, const HWheelAction& a)
     swipe.OnHWheel(a.delta, a.tick);
     PushEffect(c.effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (old_direction != swipe.GetOverlayDirection()) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -280,7 +289,7 @@ void On(ReduceContext& c, const BlockHScrollDragStartedAction& a)
         return;
     }
     c.state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = c.state.view.GetBlockScrollX(geom) };
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void MoveBlockHScrollDrag(ReduceContext& c, float dip_x)
@@ -298,7 +307,7 @@ void MoveBlockHScrollDrag(ReduceContext& c, float dip_x)
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
     if (SetBlockScrollX(c.state, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -338,15 +347,15 @@ void On(ReduceContext& c, const OpenPathAction& a)
 
 void ScrollToHeading(AppState& state, int node_index)
 {
-    const auto target = MakeHeadingTopTarget(node_index, state.theme->heading_spacing_above);
-    ApplyScrollTarget(state, target.node, target.offset);
+    // 見出しを上端に貼り付けず、上の余白ごと見せる。
+    ApplyScrollTarget(state, node_index, -state.theme->heading_spacing_above);
 }
 
 void On(ReduceContext& c, const FilePaneDirectoryClickedAction& a)
 {
     c.state.file_explorer.SetDirectory(a.full_path);
     c.state.view.panes.SidePaneScroll(PaneTarget::File) = 0.0f;
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const FilePaneRevealCurrentFileAction&)
@@ -368,7 +377,7 @@ void On(ReduceContext& c, const FilePaneRevealCurrentFileAction&)
     ctx.scroll_y = it != entries.end()
                        ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), ctx.item_height, ctx.info)
                        : 0.0f;
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const TocItemClickedAction& a)
@@ -439,7 +448,7 @@ void ApplyHoverHighlights(ReduceContext& c, HoverHighlights h)
         h.h_block = c.state.view.hover.h_block;
     }
     if (std::exchange(c.state.view.hover, h) != h) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -468,7 +477,7 @@ void On(ReduceContext& c, const CaptureChangedAction&)
     }
     c.state.interaction.gesture.Reset();
     c.state.view.drag = {};
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const SplitterDragStartedAction& a)
@@ -485,7 +494,7 @@ void MoveSplitterDrag(ReduceContext& c, float dip_x)
     if (c.state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && c.state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
@@ -499,7 +508,7 @@ void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
         return;
     }
     c.state.view.viewport.SetSelection(next);
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const LeftDragEndedAction& a)
@@ -514,7 +523,7 @@ void On(ReduceContext& c, const LeftDragEndedAction& a)
         PushEffect(c.effects, effect::SettleViewport{});
     }
     else if (drag == LeftDrag::BlockHScroll) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -563,7 +572,7 @@ void On(ReduceContext& c, const PaneScrollbarDragStartedAction& a)
     c.state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset };
     if (!grip.inside_thumb) {
         ctx.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -572,7 +581,7 @@ void MovePaneScrollbarDrag(ReduceContext& c, float dip_y)
     const auto ctx = GetSidePaneContext(c.state, c.state.view.drag.pane);
     const float new_thumb_y = dip_y - c.state.view.drag.grip_offset;
     ctx.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const TextSelectionStartedAction& a)
@@ -585,7 +594,7 @@ void On(ReduceContext& c, const TextSelectionStartedAction& a)
     viewport.ClearSelection();
     c.state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
     if (had_selection) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -624,7 +633,7 @@ void On(ReduceContext& c, const RightClickGestureStartedAction& a)
 void On(ReduceContext& c, const RightClickGestureMovedAction& a)
 {
     if (c.state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y)) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -643,7 +652,7 @@ void On(ReduceContext& c, const RightClickGestureCompletedAction& a)
     case GestureResult::None:
         return;
     }
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 // ---- 検索バー ----
@@ -690,7 +699,7 @@ void ContinueSearch(ReduceContext& c, bool force_invalidate = false)
     const bool done = ss.ContinueSearch(c.state.document.doc.GetNodes(), std::chrono::steady_clock::now() + kSearchSliceBudget);
     // 結果は終わったときにまとめて差し替わるので、続きの区切りでは描き直さない。
     if (force_invalidate || done) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
     if (!done) {
         return;
@@ -717,7 +726,7 @@ void On(ReduceContext& c, const CloseSearchBarAction&)
     c.state.search.search_state.Hide();
     c.state.search.ime_composition.clear();
     PushEffect(c.effects, effect::SearchUnfocus{});
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 // 開いていれば閉じる。
@@ -734,13 +743,13 @@ void On(ReduceContext& c, const OpenSearchBarAction&)
         RunSearchAndLocate(c);
     }
     PushEffect(c.effects, effect::SearchFocus{});
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const ToggleHighlightAction&)
 {
     c.state.search.search_state.ToggleHighlightEnabled();
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const SearchContinueAction&)
@@ -767,7 +776,7 @@ void On(ReduceContext& c, const SearchStepAction& a)
         PushEffect(c.effects, effect::Beep{});
     }
     ScrollToCurrentMatch(c);
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const SearchTextChangedAction& a)
@@ -780,7 +789,7 @@ void On(ReduceContext& c, const SearchTextChangedAction& a)
     sg.query_wide = a.text;
     if (a.text.empty()) {
         sg.search_state.BeginSearch({});
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
         return;
     }
     // 検索は時間で区切って進むので、大きな文書でも入力を待たせずにすぐ始める。
@@ -793,7 +802,7 @@ void On(ReduceContext& c, const ToggleCaseSensitiveAction&)
     if (!c.state.search.query_wide.empty()) {
         RunSearchAndLocate(c);
     }
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 // 表示中は常に入力欄がフォーカスを持つので、表示中だけ描き直す。
@@ -806,7 +815,7 @@ void On(ReduceContext& c, const SearchSelectionAction& a)
     sg.caret_pos = a.sel_end;
     sg.selection_start = a.sel_start;
     if (sg.search_state.IsVisible()) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -818,7 +827,7 @@ void On(ReduceContext& c, const ImeCompositionAction& a)
     }
     sg.ime_composition = a.text;
     if (sg.search_state.IsVisible()) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -835,7 +844,7 @@ void On(ReduceContext& c, const TogglePaneAction& a)
 void On(ReduceContext& c, const SelectAllAction&)
 {
     c.state.view.viewport.SelectAll(c.state.document.doc.GetNodes());
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const SelectWordAction& a)
@@ -849,7 +858,7 @@ void On(ReduceContext& c, const SelectWordAction& a)
         return;
     }
     c.state.view.viewport.SetSelection(TextSelection::MakeOrdered(static_cast<int>(wb.start_node), wb.start, static_cast<int>(wb.end_node), wb.end));
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const ClearSelectionAction&)
@@ -867,7 +876,7 @@ void On(ReduceContext& c, const ClearSelectionAction&)
     }
     viewport.ClearSelection();
     if (visible) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 
@@ -905,7 +914,7 @@ void ReduceSidePaneZoom(ReduceContext& c, PaneTarget pane, const ZoomAction& a)
     auto& scroll_y = c.state.view.panes.SidePaneScroll(pane);
     scroll_y *= zoom.Value() / old_zoom;
     scroll_y = std::clamp(scroll_y, 0.0f, GetSidePaneContext(c.state, pane).info.max_scroll);
-    PushEffect(c.effects, effect::InvalidateWindow{});
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const ZoomAction& a)
@@ -966,7 +975,7 @@ void On(ReduceContext& c, const ActivateAction& a)
 {
     if (c.state.window.window_active != a.active) {
         c.state.window.window_active = a.active;
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
     if (!a.active) {
         ClearTooltip(c);
@@ -990,7 +999,7 @@ void On(ReduceContext& c, const ResizeAction& a)
     c.state.window.titlebar.UpdateLayout(c.state.window.WidthDip());
     if (c.state.window.is_sizing) {
         c.state.view.viewport.ClampScroll(MdMaxScroll(c.state));
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
     else {
         PushEffect(c.effects, effect::SettleViewport{});
@@ -1029,7 +1038,7 @@ void On(ReduceContext& c, const SwipeOverlayTimeoutAction&)
     PushEffect(c.effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
     if (result != NavDirection::None) {
         On(c, NavigateHistoryAction{ .forward = result == NavDirection::Forward });
-        PushEffect(c.effects, effect::InvalidateWindow{});
+        Invalidate(c);
     }
 }
 

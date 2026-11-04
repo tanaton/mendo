@@ -53,7 +53,7 @@ public:
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
-        return completed_.HasLeftover();
+        return render_target_ && completed_.HasLeftover();
     }
     // 始まっていないデコードを worker に空振りさせる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
     // どちらも結果が届くまで要求中のまま残し、同じパスを二重に読まない。

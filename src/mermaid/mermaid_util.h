@@ -35,44 +35,46 @@ int QuantizeWidth(float max_width) noexcept;
 // 切り詰める。切り詰め時は末尾に U+2026 を付ける。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
-// 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして、ベースラインの始点 (x, y) に置く。
-struct DrawingText {
-    // SVG の matrix(a b c d e f)。文字の要素の座標から、図の左上を原点とする CSS px へ。
+// 図の文字と数式のラベルを置く位置と色。(x, y) はベースラインの左端。
+struct DrawingPlacement {
+    // SVG の matrix(a b c d e f)。要素の座標から、図の左上を原点とする CSS px へ。
     std::array<float, 6> transform{ 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f };
     float x = 0.0f;
     float y = 0.0f;
+    // 数式はラベルの文字の大きさで、KaTeX と同じくこの 1.21 倍で組む。
     float font_size = 0.0f;
+    uint32_t rgb = 0; // 0xRRGGBB
+    float alpha = 1.0f;
+
+    bool operator==(const DrawingPlacement&) const = default;
+};
+// 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
+struct DrawingText {
+    DrawingPlacement at;
     uint16_t weight = 400;
     bool italic = false;
     bool underline = false;
-    uint32_t rgb = 0; // 0xRRGGBB
-    float alpha = 1.0f;
     std::wstring family; // CSS の font-family (候補の並び)
     std::wstring text;
 
     bool operator==(const DrawingText&) const = default;
 };
-// 図のラベルの数式 ($$...$$)。KaTeX で組んだ描画命令を、ベースラインの左端 (x, y) に置いて文字の色で描く。
+// 図のラベルの数式 ($$...$$)。KaTeX で組んだ描画命令を、文字の色で置く。
 struct DrawingMath {
-    std::array<float, 6> transform{ 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f }; // DrawingText と同じ
-    float x = 0.0f;
-    float y = 0.0f;
-    float font_size = 0.0f; // ラベルの文字の大きさ。KaTeX と同じくこの 1.21 倍で組む
-    uint32_t rgb = 0;       // 0xRRGGBB
-    float alpha = 1.0f;
+    DrawingPlacement at;
     std::string tex; // UTF-8。ディスクキャッシュには描画命令でなくこれを置き、読んだときに組み直す
     // 組めなかった (読んだ後にまだ組んでいない) なら null。比べない。
     std::shared_ptr<const MathDrawing> drawing;
 
     bool operator==(const DrawingMath& o) const noexcept
     {
-        return transform == o.transform && x == o.x && y == o.y && font_size == o.font_size && rgb == o.rgb && alpha == o.alpha && tex == o.tex;
+        return at == o.at && tex == o.tex;
     }
 };
-// 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) で、
-// ID2D1SvgDocument が読める要素だけを使う。
+// 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) の <svg> の中身で、
+// ID2D1SvgDocument が読める要素だけを使う。<svg> と <defs> は描くときに付ける (層ごとに同じものを持たない)。
 struct DrawingLayer {
-    std::string shapes_svg;
+    std::string shapes;
     std::vector<DrawingText> texts;
     std::vector<DrawingMath> maths; // 文字の後に描く
 
@@ -84,15 +86,17 @@ struct DiagramDrawing {
     float width = 0.0f; // 図の大きさ (CSS px、切り上げ済み)
     float height = 0.0f;
     uint32_t background = 0; // 0xRRGGBB
+    std::string defs;        // 層の図形が参照する <defs> の中身 (グラデーション)
     std::vector<DrawingLayer> layers;
 
     bool operator==(const DiagramDrawing&) const = default;
 };
 // ディスクキャッシュに置く描画命令の書式。
-// "<幅>:<高さ>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並び、
+// "<幅>:<高さ>:<背景 (10 進)>:<defs の長さ>:<defs><層の数>:" に続けて、層ごとに "<図形の長さ>:<図形><文字の並びの数>:" と並び、
 // "<数式の数>:" と数式を置く。
-// 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
-// 数式は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
+// 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
+// 並びは "<置き方>,<太さ>,<斜体 0/1>,<下線 0/1>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
+// 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
 // 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 // ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。

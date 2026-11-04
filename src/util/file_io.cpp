@@ -44,25 +44,16 @@ ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error, DWORD share_mode,
     return buf;
 }
 
-namespace {
-
-// 取得できなければ nullopt (存在しない・アクセス不可・仮想パス)。
-std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
-{
-    WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &attr)) {
-        return std::nullopt;
-    }
-    return (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
-}
-
-} // namespace
-
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept
 {
     constexpr uint64_t kTolerance = 16;
-    const auto size = QueryFileSize(path);
-    return size && *size > static_cast<uint64_t>(reference_size) + kTolerance;
+    // 大きさを取れない (存在しない・アクセス不可・仮想パス) なら大きくない。
+    WIN32_FILE_ATTRIBUTE_DATA attr{};
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &attr)) {
+        return false;
+    }
+    const uint64_t size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
+    return size > static_cast<uint64_t>(reference_size) + kTolerance;
 }
 
 bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)

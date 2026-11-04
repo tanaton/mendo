@@ -3,7 +3,7 @@
 // MockTextMeasurer 経路では到達できない `text_layout != nullptr` の経路
 // （ハイライト矩形、本文 hit test 等）を踏むテストで使用する。
 //
-// test_helpers.h に DWrite を含めると DWrite 不要のテストにも include コストが
+// test_helpers.h に計測器やレイアウトを含めると、それらが不要なテストにも include コストが
 // 載るため、本ヘッダは独立させて使うテストだけが include する設計とする。
 #include "test_helpers.h"
 #include "d2d_util.h"
@@ -24,12 +24,8 @@ protected:
 
     void SetUp() override
     {
-        const HRESULT hr = DWriteCreateFactory(
-            DWRITE_FACTORY_TYPE_SHARED,
-            __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
-        ASSERT_TRUE(SUCCEEDED(hr))
-            << "DWriteCreateFactory failed: 0x" << std::hex << hr;
+        dwrite_factory_ = SharedDWriteFactory();
+        ASSERT_TRUE(dwrite_factory_) << "DWriteCreateFactory failed";
 
         theme_ = GetLightTheme();
         measurer_.SetFactory(dwrite_factory_.Get());

@@ -26,13 +26,13 @@ public:
         last_callback = std::move(cb);
     }
 
-    void FireCallback(std::wstring svg, bool cancelled)
+    void FireCallback(std::string_view svg)
     {
         if (last_callback) {
             // SvgCallback は move_only_function なので 1 回実行後は破棄。
             auto cb = std::move(last_callback);
             last_callback = {};
-            cb(std::move(svg), cancelled);
+            cb(svg);
         }
     }
 
@@ -143,16 +143,16 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeWidthAndDarkModeToR
     EXPECT_FLOAT_EQ(renderer_.last_width, kDefaultMdWidth);
     EXPECT_FALSE(renderer_.last_dark);
     EXPECT_TRUE(renderer_.last_code.contains("graph LR"));
-    renderer_.FireCallback({}, true);
+    renderer_.FireCallback({});
 
     CopyDiagram(cb_idx, 1024.0f, true);
     EXPECT_EQ(renderer_.request_count, 2);
     EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
     EXPECT_TRUE(renderer_.last_dark);
-    renderer_.FireCallback({}, true);
+    renderer_.FireCallback({});
 }
 
-// 待っている間の再入は弾く。取り消されたら失敗のトーストを出し、次の要求を受け付ける。
+// 待っている間の再入は弾く。結果が届いたら次の要求を受け付ける。
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
 {
     const int cb_idx = Load(kMermaidMd);
@@ -163,9 +163,9 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     CopyDiagram(cb_idx);
     EXPECT_EQ(renderer_.request_count, 1);
 
-    // cancelled 経路で in-flight だけ解除 (svg_cache に何も入れない)。
+    // 描けなかった結果で in-flight を解除する (svg_cache に何も入れない)。
     const auto before = toasts_.size();
-    renderer_.FireCallback({}, true);
+    renderer_.FireCallback({});
     EXPECT_EQ(toasts_.size(), before + 1);
     CopyDiagram(cb_idx);
     EXPECT_EQ(renderer_.request_count, 2);
@@ -183,7 +183,7 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightReentryDoesNotStaleIn
     EXPECT_EQ(renderer_.request_count, 1);
 
     const auto before = toasts_.size();
-    renderer_.FireCallback({}, false); // request 1 完了。stale でないので結果トーストを出す
+    renderer_.FireCallback({}); // request 1 完了。stale でないので結果トーストを出す
     EXPECT_EQ(toasts_.size(), before + 1);
 }
 
@@ -194,6 +194,6 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardEmptyResultEmitsFailToast)
 
     CopyDiagram(cb_idx);
     const auto before = toasts_.size();
-    renderer_.FireCallback({}, false);
+    renderer_.FireCallback({});
     EXPECT_EQ(toasts_.size(), before + 1);
 }

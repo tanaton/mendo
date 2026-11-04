@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <utility>
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
 // 守る規則 (start 昇順で重ならない、テキストに収まる) は run の並びに対するものなので、1 つの run には
@@ -106,19 +107,9 @@ struct TextSelection {
     // アンカー/キャレットをドキュメント順で start <= end に正規化する
     static constexpr TextSelection MakeOrdered(int node_a, uint32_t pos_a, int node_b, uint32_t pos_b) noexcept
     {
-        TextSelection s;
-        if (node_a < node_b || (node_a == node_b && pos_a <= pos_b)) {
-            s.start_node = node_a;
-            s.start_pos = pos_a;
-            s.end_node = node_b;
-            s.end_pos = pos_b;
+        if (std::pair{ node_b, pos_b } < std::pair{ node_a, pos_a }) {
+            return { node_b, pos_b, node_a, pos_a };
         }
-        else {
-            s.start_node = node_b;
-            s.start_pos = pos_b;
-            s.end_node = node_a;
-            s.end_pos = pos_a;
-        }
-        return s;
+        return { node_a, pos_a, node_b, pos_b };
     }
 };

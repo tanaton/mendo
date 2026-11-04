@@ -60,17 +60,13 @@ HANDLE D3DPrefetchDoneEvent() noexcept
 void Renderer::ConfigureFrameLatency() noexcept
 {
     frame_latency_waitable_.reset();
-    ComPtr<IDXGISwapChain2> sc2;
-    if (FAILED(swap_chain_.As(&sc2))) {
-        return;
-    }
     // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になる。1 まで詰める。
     // 失敗時は既定の 3 のままになる。waitable は取得しても 3 フレーム遅れに同期するだけで
     // 意図しない wait を招くため、SetMaximumFrameLatency が成功した時のみ取得する。
-    if (FAILED(sc2->SetMaximumFrameLatency(1))) {
+    if (FAILED(swap_chain_->SetMaximumFrameLatency(1))) {
         return;
     }
-    frame_latency_waitable_.reset(sc2->GetFrameLatencyWaitableObject());
+    frame_latency_waitable_.reset(swap_chain_->GetFrameLatencyWaitableObject());
 }
 
 // d3d11 / dxgi の型の ComPtr を作って壊すので、それらを読むこの TU で定義する。
@@ -183,9 +179,16 @@ bool Renderer::CreateDeviceResources()
     scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
-    hr = dxgi_factory->CreateSwapChainForHwnd(d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
+    ComPtr<IDXGISwapChain1> swap_chain;
+    hr = dxgi_factory->CreateSwapChainForHwnd(d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain);
     if (FAILED(hr)) {
         LogHrFailure("CreateSwapChainForHwnd", hr);
+        return false;
+    }
+    // Windows 8.1 以降は必ず取れる (GetDpiForWindow を使うので Windows 10 1607 より前では起動しない)。
+    hr = swap_chain.As(&swap_chain_);
+    if (FAILED(hr)) {
+        LogHrFailure("IDXGISwapChain1::As<IDXGISwapChain2>", hr);
         return false;
     }
 
@@ -222,8 +225,7 @@ bool Renderer::CreateSwapChainBitmap()
 
 bool Renderer::SetSourceSize(UINT width, UINT height) noexcept
 {
-    ComPtr<IDXGISwapChain2> sc2;
-    return SUCCEEDED(swap_chain_.As(&sc2)) && SUCCEEDED(sc2->SetSourceSize(width, height));
+    return SUCCEEDED(swap_chain_->SetSourceSize(width, height));
 }
 
 void Renderer::Resize(UINT width, UINT height, bool live) noexcept
@@ -354,7 +356,7 @@ bool Renderer::CreateDevice()
         return false;
     }
     device_lost_ = false;
-    RecreateBrushes();
+    OnThemeColorsChanged();
     LoadAppIconBitmap();
     return true;
 }

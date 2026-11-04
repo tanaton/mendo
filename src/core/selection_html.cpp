@@ -36,12 +36,6 @@ constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
     return dark_mode ? theme_palette::kDark : theme_palette::kLight;
 }
 
-// i と次のノードの間に改行を置くか。区切ったテキストの続きとは、区切るときに改行を取り除いたときだけ置く。
-constexpr bool LineBreakAfter(const std::vector<Node>& nodes, int i) noexcept
-{
-    return !JoinsNextInline(nodes, static_cast<size_t>(i));
-}
-
 constexpr std::string_view kHtmlEscapeChars = "&<>\"'";
 
 constexpr std::string_view HtmlEscapeOf(char c) noexcept
@@ -623,7 +617,7 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
             if (start < end) {
                 ForEachCopiedSlice(node, start, end, fn);
             }
-            if (i < selection.end_node && LineBreakAfter(nodes, i)) {
+            if (i < selection.end_node && !JoinsNextInline(nodes, static_cast<size_t>(i))) {
                 fn("\n");
             }
         });

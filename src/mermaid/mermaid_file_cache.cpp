@@ -34,7 +34,6 @@ struct IndexRecord {
 static_assert(sizeof(IndexHeader) == 12);
 static_assert(sizeof(IndexRecord) == 28);
 
-constexpr std::wstring_view kDoomedSuffix = L".deleting-";
 constexpr std::wstring_view kFileExtension = L".drawing";
 constexpr std::wstring_view kIndexFileName = L"index.bin";
 constexpr std::wstring_view kIndexLockKind = L"mermaid-index";
@@ -47,19 +46,6 @@ std::vector<std::filesystem::path> ListEntries(const std::filesystem::path& dir)
         entries.push_back(it->path());
     }
     return entries;
-}
-
-// 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。消せないものは残す。
-void RemoveDoomedDirs(const std::filesystem::path& cache_dir)
-{
-    std::wstring prefix = cache_dir.filename().native();
-    prefix += kDoomedSuffix;
-    for (const auto& path : ListEntries(cache_dir.parent_path())) {
-        if (path.filename().native().starts_with(prefix)) {
-            std::error_code ec;
-            std::filesystem::remove_all(path, ec);
-        }
-    }
 }
 
 } // namespace
@@ -112,7 +98,6 @@ MermaidFileCache::IndexState& MermaidFileCache::Index()
             // 違う版 (古い描き方) や壊れた索引のファイルは引けないので、索引に載らないまま残さない。
             Clear();
         }
-        RemoveDoomedDirsAsync();
     }
     return *index_;
 }
@@ -449,14 +434,6 @@ void MermaidFileCache::RemoveLegacyDataAsync()
             std::error_code ec;
             std::filesystem::remove_all(dir, ec);
         });
-    }
-}
-
-void MermaidFileCache::RemoveDoomedDirsAsync()
-{
-    // 起動を塞がないよう worker があるときだけ。
-    if (scheduler_) {
-        scheduler_->Post([dir = cache_dir_] { RemoveDoomedDirs(dir); });
     }
 }
 

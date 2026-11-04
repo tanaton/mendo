@@ -44,7 +44,7 @@ public:
     void Hide() noexcept
     {
         visible_ = false;
-        StopSearch();
+        searching_ = false;
         ClearMatches();
         std::vector<SearchMatch>().swap(matches_);
         std::vector<SearchMatch>().swap(pending_);

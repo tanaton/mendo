@@ -101,26 +101,6 @@ inline UniqueGlobalMem BuildGlobalWideFromUtf8(std::string_view utf8) noexcept
     });
 }
 
-// UTF-16 を GlobalAlloc 先へ直接 UTF-8 変換する。図の SVG は MB 級になるので、中間 string
-// (UTF-16 の 3 倍の上限確保) とそのコピーを持たない。失敗時は空。
-inline UniqueGlobalMem BuildGlobalUtf8FromWide(std::wstring_view wide) noexcept
-{
-    if (wide.empty() || wide.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return {};
-    }
-    const int src_len = static_cast<int>(wide.size());
-    const int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), src_len, nullptr, 0, nullptr, nullptr);
-    if (utf8_len <= 0) {
-        return {};
-    }
-    return AllocGlobalFilled(static_cast<size_t>(utf8_len) + 1, [&](void* p) noexcept {
-        auto* dst = static_cast<char*>(p);
-        const int written = WideCharToMultiByte(CP_UTF8, 0, wide.data(), src_len, dst, utf8_len, nullptr, nullptr);
-        dst[utf8_len] = '\0';
-        return written == utf8_len;
-    });
-}
-
 // HTML Format 仕様: https://learn.microsoft.com/windows/win32/dataxchg/html-clipboard-format
 // ヘッダ内の各オフセットは UTF-8 バイト位置で 10 桁ゼロ埋め。
 namespace cf_html_detail {
@@ -203,14 +183,14 @@ inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
 // 並び順 = 優先度。ベクタを優先する貼り付け先のため SVG を先頭に積む。
 // 戻り値: 画像 (CF_DIB) が載れば true。画像は必ず載せる基本形式なので、
 //         成功判定はこれで行う (svg/テキストはベストエフォートの付加形式)。
-inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::wstring_view svg_text) noexcept
+inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::string_view svg_utf8) noexcept
 {
     // EmptyClipboard より前に各バッファを確保する (HTML/SVG 経路と同じ「揃ってから開く」方針)。
     UniqueGlobalMem svg_unicode;
     UniqueGlobalMem svg_utf8_mem;
-    if (!svg_text.empty()) {
-        svg_unicode = BuildGlobalZeroTerminated<wchar_t>(svg_text);
-        svg_utf8_mem = BuildGlobalUtf8FromWide(svg_text);
+    if (!svg_utf8.empty()) {
+        svg_unicode = BuildGlobalWideFromUtf8(svg_utf8);
+        svg_utf8_mem = BuildGlobalZeroTerminated(svg_utf8);
     }
     if (!dib && !svg_unicode && !svg_utf8_mem) {
         return false;

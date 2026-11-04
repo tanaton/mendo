@@ -88,6 +88,16 @@ inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std
     };
 }
 
+// 選択も検索も無い本文を pane に等倍で描いた命令。
+inline DrawCommandList GenerateMdPaneAt(CommandGenerator& gen, const std::vector<Node>& nodes, const LayoutCache& cache, PaneRect pane,
+                                        float scroll_y = 0.0f, int hovered_diagram = -1)
+{
+    static const TextSelection no_selection{};
+    DrawCommandList cmds;
+    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = no_selection, .md_pane_rect = pane, .scroll_y = scroll_y, .hovered_diagram = hovered_diagram }, 1.0f);
+    return cmds;
+}
+
 // 検索を区切らずに最後まで進める。
 inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
 {

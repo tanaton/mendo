@@ -246,15 +246,18 @@ const wchar_t* FallbackFontMap::Resolve(size_t script) const
 void ApplyFallbackFonts(IDWriteTextLayout* layout, std::wstring_view text, const FallbackFontMap& fonts)
 {
     size_t ranges = 0;
+    const wchar_t* family = text.empty() ? nullptr : fonts.FamilyFor(text[0]);
     for (size_t i = 0; i < text.size() && ranges < kMaxFallbackRanges;) {
-        const wchar_t* const family = fonts.FamilyFor(text[i]);
-        if (!family) {
-            ++i;
-            continue;
-        }
+        // 区間の次の文字の書体は次の区間の書体として持ち越し、FamilyFor を 1 文字 1 回にする。
         size_t next = i + 1;
-        while (next < text.size() && fonts.FamilyFor(text[next]) == family) {
+        const wchar_t* next_family = nullptr;
+        while (next < text.size() && (next_family = fonts.FamilyFor(text[next])) == family) {
             ++next;
+        }
+        if (!family) {
+            i = next;
+            family = next_family;
+            continue;
         }
         const size_t begin = i > 0 && text[i - 1] >= kFirstCombiningChar ? i + 1 : i;
         const size_t end = next < text.size() && text[next] >= kFirstCombiningChar ? next - 1 : next;
@@ -263,16 +266,13 @@ void ApplyFallbackFonts(IDWriteTextLayout* layout, std::wstring_view text, const
             ++ranges;
         }
         i = next;
+        family = next_family;
     }
 }
 
 // MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
 void DecodeForDWrite(std::string_view text, std::wstring& out)
 {
-    out.clear();
-    if (text.empty()) {
-        return;
-    }
     const size_t n = text.size();
     // UTF-16 code unit 数 <= UTF-8 byte 数
     out.resize_and_overwrite(n, [text, n](wchar_t* dst, size_t) noexcept {

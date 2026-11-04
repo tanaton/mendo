@@ -135,20 +135,6 @@ public:
         return { &slot.value, true };
     }
 
-    template <class Pred>
-    void EraseIf(Pred&& pred)
-    {
-        // 追い出しのたびに通るので配列を確保し直さない。消した穴へ後ろの要素を詰めるので、同じ位置を調べ直す。
-        for (size_t i = 0; i < slots_.size();) {
-            if (slots_[i].used && pred(slots_[i].value)) {
-                EraseAt(i);
-            }
-            else {
-                ++i;
-            }
-        }
-    }
-
     // 次に同じくらい足すときに確保し直さないよう、配列は残す。
     void Clear() noexcept
     {
@@ -178,20 +164,6 @@ private:
             i = (i + 1) & mask;
         }
         return i;
-    }
-    // 後ろの要素を詰めて、消した穴で探索が止まらないようにする。
-    void EraseAt(size_t hole) noexcept
-    {
-        const size_t mask = slots_.size() - 1;
-        for (size_t i = (hole + 1) & mask; slots_[i].used; i = (i + 1) & mask) {
-            // 本来の位置が (hole, i] の外にある要素なら、hole へ移しても探索が届く。
-            if (((i - Home(slots_[i].key)) & mask) >= ((i - hole) & mask)) {
-                slots_[hole] = std::move(slots_[i]);
-                hole = i;
-            }
-        }
-        slots_[hole] = {};
-        --size_;
     }
     // slot_count は 2 のべき乗。
     void Rebuild(size_t slot_count)

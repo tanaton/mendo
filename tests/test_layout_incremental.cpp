@@ -45,9 +45,8 @@ private:
     static Microsoft::WRL::ComPtr<IDWriteTextLayout> Marker()
     {
         static const auto layout = [] {
-            Microsoft::WRL::ComPtr<IDWriteFactory> factory;
-            DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
-            const auto format = CreateTextFormat(factory.Get(), { .family = L"Segoe UI", .size = 12.0f, .locale = L"en-us" });
+            IDWriteFactory* const factory = SharedDWriteFactory();
+            const auto format = CreateTextFormat(factory, { .family = L"Segoe UI", .size = 12.0f, .locale = L"en-us" });
             Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
             factory->CreateTextLayout(L"m", 1, format.Get(), 100.0f, 100.0f, &text_layout);
             return text_layout;
@@ -389,140 +388,129 @@ public:
 
 } // namespace
 
+// LayoutService と、リロードで計測結果を引き継ぐ処理。
+class LayoutServiceTest : public MockLayoutTestBase {
+protected:
+    RecordingMeasurer recording_;
+    ViewportManager viewport_;
+    LayoutService service_{ engine_, viewport_ };
+
+    // 計測したノードを記録する計測器で組む。
+    void UseRecordingMeasurer()
+    {
+        ASSERT_TRUE(engine_.Init(&recording_, theme_));
+    }
+};
+
 // ズームで推定し直すと Y がずれる。古い scroll_y の位置ではなく、見ていたノードの周りを計測する。
-TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
+TEST_F(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
 {
     constexpr float kWidth = 800.0f;
     constexpr float kHeight = 600.0f;
     constexpr int kTarget = 300;
-    const Theme theme = GetLightTheme();
-    RecordingMeasurer measurer;
     // 実測を推定より大きくして、推定し直すと Y が大きく縮むようにする。
-    measurer.line_height = 80.0f;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    ViewportManager viewport;
-    LayoutService service(engine, viewport);
+    recording_.line_height = 80.0f;
+    UseRecordingMeasurer();
 
     auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
-    measurer.base = doc.GetNodes().data();
+    recording_.base = doc.GetNodes().data();
     LayoutCache cache(doc.GetNodes().size());
-    ComputeLayout(engine, doc.GetNodes(), cache, kWidth);
-    viewport.SetScrollTarget(kTarget, 0.0f);
-    viewport.ApplyScrollTarget(cache);
-    const float measured_scroll_y = viewport.GetScrollY();
+    ComputeLayout(engine_, doc.GetNodes(), cache, kWidth);
+    viewport_.SetScrollTarget(kTarget, 0.0f);
+    viewport_.ApplyScrollTarget(cache);
+    const float measured_scroll_y = viewport_.GetScrollY();
 
-    ASSERT_TRUE(measurer.RecreateFormats());
+    ASSERT_TRUE(recording_.RecreateFormats());
     cache.InvalidateAllLayouts(doc.GetNodes());
-    measurer.measured.clear();
-    service.ViewportLayout(doc, cache, kWidth, kHeight);
+    recording_.measured.clear();
+    service_.ViewportLayout(doc, cache, kWidth, kHeight);
 
-    EXPECT_LT(viewport.GetScrollY(), measured_scroll_y) << "推定し直した Y で位置を求め直す";
-    EXPECT_FLOAT_EQ(viewport.GetScrollY(), cache.Top(kTarget));
-    const auto vr = ComputeVisibleNodeRange(cache, viewport.GetScrollY(), viewport.GetScrollY() + kHeight);
+    EXPECT_LT(viewport_.GetScrollY(), measured_scroll_y) << "推定し直した Y で位置を求め直す";
+    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), cache.Top(kTarget));
+    const auto vr = ComputeVisibleNodeRange(cache, viewport_.GetScrollY(), viewport_.GetScrollY() + kHeight);
     for (size_t i = vr.begin; i < vr.end; ++i) {
         EXPECT_FALSE(cache[i].layout_dirty) << "可視ノードが未計測 i=" << i;
     }
     // 1 パス目は推定の Y で 1 画面分 (この文書では 20 ノード弱) を計測するので、実測の可視ノードより多くなる。
     constexpr size_t kEstimatedScreenNodes = 30;
-    for (const size_t i : measurer.measured) {
+    for (const size_t i : recording_.measured) {
         EXPECT_GE(i, vr.begin) << "見ていた位置より上を計測した";
         EXPECT_LT(i, kTarget + kEstimatedScreenNodes) << "見ていた位置から離れた所を計測した";
     }
 }
 
 // 本文ペインの高さが 0 (ウィンドウをタイトルバーまで縮めた) でも、遅延レイアウトは文書全体を測らない。
-TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
+TEST_F(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
 {
     constexpr float kWidth = 800.0f;
-    const Theme theme = GetLightTheme();
-    RecordingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    ViewportManager viewport;
-    LayoutService service(engine, viewport);
+    UseRecordingMeasurer();
 
     auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
-    measurer.base = doc.GetNodes().data();
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    recording_.base = doc.GetNodes().data();
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_);
 
-    service.ProcessDirtyBatch(doc, cache, kWidth, kNoLayoutDeadline, 0.0f, 2.0f);
+    service_.ProcessDirtyBatch(doc, cache, kWidth, kNoLayoutDeadline, 0.0f, 2.0f);
 
-    EXPECT_LE(measurer.measured.size(), 2u);
+    EXPECT_LE(recording_.measured.size(), 2u);
     EXPECT_TRUE(cache[doc.GetNodes().size() - 1].layout_dirty);
 }
 
 // 図の描き直し (ダークモードの切り替えなど) で画面より上の高さが変わっても、target が無くても見ている内容は動かない。
-TEST(LayoutServiceTest, RecomputeAfterDiagramKeepsViewWithoutTarget)
+TEST_F(LayoutServiceTest, RecomputeAfterDiagramKeepsViewWithoutTarget)
 {
-    const Theme theme = GetLightTheme();
-    RecordingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    ViewportManager viewport;
-    LayoutService service(engine, viewport);
+    UseRecordingMeasurer();
 
     auto doc = Document::FromMarkdown(MakeParagraphs(100), L"t.md");
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_);
     constexpr size_t kVisible = 50;
-    viewport.SetScrollY(cache.Top(kVisible) + 3.0f);
-    ASSERT_FALSE(viewport.GetScrollTarget().IsValid());
+    viewport_.SetScrollY(cache.Top(kVisible) + 3.0f);
+    ASSERT_FALSE(viewport_.GetScrollTarget().IsValid());
 
     constexpr float kGrowth = 500.0f;
     cache[1].height += kGrowth;
     IndexRange changed;
     changed.Add(1);
-    service.RecomputeAfterDiagram(doc, cache, changed);
+    service_.RecomputeAfterDiagram(doc, cache, changed);
 
-    EXPECT_FLOAT_EQ(viewport.GetScrollY(), cache.Top(kVisible) + 3.0f);
+    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), cache.Top(kVisible) + 3.0f);
 }
 
 // worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。
-TEST(LayoutServiceTest, ViewportLayoutReestimatesWorkerEstimateWithWidth)
+TEST_F(LayoutServiceTest, ViewportLayoutReestimatesWorkerEstimateWithWidth)
 {
     constexpr float kWidth = 800.0f;
-    const Theme theme = GetLightTheme();
-    MockTextMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    ViewportManager viewport;
-    LayoutService service(engine, viewport);
 
     std::string md;
     for (int i = 0; i < 200; ++i) {
         md += std::string(2000, 'a') + "\n\n";
     }
     auto doc = Document::FromMarkdown(std::string{ md }, L"t.md");
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_);
     const size_t last = doc.GetNodes().size() - 1;
     const float width_free = cache[last].height;
 
-    service.ViewportLayout(doc, cache, kWidth, 600.0f);
+    service_.ViewportLayout(doc, cache, kWidth, 600.0f);
 
     ASSERT_TRUE(cache[last].layout_dirty) << "前提: 末尾は画面外で計測されていない";
     EXPECT_GT(cache[last].height, width_free);
-    EXPECT_FLOAT_EQ(cache[last].height, layout::EstimateNodeHeight(doc.GetNodes()[last], theme, layout::NodeContentWidth(doc.GetNodes()[last], theme, theme.ContentWidth(kWidth))));
+    EXPECT_FLOAT_EQ(cache[last].height, layout::EstimateNodeHeight(doc.GetNodes()[last], theme_, layout::NodeContentWidth(doc.GetNodes()[last], theme_, theme_.ContentWidth(kWidth))));
 }
 
 // 表示幅を渡した worker の推定は、UI スレッドで推定し直したものと同じ高さと位置になる。
-TEST(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
+TEST_F(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
 {
     constexpr float kWidth = 800.0f;
-    const Theme theme = GetLightTheme();
-    MockTextMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
 
     std::string md;
     for (int i = 0; i < 50; ++i) {
         md += "# H\n\n" + std::string(static_cast<size_t>(100 + i * 40), 'a') + "\n\n```\ncode\n```\n\n";
     }
     auto doc = Document::FromMarkdown(std::string{ md }, L"t.md");
-    LayoutCache reestimated = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
-    engine.Reestimate(doc.GetNodes(), reestimated, kWidth);
-    LayoutCache width_aware = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, theme.ContentWidth(kWidth));
+    LayoutCache reestimated = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_);
+    engine_.Reestimate(doc.GetNodes(), reestimated, kWidth);
+    LayoutCache width_aware = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme_, theme_.ContentWidth(kWidth));
     const auto basis = width_aware.GetEstimateBasis();
-    EXPECT_FLOAT_EQ(basis.content_width, theme.ContentWidth(kWidth));
+    EXPECT_FLOAT_EQ(basis.content_width, theme_.ContentWidth(kWidth));
 
     ASSERT_EQ(width_aware.size(), reestimated.size());
     for (size_t i = 0; i < reestimated.size(); ++i) {
@@ -532,19 +520,14 @@ TEST(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
 }
 
 // リロードで中身が変わらないノードの計測結果を引き継ぎ、変わったノードだけ計測し直させる。
-TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
+TEST_F(LayoutServiceTest, CarryOverKeepsMeasuredEntriesOfUnchangedNodes)
 {
-    const Theme theme = GetLightTheme();
-    MockTextMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    LayoutSourceStore store;
-    auto [old_nodes, old_cache] = store.ParseAndLayout(engine, "# Title\n\nfirst\n\nsecond\n\nthird\n", 800.0f);
-    auto [new_nodes, new_cache] = store.ParseAndLayout(engine, "# Title\n\nfirst\n\nsecond edited\n\nthird\n", 800.0f);
+    auto [old_nodes, old_cache] = ParseAndLayout("# Title\n\nfirst\n\nsecond\n\nthird\n", 800.0f);
+    auto [new_nodes, new_cache] = ParseAndLayout("# Title\n\nfirst\n\nsecond edited\n\nthird\n", 800.0f);
     ASSERT_EQ(old_nodes.size(), 4u);
     ASSERT_EQ(new_nodes.size(), 4u);
     const float title_height = old_cache[0].height;
-    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
+    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme_);
 
     EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes)), 3u);
     EXPECT_FALSE(new_cache[0].layout_dirty);
@@ -555,17 +538,12 @@ TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
 }
 
 // 末尾の参照定義が変わると、前のノードはテキストが同じでもリンク先が変わるので引き継がない。
-TEST(CarryOverUnchangedTest, LinkTargetChangeIsNotCarried)
+TEST_F(LayoutServiceTest, CarryOverLinkTargetChangeIsNotCarried)
 {
-    const Theme theme = GetLightTheme();
-    MockTextMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme));
-    LayoutSourceStore store;
-    auto [old_nodes, old_cache] = store.ParseAndLayout(engine, "see [doc][r]\n\ntail\n\n[r]: https://a.example/\n", 800.0f);
-    auto [new_nodes, new_cache] = store.ParseAndLayout(engine, "see [doc][r]\n\ntail\n\n[r]: https://b.example/\n", 800.0f);
+    auto [old_nodes, old_cache] = ParseAndLayout("see [doc][r]\n\ntail\n\n[r]: https://a.example/\n", 800.0f);
+    auto [new_nodes, new_cache] = ParseAndLayout("see [doc][r]\n\ntail\n\n[r]: https://b.example/\n", 800.0f);
     ASSERT_EQ(old_nodes.size(), new_nodes.size());
-    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
+    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme_);
 
     layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes));
     EXPECT_TRUE(new_cache[0].layout_dirty);

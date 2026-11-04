@@ -32,6 +32,17 @@ float NodeStartY(const std::vector<Node>& nodes, const LayoutCache& cache, const
     return cache.Bottom(index - 1) + GetSpacingBelow(nodes[index - 1], theme);
 }
 
+// 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
+// catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
+float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
+{
+    y += spacing_above;
+    const float text_top = y;
+    y += height;
+    y += spacing_below;
+    return text_top;
+}
+
 // nodes[from, end) の高さを height_fn(i) で決めながら Top を積む。y は nodes[from] の spacing_above を足す前の Y で、
 // 戻ると nodes[end] の手前の Y になる。height_fn は高さを書き換えてよい。
 template <class HeightFn>

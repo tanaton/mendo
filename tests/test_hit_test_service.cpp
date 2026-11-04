@@ -21,9 +21,9 @@ protected:
     }
 
     // オーバーレイボタンは可視範囲 (ペインの高さ) とコンテンツ幅で決まる。
-    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, int screen_x, int screen_y) const
+    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, int screen_x, int screen_y, float scroll_y = 0.0f, float pane_h = 600.0f) const
     {
-        return { pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+        return { pl.nodes, pl.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f,
                  screen_x, screen_y, theme_.ContentWidth(800.0f) };
     }
 };
@@ -279,20 +279,13 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
-TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
-{
-    const ParsedLayout pr;
-    const auto ctx = OverlayCtx(pr, 400, 100);
-    EXPECT_FALSE(hit_test::OverlayButtonHitTest(ctx).Any());
-}
-
 using layout::NodeBoxPadTop;
 using layout::NodeIndent;
 
 // OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
 // MockTextMeasurer を使用するため DirectWrite / COM は不要。
 
-class CopyButtonTest : public MockLayoutTestBase {
+class CopyButtonTest : public HitTestTest {
 protected:
 
     float ContentWidth() const
@@ -313,10 +306,9 @@ protected:
                  static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y) };
     }
 
-    int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f)
+    int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f) const
     {
-        const auto hit = hit_test::OverlayButtonHitTest(
-            { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() });
+        const auto hit = hit_test::OverlayButtonHitTest(OverlayCtx(pr, x, y, scroll_y, pane_h));
         return hit.kind == OverlayButton::CodeCopy ? hit.node : -1;
     }
 };
@@ -347,7 +339,7 @@ TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
 
 // ---- CopyButtonHitTest ----
 
-// ボタンの外、コードブロックの無い文書、空の文書では当たらない。
+// ボタンの外、コードブロックの無い文書、空の文書ではどのボタンにも当たらない。
 TEST_F(CopyButtonTest, MissesOutsideCopyButton)
 {
     struct Case {
@@ -363,7 +355,7 @@ TEST_F(CopyButtonTest, MissesOutsideCopyButton)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
         auto pr = ParseAndLayout(c.md);
-        EXPECT_EQ(CopyNodeAt(pr, c.x, c.y), -1);
+        EXPECT_FALSE(hit_test::OverlayButtonHitTest(OverlayCtx(pr, c.x, c.y)).Any());
     }
 }
 

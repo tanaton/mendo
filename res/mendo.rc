@@ -37,8 +37,9 @@ BEGIN
 END
 
 // Embedded libraries for offline rendering (pele: mermaid diagrams, KaTeX: math)
-IDR_PELE_JS  RCDATA "../third_party/pele/pele.mjs"
-IDR_KATEX_JS RCDATA "../third_party/katex/katex.min.js"
+// QuickJS bytecode built by js_compile (CMake adds its directory to the include path)
+IDR_PELE_JS  RCDATA "pele.qbc"
+IDR_KATEX_JS RCDATA "katex.qbc"
 // IDR_KATEX_FONT_FIRST + i, in the order of kKatexFontFiles (diagram_raster.h)
 320 RCDATA "../third_party/katex/fonts/KaTeX_AMS-Regular.woff2"
 321 RCDATA "../third_party/katex/fonts/KaTeX_Caligraphic-Bold.woff2"

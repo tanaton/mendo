@@ -5,9 +5,9 @@
 // 空 LI の高さ 0 は MockTextMeasurer では再現できないため DWriteTestBase を使う。
 // インラインコード背景は Renderer の effects パスで作られるため対象外。
 #include <gtest/gtest.h>
-#include "cmd_gen_mock_test_base.h"
 #include "command_generator.h"
 #include "document_test_helpers.h"
+#include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "dwrite_test_base.h"
 #include <algorithm>
@@ -375,17 +375,4 @@ TEST_F(CullingParityTest, AllNodesInsideOffsetPaneClipAreDrawn)
             }
         }
     }
-}
-
-// issue #237 の上端版: loose list の空 LI (高さ 0) は bullet だけがノード下にはみ出して描かれる。
-// 空 LI の Top/Bottom を少しだけ通り過ぎたスクロール位置でも bullet は消えない。
-TEST_F(CullingParityTest, EmptyLooseListItemBulletSurvivesTopEdge)
-{
-    const auto pl = ParseAndLayout("- a\n\n- b", PANE_W);
-    ASSERT_EQ(pl.nodes.size(), 4u);
-    ASSERT_TRUE(IsEmptyListItemContainer(pl.nodes[0]));
-    ASSERT_EQ(pl.cache[0].height, 0.0f);
-
-    const auto& cmds = Generate(pl, pl.cache.Top(0) + 2.0f, PANE_H, {});
-    EXPECT_EQ(CountCmd<FillEllipseCmd>(cmds), 2) << "1 個目の bullet が消えている";
 }

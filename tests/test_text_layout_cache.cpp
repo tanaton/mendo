@@ -100,7 +100,7 @@ TEST_F(TextLayoutCacheTest, LongTitleStaysBetweenTheButtons)
     ASSERT_NE(title_fmt, nullptr);
     const std::wstring title(300, L'長');
     DrawCommandList cmds;
-    chrome::EmitTitleBar(cmds, cache_, nullptr, title_fmt.Get(), nullptr, false, { .bar = bar, .title_text = title, .window_width = 800.0f });
+    chrome::EmitTitleBar({ cmds, cache_ }, nullptr, title_fmt.Get(), nullptr, false, { .bar = bar, .title_text = title, .window_width = 800.0f });
 
     const DrawTextLayoutCmd* text = nullptr;
     for (const auto& cmd : cmds) {

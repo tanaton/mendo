@@ -211,15 +211,8 @@ TEST_F(FileWatcherTest, GetEventHandleNullWhenNotWatching)
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }
 
-TEST_F(FileWatcherTest, GetEventHandleValidWhileWatching)
-{
-    auto path = WriteTempFile(L"evthandle.md", "content");
-    FileWatcher watcher;
-    watcher.StartWatching(OpenWatchTarget(path.native()), []() static {});
-    EXPECT_NE(watcher.GetEventHandle(), nullptr);
-}
-
-TEST_F(FileWatcherTest, GetEventHandleNullAfterStopWatching)
+// 監視中だけイベントハンドルを持つ。
+TEST_F(FileWatcherTest, GetEventHandleOnlyWhileWatching)
 {
     auto path = WriteTempFile(L"evtstop.md", "content");
     FileWatcher watcher;

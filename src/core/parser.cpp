@@ -835,7 +835,7 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     const size_t full_label_len = AlertLabelLength(type); // "icon Label"
     std::string new_text;
-    new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
+    new_text.reserve(full_label_len + 1 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
     new_text += ' ';
     new_text.append(label);
@@ -1094,6 +1094,12 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
     ctx->ResolveLinkUrlIndex(link_url);
 }
 
+// 元の "$" / "$$" を戻して数式の run (kMath / kMathDoubleDollar) に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
+constexpr std::string_view MathDelimiterOf(MD_SPANTYPE type) noexcept
+{
+    return type == MD_SPAN_LATEXMATH ? "$" : type == MD_SPAN_LATEXMATH_DISPLAY ? "$$" : "";
+}
+
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -1104,7 +1110,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     ctx->EnsureNodeForListItemText();
     ctx->FlushPendingRun();
     // span が自分で足す文字 ("$" や脚注番号) は、待っている区切りの後ろに入れる。
-    if (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY || type == MD_SPAN_FOOTNOTE_REF) {
+    const std::string_view math_delimiter = MathDelimiterOf(type);
+    if (!math_delimiter.empty() || type == MD_SPAN_FOOTNOTE_REF) {
         ctx->ApplyPendingSplit();
     }
     // src が空の画像は Image ノードに昇格しないので、分割せず Alert 本文のままにする。
@@ -1125,13 +1132,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_IMG:
         ++ctx->image_span_depth;
         break;
-    case MD_SPAN_LATEXMATH_DISPLAY:
-        // 元の "$$" を戻して kMathDoubleDollar の run に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
-        ctx->AppendDoc("$$");
-        break;
     case MD_SPAN_LATEXMATH:
-        // 元の "$" を戻して kMath の run に含める。
-        ctx->AppendDoc("$");
+    case MD_SPAN_LATEXMATH_DISPLAY:
+        ctx->AppendDoc(math_delimiter);
         break;
     case MD_SPAN_FOOTNOTE_REF:
         AppendFootnoteRef(ctx, static_cast<const MD_SPAN_FOOTNOTE_REF_DETAIL*>(detail));
@@ -1164,11 +1167,8 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
 
     // 閉じの "$" / "$$" も数式の run に含めるため、run を確定する前に足す。
-    if (type == MD_SPAN_LATEXMATH) {
-        ctx->AppendDoc("$");
-    }
-    else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
-        ctx->AppendDoc("$$");
+    if (const std::string_view d = MathDelimiterOf(type); !d.empty()) {
+        ctx->AppendDoc(d);
     }
     ctx->FlushPendingRun();
 
@@ -1286,7 +1286,6 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ReserveForInput(ctx, input_size);
 
     MD_PARSER parser{};
-    parser.abi_version = 0;
     // Alert は引用の先頭の段落から自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。
     parser.flags = (MD_DIALECT_GITHUB & ~MD_FLAG_ADMONITIONS) | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = OnEnterBlock;

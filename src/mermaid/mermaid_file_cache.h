@@ -30,7 +30,9 @@ public:
     // 4: 描画命令の層に数式のラベルの数を足した。インライン数式の組の PNG は置かなくなった。
     // 5: WebView2 でキャプチャした図の PNG を置かなくなった。キーに DPR を混ぜない。
     // 6: ファイルの拡張子を .png から .drawing にした。
-    static constexpr uint32_t VERSION = 6;
+    // 7: 層の図形を <svg> の中身だけにして <defs> を図に 1 つ持ち、図形の SVG に初期値の属性を書かなくなった。
+    // 8: 文字と数式のラベルの数の並びを、置き方 (変換・x・y・大きさ・色・不透明度) を先頭にそろえた。
+    static constexpr uint32_t VERSION = 8;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();
@@ -133,8 +135,6 @@ private:
     std::optional<IndexState> MergeWithSavedIndex();
     // new_entries 件・new_bytes バイトを足せるまで、古いものから追い出す。
     void EvictIfNeeded(IndexState& index, size_t new_entries, uint64_t new_bytes);
-    // 前の版の Clear が別名にして消し損ねたフォルダ (<cache_dir_>.deleting-*) を worker で消す。次の版で除く。
-    void RemoveDoomedDirsAsync();
     // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。
     // どのスレッドからでも呼べる。
     void PrepareWrite(const std::filesystem::path& path);

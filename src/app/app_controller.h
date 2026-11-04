@@ -15,6 +15,9 @@ namespace app_controller {
 // 割り当ての無いキーは nullopt。
 std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event);
 
+// タイトルバーのボタンを押したときのアクション。ウィンドウの操作 (最小化・最大化・閉じる) と設定ダイアログは App が直接行うので nullopt。
+std::optional<AppAction> TitleBarClickAction(TitleBarHitZone zone);
+
 // 検索欄にフォーカスがあるときのキー。nullopt なら入力欄 (EDIT) に処理させる。
 // 検索欄は開いている間フォーカスを持ち続けるので、入力欄が編集に使うキーだけ欄に任せ、それ以外は本体と同じ割り当てにする。
 std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event);

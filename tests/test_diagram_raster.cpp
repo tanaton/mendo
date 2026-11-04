@@ -21,7 +21,8 @@ protected:
     void SetUp() override
     {
         ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, d2d_.GetAddressOf()));
-        ASSERT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw_.GetAddressOf())));
+        dw_ = SharedDWriteFactory();
+        ASSERT_NE(dw_, nullptr);
         wic_ = wic_util::CreateWicFactory("DiagramRasterTest");
         ASSERT_NE(wic_, nullptr);
     }
@@ -57,7 +58,7 @@ protected:
 
     static mermaid_util::DrawingText Text(std::wstring text, float x, float y)
     {
-        return { .x = x, .y = y, .font_size = 16.0f, .family = L"\"Segoe UI\", \"Yu Gothic UI\"", .text = std::move(text) };
+        return { .at = { .x = x, .y = y, .font_size = 16.0f }, .family = L"\"Segoe UI\", \"Yu Gothic UI\"", .text = std::move(text) };
     }
 
     ComPtr<ID2D1Factory1> d2d_;
@@ -72,8 +73,7 @@ TEST_F(DiagramRasterTest, DrawsShapesScaledByDprOnOpaqueBackground)
         .width = 20.0f,
         .height = 10.0f,
         .background = 0x1E1E1E,
-        .layers = { { .shapes_svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">)svg"
-                                    R"svg(<rect transform="matrix(1 0 0 1 10 0)" x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>)svg" } },
+        .layers = { { .shapes = R"svg(<rect transform="translate(10 0)" x="0" y="0" width="10" height="10" fill="#ff0000"/>)svg" } },
     };
     const auto bitmap = Rasterize(drawing, 2.0f);
     ASSERT_NE(bitmap, nullptr);
@@ -84,11 +84,29 @@ TEST_F(DiagramRasterTest, DrawsShapesScaledByDprOnOpaqueBackground)
     EXPECT_EQ(Pixel(bitmap.Get(), 39, 19), 0xFFFF0000u);
 }
 
+// 層の図形は図に 1 つの <defs> を参照できる。
+TEST_F(DiagramRasterTest, DrawsLayersWithSharedDefs)
+{
+    const mermaid_util::DiagramDrawing drawing{
+        .width = 20.0f,
+        .height = 10.0f,
+        .background = 0xFFFFFF,
+        .defs = R"svg(<linearGradient id="g0"><stop offset="0" stop-color="#00ff00"/></linearGradient>)svg",
+        .layers = {
+            { .texts = { Text(L"A", 0.0f, 8.0f) } },
+            { .shapes = R"svg(<rect x="0" y="0" width="20" height="10" fill="url(#g0)"/>)svg" },
+        },
+    };
+    const auto bitmap = Rasterize(drawing);
+    ASSERT_NE(bitmap, nullptr);
+    EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 20, 10, 0xFF00FF00u), 0);
+}
+
 // 文字はベースラインの始点に置く。変換で平行移動した先に描かれる。
 TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
 {
     auto text = Text(L"日本語 ABC", 0.0f, 16.0f);
-    text.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
+    text.at.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
     const mermaid_util::DiagramDrawing drawing{
         .width = 100.0f,
         .height = 40.0f,
@@ -111,8 +129,7 @@ TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
         .background = 0xFFFFFF,
         .layers = {
             { .texts = { Text(L"ABCDEF", 0.0f, 30.0f) } },
-            { .shapes_svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40" viewBox="0 0 100 40">)svg"
-                            R"svg(<rect x="0" y="0" width="100" height="40" fill="#00ff00"/></svg>)svg" },
+            { .shapes = R"svg(<rect x="0" y="0" width="100" height="40" fill="#00ff00"/>)svg" },
         },
     };
     const auto bitmap = Rasterize(drawing);
@@ -120,15 +137,33 @@ TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 100, 40, 0xFF00FF00u), 0);
 }
 
-// 壊れた SVG は描けない (キャプチャで描き直させるため null を返す)。
+// 壊れた SVG は描けない (null を返し、描けない図として知らせる)。
 TEST_F(DiagramRasterTest, ReturnsNullForMalformedSvg)
 {
     const mermaid_util::DiagramDrawing drawing{
         .width = 10.0f,
         .height = 10.0f,
-        .layers = { { .shapes_svg = "<svg" } },
+        .layers = { { .shapes = "<rect" } },
     };
     EXPECT_EQ(Rasterize(drawing), nullptr);
+}
+
+// クリップボードの SVG は <defs> を 1 つにし、層の図形と文字を順に並べる。初期値と同じ属性は書かない。
+TEST_F(DiagramRasterTest, WritesDrawingAsSingleSvg)
+{
+    const mermaid_util::DiagramDrawing drawing{
+        .width = 20.0f,
+        .height = 10.0f,
+        .defs = R"svg(<linearGradient id="g0"/>)svg",
+        .layers = {
+            { .shapes = R"svg(<rect width="1" height="1"/>)svg", .texts = { Text(L"A<", 1.0f, 2.0f) } },
+            { .shapes = R"svg(<circle r="1"/>)svg" },
+        },
+    };
+    EXPECT_EQ(DrawingToSvg(drawing),
+              R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><defs><linearGradient id="g0"/></defs>)svg"
+              R"svg(<rect width="1" height="1"/><text x="1" y="2" font-family="&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;" font-size="16")svg"
+              R"svg( fill="#000000" xml:space="preserve">A&lt;</text><circle r="1"/></svg>)svg");
 }
 
 // 入っている候補を順に、重なりを除いて返す (先頭で組み、残りをフォールバック先にする)。
@@ -223,14 +258,14 @@ TEST_F(PeleSvgTest, ResolvesVariablesAndColorMix)
     ASSERT_TRUE(light);
     EXPECT_EQ(light->background, 0xFFFFFFu);
     ASSERT_EQ(light->layers.size(), 1u);
-    const auto& shapes = light->layers[0].shapes_svg;
-    EXPECT_NE(shapes.find(R"svg(fill="#f3f3f3" fill-opacity="1")svg"), std::string::npos) << shapes;
-    EXPECT_NE(shapes.find(R"svg(stroke="#808080")svg"), std::string::npos) << shapes;
+    const auto& shapes = light->layers[0].shapes;
+    // 不透明度 1・線の太さ 1 などの初期値は書かない。
+    EXPECT_NE(shapes.find(R"svg(fill="#f3f3f3" stroke="#808080"/>)svg"), std::string::npos) << shapes;
     EXPECT_NE(shapes.find(R"svg(rx="4" ry="4")svg"), std::string::npos) << shapes;
     const auto dark = Resolve(body, true);
     ASSERT_TRUE(dark);
     EXPECT_EQ(dark->background, 0x1E1E1Eu);
-    EXPECT_NE(dark->layers[0].shapes_svg.find(R"svg(fill="#2b2b2b")svg"), std::string::npos);
+    EXPECT_NE(dark->layers[0].shapes.find(R"svg(fill="#2b2b2b")svg"), std::string::npos);
 }
 
 // 文字は text-anchor の分だけ塊の幅で戻す。tspan は前の文字の後ろに続き、下付きは小さくして下げる。
@@ -246,20 +281,20 @@ TEST_F(PeleSvgTest, PlacesTextChunksByAnchor)
     const float two = Width(L"2", 16.0f / 1.2f);
     const float o = Width(L"O");
     const float left = -(h + two + o) / 2.0f;
-    EXPECT_NEAR(texts[0].x, left, 0.01f);
-    EXPECT_NEAR(texts[1].x, left + h, 0.01f);
-    EXPECT_NEAR(texts[2].x, left + h + two, 0.01f);
-    EXPECT_EQ(texts[0].y, 5.0f);
-    EXPECT_GT(texts[1].y, 5.0f);
-    EXPECT_EQ(texts[2].y, 5.0f);
-    EXPECT_NEAR(texts[1].font_size, 16.0f / 1.2f, 1e-4f);
-    EXPECT_EQ(texts[0].rgb, 0x1F1F1Fu);
+    EXPECT_NEAR(texts[0].at.x, left, 0.01f);
+    EXPECT_NEAR(texts[1].at.x, left + h, 0.01f);
+    EXPECT_NEAR(texts[2].at.x, left + h + two, 0.01f);
+    EXPECT_EQ(texts[0].at.y, 5.0f);
+    EXPECT_GT(texts[1].at.y, 5.0f);
+    EXPECT_EQ(texts[2].at.y, 5.0f);
+    EXPECT_NEAR(texts[1].at.font_size, 16.0f / 1.2f, 1e-4f);
+    EXPECT_EQ(texts[0].at.rgb, 0x1F1F1Fu);
     EXPECT_EQ(texts[0].family, L"\"Segoe UI\", \"Yu Gothic UI\"");
-    EXPECT_EQ(texts[0].transform[4], 100.0f);
-    EXPECT_EQ(texts[0].transform[5], 50.0f);
-    EXPECT_EQ(texts[3].x, 10.0f);
+    EXPECT_EQ(texts[0].at.transform[4], 100.0f);
+    EXPECT_EQ(texts[0].at.transform[5], 50.0f);
+    EXPECT_EQ(texts[3].at.x, 10.0f);
     EXPECT_EQ(texts[3].weight, 700);
-    EXPECT_EQ(texts[3].rgb, 0xFFFFFFu);
+    EXPECT_EQ(texts[3].at.rgb, 0xFFFFFFu);
 }
 
 // xml:space が無ければ空白を畳み、先頭と末尾の空白を除く。
@@ -281,7 +316,7 @@ TEST_F(PeleSvgTest, StartsLayerOnlyWhenShapeCoversText)
     ASSERT_TRUE(over);
     ASSERT_EQ(over->layers.size(), 2u);
     EXPECT_EQ(over->layers[0].texts.size(), 1u);
-    EXPECT_FALSE(over->layers[1].shapes_svg.empty());
+    EXPECT_FALSE(over->layers[1].shapes.empty());
 }
 
 // ページと同じく max-width:100% で幅の上限まで縮める。
@@ -291,8 +326,8 @@ TEST_F(PeleSvgTest, ShrinksToMaxWidth)
     ASSERT_TRUE(drawing);
     EXPECT_EQ(drawing->width, 100.0f);
     EXPECT_EQ(drawing->height, 50.0f);
-    EXPECT_NE(drawing->layers[0].shapes_svg.find(R"svg(transform="matrix(0.5 0 0 0.5 0 0)")svg"), std::string::npos)
-        << drawing->layers[0].shapes_svg;
+    EXPECT_NE(drawing->layers[0].shapes.find(R"svg(transform="matrix(0.5 0 0 0.5 0 0)")svg"), std::string::npos)
+        << drawing->layers[0].shapes;
 }
 
 // 入れ子の svg (アイコン) は viewBox で縮め、currentColor は継承した color で塗る。
@@ -301,8 +336,22 @@ TEST_F(PeleSvgTest, MapsNestedSvgViewport)
     const auto drawing = Resolve(
         R"svg(<svg x="10" y="20" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M0 0L24 24"/></svg>)svg");
     ASSERT_TRUE(drawing);
-    const auto& shapes = drawing->layers[0].shapes_svg;
+    const auto& shapes = drawing->layers[0].shapes;
     EXPECT_NE(shapes.find(R"svg(transform="matrix(0.5 0 0 0.5 10 20)" fill="none" stroke="#1f1f1f")svg"), std::string::npos) << shapes;
+}
+
+// 平行移動だけの変換は translate にし、単位行列は書かない。線の属性は初期値と違うものだけ書く。
+TEST_F(PeleSvgTest, WritesOnlyNonInitialAttributes)
+{
+    const auto drawing = Resolve(R"svg(<g transform="translate(5,6)"><rect x="0" y="0" width="10" height="10" stroke="red"/></g>)svg"
+                                 R"svg(<rect x="0" y="0" width="10" height="10" fill="none" stroke="red" stroke-width="2" stroke-linecap="round")svg"
+                                 R"svg( stroke-dasharray="4 2"/>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    EXPECT_EQ(drawing->layers[0].shapes,
+              R"svg(<rect x="0" y="0" width="10" height="10" transform="translate(5 6)" fill="#1f1f1f" stroke="#ff0000"/>)svg"
+              R"svg(<rect x="0" y="0" width="10" height="10" fill="none" stroke="#ff0000" stroke-width="2" stroke-linecap="round")svg"
+              R"svg( stroke-dasharray="4 2"/>)svg");
 }
 
 // D2D の SVG はグラデーションの塗りの不透明度を無視するので、止まりの不透明度に掛けて書く。
@@ -312,13 +361,14 @@ TEST_F(PeleSvgTest, FoldsPaintOpacityIntoGradientStops)
                                  R"svg(<stop offset="0" stop-color="var(--_s)"/><stop offset="1" stop-color="red"/></linearGradient></defs>)svg"
                                  R"svg(<path d="M0 0H10V10Z" fill="url(#g) red" fill-opacity="0.5"/>)svg");
     ASSERT_TRUE(drawing);
-    const auto& shapes = drawing->layers[0].shapes_svg;
-    EXPECT_NE(shapes.find(R"svg(<linearGradient id="g0" gradientUnits="userSpaceOnUse" x1="0" x2="10">)svg"), std::string::npos) << shapes;
-    EXPECT_NE(shapes.find(R"svg(<stop offset="0" stop-color="#f3f3f3" stop-opacity="0.5"/>)svg"), std::string::npos) << shapes;
+    const auto& defs = drawing->defs;
+    EXPECT_NE(defs.find(R"svg(<linearGradient id="g0" gradientUnits="userSpaceOnUse" x1="0" x2="10">)svg"), std::string::npos) << defs;
+    EXPECT_NE(defs.find(R"svg(<stop offset="0" stop-color="#f3f3f3" stop-opacity="0.5"/>)svg"), std::string::npos) << defs;
+    const auto& shapes = drawing->layers[0].shapes;
     EXPECT_NE(shapes.find(R"svg(fill="url(#g0)"/>)svg"), std::string::npos) << shapes;
 }
 
-// 書き出せない要素 (数式のラベルの foreignObject) と壊れた SVG はブラウザに回す。
+// 書き出せない要素 (foreignObject) と壊れた SVG は描画命令にしない (描けない図として知らせる)。
 TEST_F(PeleSvgTest, RejectsUnsupportedOrMalformedSvg)
 {
     EXPECT_FALSE(Resolve(R"svg(<foreignObject x="0" y="0" width="10" height="10"/>)svg"));
@@ -331,5 +381,5 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
 {
     const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="6" style="rx:min(var(--undefined, 4px),3px)"/>)svg");
     ASSERT_TRUE(drawing);
-    EXPECT_NE(drawing->layers[0].shapes_svg.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes_svg;
+    EXPECT_NE(drawing->layers[0].shapes.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes;
 }

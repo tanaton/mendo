@@ -143,7 +143,7 @@ TEST(OverlayCommandsTest, NavButtonsUseHitTestRectsAndStateOpacity)
 {
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitNavButtons(cmds, text_layouts, nullptr, kOverlayPane, /*dark=*/false, /*can_back=*/true, /*can_forward=*/false, NavDirection::Back);
+    overlay::EmitNavButtons({ cmds, text_layouts }, nullptr, kOverlayPane, /*dark=*/false, /*can_back=*/true, /*can_forward=*/false, NavDirection::Back);
     const auto bgs = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(bgs.size(), 2u);
     EXPECT_EQ(bgs[0].brush_id, BrushId::Overlay);
@@ -153,7 +153,7 @@ TEST(OverlayCommandsTest, NavButtonsUseHitTestRectsAndStateOpacity)
     EXPECT_FLOAT_EQ(bgs[1].opacity, 0.05f) << "押せない";
 
     cmds.clear();
-    overlay::EmitNavButtons(cmds, text_layouts, nullptr, kOverlayPane, /*dark=*/true, true, true, NavDirection::None);
+    overlay::EmitNavButtons({ cmds, text_layouts }, nullptr, kOverlayPane, /*dark=*/true, true, true, NavDirection::None);
     const auto dark_bgs = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(dark_bgs.size(), 2u);
     EXPECT_EQ(dark_bgs[0].brush_id, BrushId::Overlay);
@@ -166,10 +166,10 @@ TEST(OverlayCommandsTest, GestureOverlayPanelFollowsTheme)
 {
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitGestureOverlay(cmds, text_layouts, nullptr, kOverlayPane, false, NavDirection::None);
+    overlay::EmitGestureOverlay({ cmds, text_layouts }, nullptr, kOverlayPane, false, NavDirection::None);
     EXPECT_TRUE(cmds.empty());
 
-    overlay::EmitGestureOverlay(cmds, text_layouts, nullptr, kOverlayPane, false, NavDirection::Back);
+    overlay::EmitGestureOverlay({ cmds, text_layouts }, nullptr, kOverlayPane, false, NavDirection::Back);
     auto panels = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(panels.size(), 1u);
     EXPECT_EQ(panels[0].brush_id, BrushId::OverlayGestureBg);
@@ -178,7 +178,7 @@ TEST(OverlayCommandsTest, GestureOverlayPanelFollowsTheme)
     EXPECT_FLOAT_EQ(panels[0].rect.right - panels[0].rect.left, GESTURE_OVERLAY_WIDTH);
 
     cmds.clear();
-    overlay::EmitGestureOverlay(cmds, text_layouts, nullptr, kOverlayPane, true, NavDirection::Forward);
+    overlay::EmitGestureOverlay({ cmds, text_layouts }, nullptr, kOverlayPane, true, NavDirection::Forward);
     panels = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(panels.size(), 1u);
     EXPECT_EQ(panels[0].brush_id, BrushId::OverlayGestureBg);
@@ -190,10 +190,10 @@ TEST(OverlayCommandsTest, ToastSitsAboveNavButtons)
 {
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitToast(cmds, text_layouts, nullptr, kOverlayPane, false, L"");
+    overlay::EmitToast({ cmds, text_layouts }, nullptr, kOverlayPane, false, L"");
     EXPECT_TRUE(cmds.empty());
 
-    overlay::EmitToast(cmds, text_layouts, nullptr, kOverlayPane, false, L"message");
+    overlay::EmitToast({ cmds, text_layouts }, nullptr, kOverlayPane, false, L"message");
     const auto panels = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(panels.size(), 1u);
     EXPECT_FLOAT_EQ(panels[0].opacity, 0.7f);
@@ -262,7 +262,7 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, false);
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .visible = true }, {});
+    overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl, { .visible = true }, {});
 
     const auto bar = FindFirst<FillRectCmd>(cmds);
     ASSERT_TRUE(bar);
@@ -294,11 +294,11 @@ TEST(OverlayCommandsTest, SearchBarInputTurnsRedOnNoMatch)
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 0, .visible = true }, {});
+    overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 0, .visible = true }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchNoMatchBg);
 
     cmds.clear();
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 3, .visible = true }, {});
+    overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 3, .visible = true }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchInputBg);
 }
 
@@ -309,7 +309,7 @@ TEST(OverlayCommandsTest, SearchBarCaretFollowsMeasuredPosition)
     const auto caret_x = [&](const SearchBarRenderState& sb, float measured) -> std::optional<float> {
         TextLayoutCache text_layouts;
         DrawCommandList cmds;
-        overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, sb, { .caret_x = measured });
+        overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl, sb, { .caret_x = measured });
         const auto lines = CollectCmds<DrawLineCmd>(cmds);
         if (lines.size() < 2) {
             return std::nullopt;
@@ -336,7 +336,7 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl,
+    overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl,
                            { .query = L"a", .total_matches = 1, .visible = true, .case_sensitive = true, .highlight_enabled = false, .hovered = SearchBarHitZone::Up }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.up_btn), BrushId::TitleBarButtonHover);
     EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonActive);
@@ -345,7 +345,7 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
     EXPECT_EQ(FillBrushAt(cmds, sbl.close_btn), std::nullopt);
 
     cmds.clear();
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl,
+    overlay::EmitSearchBar({ cmds, text_layouts }, nullptr, nullptr, sbl,
                            { .query = L"a", .total_matches = 1, .visible = true, .hovered = SearchBarHitZone::CaseSensitive }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonHover);
     EXPECT_EQ(FillBrushAt(cmds, sbl.highlight_btn), BrushId::TitleBarButtonActive);
@@ -382,18 +382,18 @@ TEST(ChromeCommandsTest, TitleBarButtonBackgrounds)
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
     TitleBarRenderState tb{ .bar = bar, .window_width = 800.0f, .hovered_zone = TitleBarHitZone::Search, .search_active = true };
-    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    chrome::EmitTitleBar({ cmds, text_layouts }, nullptr, nullptr, nullptr, false, tb);
     EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Search)), BrushId::TitleBarButtonActive);
     EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), std::nullopt);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::FileToggle;
-    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    chrome::EmitTitleBar({ cmds, text_layouts }, nullptr, nullptr, nullptr, false, tb);
     EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), BrushId::TitleBarButtonHover);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::Close;
-    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    chrome::EmitTitleBar({ cmds, text_layouts }, nullptr, nullptr, nullptr, false, tb);
     EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Close)), BrushId::TitleBarCloseRed);
 }
 
@@ -416,7 +416,7 @@ TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
+    chrome::EmitSidePanes({ cmds, text_layouts }, {}, theme, sp);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
     const auto row_top = [&](int i) { return content_top + i * kItemHeight - kScroll; };
@@ -442,7 +442,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
         };
         TextLayoutCache text_layouts;
         DrawCommandList cmds;
-        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
+        chrome::EmitSidePanes({ cmds, text_layouts }, {}, theme, sp);
         EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
     }
 }
@@ -464,7 +464,7 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
+    chrome::EmitSidePanes({ cmds, text_layouts }, {}, theme, sp);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
     EXPECT_EQ(RowFills(cmds, kSidePane, kItemHeight), (std::vector<std::pair<float, BrushId>>{ { content_top + 2 * kItemHeight, BrushId::PaneItemActive } }));

@@ -1,7 +1,9 @@
 #include "pele_engine.h"
 #include "diagram_raster.h"
 #include "string_convert.h"
+#include "utility.h"
 #include <quickjs.h>
+#include <bit>
 #include <format>
 #include <optional>
 #include <string>
@@ -61,6 +63,11 @@ std::wstring ErrorText(JSContext* ctx, JSValueConst error)
 
 } // namespace
 
+struct PeleSvg {
+    std::string svg;
+    std::vector<PeleMathLabel> labels;
+};
+
 struct PeleContext {
     PeleEngine* engine = nullptr;
     JSRuntime* rt = nullptr;
@@ -70,7 +77,7 @@ struct PeleContext {
     // KaTeX を読んだら (tex) → HTML
     JSValue katex = JS_UNDEFINED;
     const DiagramFonts* fonts = &kJaFonts;
-    std::wstring locale;
+    // 図を描くときに作る (数式だけのランタイムは測定器を使わない)。
     std::optional<DiagramTextMeasurer> measurer;
     // 描いている図のラベルの数式。pele の math オプションが足し、DrawingFromPeleSvg が読む。
     std::vector<PeleMathLabel> labels;
@@ -88,16 +95,6 @@ struct PeleContext {
         if (rt) {
             JS_FreeRuntime(rt);
         }
-    }
-
-    void SetLocale(std::wstring_view new_locale, IDWriteFactory* dw)
-    {
-        if (measurer && locale == new_locale) {
-            return;
-        }
-        locale = new_locale;
-        fonts = &FontsFor(locale);
-        measurer.emplace(dw, locale);
     }
 };
 
@@ -144,7 +141,7 @@ JSValue MathLabel(JSContext* ctx, JSValueConst, int, JSValueConst* argv)
     JSValue out = JS_EXCEPTION;
     if (html && JS_ToFloat64(ctx, &size, argv[2]) == 0) {
         out = JS_UNDEFINED;
-        if (auto math = context->engine->LayoutHtml({ html, html_length }, static_cast<float>(size), context->locale)) {
+        if (auto math = context->engine->LayoutHtml({ html, html_length }, static_cast<float>(size))) {
             const auto svg = std::format("<g data-mendo-math=\"{}\"/>", context->labels.size());
             out = JS_NewObject(ctx);
             JS_SetPropertyStr(ctx, out, "svg", JS_NewStringLen(ctx, svg.data(), svg.size()));
@@ -163,34 +160,6 @@ int CheckCancel(JSContext*, void* cancel)
     return static_cast<const std::atomic<bool>*>(cancel)->load(std::memory_order_relaxed) ? 1 : 0;
 }
 
-// 使い捨てのランタイムでコンパイルする。使うランタイムでコンパイルすると、コンパイルしたものが読み込んだものと別に残る
-// (pele で約 4MB)。eval_type は JS_EVAL_TYPE_MODULE (pele) か JS_EVAL_TYPE_GLOBAL (KaTeX の UMD)。
-std::vector<uint8_t> Compile(std::span<const std::byte> source, const char* name, int eval_type)
-{
-    PeleContext scratch;
-    scratch.rt = JS_NewRuntime();
-    scratch.ctx = scratch.rt ? JS_NewContext(scratch.rt) : nullptr;
-    if (!scratch.ctx) {
-        return {};
-    }
-    // JS_Eval は末尾の NUL を要る。
-    const std::string text(reinterpret_cast<const char*>(source.data()), source.size());
-    JSValue compiled = JS_Eval(scratch.ctx, text.c_str(), text.size(), name, eval_type | JS_EVAL_FLAG_COMPILE_ONLY);
-    // 位置の情報を除く (pele で 2.0MB → 0.95MB)。どちらも文言に位置を使わない。
-    size_t size = 0;
-    uint8_t* bytes = JS_IsException(compiled)
-                         ? nullptr
-                         : JS_WriteObject(scratch.ctx, &size, compiled, JS_WRITE_OBJ_BYTECODE | JS_WRITE_OBJ_STRIP_SOURCE | JS_WRITE_OBJ_STRIP_DEBUG);
-    std::vector<uint8_t> out;
-    if (bytes) {
-        out.assign(bytes, bytes + size);
-        js_free(scratch.ctx, bytes);
-    }
-    JS_FreeValue(scratch.ctx, compiled);
-    JS_FreeValue(scratch.ctx, JS_GetException(scratch.ctx));
-    return out;
-}
-
 // 評価の結果を確かめる。モジュールの評価は Promise を返すので、ジョブを流して確定させる (pele も KaTeX も最上位に await が無い)。
 bool Evaluated(PeleContext& context, JSValue evaluated)
 {
@@ -207,8 +176,8 @@ bool Evaluated(PeleContext& context, JSValue evaluated)
 } // namespace
 
 PeleEngine::PeleEngine(std::span<const std::byte> pele, std::span<const std::byte> katex, std::vector<std::span<const std::byte>> katex_fonts,
-                       IDWriteFactory* dw)
-    : pele_source_(pele), katex_source_(katex), katex_fonts_(std::move(katex_fonts)), dw_(dw)
+                       IDWriteFactory* dw, std::wstring locale)
+    : pele_bytecode_(pele), katex_bytecode_(katex), katex_fonts_(std::move(katex_fonts)), dw_(dw), locale_(std::move(locale))
 {
 }
 
@@ -222,22 +191,39 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
             auto context = std::move(idle_.back());
             idle_.pop_back();
             // 前に別のスレッドで使ったランタイムでも、このスレッドのスタックで上限を測らせる。
-            JS_UpdateStackTop(context->rt);
+            if (context->rt) {
+                JS_UpdateStackTop(context->rt);
+            }
             return context;
         }
     }
     auto context = std::make_unique<PeleContext>();
     context->engine = this;
-    context->rt = JS_NewRuntime();
-    context->ctx = context->rt ? JS_NewContext(context->rt) : nullptr;
-    if (!context->ctx) {
-        return nullptr;
-    }
-    JS_SetMaxStackSize(context->rt, kJsStackBytes);
-    JS_SetMemoryLimit(context->rt, kJsMemoryBytes);
-    JS_SetInterruptHandler(context->rt, CheckCancel, &cancel_);
-    JS_SetContextOpaque(context->ctx, context.get());
+    context->fonts = &FontsFor(locale_);
     return context;
+}
+
+// pele の出力を覚えた図 (テーマの切り替え) は測定器しか使わないので、ランタイムは JS を動かすときに作る。
+bool PeleEngine::EnsureRuntime(PeleContext& context)
+{
+    if (context.ctx) {
+        return true;
+    }
+    if (!context.rt) {
+        context.rt = JS_NewRuntime();
+        if (!context.rt) {
+            return false;
+        }
+        JS_SetMaxStackSize(context.rt, kJsStackBytes);
+        JS_SetMemoryLimit(context.rt, kJsMemoryBytes);
+        JS_SetInterruptHandler(context.rt, CheckCancel, &cancel_);
+    }
+    context.ctx = JS_NewContext(context.rt);
+    if (!context.ctx) {
+        return false;
+    }
+    JS_SetContextOpaque(context.ctx, &context);
+    return true;
 }
 
 void PeleEngine::Release(std::unique_ptr<PeleContext> context)
@@ -248,15 +234,17 @@ void PeleEngine::Release(std::unique_ptr<PeleContext> context)
 
 bool PeleEngine::EnsurePele(PeleContext& context)
 {
+    if (!EnsureRuntime(context)) {
+        return false;
+    }
     if (JS_IsFunction(context.ctx, context.render)) {
         return true;
     }
-    std::call_once(pele_compiled_, [&] { pele_bytecode_ = Compile(pele_source_, "pele.mjs", JS_EVAL_TYPE_MODULE); });
     if (pele_bytecode_.empty()) {
         return false;
     }
     JSContext* ctx = context.ctx;
-    JSValue module = JS_ReadObject(ctx, pele_bytecode_.data(), pele_bytecode_.size(), JS_READ_OBJ_BYTECODE);
+    JSValue module = JS_ReadObject(ctx, reinterpret_cast<const uint8_t*>(pele_bytecode_.data()), pele_bytecode_.size(), JS_READ_OBJ_BYTECODE);
     if (JS_IsException(module) || JS_ResolveModule(ctx, module) < 0) {
         JS_FreeValue(ctx, module);
         JS_FreeValue(ctx, JS_GetException(ctx));
@@ -320,16 +308,18 @@ bool PeleEngine::EnsurePele(PeleContext& context)
 
 bool PeleEngine::EnsureKatex(PeleContext& context)
 {
+    if (!EnsureRuntime(context)) {
+        return false;
+    }
     if (JS_IsFunction(context.ctx, context.katex)) {
         return true;
     }
-    std::call_once(katex_compiled_, [&] { katex_bytecode_ = Compile(katex_source_, "katex.js", JS_EVAL_TYPE_GLOBAL); });
     if (katex_bytecode_.empty()) {
         return false;
     }
     // UMD の katex.min.js は、最上位の this (globalThis) の katex に入る。
     JSContext* ctx = context.ctx;
-    JSValue script = JS_ReadObject(ctx, katex_bytecode_.data(), katex_bytecode_.size(), JS_READ_OBJ_BYTECODE);
+    JSValue script = JS_ReadObject(ctx, reinterpret_cast<const uint8_t*>(katex_bytecode_.data()), katex_bytecode_.size(), JS_READ_OBJ_BYTECODE);
     if (JS_IsException(script)) {
         JS_FreeValue(ctx, JS_GetException(ctx));
         return false;
@@ -350,9 +340,9 @@ bool PeleEngine::EnsureKatex(PeleContext& context)
     return true;
 }
 
-KatexAssets* PeleEngine::Assets(std::wstring_view locale)
+KatexAssets* PeleEngine::Assets()
 {
-    std::call_once(assets_created_, [&] { assets_ = std::make_unique<KatexAssets>(dw_, katex_fonts_, std::wstring{ locale }); });
+    std::call_once(assets_created_, [&] { assets_ = std::make_unique<KatexAssets>(dw_, katex_fonts_, locale_); });
     return assets_->ok() ? assets_.get() : nullptr;
 }
 
@@ -365,14 +355,14 @@ void PeleEngine::Trim()
     }
 }
 
-std::shared_ptr<const MathDrawing> PeleEngine::LayoutHtml(std::string_view html, float font_size, std::wstring_view locale)
+std::shared_ptr<const MathDrawing> PeleEngine::LayoutHtml(std::string_view html, float font_size)
 {
-    KatexAssets* assets = Assets(locale);
+    KatexAssets* assets = Assets();
     auto math = assets ? LayoutKatexHtml(html, font_size, *assets) : std::nullopt;
     return math ? std::make_shared<const MathDrawing>(std::move(*math)) : nullptr;
 }
 
-std::shared_ptr<const MathDrawing> PeleEngine::LayoutMath(PeleContext& context, std::string_view tex, float font_size, std::wstring_view locale)
+std::shared_ptr<const MathDrawing> PeleEngine::LayoutMath(PeleContext& context, std::string_view tex, float font_size)
 {
     if (!EnsureKatex(context)) {
         return nullptr;
@@ -388,31 +378,28 @@ std::shared_ptr<const MathDrawing> PeleEngine::LayoutMath(PeleContext& context, 
     std::shared_ptr<const MathDrawing> out;
     size_t length = 0;
     if (const char* s = JS_ToCStringLen(ctx, &length, html)) {
-        out = LayoutHtml({ s, length }, font_size, locale);
+        out = LayoutHtml({ s, length }, font_size);
         JS_FreeCString(ctx, s);
     }
     JS_FreeValue(ctx, html);
     return out;
 }
 
-std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::span<const MathSource> maths, std::wstring_view locale)
+std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::span<const MathSource> maths)
 {
     std::vector<std::shared_ptr<const MathDrawing>> out(maths.size());
     if (Cancelled()) {
         return out;
     }
     auto context = Acquire();
-    if (!context) {
-        return out;
-    }
     for (size_t i = 0; i < maths.size() && !Cancelled(); ++i) {
-        out[i] = LayoutMath(*context, maths[i].tex, maths[i].font_size, locale);
+        out[i] = LayoutMath(*context, maths[i].tex, maths[i].font_size);
     }
     Release(std::move(context));
     return out;
 }
 
-bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing, std::wstring_view locale)
+bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
 {
     std::vector<mermaid_util::DrawingMath*> pending;
     std::vector<MathSource> sources;
@@ -420,69 +407,106 @@ bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing, std::wstrin
         for (auto& math : layer.maths) {
             if (!math.drawing) {
                 pending.push_back(&math);
-                sources.push_back({ math.tex, math.font_size });
+                sources.push_back({ math.tex, math.at.font_size });
             }
         }
     }
     if (pending.empty()) {
         return false;
     }
-    auto drawings = RenderMaths(sources, locale);
+    auto drawings = RenderMaths(sources);
     for (size_t i = 0; i < pending.size(); ++i) {
         pending[i]->drawing = std::move(drawings[i]);
     }
     return true;
 }
 
-PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, std::wstring_view locale, bool fit)
+std::shared_ptr<const PeleSvg> PeleEngine::FindSvg(uint64_t key)
+{
+    const std::lock_guard lock(svg_mutex_);
+    const auto* found = svgs_.Find(key);
+    return found ? *found : nullptr;
+}
+
+void PeleEngine::StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg)
+{
+    const std::lock_guard lock(svg_mutex_);
+    svgs_.Insert(key, std::move(svg));
+    svgs_.TrimToBudget(kMaxSvgBytes, [](const std::shared_ptr<const PeleSvg>& s) static noexcept { return s->svg.size(); });
+}
+
+PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, bool fit)
 {
     using Status = PeleOutcome::Status;
     if (Cancelled()) {
         return { .status = Status::Cancelled };
     }
     auto context = Acquire();
-    if (!context || !EnsurePele(*context)) {
-        return {};
+    if (!context->measurer) {
+        context->measurer.emplace(dw_, locale_);
     }
-    context->SetLocale(locale, dw_);
-    JSContext* ctx = context->ctx;
+    // pele に渡す幅そのもので引く (要求のキーの量子化した幅では、出力が変わる幅を取り違える)。
+    const uint64_t key = mermaid_util::DiagramCodeHash(code) ^ (std::bit_cast<uint32_t>(max_width) * kGoldenRatio64);
+    PeleOutcome out;
+    auto svg = FindSvg(key);
+    if (!svg) {
+        if (auto rendered = RenderSvg(*context, code, max_width)) {
+            svg = std::move(*rendered);
+            StoreSvg(key, svg);
+        }
+        else {
+            out = std::move(rendered.error());
+        }
+    }
+    if (svg) {
+        auto drawing = DrawingFromPeleSvg(svg->svg, dark, fit ? max_width : 0.0f, *context->measurer, svg->labels);
+        out.status = drawing ? Status::Drawn : Status::Unsupported;
+        if (drawing) {
+            out.drawing = std::move(*drawing);
+        }
+    }
+    Release(std::move(context));
+    return out;
+}
+
+std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
+{
+    using Status = PeleOutcome::Status;
+    if (!EnsurePele(context)) {
+        return std::unexpected(PeleOutcome{});
+    }
+    JSContext* ctx = context.ctx;
     JSValue args[5] = {
         JS_NewStringLen(ctx, code.data(), code.size()),
         JS_NewFloat64(ctx, max_width),
-        NewString(ctx, context->fonts->sans),
-        NewString(ctx, context->fonts->mono),
-        code.find("$$") != std::string_view::npos && EnsureKatex(*context) ? JS_DupValue(ctx, context->katex) : JS_UNDEFINED,
+        NewString(ctx, context.fonts->sans),
+        NewString(ctx, context.fonts->mono),
+        code.find("$$") != std::string_view::npos && EnsureKatex(context) ? JS_DupValue(ctx, context.katex) : JS_UNDEFINED,
     };
-    JSValue svg = JS_Call(ctx, context->render, JS_UNDEFINED, 5, args);
+    JSValue svg = JS_Call(ctx, context.render, JS_UNDEFINED, 5, args);
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
-    PeleOutcome out;
+    std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
         if (Cancelled()) {
-            out.status = Status::Cancelled;
+            out.error().status = Status::Cancelled;
         }
         else {
-            out.status = Status::Error;
-            out.error = ErrorText(ctx, error);
+            out.error().error = ErrorText(ctx, error);
         }
         JS_FreeValue(ctx, error);
     }
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            auto drawing = DrawingFromPeleSvg({ s, length }, dark, fit ? max_width : 0.0f, *context->measurer, context->labels);
-            out.status = drawing ? Status::Drawn : Status::Unsupported;
-            if (drawing) {
-                out.drawing = std::move(*drawing);
-            }
+            out = std::make_shared<const PeleSvg>(PeleSvg{ .svg = std::string{ s, length }, .labels = std::move(context.labels) });
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);
     }
     // 使い回すランタイムには、次の図のために空にして返す。
-    context->labels.clear();
-    Release(std::move(context));
+    context.labels.clear();
     return out;
 }

@@ -18,27 +18,42 @@ std::optional<std::string> Resolve(std::string_view entity)
 
 } // namespace
 
-TEST(HtmlEntity, NamedLiterals)
+TEST(HtmlEntity, ResolvesReferences)
 {
-    EXPECT_EQ(Resolve("&amp;"), "&");
-    EXPECT_EQ(Resolve("&lt;"), "<");
-    EXPECT_EQ(Resolve("&gt;"), ">");
-    EXPECT_EQ(Resolve("&quot;"), "\"");
-    EXPECT_EQ(Resolve("&apos;"), "'");
-    EXPECT_EQ(Resolve("&nbsp;"), " ");
-}
-
-TEST(HtmlEntity, NamedHtml5)
-{
-    EXPECT_EQ(Resolve("&copy;"), "©");
-    EXPECT_EQ(Resolve("&mdash;"), "—");
-    EXPECT_EQ(Resolve("&hellip;"), "…");
-    EXPECT_EQ(Resolve("&rarr;"), "→");
-    EXPECT_EQ(Resolve("&times;"), "×");
-    EXPECT_EQ(Resolve("&AElig;"), "Æ");
-    EXPECT_EQ(Resolve("&zwnj;"), "‌");
-    // 2 コードポイントに展開される参照
-    EXPECT_EQ(Resolve("&NotEqualTilde;"), "≂̸");
+    struct Case {
+        std::string_view entity;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "&amp;", "&" },
+        { "&lt;", "<" },
+        { "&gt;", ">" },
+        { "&quot;", "\"" },
+        { "&apos;", "'" },
+        { "&nbsp;", "\xC2\xA0" },
+        { "&copy;", "©" },
+        { "&mdash;", "—" },
+        { "&hellip;", "…" },
+        { "&rarr;", "→" },
+        { "&times;", "×" },
+        { "&AElig;", "Æ" },
+        { "&zwnj;", "\xE2\x80\x8C" },
+        // 2 コードポイントに展開される参照
+        { "&NotEqualTilde;", "≂̸" },
+        { "&#65;", "A" },
+        { "&#9;", "\t" },
+        { "&#x41;", "A" },
+        { "&#X41;", "A" },
+        { "&#xA9;", "\xC2\xA9" },
+        { "&#x4E00;", "一" },
+        // 非文字 U+FFFF も拒否せず 3 byte で返す
+        { "&#xFFFF;", "\xEF\xBF\xBF" },
+        // 追加面 (U+1F600) は UTF-8 の 4 byte
+        { "&#x1F600;", "\xF0\x9F\x98\x80" },
+    };
+    for (const auto& c : kCases) {
+        EXPECT_EQ(Resolve(c.entity), c.expected) << c.entity;
+    }
 }
 
 TEST(HtmlEntity, RejectsInvalidReferences)
@@ -100,21 +115,4 @@ TEST(HtmlEntity, GeneratedTableIsContiguousAndRoundTrips)
         }
         EXPECT_EQ(Resolve("&" + std::string(name) + ";"), std::string(value));
     }
-}
-
-TEST(HtmlEntity, NumericDecimal)
-{
-    EXPECT_EQ(Resolve("&#65;"), "A");
-    EXPECT_EQ(Resolve("&#9;"), "\t");
-}
-
-TEST(HtmlEntity, NumericHex)
-{
-    EXPECT_EQ(Resolve("&#x41;"), "A");
-    EXPECT_EQ(Resolve("&#X41;"), "A");
-    EXPECT_EQ(Resolve("&#x4E00;"), "一");
-    // 非文字 U+FFFF も拒否せず 3 byte で返す
-    EXPECT_EQ(Resolve("&#xFFFF;"), "\xEF\xBF\xBF");
-    // 追加面 (U+1F600) は UTF-8 の 4 byte
-    EXPECT_EQ(Resolve("&#x1F600;"), "\xF0\x9F\x98\x80");
 }

@@ -3,7 +3,9 @@
 #include "d2d_util.h"
 #include "diagram_raster.h"
 #include "i18n.h"
+#include "resource.h"
 #include "ui_constants.h"
+#include "win32_util.h"
 #include <d2d1_3.h>
 #include <windowsx.h>
 #include <algorithm>
@@ -15,6 +17,10 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+constexpr std::wstring_view kWindowClass = L"mendo_MermaidViewer";
+// 最初の大きさ。本体に対する割合。
+constexpr int kSizePercent = 90;
 
 // 右上のバーの寸法 (DIP)。窓の右端からの位置は、スクロールバーがクライアント領域の外にあるので上と同じにする。
 constexpr float kBarMargin = 12.0f;
@@ -81,19 +87,124 @@ std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir)
     return it == used.begin() ? std::nullopt : std::optional{ *std::prev(it) };
 }
 
-DiagramView::DiagramView(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic) : hwnd_(hwnd), dw_(dw), wic_(wic)
+DiagramView::DiagramView(IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
+    : on_close_(std::move(on_close)), dw_(dw), wic_(wic)
 {
     D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf());
-    tooltip_.Init(hwnd);
+}
+
+std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                               std::move_only_function<void()> on_close)
+{
+    static const bool registered = RegisterWindowClass(
+        kWindowClass.data(), WndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
+    RECT owner_rect{};
+    if (!registered || !GetWindowRect(owner, &owner_rect)) {
+        return nullptr;
+    }
+    std::unique_ptr<DiagramView> view(new DiagramView(dw, wic, std::move(on_close)));
+    const int owner_w = owner_rect.right - owner_rect.left;
+    const int owner_h = owner_rect.bottom - owner_rect.top;
+    const int w = MulDiv(owner_w, kSizePercent, 100);
+    const int h = MulDiv(owner_h, kSizePercent, 100);
+    // 作る間のメッセージは HandleMessage に回さない (hwnd_ は作り終えてから入れる)。
+    const HWND hwnd = CreateWindowExW(
+        // 所有ウィンドウは既定でタスクバーにボタンが無く、最小化すると戻す手段が無い。図を見ながら編集するときにどかせるよう、
+        // 最小化ボタンを消さずにタスクバーのボタンを出す。
+        WS_EX_APPWINDOW,
+        kWindowClass.data(),
+        i18n::S().viewer_title.data(),
+        WS_OVERLAPPEDWINDOW,
+        owner_rect.left + (owner_w - w) / 2, owner_rect.top + (owner_h - h) / 2,
+        w, h,
+        owner, nullptr, GetModuleHandleW(nullptr), view.get());
+    if (!hwnd) {
+        return nullptr;
+    }
+    view->hwnd_ = hwnd;
+    view->tooltip_.Init(hwnd);
+    // 表示する前に整え、最初の描画から背景を塗る。
+    view->SetDarkMode(dark);
+    view->ApplyLanguage();
+    view->ShowLoading();
+    // 表示の中の WM_WINDOWPOSCHANGED で解く。
+    SetCloaked(hwnd, TRUE);
+    ShowWindow(hwnd, SW_SHOW);
+    return view;
 }
 
 DiagramView::~DiagramView()
 {
+    if (!hwnd_) {
+        return;
+    }
     KillTimer(hwnd_, kTooltipTimer);
+    // 窓を壊す間のメッセージは、壊しかけのこのオブジェクトに回さない (非表示の cloak は WndProc がオブジェクト無しで行う)。
+    // ツールチップの窓はこの窓が所有するので一緒に壊れる。
+    SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
+    DestroyWindow(std::exchange(hwnd_, nullptr));
+}
+
+void DiagramView::BringToFront() const noexcept
+{
+    if (IsIconic(hwnd_)) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
+    SetForegroundWindow(hwnd_);
+}
+
+LRESULT CALLBACK DiagramView::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg) {
+    // 本体 (Win32Window) と同じく、開閉で DWM のアニメーションを出さない。閉じ方が多く (Esc・×・文書の切り替え・本体と
+    // 一緒に) どれも破棄の中の非表示化を通るので、ここで隠す。本体の最小化でも一緒に隠れるので、解くのも表示を開く
+    // 1 か所ではなくここで行う。WM_WINDOWPOSCHANGED は WM_SIZE を作るので既定の処理へ回す。
+    case WM_WINDOWPOSCHANGING:
+        if (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_HIDEWINDOW) {
+            SetCloaked(hwnd, TRUE);
+        }
+        break;
+    case WM_WINDOWPOSCHANGED:
+        if (reinterpret_cast<const WINDOWPOS*>(lparam)->flags & SWP_SHOWWINDOW) {
+            UpdateWindow(hwnd);
+            SetCloaked(hwnd, FALSE);
+        }
+        break;
+    case WM_DPICHANGED: {
+        const RECT& r = *reinterpret_cast<const RECT*>(lparam);
+        SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return 0;
+    }
+    default:
+        break;
+    }
+    auto* const self = BindWindowInstance<DiagramView>(hwnd, msg, lparam);
+    if (!self) {
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+    switch (msg) {
+    case WM_CLOSE: {
+        // 呼ばれた側がこのオブジェクトを壊すので、呼ぶ関数は手元に移してから呼び、後で self に触らない。
+        auto on_close = std::move(self->on_close_);
+        on_close();
+        return 0;
+    }
+    case WM_NCDESTROY:
+        // 本体と一緒に壊されたときも、壊れた hwnd を持ち続けない。
+        self->hwnd_ = nullptr;
+        break;
+    default:
+        if (LRESULT result = 0; self->hwnd_ && self->HandleMessage(msg, wparam, lparam, result)) {
+            return result;
+        }
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 void DiagramView::ApplyLanguage()
 {
+    SetWindowTextW(hwnd_, i18n::S().viewer_title.data());
     // 倍率と読み込み中は 13px、ボタンの記号は 16px。
     const auto make = [&](float size) {
         return CreateTextFormat(dw_.Get(), { .family = L"Segoe UI",
@@ -112,6 +223,7 @@ void DiagramView::ApplyLanguage()
 void DiagramView::SetDarkMode(bool dark)
 {
     dark_ = dark;
+    ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     Invalidate();
 }
@@ -199,7 +311,7 @@ void DiagramView::Paint()
             dc->DrawImage(commands_.Get());
             dc->SetTransform(D2D1::Matrix3x2F::Identity());
         }
-        PaintBar(brush_.Get());
+        PaintBar();
     }
     else if (fmt_label_) {
         const std::wstring_view loading = i18n::S().loading;
@@ -270,8 +382,9 @@ DiagramView::Button DiagramView::HitButton(float x, float y) const noexcept
     return Button::None;
 }
 
-void DiagramView::PaintBar(ID2D1SolidColorBrush* brush)
+void DiagramView::PaintBar()
 {
+    ID2D1SolidColorBrush* const brush = brush_.Get();
     const Palette palette = PaletteFor(dark_);
     const D2D1_RECT_F bar = BarRect();
     brush->SetColor(palette.shadow);

@@ -17,12 +17,12 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
     items.emplace_back(ItemType::Separator);
 
     const auto& ls = i18n::S();
-    items.emplace_back(ItemType::Text, IDM_NEW_WINDOW, params.on_file_entry ? ls.menu_open_in_new_window : ls.menu_new_window, true, false);
+    items.emplace_back(ItemType::Text, IDM_NEW_WINDOW, params.on_file_entry ? ls.menu_open_in_new_window : ls.menu_new_window);
     items.emplace_back(ItemType::Separator);
     if (params.show_file_items) {
-        items.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.can_edit_file, false);
-        items.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection, false);
-        items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection, false);
+        items.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.can_edit_file);
+        items.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection);
+        items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection);
         items.emplace_back(ItemType::Separator);
     }
     zoom = params.zoom;

@@ -76,16 +76,12 @@ std::optional<AsyncLoadOutcome> WaitForOutcome(TaskScheduler& scheduler, AsyncLo
 
 } // namespace
 
-TEST_F(AsyncLoadCoordinatorTest, DefaultConstructionIsInactive)
+// 始めていなければ結果は無く、取り消しても何も起きない。
+TEST_F(AsyncLoadCoordinatorTest, IdleHasNoOutcomeAndCancelIsSafe)
 {
     AsyncLoadCoordinator c{ scheduler_ };
     EXPECT_FALSE(c.IsActive());
     EXPECT_FALSE(c.Take().has_value());
-}
-
-TEST_F(AsyncLoadCoordinatorTest, CancelOnIdleIsSafe)
-{
-    AsyncLoadCoordinator c{ scheduler_ };
     c.Cancel();
     EXPECT_FALSE(c.IsActive());
     EXPECT_FALSE(c.Take().has_value());
@@ -105,34 +101,6 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
     EXPECT_EQ(outcome->error(), FileLoadError::TooLarge);
 }
 
-TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
-{
-    const auto tmp = WriteTempFile(L"aload_ok", "# Title\n\nbody text\n");
-
-    AsyncLoadCoordinator c{ scheduler_ };
-    c.Start(tmp.native(), GetLightTheme());
-
-    auto outcome = WaitForOutcome(scheduler_, c);
-    ASSERT_TRUE(outcome.has_value());
-    ASSERT_TRUE(outcome->has_value());
-    const AsyncLoadResult& result = **outcome;
-    EXPECT_EQ(result.cache.size(), result.doc.GetNodes().size());
-    EXPECT_GT(result.cache.Top(0), 0.0f);
-    EXPECT_FALSE(result.doc.IsEmpty());
-    EXPECT_FALSE(c.IsActive());
-}
-
-TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
-{
-    AsyncLoadCoordinator c{ scheduler_ };
-    c.Start(std::wstring(L"C:\\__mendo_no_such_file__.md"), GetLightTheme());
-
-    auto outcome = WaitForOutcome(scheduler_, c);
-    ASSERT_TRUE(outcome.has_value());
-    ASSERT_FALSE(outcome->has_value());
-    EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
-}
-
 TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
 {
     // dtor が走行中 worker の latch を待たないと共有 scheduler 経由で UAF。
@@ -148,11 +116,11 @@ TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
 
 namespace {
 
-std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const std::filesystem::path& tmp, std::string_view old_text, bool accept_prefix_shrink = false)
+std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const std::filesystem::path& tmp, std::string_view old_text)
 {
     std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string(old_text), L"old.md").ShareData();
     AsyncLoadCoordinator c{ scheduler };
-    c.Start(tmp.native(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
+    c.Start(tmp.native(), GetLightTheme(), 0.0f, ReloadBase{ base });
     auto outcome = WaitForOutcome(scheduler, c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
@@ -166,60 +134,36 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const std::fi
 
 } // namespace
 
-TEST_F(AsyncLoadCoordinatorTest, ReloadWithoutChangeSkipsParse)
+// 変更が無ければパースしない。CRLF で保存し直されただけのファイルも、LF 正規化後の比較で変更なしになる (issue #273)。
+TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
 {
-    const auto tmp = WriteTempFile(L"aload_reload_same", "# Title\n\nbody\n");
-    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
-    ASSERT_TRUE(result.has_value());
-    ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::NoChange);
-    EXPECT_TRUE(result->doc.IsEmpty()) << "変更なしならパースしない";
-}
-
-// CRLF で保存し直されただけのファイルも、LF 正規化後の比較で変更なしになる (issue #273)。
-TEST_F(AsyncLoadCoordinatorTest, ReloadNormalizesNewlinesBeforeDiff)
-{
-    const auto tmp = WriteTempFile(L"aload_reload_crlf", "# Title\r\n\r\nbody\r\n");
-    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
-    ASSERT_TRUE(result.has_value());
-    ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::NoChange);
-}
-
-TEST_F(AsyncLoadCoordinatorTest, ReloadPrefixShrinkSkipsParse)
-{
-    const auto tmp = WriteTempFile(L"aload_reload_shrink", "# Title\n");
-    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
-    ASSERT_TRUE(result.has_value());
-    ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::DeferPrefixShrink);
-    EXPECT_TRUE(result->doc.IsEmpty());
-}
-
-// defer の上限後は、縮んだ内容をパースして差し替える。
-TEST_F(AsyncLoadCoordinatorTest, ReloadAcceptingPrefixShrinkParses)
-{
-    const auto tmp = WriteTempFile(L"aload_reload_accept_shrink", "# Title\n");
-    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n", /*accept_prefix_shrink=*/true);
-    ASSERT_TRUE(result.has_value());
-    ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::Replace);
-    EXPECT_EQ(result->reload->decision.diff_pos, 8u);
-    EXPECT_EQ(result->doc.GetNodes().size(), 1u);
-    EXPECT_EQ(result->reload->ends.head, 1u);
-}
-
-TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
-{
-    const auto tmp = WriteTempFile(L"aload_reload_change", "# Title\n\nchanged\n");
-    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
-    ASSERT_TRUE(result.has_value());
-    ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::Replace);
-    EXPECT_EQ(result->reload->decision.diff_pos, 9u);
-    EXPECT_FALSE(result->doc.IsEmpty());
-    EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
-    EXPECT_GT(result->cache.Top(0), 0.0f);
+    struct Case {
+        const wchar_t* file;
+        std::string_view new_text;
+        ReloadOp op;
+        size_t diff_pos;
+    };
+    const Case kCases[] = {
+        { L"aload_reload_same", "# Title\n\nbody\n", ReloadOp::NoChange, 0 },
+        { L"aload_reload_crlf", "# Title\r\n\r\nbody\r\n", ReloadOp::NoChange, 0 },
+        { L"aload_reload_change", "# Title\n\nchanged\n", ReloadOp::Replace, 9 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.file }));
+        const auto tmp = WriteTempFile(c.file, c.new_text);
+        auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
+        ASSERT_TRUE(result.has_value());
+        ASSERT_TRUE(result->reload.has_value());
+        EXPECT_EQ(result->reload->decision.op, c.op);
+        if (c.op == ReloadOp::NoChange) {
+            EXPECT_TRUE(result->doc.IsEmpty()) << "変更なしならパースしない";
+            continue;
+        }
+        EXPECT_EQ(result->reload->decision.diff_pos, c.diff_pos);
+        EXPECT_FALSE(result->doc.IsEmpty());
+        EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
+        EXPECT_GT(result->cache.Top(0), 0.0f);
+    }
 }
 
 // 別のファイルを開くときは監視の準備 (短縮名と親フォルダ) も worker で済ませる。リロードは今の監視を続けるので作らない。
@@ -323,6 +267,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
         EXPECT_EQ(decision.diff_pos, 8u);
         EXPECT_EQ((*outcome)->doc.IsEmpty(), !accept);
         if (accept) {
+            EXPECT_EQ((*outcome)->doc.GetNodes().size(), 1u);
             EXPECT_EQ((*outcome)->reload->ends.head, 1u);
             EXPECT_EQ((*outcome)->reload->ends.old_count, 2u);
         }

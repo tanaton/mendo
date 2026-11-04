@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 #include "d2d_util.h"
-#include "draw_command.h"
 #include "diagram_raster.h"
+#include "diagram_view.h"
+#include "draw_command.h"
 #include "inline_math.h"
 #include "test_helpers.h"
 #include "wic_util.h"
@@ -82,13 +83,11 @@ protected:
 
     ComPtr<IDWriteTextLayout> CreateTextLayout(std::wstring_view text, const wchar_t* family, const wchar_t* locale, float max_w, float max_h, bool ellipsis = false)
     {
-        if (!dw_factory_) {
-            EXPECT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw_factory_));
-        }
-        const auto fmt = CreateTextFormat(dw_factory_.Get(), { .family = family, .size = 12.0f, .locale = locale, .ellipsis = ellipsis });
+        IDWriteFactory* const factory = SharedDWriteFactory();
+        const auto fmt = CreateTextFormat(factory, { .family = family, .size = 12.0f, .locale = locale, .ellipsis = ellipsis });
         EXPECT_NE(fmt, nullptr);
         ComPtr<IDWriteTextLayout> layout;
-        EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
+        EXPECT_HRESULT_SUCCEEDED(factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
         return layout;
     }
 
@@ -157,6 +156,15 @@ protected:
         return ReadAllPixels();
     }
 
+    // rt を白で塗ってから cmds を描く。EndDraw の結果を返す。
+    static HRESULT DrawOnWhite(ID2D1RenderTarget* rt, const DrawCommandList& cmds, const FixedBrushArray& brushes, const InlineMathDrawings& math)
+    {
+        rt->BeginDraw();
+        rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        ExecuteDrawCommands(cmds, rt, brushes, math);
+        return rt->EndDraw();
+    }
+
     static bool HasColoredPixel(std::span<const uint32_t> pixels)
     {
         return std::ranges::any_of(pixels, [](uint32_t px) static { return (px & 0xFF) != ((px >> 8) & 0xFF); });
@@ -164,7 +172,6 @@ protected:
 
     UINT size_ = 32;
     InlineMathDrawings no_math_;
-    ComPtr<IDWriteFactory> dw_factory_;
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<IWICBitmap> wic_bitmap_;
@@ -194,10 +201,7 @@ TEST_F(CommandExecutorIntegrationTest, FixedBrushesDrawWithOwnColor)
     // 未作成のブラシは描かない。
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(12, 0, 16, 4), BrushId::Hr });
 
-    rt_->BeginDraw();
-    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
-    ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
     EXPECT_EQ(PixelAt(1, 1), 0xFFFF0000u);
     EXPECT_EQ(PixelAt(5, 1), 0xFF00FF00u);
     EXPECT_EQ(PixelAt(9, 1), 0xFF0000FFu);
@@ -227,10 +231,7 @@ TEST_F(CommandExecutorIntegrationTest, DiagramCommandListIsScaledToDest)
     // 幅 20 で記録した図を 10 の枠に描く
     cmds.emplace_back(DrawDiagramCmd{ list.Get(), D2D1::RectF(4, 4, 14, 14), 20.0f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(20, 20, 24, 24), BrushId::Link });
-    rt_->BeginDraw();
-    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
-    ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
     EXPECT_EQ(PixelAt(2, 2), 0xFFFFFFFFu);
     EXPECT_EQ(PixelAt(5, 5), 0xFFFF0000u);
     EXPECT_EQ(PixelAt(13, 13), 0xFFFF0000u);
@@ -246,10 +247,7 @@ TEST_F(CommandExecutorIntegrationTest, RoundedRectOpacityIsRestored)
     cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(0, 0, 8, 8), 0.0f, BrushId::Overlay, 0.5f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 16, 8), BrushId::Overlay });
 
-    rt_->BeginDraw();
-    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
-    ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
     const uint32_t half = PixelAt(4, 4);
     EXPECT_NE(half, 0xFFFFFFFFu);
     EXPECT_NE(half, 0xFF000000u);
@@ -294,10 +292,7 @@ TEST_F(CommandExecutorIntegrationTest, EllipseAndGeometryOpacityIsRestored)
     cmds.emplace_back(DrawGeometryCmd{ .geometry = path.Get(), .stroke_style = nullptr, .stroke_width = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(24, 0, 32, 8), BrushId::Overlay });
 
-    rt_->BeginDraw();
-    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
-    ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
     for (const uint32_t half : { PixelAt(4, 4), PixelAt(8, 20) }) {
         EXPECT_NE(half, 0xFFFFFFFFu);
         EXPECT_NE(half, 0xFF000000u);
@@ -350,20 +345,17 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsDrawingInTextColor)
     DrawCommandList cmds;
     cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
     const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
-    rt_->BeginDraw();
-    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, math);
-    EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, math));
     const auto pixels = ReadAllPixels();
     EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100) << "1 つ目の数式の 10x10 だけを文字の色で塗る";
 }
 
 // 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた
-// DrawTextLayout と同じ画素になること (フォールバックで別ランになる和文・ランの途中の境界・行またぎを含む)。
+// DrawTextLayout と同じ画素になること (フォールバックで別ランになる和文・ランの途中の境界・行またぎ・
+// 右から左のラン (ヘブライ語) の途中の境界を含む)。
 TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffect)
 {
-    const std::wstring_view text = L"int x=0;//あい\nreturn \"s\";\n/* a\nb */ f(1)";
-    const SyntaxToken tokens[]{
+    const SyntaxToken ltr_tokens[]{
         { 0, 3, SyntaxTokenType::Type },
         { 6, 1, SyntaxTokenType::Number },
         { 8, 4, SyntaxTokenType::Comment },
@@ -373,24 +365,23 @@ TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffect)
         { 35, 1, SyntaxTokenType::Function },
         { 37, 1, SyntaxTokenType::Number },
     };
-    const auto expected = RenderSyntaxColored(text, tokens, false);
-    const auto actual = RenderSyntaxColored(text, tokens, true);
-    EXPECT_TRUE(HasColoredPixel(expected)) << "色付きの画素が無い";
-    EXPECT_EQ(actual, expected);
-}
-
-// 右から左のラン (ヘブライ語) の途中にある境界でも同じ画素になること。
-TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffectRtl)
-{
-    const std::wstring_view text = L"x=\"\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD\";";
-    const SyntaxToken tokens[]{
+    const SyntaxToken rtl_tokens[]{
         { 2, 6, SyntaxTokenType::String },
         { 11, 2, SyntaxTokenType::Number },
     };
-    const auto expected = RenderSyntaxColored(text, tokens, false);
-    const auto actual = RenderSyntaxColored(text, tokens, true);
-    EXPECT_TRUE(HasColoredPixel(expected)) << "色付きの画素が無い";
-    EXPECT_EQ(actual, expected);
+    struct Case {
+        std::wstring_view text;
+        std::span<const SyntaxToken> tokens;
+    };
+    const Case cases[]{
+        { L"int x=0;//あい\nreturn \"s\";\n/* a\nb */ f(1)", ltr_tokens },
+        { L"x=\"\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD\";", rtl_tokens },
+    };
+    for (const auto& c : cases) {
+        const auto expected = RenderSyntaxColored(c.text, c.tokens, false);
+        EXPECT_TRUE(HasColoredPixel(expected)) << "色付きの画素が無い";
+        EXPECT_EQ(RenderSyntaxColored(c.text, c.tokens, true), expected);
+    }
 }
 
 // 横スクロールの clip の外のグリフを飛ばしても、clip に映る画素は全部描いたときと同じ。
@@ -435,14 +426,38 @@ TEST_F(CommandExecutorIntegrationTest, HorizontalCullKeepsPixelsInsideClip)
             DrawCommandList cmds;
             cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(-kScrollX, 0.0f) });
             cmds.emplace_back(text);
-            rt->BeginDraw();
-            rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
-            ExecuteDrawCommands(cmds, rt.Get(), brushes, no_math_);
-            EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
+            EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt.Get(), cmds, brushes, no_math_));
             return ReadAllPixels();
         };
         const auto expected = render(false);
         EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
         EXPECT_EQ(render(true), expected);
     }
+}
+
+// ---- DiagramView の倍率 ----
+
+using diagram_view::FitZoom;
+using diagram_view::NextZoom;
+
+// 全体表示は余白を除いた窓に収め、等倍より大きくしない。潰した窓では最小の倍率で止める。
+TEST(DiagramViewZoom, FitsInsidePaddingWithoutEnlarging)
+{
+    EXPECT_FLOAT_EQ(FitZoom(1000.0f, 800.0f, 200.0f, 100.0f), 1.0f);
+    EXPECT_FLOAT_EQ(FitZoom(432.0f, 1000.0f, 800.0f, 100.0f), 0.5f);
+    EXPECT_FLOAT_EQ(FitZoom(1000.0f, 232.0f, 100.0f, 400.0f), 0.5f);
+    EXPECT_FLOAT_EQ(FitZoom(10.0f, 10.0f, 1000.0f, 1000.0f), 0.05f);
+}
+
+// ボタンの止まる位置は表の値と全体表示の倍率。全体表示のすぐ隣の値は飛ばす。
+TEST(DiagramViewZoom, StepsThroughStopsIncludingFit)
+{
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, 1), 1.25f);
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, -1), 0.75f);
+    // 全体表示 0.7 は止まる位置になり、すぐ隣の 0.67 と 0.75 は飛ばす
+    EXPECT_FLOAT_EQ(*NextZoom(0.7f, 0.7f, 1), 1.0f);
+    EXPECT_FLOAT_EQ(*NextZoom(0.7f, 0.7f, -1), 0.5f);
+    EXPECT_FLOAT_EQ(*NextZoom(1.0f, 0.7f, -1), 0.7f);
+    EXPECT_FALSE(NextZoom(8.0f, 1.0f, 1));
+    EXPECT_FALSE(NextZoom(0.05f, 0.05f, -1));
 }

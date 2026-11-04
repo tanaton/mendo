@@ -45,32 +45,33 @@ TEST(QuantizeWidth, RoundsUpToMultipleOf32)
 TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 {
     const auto d = mermaid_util::ParseDrawing(
-        L"400:300.5:2039583:2:"
+        L"400:300.5:2039583:8:<g>い</g>2:"
         L"12:<svg>あ</svg>2:"
-        L"1,0,0,1,10.5,20,3,4.25,16,700,1,0,16711680,0.5:10:Segoe UI,x5:a:b,c"
-        L"0,1,-1,0,0,0,0,0,12,400,0,1,0,1:0:0:"
+        L"1,0,0,1,10.5,20,3,4.25,16,16711680,0.5,700,1,0:10:Segoe UI,x5:a:b,c"
+        L"0,1,-1,0,0,0,0,0,12,0,1,400,0,1:0:0:"
         L"1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
         L"0:0:0:"sv);
     ASSERT_TRUE(d.has_value());
     EXPECT_EQ(d->width, 400.0f);
     EXPECT_EQ(d->height, 300.5f);
     EXPECT_EQ(d->background, 0x1F1F1Fu);
+    EXPECT_EQ(d->defs, "<g>\xE3\x81\x84</g>");
     ASSERT_EQ(d->layers.size(), 2u);
-    EXPECT_EQ(d->layers[0].shapes_svg, "<svg>\xE3\x81\x82</svg>");
-    EXPECT_TRUE(d->layers[1].shapes_svg.empty());
+    EXPECT_EQ(d->layers[0].shapes, "<svg>\xE3\x81\x82</svg>");
+    EXPECT_TRUE(d->layers[1].shapes.empty());
     EXPECT_TRUE(d->layers[1].texts.empty());
     const auto& texts = d->layers[0].texts;
     ASSERT_EQ(texts.size(), 2u);
     const auto& t = texts[0];
-    EXPECT_EQ(t.transform, (std::array{ 1.0f, 0.0f, 0.0f, 1.0f, 10.5f, 20.0f }));
-    EXPECT_EQ(t.x, 3.0f);
-    EXPECT_EQ(t.y, 4.25f);
-    EXPECT_EQ(t.font_size, 16.0f);
+    EXPECT_EQ(t.at.transform, (std::array{ 1.0f, 0.0f, 0.0f, 1.0f, 10.5f, 20.0f }));
+    EXPECT_EQ(t.at.x, 3.0f);
+    EXPECT_EQ(t.at.y, 4.25f);
+    EXPECT_EQ(t.at.font_size, 16.0f);
     EXPECT_EQ(t.weight, 700);
     EXPECT_TRUE(t.italic);
     EXPECT_FALSE(t.underline);
-    EXPECT_EQ(t.rgb, 0xFF0000u);
-    EXPECT_EQ(t.alpha, 0.5f);
+    EXPECT_EQ(t.at.rgb, 0xFF0000u);
+    EXPECT_EQ(t.at.alpha, 0.5f);
     EXPECT_EQ(t.family, L"Segoe UI,x"sv);
     EXPECT_EQ(t.text, L"a:b,c"sv);
     EXPECT_TRUE(texts[1].underline);
@@ -78,11 +79,11 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
     EXPECT_TRUE(texts[1].text.empty());
     ASSERT_EQ(d->layers[0].maths.size(), 1u);
     const auto& m = d->layers[0].maths[0];
-    EXPECT_EQ(m.x, 7.0f);
-    EXPECT_EQ(m.y, 8.5f);
-    EXPECT_EQ(m.font_size, 14.0f);
-    EXPECT_EQ(m.rgb, 0xFFu);
-    EXPECT_EQ(m.alpha, 0.75f);
+    EXPECT_EQ(m.at.x, 7.0f);
+    EXPECT_EQ(m.at.y, 8.5f);
+    EXPECT_EQ(m.at.font_size, 14.0f);
+    EXPECT_EQ(m.at.rgb, 0xFFu);
+    EXPECT_EQ(m.at.alpha, 0.75f);
     EXPECT_EQ(m.tex, "x_{a:b},c");
     EXPECT_EQ(m.drawing, nullptr) << "描画命令は読んだ後に組み直す";
     EXPECT_TRUE(d->layers[1].maths.empty());
@@ -91,13 +92,13 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 // 数式も書いた形のまま読み戻せる (TeX の BMP 外の文字は UTF-16 で 2 単位に数える)。
 TEST(ParseDrawing, SerializedMathsParseBack)
 {
-    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF };
-    drawing.layers.push_back({ .maths = { { .transform = { 2.0f, 0.0f, 0.0f, 2.0f, 1.0f, 2.0f },
-                                            .x = 0.5f,
-                                            .y = 12.25f,
-                                            .font_size = 16.0f,
-                                            .rgb = 0x123456,
-                                            .alpha = 1.0f,
+    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF, .defs = "<linearGradient id=\"g0\"/>" };
+    drawing.layers.push_back({ .maths = { { .at = { .transform = { 2.0f, 0.0f, 0.0f, 2.0f, 1.0f, 2.0f },
+                                                    .x = 0.5f,
+                                                    .y = 12.25f,
+                                                    .font_size = 16.0f,
+                                                    .rgb = 0x123456,
+                                                    .alpha = 1.0f },
                                             .tex = "\\mathcal{A}\xF0\x9D\x91\xA5" } } });
     const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(drawing)));
     ASSERT_TRUE(back);
@@ -107,43 +108,45 @@ TEST(ParseDrawing, SerializedMathsParseBack)
 // ファイルは壊れていることがあるので、欠け・余り・ありえない値は全体を捨てる。
 TEST(ParseDrawing, RejectsMalformedPayloads)
 {
-    constexpr std::wstring_view kRun = L"1,0,0,1,0,0,0,0,16,400,0,0,0,1:0:1:a"sv;
-    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
-    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:0:1:0:0:1:" } + std::wstring{ math }; };
+    constexpr std::wstring_view kRun = L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:1:a"sv;
+    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:0:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
+    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:0:0:1:0:0:1:" } + std::wstring{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_math(L"1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
     const std::wstring kBad[] = {
         L"",
         L"10:x",                          // 高さが無い
-        L"nan:20:0:1:0:0:0:",             // 幅が数でない
-        L"0:20:0:1:0:0:0:",             // 幅が 0
-        L"10:20:16777216:1:0:0:0:",     // 背景が 24 ビットを超える
-        L"10:20:0:1:9:<svg>0:0:",       // SVG の長さが足りない
-        L"10:20:0:1:0:0:0:x",           // 余り
-        L"10:20:0:2:0:0:0:",            // 層が足りない
-        L"10:20:0:1:0:0:",              // 数式の数が無い
-        L"10:20:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
+        L"nan:20:0:0:1:0:0:0:",             // 幅が数でない
+        L"0:20:0:0:1:0:0:0:",             // 幅が 0
+        L"10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
+        L"10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
+        L"10:20:0:1:0:0:0:",              // defs が無い
+        L"10:20:0:0:1:9:<svg>0:0:",       // SVG の長さが足りない
+        L"10:20:0:0:1:0:0:0:x",           // 余り
+        L"10:20:0:0:2:0:0:0:",            // 層が足りない
+        L"10:20:0:0:1:0:0:",              // 数式の数が無い
+        L"10:20:0:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
         with_math(L""),                                  // 数式が足りない
         with_math(L"1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
         with_math(L"1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
         with_math(L"1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
         with_math(L"1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
         with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
-        with_run(L"1,0,0,1,0,0,0,0,0,400,0,0,0,1:0:1:a"),       // 大きさが 0
-        with_run(L"1,0,0,1,0,0,0,0,16,0,0,0,0,1:0:1:a"),        // 太さが 0
-        with_run(L"1,0,0,1,0,0,0,0,16,400,2,0,0,1:0:1:a"),      // 斜体が 0/1 でない
-        with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,16777216,1:0:1:a"), // 色が 24 ビットを超える
-        with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0,1:0:2:a"),      // 文字の長さが足りない
-        with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0,1:-1:1:a"),     // 長さが数字でない
+        with_run(L"1,0,0,1,0,0,0,0,0,0,1,400,0,0:0:1:a"),       // 大きさが 0
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
+        with_run(L"1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:2:a"),      // 文字の長さが足りない
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:-1:1:a"),     // 長さが数字でない
     };
     for (const auto& payload : kBad) {
         SCOPED_TRACE(::testing::PrintToString(payload));
         EXPECT_FALSE(mermaid_util::ParseDrawing(payload).has_value());
     }
     // 不透明度は 0〜1 に収める
-    const auto clamped = mermaid_util::ParseDrawing(with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0,5:0:1:a"));
+    const auto clamped = mermaid_util::ParseDrawing(with_run(L"1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"));
     ASSERT_TRUE(clamped.has_value());
-    EXPECT_EQ(clamped->layers[0].texts[0].alpha, 1.0f);
+    EXPECT_EQ(clamped->layers[0].texts[0].at.alpha, 1.0f);
 }
 
 // ============================================================
@@ -161,7 +164,7 @@ TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
         { L""sv, 100, L""sv },
         { L"simple error"sv, 100, L"simple error"sv },
         { L"Parse error on line 2:\n\n----^\t got 'X'"sv, 100, L"Parse error on line 2: ----^ got 'X'"sv },
-        // ページから届いた制御文字も豆腐表示にせず空白に潰す
+        // pele の文言に入る制御文字も豆腐表示にせず空白に潰す
         { L"got\x0b\x1bhere"sv, 100, L"got here"sv },
         { L"  \n boom \n "sv, 100, L"boom"sv },
         { L" \n\t "sv, 100, L""sv },

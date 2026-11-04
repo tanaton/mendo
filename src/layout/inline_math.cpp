@@ -90,18 +90,19 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
         add_runs(node.GetText(), node.runs(), MathFontSize(theme, node));
     }
     close();
-    states_.assign(chunks_.size(), State::Idle);
 }
 
 const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk) noexcept
 {
-    return std::exchange(states_[chunk], State::Requested) == State::Idle ? &chunks_[chunk] : nullptr;
+    InlineMathChunk& c = chunks_[chunk];
+    return std::exchange(c.requested, true) ? nullptr : &c;
 }
 
 void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key) noexcept
 {
-    if (IsCurrent(chunk, key)) {
-        states_[chunk] = State::Idle;
+    // 計画を作り直す前に頼んだ組は、番号と key が合わない。
+    if (chunk < chunks_.size() && chunks_[chunk].key == key) {
+        chunks_[chunk].requested = false;
     }
 }
 

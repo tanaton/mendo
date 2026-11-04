@@ -1,53 +1,41 @@
 #include <gtest/gtest.h>
+#include "document.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
 #include "theme.h"
 #include "test_helpers.h"
 
-TEST(LayoutCacheTest, InvalidateAllLayouts)
+// 全レイアウトの無効化 (ズームなど) は計測結果を捨てる。旧倍率の実測値や高さが残ると、推定が縮めないので
+// 画面外のコードブロック等の高さや総高さが古いまま過大になる。位置は次のレイアウトで組み直すまで保つ。
+TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
 {
     LayoutCache cache(3);
     const std::vector<Node> nodes(3);
-
-    // レイアウトが設定された状態をシミュレート
-    cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
-    cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
+    for (size_t i = 0; i < 3; ++i) {
+        cache[i].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
+        cache[i].cached_width = 600.0f;
+        cache[i].height = 500.0f;
+        cache.SetTop(i, 100.0f + static_cast<float>(i) * 50.0f);
+    }
 
     cache.InvalidateAllLayouts(nodes);
 
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_TRUE(cache[i].view_inline_code_bgs().empty()) << "index " << i;
-        // text_layoutはComPtrで、Reset()するとnullになる
-        EXPECT_EQ(cache[i].text_layout(), nullptr) << "index " << i;
+        SCOPED_TRACE(i);
+        EXPECT_TRUE(cache[i].view_inline_code_bgs().empty());
+        EXPECT_EQ(cache[i].text_layout(), nullptr);
+        EXPECT_FALSE(cache[i].is_measured());
+        EXPECT_FLOAT_EQ(cache[i].height, 0.0f);
+        EXPECT_FLOAT_EQ(cache.Top(i), 100.0f + static_cast<float>(i) * 50.0f);
     }
+
+    // 空のキャッシュでも落ちない
+    LayoutCache empty(0);
+    empty.InvalidateAllLayouts({});
 }
 
-// ズームで旧倍率の実測値が推定に使われると、画面外のコードブロック等の高さが古いまま残る。
-TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
-{
-    LayoutCache cache(1);
-    cache[0].cached_width = 600.0f;
-
-    cache.InvalidateAllLayouts(std::vector<Node>(1));
-
-    EXPECT_FALSE(cache[0].is_measured());
-}
-
-TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
-{
-    LayoutCache cache(2);
-    cache.SetTop(0, 100.0f);
-    cache.SetTop(1, 150.0f);
-
-    cache.InvalidateAllLayouts(std::vector<Node>(2));
-
-    // 位置は次のレイアウトで組み直すまで保持されること
-    EXPECT_FLOAT_EQ(cache.Top(0), 100.0f);
-    EXPECT_FLOAT_EQ(cache.Top(1), 150.0f);
-}
-
-// ズームアウト後に旧倍率の高さが残ると、推定は縮めないので総高さが過大なままになる。
-TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
+// 画像・図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
+TEST(LayoutCacheTest, InvalidateAllLayoutsKeepsBitmapNodes)
 {
     LayoutCache cache(3);
     std::vector<Node> nodes(3);
@@ -57,12 +45,20 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
     for (size_t i = 0; i < 3; i++) {
         cache[i].height = 500.0f;
     }
+    cache.EnsureDiagram(1).width = 400.0f;
+    cache.EnsureDiagram(1).height = 300.0f;
+    cache.EnsureDiagram(2).width = 500.0f;
+    cache.EnsureDiagram(2).height = 250.0f;
 
     cache.InvalidateAllLayouts(nodes);
 
     EXPECT_FLOAT_EQ(cache[0].height, 0.0f);
     EXPECT_FLOAT_EQ(cache[1].height, 500.0f);
     EXPECT_FLOAT_EQ(cache[2].height, 500.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 400.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 300.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->width, 500.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->height, 250.0f);
 }
 
 TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
@@ -95,35 +91,6 @@ TEST(LayoutComputerTest, EstimateNodeHeightWrapsLongParagraphByWidth)
     EXPECT_FLOAT_EQ(layout::EstimateNodeHeight(short_node, theme, 600.0f), layout::EstimateNodeHeight(short_node, theme, 0.0f));
 }
 
-TEST(LayoutCacheTest, InvalidateEmptyCache)
-{
-    LayoutCache cache(0);
-
-    // クラッシュしないこと
-    cache.InvalidateAllLayouts({});
-}
-
-// ズーム時に使用されるInvalidateAllLayoutsがダイアグラムのビットマップ/サイズを
-// 保持することを検証する（ズーム→復帰でMermaid図が消える問題の再発防止）。
-TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
-{
-    LayoutCache cache(2);
-
-    // ダイアグラムエントリにサイズを設定（ビットマップは設定できないが、サイズで確認）
-    cache.EnsureDiagram(0).width = 400.0f;
-    cache.EnsureDiagram(0).height = 300.0f;
-    cache.EnsureDiagram(1).width = 500.0f;
-    cache.EnsureDiagram(1).height = 250.0f;
-
-    cache.InvalidateAllLayouts(std::vector<Node>(2));
-
-    // ダイアグラムの幅・高さは保持されること
-    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->height, 300.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 500.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 250.0f);
-}
-
 // FindDiagram は確保しない。読み取り・破棄経路で未ロードのノード分を確保させないため。
 TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
 {
@@ -137,34 +104,22 @@ TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
 }
 
-// テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、
-// 再試行の契機になることを検証する (issue #271)。
-TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
-{
-    LayoutCache cache(2);
-
-    cache.EnsureDiagram(0).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
-    cache.EnsureDiagram(1).error = { DiagramError::Kind::Render, L"Parse error on line 3" };
-
-    cache.InvalidateAllDiagramBitmaps();
-
-    EXPECT_TRUE(cache.FindDiagram(0)->error.empty());
-    EXPECT_TRUE(cache.FindDiagram(1)->error.empty());
-}
-
-// デバイスロストでビットマップを捨てても、寸法は再計測が表示高さに使うので残す。
-TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsSize)
+// テーマ変更やデバイスロストで全ビットマップを捨てるとき、エラー状態も消して再試行の契機にする (issue #271)。
+// 寸法は再計測が表示高さに使うので残す。
+TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsErrorAndKeepsSize)
 {
     LayoutCache cache(2);
     for (size_t i = 0; i < 2; i++) {
         auto& d = cache.EnsureDiagram(i);
         d.width = 400.0f;
         d.height = 300.0f;
+        d.error = { DiagramError::Kind::Render, L"Parse error on line 1" };
     }
 
     cache.InvalidateAllDiagramBitmaps();
 
     for (size_t i = 0; i < 2; i++) {
+        EXPECT_TRUE(cache.FindDiagram(i)->error.empty());
         EXPECT_FLOAT_EQ(cache.FindDiagram(i)->width, 400.0f);
         EXPECT_FLOAT_EQ(cache.FindDiagram(i)->height, 300.0f);
     }
@@ -316,4 +271,155 @@ TEST(LayoutCacheTops, ShiftAcrossBlocksKeepsPositions)
     for (const size_t i : { 0uz, 2999uz, 3000uz, 4095uz, 4096uz, 7999uz, 8000uz, 8191uz, 8192uz, 9999uz }) {
         EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
     }
+}
+
+// ---- 画面外のノードの高さの推定 ----
+
+using layout::EstimateInvisibleNodeHeight;
+using layout::EstimateNodeHeight;
+
+namespace {
+
+Node MakeParagraphNode(int line_count = 0)
+{
+    Node n;
+    n.type = NodeType::Paragraph;
+    SetTestText(n, "text", line_count);
+    return n;
+}
+
+Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
+{
+    Node n;
+    n.type = IsDiagramLanguage(lang) ? NodeType::Diagram : NodeType::CodeBlock;
+    SetTestText(n, "code", line_count);
+    n.code_language = lang;
+    return n;
+}
+
+Node MakeTwoByTwoTableNode()
+{
+    Node n;
+    n.type = NodeType::Table;
+    auto* tbl = AttachTestTable(n);
+    tbl->row_count = 2;
+    tbl->col_count = 2;
+    return n;
+}
+
+NodeLayoutEntry MakeEntry(float height)
+{
+    NodeLayoutEntry e;
+    e.height = height;
+    return e;
+}
+
+} // namespace
+
+TEST(EstimateInvisibleNodeHeight, DiagramLanguageSkipped)
+{
+    auto node = MakeCodeBlockNode(SyntaxLanguage::Mermaid);
+    auto entry = MakeEntry(/*height=*/5.0f);
+    const auto& theme = GetLightTheme();
+    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
+    EXPECT_FLOAT_EQ(entry.height, 5.0f); // 触らない
+}
+
+TEST(EstimateInvisibleNodeHeight, DoesNotShrinkBelowExisting)
+{
+    auto node = MakeParagraphNode(/*line_count=*/0);
+    auto entry = MakeEntry(/*height=*/9999.0f);
+    const auto& theme = GetLightTheme();
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
+    EXPECT_FLOAT_EQ(entry.height, 9999.0f);
+}
+
+TEST(EstimateInvisibleNodeHeight, GrowsToEstimateWhenSmaller)
+{
+    auto node = MakeParagraphNode(/*line_count=*/3);
+    auto entry = MakeEntry(/*height=*/1.0f);
+    const auto& theme = GetLightTheme();
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
+    EXPECT_FLOAT_EQ(entry.height, estimated);
+}
+
+TEST(EstimateInvisibleNodeHeight, KeepsMeasuredHeightWhenWidthMatches)
+{
+    auto node = MakeParagraphNode(/*line_count=*/20);
+    NodeLayoutEntry entry;
+    entry.height = 1.0f; // 推定値より小さい
+    entry.cached_width = 200.0f;
+    const auto& theme = GetLightTheme();
+    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
+    EXPECT_FLOAT_EQ(entry.height, 1.0f);
+}
+
+TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
+{
+    auto node = MakeParagraphNode(/*line_count=*/2);
+    NodeLayoutEntry entry;
+    entry.height = 1.0f;
+    entry.cached_width = 200.0f;
+    const auto& theme = GetLightTheme();
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
+    // node_width が cached_width と離れているので fallback は EstimateNodeHeight
+    EstimateInvisibleNodeHeight(node, entry, theme, 800.0f);
+    EXPECT_FLOAT_EQ(entry.height, estimated);
+}
+
+TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
+{
+    auto node = MakeTwoByTwoTableNode();
+    NodeLayoutEntry entry;
+    entry.height = 200.0f;
+    entry.cached_width = 300.0f;
+    auto& tl = entry.set_table_layout(std::make_unique<TableLayoutData>(0, 2, false));
+    tl.col_widths = { 100.0f, 200.0f };
+    tl.CommitGeometry(300.0f);
+    const auto& theme = GetLightTheme();
+    // cache_hit = true 経路 → table_layout を保持
+    EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
+    EXPECT_FLOAT_EQ(entry.height, 200.0f);
+    EXPECT_EQ(entry.table_layout(), &tl);
+}
+
+TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)
+{
+    auto node = MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4);
+    auto entry = MakeEntry(/*height=*/0.0f);
+    const auto& theme = GetLightTheme();
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
+    EXPECT_FLOAT_EQ(entry.height, estimated);
+}
+
+// 画像・図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。
+TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
+{
+    const auto& theme = GetLightTheme();
+    DiagramEntry wide;
+    wide.width = 1200.0f;
+    wide.height = 800.0f;
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&wide, 600.0f, 50.0f, theme), 400.0f);
+
+    DiagramEntry narrow;
+    narrow.width = 300.0f;
+    narrow.height = 200.0f;
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&narrow, 600.0f, 50.0f, theme), 200.0f);
+
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
+}
+
+// 描けなかった図は、推定が 1 行ぶんでも文言を数行見せる高さにする。高い推定はそのまま保つ。
+TEST(BitmapNodeHeight, ErrorKeepsAtLeastErrorPlaceholder)
+{
+    const auto& theme = GetLightTheme();
+    DiagramEntry failed;
+    failed.error = { DiagramError::Kind::Render, L"KaTeX parse error" };
+    const float error_height = layout::ErrorPlaceholderHeight(theme);
+    EXPECT_GT(error_height, layout::PlaceholderHeight(theme));
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, 24.0f, theme), error_height);
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, error_height + 50.0f, theme), error_height + 50.0f);
 }

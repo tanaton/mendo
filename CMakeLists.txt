@@ -79,6 +79,23 @@ target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN3
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
 
+# pele と KaTeX はビルドの時にバイトコードにして埋め込む (実行時のコンパイル約 60ms と約 20ms を省く)。
+# 同じ quickjs ターゲットで組むので、バイトコードの版は実行時のものと必ず合う。
+add_executable(mendo_js_compile src/mermaid/js_compile.cpp)
+target_link_libraries(mendo_js_compile PRIVATE quickjs)
+target_compile_options(mendo_js_compile PRIVATE /W4 /utf-8)
+set(MENDO_JS_BYTECODE_DIR "${CMAKE_BINARY_DIR}/js_bytecode")
+set(MENDO_JS_BYTECODE "${MENDO_JS_BYTECODE_DIR}/pele.qbc" "${MENDO_JS_BYTECODE_DIR}/katex.qbc")
+add_custom_command(
+    OUTPUT ${MENDO_JS_BYTECODE}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${MENDO_JS_BYTECODE_DIR}"
+    COMMAND mendo_js_compile "${CMAKE_SOURCE_DIR}/third_party/pele/pele.mjs" "${MENDO_JS_BYTECODE_DIR}/pele.qbc" module
+    COMMAND mendo_js_compile "${CMAKE_SOURCE_DIR}/third_party/katex/katex.min.js" "${MENDO_JS_BYTECODE_DIR}/katex.qbc" global
+    DEPENDS mendo_js_compile "${CMAKE_SOURCE_DIR}/third_party/pele/pele.mjs" "${CMAKE_SOURCE_DIR}/third_party/katex/katex.min.js"
+    VERBATIM
+)
+add_custom_target(mendo_js_bytecode DEPENDS ${MENDO_JS_BYTECODE})
+
 # ---- md4c（サードパーティ） ----
 # Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
 add_library(md4c STATIC third_party/md4c/md4c.c)
@@ -183,6 +200,8 @@ add_executable(mendo WIN32
     res/mendo.rc
 )
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
+add_dependencies(mendo mendo_js_bytecode)
+set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR}")
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。

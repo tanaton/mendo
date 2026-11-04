@@ -80,7 +80,7 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -149,9 +149,11 @@ void App::ShareRenderTarget()
 void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
-    // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
-    // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
+    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。ApplyCachedImages は
+    // ビットマップの残るノードを飛ばすため、LoadImages の前に破棄する必要がある。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    // 再試行の間に届いて受け箱に残したデコードの結果を入れてから、足りない画像を頼む。
+    image_loader_.ProcessCompletedDecodes();
     resource_manager_.LoadImages();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
     mermaid_renderer_.ProcessJobResults();
@@ -388,10 +390,6 @@ void App::RebuildInlineMathPlan()
 
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
 {
-    // 取り消すのは終了するときと ForgetInlineMath のときだけで、どちらも結果を使わない。
-    if (result.cancelled) {
-        return;
-    }
     inline_math_plan_.FinishChunk(chunk, chunk_key);
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
@@ -1129,7 +1127,7 @@ void App::ApplyZoom()
 void App::ToggleDarkMode()
 {
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
-    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
+    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ図の描画命令のみ古い扱いにする。
     state_.document.layout_cache.InvalidateDiagramBitmaps(state_.document.doc.GetDiagramNodeIndices());
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
@@ -1297,27 +1295,14 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
         return false;
     }
 
-    switch (state_.window.titlebar.HitTest(dip_x, dip_y)) {
-    case TitleBarHitZone::OpenFile:
-        Dispatch(OpenFileAction{});
-        break;
-    case TitleBarHitZone::Help:
-        Dispatch(ShowHelpAction{});
-        break;
+    const TitleBarHitZone zone = state_.window.titlebar.HitTest(dip_x, dip_y);
+    if (const auto action = app_controller::TitleBarClickAction(zone)) {
+        Dispatch(*action);
+        return true;
+    }
+    switch (zone) {
     case TitleBarHitZone::Settings:
         ShowSettingsDialog();
-        break;
-    case TitleBarHitZone::Search:
-        Dispatch(OpenSearchBarAction{});
-        break;
-    case TitleBarHitZone::ThemeToggle:
-        Dispatch(ToggleDarkModeAction{});
-        break;
-    case TitleBarHitZone::FileToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::File });
-        break;
-    case TitleBarHitZone::TocToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::Toc });
         break;
     case TitleBarHitZone::Minimize:
         ShowWindow(hwnd_, SW_MINIMIZE);

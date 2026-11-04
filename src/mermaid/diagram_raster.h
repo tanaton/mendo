@@ -34,7 +34,7 @@ struct DiagramFont {
     bool italic = false;
 };
 
-// 図の文字の書式・幅・行の高さ。pele の配置 (measurer)、描画命令の文字の位置、描画 (DrawDiagram) が同じ書式を使うので、
+// 図の文字の書式・幅・行の高さ。pele の配置 (measurer)、描画命令の文字の位置、描画 (RecordDiagram など) が同じ書式を使うので、
 // 字形も幅も一致する。結果を覚えるので、スレッドごとに 1 つ持つ。
 class DiagramTextMeasurer {
 public:
@@ -57,7 +57,6 @@ private:
     FontEntry& Entry(const DiagramFont& font);
 
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
-    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts_;
     std::wstring locale_;
     std::wstring key_;
     std::unordered_map<std::wstring, FontEntry> entries_;
@@ -78,13 +77,8 @@ std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view 
                                                                std::span<const PeleMathLabel> maths = {});
 
 // 描画命令をそのまま 1 枚の SVG (UTF-8) にする。クリップボード用で、Office や Inkscape が読めるよう CSS を使わず属性だけで書く。
-// 図形は層の SVG の中身をそのまま、文字は 1 行ずつの <text> にする。数式のラベルは $$TeX$$ の文字のまま書く。背景は塗らない。
+// 図形は層の図形をそのまま、文字は 1 行ずつの <text> にする。数式のラベルは $$TeX$$ の文字のまま書く。背景は塗らない。
 std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing);
-
-// dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。
-// wic は図形の SVG を読むストリームに使う。描けなければ false (描きかけのまま)。
-bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
-                 const wchar_t* locale);
 
 // target と同じデバイスで、図をコマンドリストに記録する DeviceContext を作る。描いている target とは別に要る。
 Microsoft::WRL::ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target);

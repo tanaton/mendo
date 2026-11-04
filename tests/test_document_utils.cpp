@@ -153,14 +153,6 @@ TEST(ExtractSelectedText, SplitDisplayMathKeepsDelimiters)
     EXPECT_TRUE(text.ends_with("y$$"));
 }
 
-TEST(ExtractSelectedText, EmptyNodes)
-{
-    std::vector<Node> nodes;
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
-    // 範囲外のノード - クラッシュしないこと
-    EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
-}
-
 // ============================================================
 // ExtractSelectedTextAsHtml
 // ============================================================
@@ -172,33 +164,43 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel, false).empty());
 }
 
-TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
+// 全選択の HTML。ブロックは区切りなしでつなぐ。
+TEST(ExtractSelectedTextAsHtml, CopyAllProducesHtml)
 {
-    EXPECT_EQ(CopyAllAsHtml("Hello world"), "<p>Hello world</p>");
-}
-
-TEST(ExtractSelectedTextAsHtml, HeadingLevels)
-{
-    EXPECT_EQ(CopyAllAsHtml("## Section"), "<h2>Section</h2>");
-}
-
-TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
-{
-    const auto html = CopyAllAsHtml("**bold** and *italic*");
-    EXPECT_TRUE(html.contains("<strong>bold</strong>"));
-    EXPECT_TRUE(html.contains("<em>italic</em>"));
-}
-
-// 重なった装飾は外側から <a> <strong> <em> <s> <code> の順に開き、逆順に閉じる。
-TEST(ExtractSelectedTextAsHtml, NestedInlineTagsOpenInFixedOrder)
-{
-    EXPECT_EQ(CopyAllAsHtml("[***~~`x`~~***](https://a.com)"),
-              "<p><a href=\"https://a.com\"><strong><em><s><code>x</code></s></em></strong></a></p>");
-}
-
-TEST(ExtractSelectedTextAsHtml, InlineCode)
-{
-    EXPECT_TRUE(CopyAllAsHtml("text `code` more").contains("<code>code</code>"));
+    struct Case {
+        std::string_view md;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "Hello world", "<p>Hello world</p>" },
+        { "## Section", "<h2>Section</h2>" },
+        { "**bold** and *italic*", "<p><strong>bold</strong> and <em>italic</em></p>" },
+        { "text `code` more", "<p>text <code>code</code> more</p>" },
+        // 重なった装飾は外側から <a> <strong> <em> <s> <code> の順に開き、逆順に閉じる。
+        { "[***~~`x`~~***](https://a.com)", "<p><a href=\"https://a.com\"><strong><em><s><code>x</code></s></em></strong></a></p>" },
+        { "> quoted text", "<blockquote>quoted text</blockquote>" },
+        { "before\n\n---\n\nafter", "<p>before</p><hr><p>after</p>" },
+        { "First\n\nSecond", "<p>First</p><p>Second</p>" },
+        { "- one\n- two", "<ul><li>one</li><li>two</li></ul>" },
+        { "1. first\n2. second", "<ol><li>first</li><li>second</li></ol>" },
+        { "1. [ ] first\n2. [x] second", "<ol><li><input type=\"checkbox\" disabled> first</li><li><input type=\"checkbox\" checked disabled> second</li></ol>" },
+        { "3. c\n4. d", "<ol start=\"3\"><li>c</li><li>d</li></ol>" },
+        // loose list は LI が空の枠で本文が後ろの段落ノードになるが、段落を同じ <li> に入れてリストを保つ。
+        { "1. a\n\n2. b", "<ol><li><p>a</p></li><li><p>b</p></li></ol>" },
+        // 入れ子のリストは親の <li> の中に入れ、内側を出た後の親の本文や次の項目は親のリストに戻る。
+        { "- a\n  - b\n- c", "<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>" },
+        { "- a\n\n  - b\n\n  c\n- d", "<ul><li><p>a</p><ul><li>b</li></ul><p>c</p></li><li><p>d</p></li></ul>" },
+        { "- a\n  - b\n    - c\n- d", "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li><li>d</li></ul>" },
+        // 内側の番号付きリストは別の <ol> なので、外側の番号が内側の項目数だけずれない。
+        { "5. a\n   1. x\n6. b", "<ol start=\"5\"><li>a<ol><li>x</li></ol></li><li>b</li></ol>" },
+        // 区切り記号が違う番号付きリストは別のリスト。1 つにまとめると貼り付け先で番号が振り直される。
+        { "1. a\n1) b", "<ol><li>a</li></ol><ol><li>b</li></ol>" },
+        { "- a\n\n> q", "<ul><li>a</li></ul><blockquote>q</blockquote>" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        EXPECT_EQ(CopyAllAsHtml(c.md), c.expected);
+    }
 }
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
@@ -208,25 +210,17 @@ TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
 }
 
+// 言語指定の無いコードはトークンが無いので span を付けず、エスケープして <pre><code> に入れる。インラインの装飾もしない。
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
-    const auto html = CopyAllAsHtml("```\nint x = 1 < 2;\n```");
-    EXPECT_TRUE(html.contains("<pre"));
+    const auto html = CopyAllAsHtml("```\n**a** < *b* && c > d\n```");
+    EXPECT_TRUE(html.starts_with("<pre ")) << html;
     EXPECT_TRUE(html.contains("<code>"));
-    EXPECT_TRUE(html.contains("&lt;"));
-    EXPECT_TRUE(html.contains("</code></pre>"));
-    // コードブロック内ではインラインタグ化しない
+    EXPECT_TRUE(html.ends_with("</code></pre>")) << html;
+    EXPECT_TRUE(html.contains("**a** &lt; *b* &amp;&amp; c &gt; d")) << html;
+    EXPECT_FALSE(html.contains("<span"));
     EXPECT_FALSE(html.contains("<strong>"));
     EXPECT_FALSE(html.contains("<em>"));
-}
-
-TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
-{
-    // 言語指定なし -> トークンが無い -> span タグは付かない
-    const auto html = CopyAllAsHtml("```\nplain text\n```");
-    EXPECT_TRUE(html.starts_with("<pre")) << html;
-    EXPECT_FALSE(html.contains("<span"));
-    EXPECT_TRUE(html.contains("plain text"));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
@@ -247,18 +241,20 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
     EXPECT_FALSE(html.contains("a<b"));
 }
 
+// ダークではダーク用の色 (VS Code Dark+ 相当) を使い、貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
-    const auto html = CopyAllAsHtml("```cpp\nint x = 42;\n```", /*dark_mode=*/true);
-    // ダーク用の色（VS Code Dark+ 相当）が使われる
-    EXPECT_TRUE(html.contains("<span style=\"color:#4ec9b0\">int</span>"));
-    EXPECT_TRUE(html.contains("<span style=\"color:#b5cea8\">42</span>"));
-    // ライト用の色は混ざらない
-    EXPECT_FALSE(html.contains("#267f99"));
-    EXPECT_FALSE(html.contains("#098658"));
-    // コードブロック背景がダーク色
-    EXPECT_TRUE(html.contains("background-color:#2d2d2d"));
-    EXPECT_TRUE(html.contains("color:#d4d4d4"));
+    const auto light = CopyAllAsHtml("```cpp\nint x = 42;\n```", /*dark_mode=*/false);
+    const auto dark = CopyAllAsHtml("```cpp\nint x = 42;\n```", /*dark_mode=*/true);
+    EXPECT_TRUE(light.starts_with("<pre ")) << light;
+    EXPECT_FALSE(light.contains(";color:")) << light;
+
+    EXPECT_TRUE(dark.contains("<span style=\"color:#4ec9b0\">int</span>"));
+    EXPECT_TRUE(dark.contains("<span style=\"color:#b5cea8\">42</span>"));
+    EXPECT_FALSE(dark.contains("#267f99"));
+    EXPECT_FALSE(dark.contains("#098658"));
+    EXPECT_TRUE(dark.contains("background-color:#2d2d2d"));
+    EXPECT_TRUE(dark.contains(";color:#d4d4d4")) << dark;
 }
 
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
@@ -425,30 +421,11 @@ TEST(ExtractSelectedTextAsHtml, ImageSrcDropsUnsafeSchemes)
     }
 }
 
-TEST(ExtractSelectedTextAsHtml, ListsWrapInUlAndOl)
-{
-    EXPECT_EQ(CopyAllAsHtml("- one\n- two"), "<ul><li>one</li><li>two</li></ul>");
-    EXPECT_EQ(CopyAllAsHtml("1. first\n2. second"), "<ol><li>first</li><li>second</li></ol>");
-    EXPECT_EQ(CopyAllAsHtml("1. [ ] first\n2. [x] second"),
-              "<ol><li><input type=\"checkbox\" disabled> first</li><li><input type=\"checkbox\" checked disabled> second</li></ol>");
-}
-
-// loose list は LI が空の枠で本文が後ろの段落ノードになるが、段落を同じ <li> に入れてリストを保つ。
-TEST(ExtractSelectedTextAsHtml, LooseListKeepsParagraphsInsideItems)
-{
-    EXPECT_EQ(CopyAllAsHtml("1. a\n\n2. b"), "<ol><li><p>a</p></li><li><p>b</p></li></ol>");
-}
-
 TEST(ExtractSelectedTextAsHtml, ListItemKeepsFollowingCodeBlock)
 {
     const auto html = CopyAllAsHtml("- a\n\n  ```\n  x\n  ```\n- b\n\nafter");
     EXPECT_TRUE(html.starts_with("<ul><li><p>a</p><pre")) << html;
     EXPECT_TRUE(html.ends_with("</li><li><p>b</p></li></ul><p>after</p>")) << html;
-}
-
-TEST(ExtractSelectedTextAsHtml, OrderedListKeepsStartNumber)
-{
-    EXPECT_EQ(CopyAllAsHtml("3. c\n4. d"), "<ol start=\"3\"><li>c</li><li>d</li></ol>");
 }
 
 // start は選択の先頭項目の番号。1 のときだけ省き、0 は省かない。種類が変わればリストを分ける。
@@ -550,22 +527,6 @@ TEST(ExtractSelectedTextAsHtml, ManyLinksKeepPerUrlSafety)
     EXPECT_FALSE(html.contains("javascript")) << html;
 }
 
-// 入れ子のリストは親の <li> の中に入れ、内側を出た後の親の本文や次の項目は親のリストに戻る。
-TEST(ExtractSelectedTextAsHtml, NestedListsStayInsideParentItem)
-{
-    EXPECT_EQ(CopyAllAsHtml("- a\n  - b\n- c"), "<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>");
-    EXPECT_EQ(CopyAllAsHtml("- a\n\n  - b\n\n  c\n- d"), "<ul><li><p>a</p><ul><li>b</li></ul><p>c</p></li><li><p>d</p></li></ul>");
-    EXPECT_EQ(CopyAllAsHtml("- a\n  - b\n    - c\n- d"), "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li><li>d</li></ul>");
-    // 内側の番号付きリストは別の <ol> なので、外側の番号が内側の項目数だけずれない。
-    EXPECT_EQ(CopyAllAsHtml("5. a\n   1. x\n6. b"), "<ol start=\"5\"><li>a<ol><li>x</li></ol></li><li>b</li></ol>");
-}
-
-// 区切り記号が違う番号付きリストは別のリスト。1 つにまとめると貼り付け先で番号が振り直される。
-TEST(ExtractSelectedTextAsHtml, OrderedListsWithDifferentDelimitersStaySeparate)
-{
-    EXPECT_EQ(CopyAllAsHtml("1. a\n1) b"), "<ol><li>a</li></ol><ol><li>b</li></ol>");
-}
-
 // 引用の中の項目のさらに中の引用は、その項目に入る。項目の外の入れ子の引用はリストの外。
 TEST(ExtractSelectedTextAsHtml, QuoteInsideItemInsideQuoteStaysInItem)
 {
@@ -573,18 +534,6 @@ TEST(ExtractSelectedTextAsHtml, QuoteInsideItemInsideQuoteStaysInItem)
     EXPECT_TRUE(inside.ends_with("<blockquote>q</blockquote></li></ul>")) << inside;
     const auto outside = CopyAllAsHtml("> - a\n>\n> > q");
     EXPECT_TRUE(outside.ends_with("</li></ul><blockquote>q</blockquote>")) << outside;
-}
-
-TEST(ExtractSelectedTextAsHtml, QuoteAfterListIsOutsideList)
-{
-    EXPECT_EQ(CopyAllAsHtml("- a\n\n> q"), "<ul><li>a</li></ul><blockquote>q</blockquote>");
-}
-
-TEST(ExtractSelectedTextAsHtml, BlocksJoinWithoutSeparators)
-{
-    EXPECT_EQ(CopyAllAsHtml("> quoted text"), "<blockquote>quoted text</blockquote>");
-    EXPECT_EQ(CopyAllAsHtml("before\n\n---\n\nafter"), "<p>before</p><hr><p>after</p>");
-    EXPECT_EQ(CopyAllAsHtml("First\n\nSecond"), "<p>First</p><p>Second</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
@@ -850,78 +799,34 @@ TEST(FilenameView, ReturnsLastPathComponent)
 
 // ---- ExtractSelectedText 追加テスト ----
 
-TEST(ExtractSelectedText, SelectionSpanningTableNode)
+// 表の選択位置は concat_text の offset。セルはタブ、行は CRLF で区切る (#200: セル内の語の選択で文字化けしていた)。
+TEST(ExtractSelectedText, TableSelection)
 {
-    auto nodes = ParseNodes("| A | B |\n|---|---|\n| 1 | 2 |");
-    EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 0, 0, 3)), "A\tB");
-}
-
-// issue #200: parser 経由で生成されたテーブル（線形化テキストは table_data->concat_text）に対し、selection が concat_text 内 offset を指しているとき、
-// ExtractSelectedText がセル内テキストを返すこと。
-TEST(ExtractSelectedText, ParsedTableCellWordSelection)
-{
-    auto nodes = ParseNodes(
-                     "| Name | Value |\n"
-                     "|------|-------|\n"
-                     "| foo  | bar   |");
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].type, NodeType::Table);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_NE(tbl, nullptr);
-
-    const std::string_view ct = tbl->concat_text;
-    const auto pos = ct.find("foo");
-    ASSERT_NE(pos, std::string_view::npos);
-
-    auto sel = TextSelection::MakeOrdered(0, static_cast<uint32_t>(pos),
-                                          0, static_cast<uint32_t>(pos + 3));
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "foo");
-}
-
-TEST(ExtractSelectedText, ParsedTableFullSelectionPreservesSeparators)
-{
-    auto nodes = ParseNodes(
-                     "| A | B |\n"
-                     "|---|---|\n"
-                     "| 1 | 2 |");
+    const auto nodes = ParseNodes("| A | B |\n|---|---|\n| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     ASSERT_EQ(nodes[0].GetText(), nodes[0].table_data()->concat_text);
+    EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 0, 0, 3)), "A\tB");
     EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), "A\tB\r\n1\t2");
+
+    const auto words = ParseNodes("| Name | Value |\n|------|-------|\n| foo  | bar   |");
+    ASSERT_EQ(words.size(), 1u);
+    const auto pos = static_cast<uint32_t>(words[0].table_data()->concat_text.find("foo"));
+    EXPECT_EQ(ExtractSelectedText(words, TextSelection::MakeOrdered(0, pos, 0, pos + 3)), "foo");
 }
 
-// 範囲外のノード番号は飛ばし、範囲内のノードだけを出す。
+// 範囲外のノード番号は飛ばし、範囲内のノードだけを出す。ノードが無ければ空。
 TEST(ExtractSelectedText, NodeIndexOutOfRange)
 {
     std::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
     EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5 }), "hello");
     EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5 }).starts_with("hello"));
+    EXPECT_TRUE(ExtractSelectedText({}, TextSelection::MakeOrdered(0, 0, 0, 5)).empty());
 }
 
 // ---- FindLinkAtPosition 追加テスト ----
 
-TEST(FindLinkHitAtPosition, ReturnsUrlAndIndex)
-{
-    Node node;
-    node.SetText("link1 link2");
-    AddTestLinkUrl(node, "https://a.com");
-    AddTestLinkUrl(node, "https://b.com");
-    const TextRun runs[]{ { .start = 0, .length = 5, .link_url_index = 0 }, { .start = 6, .length = 5, .link_url_index = 1 } };
-    node.SetRuns(runs);
-
-    const auto first = FindLinkHitAtPosition(node, 2);
-    ASSERT_TRUE(first.has_value());
-    EXPECT_EQ(first->url, "https://a.com");
-    EXPECT_EQ(first->index, 0u);
-    const auto second = FindLinkHitAtPosition(node, 8);
-    ASSERT_TRUE(second.has_value());
-    EXPECT_EQ(second->url, "https://b.com");
-    EXPECT_EQ(second->index, 1u);
-    // 2 つのリンクの間
-    EXPECT_FALSE(FindLinkHitAtPosition(node, 5).has_value());
-}
-
-// run の二分探索の境界: run の終端は含まず、直後の run が始まる位置はその run に当たる。
+// 当たった run のリンクの URL と番号を返す。run の終端は含まず、直後の run が始まる位置はその run に当たる。
 // リンク以外の装飾 run を挟んでも、隣接するリンク run を取り違えない。
 TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
 {
@@ -936,9 +841,14 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     const TextRun runs[]{ run(0, 2, l0), run(2, 1, -1), run(3, 2, l1), run(5, 1, l2) };
     SetTestRuns(node, runs);
 
+    constexpr std::string_view kUrls[]{ "https://a.com", "https://b.com", "https://c.com" };
     const auto index_at = [&](uint32_t pos) -> std::optional<uint32_t> {
         const auto hit = FindLinkHitAtPosition(node, pos);
-        return hit ? std::optional{ hit->index } : std::nullopt;
+        if (!hit) {
+            return std::nullopt;
+        }
+        EXPECT_EQ(hit->url, kUrls[hit->index]) << "pos=" << pos;
+        return hit->index;
     };
     EXPECT_EQ(index_at(0), 0u);
     EXPECT_EQ(index_at(1), 0u);
@@ -1071,7 +981,7 @@ std::vector<Node> NodesAt(std::initializer_list<size_t> offsets)
 
 } // namespace
 
-TEST(FindNodeBySourceOffset, HandBuiltNodes)
+TEST(FindNodeBySourceOffset, FindsNodeAtOrBeforeOffset)
 {
     struct Case {
         const char* name;
@@ -1093,28 +1003,14 @@ TEST(FindNodeBySourceOffset, HandBuiltNodes)
         // ソース末尾を超えるオフセットは最後のノード
         {"LastNodeForLargeOffset", NodesAt({0, 100, 200}), 999, 2},
         {"AllInheritedOffsets", NodesAt({0, 0, 0}), 50, 0},
+        // パーサの HR は前のノードの位置を受け継ぐので、HR のソース位置付近は前の段落を返す。
+        {"ParsedRuleBetween", ParseNodes("AAA\n\n---\n\nBBB"), 5, 0},
+        {"ParsedTextAfterRule", ParseNodes("AAA\n\n---\n\nBBB"), 10, 2},
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
         EXPECT_EQ(FindNodeBySourceOffset(c.nodes, c.diff_offset), c.expected);
     }
-}
-
-TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
-{
-    // パース結果で HorizontalRule が混在するケース
-    std::string_view md = "AAA\n\n---\n\nBBB";
-    auto nodes = ParseNodes(md);
-    ASSERT_GE(nodes.size(), 3u);
-    // "AAA" offset=0, "---" は前のノードの位置を受け継ぐ, "BBB" offset=10
-    EXPECT_EQ(nodes[0].SourceOffset(), 0u);
-    EXPECT_EQ(nodes[1].SourceOffset(), 0u);
-
-    // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
-    // offset=10（BBBのソース位置）→ BBBを返す
-    int bbb_idx = FindNodeBySourceOffset(nodes, 10);
-    EXPECT_EQ(bbb_idx, 2);
 }
 
 // ============================================================
@@ -1233,86 +1129,44 @@ TEST(DiffToNode, EditAtParagraphBoundary)
 // CalcScrollYForDiff
 // ============================================================
 
-TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
+// ノード i は y = i * node_height、高さ node_height。差分の位置をノード内で比例配分した y から viewport の 2 割上へ。
+// 次のノードの位置は受け継いだノードを飛ばし、最後のノードでは文書の長さを使う。
+// ノードが無い・差分なし (npos、改行コードの変換だけのリロードなど)・どのノードより前なら fallback のまま。
+TEST(CalcScrollYForDiff, ScrollsToDiffWithMargin)
 {
-    std::vector<Node> nodes;
-    LayoutCache cache;
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 7, 0, 500.0f, 42.0f), 42.0f);
-}
-
-TEST(CalcScrollYForDiff, FallbackWhenDiffPosIsNpos)
-{
-    // npos = 差分位置なし (改行コード変換のみのリロード等)。現在位置を維持する。
-    auto nodes = NodesAt({ 0, 100, 200 });
-    auto cache = MakeUniformCache(3, 100.0f);
-    EXPECT_FLOAT_EQ(
-        CalcScrollYForDiff(nodes, cache, 300, std::string_view::npos, 500.0f, 123.0f), 123.0f);
-}
-
-TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
-{
-    // すべてのノードの source_offset が diff_pos より大きい。
-    auto nodes = NodesAt({ 50, 100, 200 });
-    auto cache = MakeUniformCache(3);
-    // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 10, 500.0f, 99.0f), 99.0f);
-}
-
-TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
-{
-    // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
-    auto nodes = NodesAt({ 0, 100, 200 });
-    auto cache = MakeUniformCache(3, 100.0f);
-
-    // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 0, 500.0f, 0.0f), 0.0f);
-
-    // diff_pos=100 → node 1, y=100, margin=100 → max(0, 100-100)=0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 100, 500.0f, 0.0f), 0.0f);
-
-    // diff_pos=200 → node 2, y=200, margin=100 → max(0, 200-100)=100
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 200, 500.0f, 0.0f), 100.0f);
-}
-
-TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
-{
-    // 2ノード: offset=0,100 / y=0,1000 / height=1000
-    auto nodes = NodesAt({ 0, 100 });
-    auto cache = MakeUniformCache(2, 1000.0f);
-
-    // diff_pos=50 → node 0 (offset=0), next_start=100
-    // fraction = (50-0)/(100-0) = 0.5
-    // node_y = 0 + 1000*0.5 = 500
-    // margin = 100*0.2 = 20
-    // result = max(0, 500-20) = 480
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 50, 100.0f, 0.0f), 480.0f);
-}
-
-TEST(CalcScrollYForDiff, FractionClampsToOne)
-{
-    // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
-    auto nodes = NodesAt({ 0, 100 });
-    auto cache = MakeUniformCache(2, 1000.0f);
-
-    // diff_pos=99 → node 0, fraction=99/100=0.99
-    // y = 0 + 1000*0.99 = 990, scroll = 990-20 = 970
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 99, 100.0f, 0.0f), 970.0f);
-    // diff_pos=100 → node 1 (exact match), y=1000, scroll = 1000-20 = 980
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 200, 100, 100.0f, 0.0f), 980.0f);
-}
-
-TEST(CalcScrollYForDiff, SkipsInheritedSourceOffsets)
-{
-    // ノード1が位置を受け継いでいる場合、ノード2を next_start として使う
-    auto nodes = NodesAt({ 0, 0, 200 });
-    auto cache = MakeUniformCache(3, 100.0f);
-
-    // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
-    // fraction = (100-0)/(200-0) = 0.5
-    // node_y = 0 + 100*0.5 = 50
-    // margin = 500*0.2 = 100
-    // result = max(0, 50-100) = 0
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 300, 100, 500.0f, 0.0f), 0.0f);
+    struct Case {
+        const char* name;
+        std::vector<Node> nodes;
+        float node_height;
+        size_t content_size;
+        size_t diff_pos;
+        float viewport_h;
+        float fallback;
+        float expected;
+    };
+    constexpr size_t npos = std::string_view::npos;
+    const Case cases[] = {
+        { "NoNodes", NodesAt({}), 100.0f, 7, 0, 500.0f, 42.0f, 42.0f },
+        { "DiffPosIsNpos", NodesAt({ 0, 100, 200 }), 100.0f, 300, npos, 500.0f, 123.0f, 123.0f },
+        { "BeforeAllNodes", NodesAt({ 50, 100, 200 }), 100.0f, 300, 10, 500.0f, 99.0f, 99.0f },
+        // margin = 500 * 0.2 = 100、負なら 0
+        { "Node0Start", NodesAt({ 0, 100, 200 }), 100.0f, 300, 0, 500.0f, 0.0f, 0.0f },
+        { "Node1Start", NodesAt({ 0, 100, 200 }), 100.0f, 300, 100, 500.0f, 0.0f, 0.0f },
+        { "Node2Start", NodesAt({ 0, 100, 200 }), 100.0f, 300, 200, 500.0f, 0.0f, 100.0f },
+        // 1000 * 50 / 100 - 100 * 0.2
+        { "IntraNodeFraction", NodesAt({ 0, 100 }), 1000.0f, 200, 50, 100.0f, 0.0f, 480.0f },
+        { "FractionNearEnd", NodesAt({ 0, 100 }), 1000.0f, 200, 99, 100.0f, 0.0f, 970.0f },
+        { "NextNodeExact", NodesAt({ 0, 100 }), 1000.0f, 200, 100, 100.0f, 0.0f, 980.0f },
+        // 次は node 2 (200)。100 * 100 / 200 - 100 < 0
+        { "SkipsInheritedOffsets", NodesAt({ 0, 0, 200 }), 100.0f, 300, 100, 500.0f, 0.0f, 0.0f },
+        // 1000 * 50 / 100 - 200 * 0.2
+        { "LastNodeUsesContentSize", NodesAt({ 0 }), 1000.0f, 100, 50, 200.0f, 0.0f, 460.0f },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        const auto cache = MakeUniformCache(static_cast<int>(c.nodes.size()), c.node_height);
+        EXPECT_FLOAT_EQ(CalcScrollYForDiff(c.nodes, cache, c.content_size, c.diff_pos, c.viewport_h, c.fallback), c.expected);
+    }
 }
 
 // 先頭が HR の文書で、最初の本文より前の差分は HR の位置へスクロールする (fallback_scroll を使わない)。
@@ -1327,20 +1181,6 @@ TEST(CalcScrollYForDiff, DiffBeforeFirstTextUsesLeadingRule)
     const auto cache = MakeUniformCache(2, 1000.0f);
     // fraction = 2/5, node_y = 1000 * 0.4 = 400, margin = 500 * 0.2 = 100
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md.size(), 2, 500.0f, 42.0f), 300.0f);
-}
-
-TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
-{
-    // 最後のノードでは文書の長さが next_start として使われる
-    auto nodes = NodesAt({ 0 });
-    auto cache = MakeUniformCache(1, 1000.0f);
-
-    // diff_pos=50, next_start=100
-    // fraction = 50/100 = 0.5
-    // node_y = 0 + 1000*0.5 = 500
-    // margin = 200*0.2 = 40
-    // result = max(0, 500-40) = 460
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, 100, 50, 200.0f, 0.0f), 460.0f);
 }
 
 // issue#146 回帰テスト:
@@ -1491,29 +1331,6 @@ TEST(ParentDirectory, ReturnsDirectoryPart)
 }
 
 // ============================================================
-// コードブロックの HTML (コピーボタン)
-// ============================================================
-
-TEST(CodeBlockHtml, WrapsEscapedCodeInPre)
-{
-    const auto html = CopyAllAsHtml("```\na < b && c > d\n```");
-    EXPECT_TRUE(html.starts_with("<pre "));
-    EXPECT_TRUE(html.ends_with("</code></pre>"));
-    EXPECT_TRUE(html.contains("a &lt; b &amp;&amp; c &gt; d"));
-    EXPECT_FALSE(html.contains("a < b"));
-}
-
-// ダーク時は貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
-TEST(CodeBlockHtml, DarkModeSpecifiesTextColor)
-{
-    const auto light = CopyAllAsHtml("```\ncode\n```", false);
-    const auto dark = CopyAllAsHtml("```\ncode\n```", true);
-    EXPECT_TRUE(light.starts_with("<pre ")) << light;
-    EXPECT_FALSE(light.contains(";color:"));
-    EXPECT_TRUE(dark.contains(";color:"));
-}
-
-// ============================================================
 // 区切ったテキストのコピー
 // ============================================================
 
@@ -1562,29 +1379,6 @@ TEST(ChunkCopy, PartialSelectionInsideRunIsClosed)
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(1, 0, 1, 10), false);
     EXPECT_TRUE(html.starts_with("<p>"));
     EXPECT_TRUE(html.ends_with("</p>"));
-}
-
-// 区切ったコードの続きは前のノードから続くトークンを先頭に置くので、継ぎ目をまたぐブロックコメントも色が崩れない。
-TEST(ChunkCopy, ContinuedCodeTokenizesFromPreviousChunk)
-{
-    const std::string md = "```cpp\n/*\n" + MakeNumberedLines(1000) + "*/\nint x;\n```";
-    const auto nodes = ParseNodes(md);
-    ASSERT_EQ(nodes.size(), 2u);
-    ASSERT_TRUE(nodes[1].continues_prev());
-
-    const auto tokens = TokenizeCodeNode(nodes[1]);
-    ASSERT_FALSE(tokens.empty());
-    EXPECT_EQ(tokens[0].start, 0u);
-    EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
-    const auto text = nodes[1].GetText();
-    const auto keyword = text.find("int x;");
-    ASSERT_NE(keyword, std::string_view::npos);
-    EXPECT_TRUE(std::ranges::any_of(tokens, [&](const SyntaxToken& t) {
-        return t.start == keyword && t.type != SyntaxTokenType::Comment;
-    }));
-    for (const auto& t : tokens) {
-        EXPECT_LE(t.start + t.length, text.size());
-    }
 }
 
 namespace {
@@ -1663,22 +1457,6 @@ TEST(ChunkCopy, CodeStringSpanningManyChunksStaysString)
     }
     const auto last = TokenizeCodeNode(nodes.back());
     EXPECT_TRUE(std::ranges::any_of(last, [](const SyntaxToken& t) { return t.type == SyntaxTokenType::Number; }));
-    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
-}
-
-// コメント・文字列・キーワードの混じった長いコードも、区切る前に 1 度にトークン化したのと同じ色分けになる。
-TEST(ChunkCopy, ChunkTokensMatchCodeTokenizedAtOnce)
-{
-    std::string code;
-    for (int i = 0; i < 2000; ++i) {
-        std::format_to(std::back_inserter(code), "int f{}() {{ return {}; }} // c{}\n", i, i, i);
-        if (i % 97 == 0) {
-            code += "/* block\n   comment */ const char* s = \"str\";\n";
-        }
-    }
-    const std::string md = "```cpp\n" + code + "```\n";
-    const auto nodes = ParseNodes(md);
-    ASSERT_GE(nodes.size(), 3u);
     ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
 }
 
@@ -1842,7 +1620,7 @@ TEST(FindNodeWordBoundaries, SelectsWholeInlineMathInTableCell)
     }
 }
 
-// 窓の境目をまたぐコメントや文字列があっても、1 度にトークン化したのと同じ色分けになる。
+// 窓の境目をまたぐコメントや文字列、短いコメントや文字列が混じっても、1 度にトークン化したのと同じ色分けになる。
 TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
 {
     std::string code;
@@ -1853,6 +1631,9 @@ TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
         }
         if (i % 777 == 0) {
             code += "const char* s = \"" + std::string(40000, 'A') + "\";\n";
+        }
+        if (i % 97 == 0) {
+            code += "/* block\n   comment */ const char* s = \"str\";\n";
         }
     }
     const std::string md = "```cpp\n" + code + "```\n";

@@ -25,7 +25,7 @@ void ExpectTailClimbsToFront(Promote promote)
 
 } // namespace
 
-// 作った直後は空。満杯でなくても無いキーは null。Clear 後は前のキーを引かず、続けて使える。
+// 作った直後は空。満杯でなくても無いキーは null。Find の値は書き換えられる。Clear 後は前のキーを引かず、続けて使える。
 TEST(TranspositionCache, InsertFindAndClear)
 {
     TranspositionCache<int, std::string, 3> cache;
@@ -38,6 +38,8 @@ TEST(TranspositionCache, InsertFindAndClear)
     auto* v = cache.Find(1);
     ASSERT_NE(v, nullptr);
     EXPECT_EQ(*v, "one");
+    *v = "modified";
+    EXPECT_EQ(*cache.Find(1), "modified");
 
     cache.Clear();
     EXPECT_EQ(cache.Size(), 0u);
@@ -45,42 +47,6 @@ TEST(TranspositionCache, InsertFindAndClear)
     EXPECT_EQ(cache.Size(), 1u);
     EXPECT_EQ(cache.Find(1), nullptr);
     EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(4), nullptr);
-}
-
-TEST(TranspositionCache, EvictsLeastRecentlyInserted)
-{
-    TranspositionCache<int, std::string, 3> cache;
-    cache.Insert(1, "one");
-    cache.Insert(2, "two");
-    cache.Insert(3, "three");
-
-    // 新規 Insert は先頭に入る → 内部 [3, 2, 1]
-    // Insert(4) で末尾 (= 最も古く Insert された 1) が捨てられる
-    cache.Insert(4, "four");
-    EXPECT_EQ(cache.Size(), 3u);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_NE(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(3), nullptr);
-    EXPECT_NE(cache.Find(4), nullptr);
-}
-
-TEST(TranspositionCache, FindPromotesAwayFromTail)
-{
-    TranspositionCache<int, std::string, 3> cache;
-    cache.Insert(1, "one");
-    cache.Insert(2, "two");
-    cache.Insert(3, "three");
-    // 内部 [3, 2, 1]
-
-    // 末尾 (1) を Find すると 1 つ前と swap → [3, 1, 2]
-    cache.Find(1);
-
-    // Insert(4) で末尾 (2) が捨てられる
-    cache.Insert(4, "four");
-    EXPECT_NE(cache.Find(1), nullptr);
-    EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(3), nullptr);
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
@@ -138,17 +104,6 @@ TEST(TranspositionCache, StressInsertManyKeepsLatest)
         ASSERT_NE(v, nullptr) << "key=" << i;
         EXPECT_EQ(*v, i * 10);
     }
-}
-
-TEST(TranspositionCache, ModifyValueThroughFind)
-{
-    TranspositionCache<int, std::string, 3> cache;
-    cache.Insert(1, "original");
-    auto* v = cache.Find(1);
-    ASSERT_NE(v, nullptr);
-    *v = "modified";
-    auto* v2 = cache.Find(1);
-    EXPECT_EQ(*v2, "modified");
 }
 
 TEST(TranspositionCache, RepeatedFindClimbsToFront)

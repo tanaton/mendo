@@ -19,12 +19,8 @@ class TextArena {
 public:
     std::string_view CopyText(std::string_view text)
     {
-        if (text.empty()) {
-            return {};
-        }
-        auto* const p = static_cast<char*>(Allocate(text.size(), alignof(char)));
-        std::memcpy(p, text.data(), text.size());
-        return { p, text.size() };
+        const auto s = Copy(text);
+        return { s.data(), s.size() };
     }
 
     // TextRun や、DocumentData::raw / arena 上の文字列を指す string_view の配列を置く。

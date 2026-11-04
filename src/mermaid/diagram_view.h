@@ -6,6 +6,7 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <windows.h>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -25,34 +26,46 @@ std::optional<float> NextZoom(float zoom, float fit_zoom, int dir) noexcept;
 
 } // namespace diagram_view
 
-// 拡大表示の窓の中身。図の描画命令を倍率を変えて描き、右上のボタン・ホイール (スクロール)・ドラッグ・キーで操作する。
-// 窓は MermaidRenderer が作り、メッセージを HandleMessage に回す。
+// 図の拡大表示の窓。図の描画命令を倍率を変えて描き、右上のボタン・ホイール (スクロール)・ドラッグ・キーで操作する。
+// PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
 class DiagramView {
 public:
-    static constexpr UINT_PTR kTooltipTimer = 2;
-
-    DiagramView(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic);
+    // owner の中央に、owner の 9 割の大きさで「読み込み中」として開く。on_close は ×・Esc で呼ぶ (呼ばれた側がこれを壊す)。
+    // 開けなければ null。
+    static std::unique_ptr<DiagramView> Open(HWND owner, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                             std::move_only_function<void()> on_close);
+    // 窓も壊す。
     ~DiagramView();
     DiagramView(const DiagramView&) = delete;
     DiagramView& operator=(const DiagramView&) = delete;
 
-    // ボタンのツールチップと読み込み中の文言を、表示中の言語にする。
+    // 本体と一緒に壊されていない。
+    bool IsOpen() const noexcept
+    {
+        return hwnd_ != nullptr;
+    }
+    void BringToFront() const noexcept;
+    // タイトル・ボタンのツールチップ・読み込み中の文言を、表示中の言語にする。
     void ApplyLanguage();
     void SetDarkMode(bool dark);
     // 別の図を開いた。
     void ShowLoading();
     // 図が出ていれば位置とボタンで変えた倍率を保つ (保存とテーマの切り替え)。全体表示のままなら新しい大きさに合わせ直す。
     void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing);
-    // 扱ったメッセージは true を返し、result に戻り値を入れる。
-    bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
 
 private:
+    static constexpr UINT_PTR kTooltipTimer = 2;
     // 並びは右上のバーの左から。
     enum class Button : uint8_t { None, ZoomOut, ZoomIn, Fit };
 
+    DiagramView(IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close);
+    static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+    // 扱ったメッセージは true を返し、result に戻り値を入れる。
+    bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
+
     bool EnsureTarget();
     void Paint();
-    void PaintBar(ID2D1SolidColorBrush* brush);
+    void PaintBar();
     // 窓と図の大きさから全体表示の倍率と、スクロールの範囲を決め直す。
     void Layout();
     void UpdateScrollBars();
@@ -81,7 +94,9 @@ private:
     float Scale() const noexcept;
     D2D1_POINT_2F ToDip(LPARAM lparam) const noexcept;
 
-    HWND hwnd_;
+    // 窓を作り終えるまでと、本体と一緒に壊された後は null。
+    HWND hwnd_ = nullptr;
+    std::move_only_function<void()> on_close_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_;
