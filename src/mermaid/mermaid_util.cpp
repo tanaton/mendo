@@ -87,10 +87,9 @@ float ParseFloatPrefix(std::wstring_view s) noexcept
 
 bool mermaid_util::FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept
 {
-    constexpr double kMaxPixels = 64.0 * 1024 * 1024;
     const double w = std::ceil(static_cast<double>(css_width) * dpr);
     const double h = std::ceil(static_cast<double>(css_height) * dpr);
-    return w <= max_side_px && h <= max_side_px && w * h <= kMaxPixels;
+    return w <= max_side_px && h <= max_side_px && w * h <= kMaxCapturePixels;
 }
 
 mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
@@ -268,17 +267,28 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
 
 } // namespace
 
+size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
+{
+    size_t bytes = sizeof(drawing);
+    for (const auto& layer : drawing.layers) {
+        bytes += sizeof(layer) + layer.shapes_svg.size();
+        for (const auto& t : layer.texts) {
+            bytes += sizeof(t) + (t.family.size() + t.text.size()) * sizeof(wchar_t);
+        }
+    }
+    return bytes;
+}
+
 std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstring_view payload)
 {
+    // 先頭の "<幅>:<高さ>:<dpr>" は RenderResult と同じ。
     std::wstring_view s = payload;
-    float size[3]{};
-    for (float& v : size) {
-        const auto field = TakeField(s);
-        if (!field) {
+    for (int i = 0; i < 3; ++i) {
+        if (!TakeField(s)) {
             return std::nullopt;
         }
-        v = ParseFloatPrefix(*field);
     }
+    const RenderSize size = ParseRenderSize(payload.substr(0, payload.size() - s.size()));
     // 数だけ大きく偽って確保させないよう、数の上限は残りの長さから決める (層は少なくとも 4 文字、並びは 30 文字ある)。
     const auto take_count = [&s](uint32_t min_chars) {
         const auto field = TakeField(s);
@@ -288,11 +298,11 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
     const auto background_field = TakeField(s);
     const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
     const auto layer_count = background ? take_count(4) : std::nullopt;
-    if (!layer_count || !(size[0] > 0.0f) || !(size[1] > 0.0f)) {
+    if (!layer_count || !(size.width > 0.0f) || !(size.height > 0.0f)) {
         return std::nullopt;
     }
     DiagramDrawing out{
-        .size = { size[0], size[1], IsPlausibleDpr(size[2]) ? size[2] : 1.0f },
+        .size = size,
         .background = *background,
     };
     out.layers.reserve(*layer_count);

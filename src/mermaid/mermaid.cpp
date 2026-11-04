@@ -6,6 +6,7 @@
 #include "i18n.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
+#include "string_convert.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -775,13 +776,23 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
     render_target_ = render_target;
     // ビットマップを作れなかった・大きすぎたなど、旧デバイスで確定したエラーも捨てて再試行させる。
     cache_.Clear();
+    record_dc_.Reset();
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    Microsoft::WRL::ComPtr<ID2D1Device> device;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> record;
+    if (render_target && SUCCEEDED(render_target->QueryInterface(IID_PPV_ARGS(&dc)))) {
+        dc->GetDevice(&device);
+        if (device && SUCCEEDED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &record))) {
+            record.As(&record_dc_);
+        }
+    }
 }
 
 void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
 {
     cache_.Insert(hash, std::move(result));
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept {
-        return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get());
+        return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get()) + (c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0);
     });
 }
 
@@ -959,12 +970,12 @@ bool MermaidRenderer::RequestRender(
 void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream,
                                     std::wstring drawing)
 {
-    const bool captured = captured_stream != nullptr || !drawing.empty();
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .drawing = std::move(drawing), .captured = captured };
+    const bool fresh = captured_stream != nullptr || !drawing.empty();
+    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .drawing = std::move(drawing), .fresh = fresh };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed), guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
-        job.dropped = !job.captured && job.req.is_display() && drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        job.dropped = !job.fresh && job.req.is_display() && drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
             LoadDiskJob(job, path);
         }
@@ -977,13 +988,13 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
 void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path)
 {
     if (!job.drawing.empty()) {
-        RasterizeJob(job);
+        ParseDrawingJob(job);
         return;
     }
     if (job.captured_stream) {
-        job.png = ReadHGlobalStream(job.captured_stream.Get());
+        job.bytes = ReadHGlobalStream(job.captured_stream.Get());
         job.captured_stream.Reset();
-        if (!job.png) {
+        if (!job.bytes) {
             return;
         }
     }
@@ -992,40 +1003,88 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         if (data.empty()) {
             return;
         }
-        job.png = std::make_shared<const ByteBuffer>(std::move(data));
+        job.bytes = std::make_shared<const ByteBuffer>(std::move(data));
     }
     TaskScheduler::EnsureWorkerCom();
     if (job.req.is_math()) {
         LoadMathJob(job);
         return;
     }
-    // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
-    if (job.captured) {
-        std::tie(job.bitmap, job.png) = DecodeCapture(wic_factory_.Get(), job.png, job.req.page_rect);
+    // ディスクキャッシュの図は PNG (キャプチャした図) か描画命令。
+    if (!job.fresh && wic_util::SniffImageContainer(*job.bytes) != &GUID_ContainerFormatPng) {
+        const auto& bytes = *job.bytes;
+        if (auto drawing = mermaid_util::ParseDrawing(string_convert::Utf8ToWide({ reinterpret_cast<const char*>(bytes.data()), bytes.size() }))) {
+            job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing));
+        }
+        return;
+    }
+    // job.bytes はデコード完了まで生きているので、コピーせずに参照して読む。
+    if (job.fresh) {
+        std::tie(job.bitmap, job.bytes) = DecodeCapture(wic_factory_.Get(), job.bytes, job.req.page_rect);
     }
     else {
-        job.bitmap = DecodePngToWicBitmap(wic_factory_.Get(), *job.png);
+        job.bitmap = DecodePngToWicBitmap(wic_factory_.Get(), *job.bytes);
     }
 }
 
-void MermaidRenderer::RasterizeJob(DiskLoad& job)
+void MermaidRenderer::ParseDrawingJob(DiskLoad& job)
 {
-    TaskScheduler::EnsureWorkerCom();
-    std::call_once(raster_factories_once_, [this] {
-        LogHrFailure("D2D1CreateFactory(raster)", D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, raster_d2d_.GetAddressOf()));
-        LogHrFailure("DWriteCreateFactory(raster)",
-                     DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(raster_dw_.GetAddressOf())));
-    });
-    const auto drawing = mermaid_util::ParseDrawing(std::exchange(job.drawing, {}));
+    const std::wstring payload = std::exchange(job.drawing, {});
+    auto drawing = mermaid_util::ParseDrawing(payload);
     if (!drawing) {
         return;
     }
-    const auto& rect = job.req.page_rect;
-    job.bitmap = RasterizeDiagram(raster_d2d_.Get(), raster_dw_.Get(), wic_factory_.Get(), *drawing, static_cast<UINT>(rect.Width),
-                                  static_cast<UINT>(rect.Height), i18n::TextLocale());
-    if (job.bitmap) {
-        job.png = EncodePng(wic_factory_.Get(), job.bitmap.Get());
+    // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 4KB。同じ図の PNG の約 1/20)。
+    const std::string utf8 = string_convert::WideToUtf8(payload);
+    job.bytes = std::make_shared<const ByteBuffer>(std::span{ reinterpret_cast<const uint8_t*>(utf8.data()), utf8.size() });
+    job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing));
+}
+
+IDWriteFactory* MermaidRenderer::WriteFactory()
+{
+    if (!dw_factory_) {
+        LogHrFailure("DWriteCreateFactory(diagram)",
+                     DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw_factory_.GetAddressOf())));
     }
+    return dw_factory_.Get();
+}
+
+Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing)
+{
+    IDWriteFactory* dw = WriteFactory();
+    Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
+    if (!record_dc_ || !dw || FAILED(record_dc_->CreateCommandList(&commands))) {
+        return nullptr;
+    }
+    record_dc_->SetTarget(commands.Get());
+    record_dc_->BeginDraw();
+    record_dc_->SetTransform(D2D1::Matrix3x2F::Identity());
+    const bool ok = DrawDiagram(record_dc_.Get(), dw, wic_factory_.Get(), drawing, i18n::TextLocale());
+    const HRESULT hr = record_dc_->EndDraw();
+    record_dc_->SetTarget(nullptr);
+    if (!ok || FAILED(hr) || FAILED(commands->Close())) {
+        return nullptr;
+    }
+    return commands;
+}
+
+PngBytes MermaidRenderer::DiagramPng(const DiagramEntry& entry)
+{
+    if (entry.png || !entry.drawing) {
+        return entry.png;
+    }
+    const auto& drawing = *entry.drawing;
+    Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
+    if (render_target_) {
+        render_target_->GetFactory(&d2d);
+    }
+    // 描いたときのワーカーの DPR で描く。大きな図はキャプチャと同じ上限 (ビットマップの最大辺と画素数) に収まるまで縮める。
+    const float w = drawing.size.width;
+    const float h = drawing.size.height;
+    const float dpr = std::min({ drawing.size.dpr, static_cast<float>(MaxBitmapDim(render_target_)) / std::max(w, h),
+                                 static_cast<float>(std::sqrt(mermaid_util::kMaxCapturePixels / (static_cast<double>(w) * h))) });
+    const auto bitmap = RasterizeDiagram(d2d.Get(), WriteFactory(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
+    return bitmap ? EncodePng(wic_factory_.Get(), bitmap.Get()) : nullptr;
 }
 
 void MermaidRenderer::DecideMathPage(MathRequest& math, const mermaid_util::RenderSize& page)
@@ -1042,8 +1101,8 @@ void MermaidRenderer::LoadMathJob(DiskLoad& job)
 {
     auto& math = *job.req.math;
     // デコーダは CopyPixels のときに PNG を読むので、それまで手放さない。
-    const PngBytes source = std::move(job.png);
-    if (!job.captured) {
+    const PngBytes source = std::move(job.bytes);
+    if (!job.fresh) {
         auto layout = mermaid_util::ReadMathBoxesChunk({ source->data(), source->size() }, math.items.size());
         if (!layout) {
             return;
@@ -1051,7 +1110,7 @@ void MermaidRenderer::LoadMathJob(DiskLoad& job)
         math.layout = std::move(*layout);
     }
     else if (auto with_boxes = mermaid_util::AppendMathBoxesChunk({ source->data(), source->size() }, math.layout); !with_boxes.empty()) {
-        job.png = std::make_shared<const ByteBuffer>(std::move(with_boxes));
+        job.bytes = std::make_shared<const ByteBuffer>(std::move(with_boxes));
     }
     if (!math.accept_page) {
         return;
@@ -1087,7 +1146,7 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
     // 箱の一覧が揃い、受け取るページならアルファも取り出せた。
     const bool loaded = !math.layout.boxes.empty() && (!math.accept_page || !r.alpha.empty());
     // ディスクキャッシュから読めなかった (消えていた・壊れていた) ので描き直す。描き直したページで上書きする。
-    if (!loaded && !r.captured) {
+    if (!loaded && !r.fresh) {
         file_cache_->OnReadFailed(math.cache_key, r.read_error);
         EnqueueWebRender(std::move(req));
         return;
@@ -1106,8 +1165,8 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
         return;
     }
     // エラーの数式も箱の一覧に残るので、次からは描き直さずに原文で表示できる。
-    if (r.captured && r.png) {
-        file_cache_->StoreAsync(math.cache_key, math.layout.size.width, math.layout.size.height, std::move(r.png));
+    if (r.fresh && r.bytes) {
+        file_cache_->StoreAsync(math.cache_key, math.layout.size.width, math.layout.size.height, std::move(r.bytes));
     }
     const float dpr = math.layout.size.dpr;
     const float page_w = static_cast<float>(r.alpha_width);
@@ -1146,23 +1205,31 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         ReleaseInflight(r.req);
         return false;
     }
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
-        if (r.captured) {
+    DiagramResult result{ .width = r.req.css_width, .height = r.req.css_height };
+    if (r.parsed) {
+        result.commands = RecordDrawing(*r.parsed);
+        result.drawing = std::move(r.parsed);
+    }
+    else if (r.bitmap && render_target_) {
+        render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &result.bitmap);
+        result.png = r.bytes;
+    }
+    if (result.commands || result.bitmap) {
+        if (r.fresh) {
             r.req.width_free = mermaid_util::IsWidthFree(r.req.css_width, r.req.max_width);
-            file_cache_->StoreAsync(r.req.CacheKey(), r.req.css_width, r.req.css_height, r.png);
+            file_cache_->StoreAsync(r.req.CacheKey(), r.req.css_width, r.req.css_height, std::move(r.bytes));
         }
-        InsertCache(r.req.CacheKey(), DiagramResult{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
+        InsertCache(r.req.CacheKey(), std::move(result));
         ReleaseInflight(r.req);
         return true;
     }
     // 描画直後の PNG を描き直しても同じ結果になるので、エラーを確定させて再要求させない。
-    if (r.captured) {
+    if (r.fresh) {
         SetDiagramError(r.req, DiagramError::Kind::Render);
         ReleaseInflight(r.req);
         return true;
     }
-    if (!r.png) {
+    if (!r.bytes) {
         file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
     }
     EnqueueWebRender(std::move(r.req));
@@ -1810,18 +1877,15 @@ void MermaidRenderer::OnRenderResult(Worker& w, const mermaid_util::RenderSize& 
 
 void MermaidRenderer::OnDrawResult(Worker& w, std::wstring_view payload)
 {
-    // 先頭は render-result と同じ "<幅>:<高さ>:<dpr>"。全体の解析は大きな図で重いので、描く worker で行う。
+    // 先頭は render-result と同じ "<幅>:<高さ>:<dpr>"。全体の解析は大きな図で重いので worker で行う。
+    // ビットマップにしないので、大きさの上限は無い。
     const auto size = mermaid_util::ParseRenderSize(payload);
     if (size.width <= 0 || size.height <= 0) {
         FailWorkerRequest(w, DiagramError::Kind::Render);
         return;
     }
-    if (!FitsCapture(size)) {
-        FailWorkerRequest(w, DiagramError::Kind::TooLarge);
-        return;
-    }
-    // キャプチャと同じく、表示の大きさは描く画素数から決める。ワーカーはすぐ次の図に使える。
-    w.current_request.SetCaptureBox(PageRect(size), size.dpr);
+    w.current_request.css_width = size.width;
+    w.current_request.css_height = size.height;
     auto req = std::move(w.current_request);
     FreeWorker(w);
     StartDiskLoad(std::move(req), {}, nullptr, std::wstring{ payload });

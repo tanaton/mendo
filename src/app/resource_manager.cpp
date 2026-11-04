@@ -347,7 +347,7 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
             auto* diagram = state_.document.layout_cache.FindDiagram(i);
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
-            if (diagram && !(diagram->bitmap && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
+            if (diagram && !(diagram->HasImage() && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
                 diagram->MarkStale();
             }
         }

@@ -12,7 +12,8 @@
 
 class TaskScheduler;
 
-// Mermaidダイアグラムの描画済みPNGをファイルに永続化するキャッシュ。
+// Mermaidダイアグラムの描画済みPNGをファイルに永続化するキャッシュ。図は描画命令 (UTF-8) のことが多く、PNG は
+// キャプチャで描いた図 (数式のラベルなど) とインライン数式のまとめ描きだけ。中身は読む側が先頭のバイトで見分ける。
 // 幅は mermaid_util::QuantizeWidth で量子化し、コード・テーマの組み合わせごとにPNGを保持する。
 // PNG書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
 // インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
@@ -26,7 +27,7 @@ public:
     // 索引の書式か PNG の描き方を変えたら上げる。違う版のキャッシュはフォルダごと捨てる。
     // 2: 1 つずつ描いた図と数式も、WebView2 が 1px 広く撮った分を切り落とす。表示の大きさは切り出した画素数から決める。
     //    ヘッダの読まれない dpr を消す。
-    // 3: 図を mermaid.js から pele に、数式を mermaid 同梱の KaTeX から npm の KaTeX に替えた。
+    // 3: 図を mermaid.js から pele に、数式を mermaid 同梱の KaTeX から npm の KaTeX に替えた。図は描画命令で置く。
     static constexpr uint32_t VERSION = 3;
 
     MermaidFileCache() = default;

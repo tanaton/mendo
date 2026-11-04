@@ -151,17 +151,37 @@
   // 入れ子の <svg> (アイコン) は getScreenCTM がその座標系への変換を含み、アイコンは枠の中に収まるので書き出せる。
   const UNSUPPORTED_SELECTOR = 'foreignObject,image,use,pattern,mask,filter,clipPath,marker,textPath';
 
-  // 祖先まで含めた不透明度。どこかが display:none なら 0。
-  function effectiveOpacity(el, root) {
-    let opacity = 1;
-    for (let e = el; e; e = e === root ? null : e.parentElement) {
-      const cs = getComputedStyle(e);
-      if (cs.display === 'none') {
-        return 0;
+  // 要素の、root までの祖先を含めた不透明度を返す関数。どこかが display:none なら 0。
+  // 親の値を覚えておき、要素ごとに祖先を辿り直さない。
+  function opacityResolver(root) {
+    const cache = new Map();
+    const opacityOf = el => {
+      let value = cache.get(el);
+      if (value === undefined) {
+        const cs = getComputedStyle(el);
+        value = cs.display === 'none' ? 0 : +cs.opacity;
+        if (value !== 0 && el !== root) {
+          value *= opacityOf(el.parentElement);
+        }
+        cache.set(el, value);
       }
-      opacity *= +cs.opacity;
-    }
-    return opacity;
+      return value;
+    };
+    return opacityOf;
+  }
+
+  // rx・ry の auto はもう片方の値になる。両方 auto なら null。
+  function radii(cs) {
+    const rx = cs.rx === 'auto' ? cs.ry : cs.rx;
+    const ry = cs.ry === 'auto' ? cs.rx : cs.ry;
+    return rx === 'auto' ? null : [parseFloat(rx), parseFloat(ry)];
+  }
+
+  // グラデーションの止まりの [#rrggbb, 不透明度]。alpha は塗りの不透明度で、掛け合わせる。
+  function stopPaint(stop, alpha) {
+    const cs = getComputedStyle(stop);
+    const c = parseColor(cs.stopColor) || [0, 0, 0, 1];
+    return [hexColor(c), c[3] * +cs.stopOpacity * alpha];
   }
 
   function overlaps(a, b) {
@@ -169,7 +189,7 @@
   }
 
   // SVG の文字の要素を、ブラウザが置いた位置の 1 行ずつの並びにする。書き出せなければ null。
-  function textRuns(t, svg, toRoot) {
+  function textRuns(t, toRoot, opacityOf) {
     const nodes = [];
     const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT);
     for (let node; (node = walker.nextNode());) {
@@ -188,7 +208,7 @@
       index += node.data.length;
       const owner = node.parentElement;
       const cs = getComputedStyle(owner);
-      const opacity = effectiveOpacity(owner, svg);
+      const opacity = opacityOf(owner);
       const color = parseColor(cs.fill);
       if (!node.data.trim() || cs.visibility !== 'visible' || opacity === 0 || !color) {
         continue;
@@ -252,19 +272,17 @@
     }
     else if (tag === 'rect') {
       g = 'x="' + px('x') + '" y="' + px('y') + '" width="' + px('width') + '" height="' + px('height') + '"';
-      const rx = cs.rx === 'auto' ? cs.ry : cs.rx;
-      const ry = cs.ry === 'auto' ? cs.rx : cs.ry;
-      if (rx !== 'auto') {
-        g += ' rx="' + num(parseFloat(rx)) + '" ry="' + num(parseFloat(ry)) + '"';
+      const r = radii(cs);
+      if (r) {
+        g += ' rx="' + num(r[0]) + '" ry="' + num(r[1]) + '"';
       }
     }
     else if (tag === 'circle') {
       g = 'cx="' + px('cx') + '" cy="' + px('cy') + '" r="' + px('r') + '"';
     }
     else if (tag === 'ellipse') {
-      const rx = cs.rx === 'auto' ? cs.ry : cs.rx;
-      const ry = cs.ry === 'auto' ? cs.rx : cs.ry;
-      g = 'cx="' + px('cx') + '" cy="' + px('cy') + '" rx="' + num(parseFloat(rx)) + '" ry="' + num(parseFloat(ry)) + '"';
+      const r = radii(cs) || [0, 0];
+      g = 'cx="' + px('cx') + '" cy="' + px('cy') + '" rx="' + num(r[0]) + '" ry="' + num(r[1]) + '"';
     }
     else if (tag === 'line') {
       g = ['x1', 'y1', 'x2', 'y2'].map(k => k + '="' + escapeAttr(el.getAttribute(k) || '0') + '"').join(' ');
@@ -285,10 +303,8 @@
     }
     let stops = '';
     for (const s of g.querySelectorAll('stop')) {
-      const cs = getComputedStyle(s);
-      const c = parseColor(cs.stopColor) || [0, 0, 0, 1];
-      stops += '<stop offset="' + escapeAttr(s.getAttribute('offset') || '0') + '" stop-color="' + hexColor(c) +
-               '" stop-opacity="' + num(c[3] * +cs.stopOpacity * alpha) + '"/>';
+      const [color, opacity] = stopPaint(s, alpha);
+      stops += '<stop offset="' + escapeAttr(s.getAttribute('offset') || '0') + '" stop-color="' + color + '" stop-opacity="' + num(opacity) + '"/>';
     }
     return '<' + g.tagName + ' ' + a + '>' + stops + '</' + g.tagName + '>';
   }
@@ -304,6 +320,7 @@
     // 図の左上を原点とする CSS px への変換。
     const origin = new DOMMatrix([1, 0, 0, 1, -box.left, -box.top]);
     const toRoot = el => origin.multiply(el.getScreenCTM());
+    const opacityOf = opacityResolver(svg);
     let defs = '';
     const gradients = new Map();
     const gradientRef = (id, alpha) => {
@@ -324,12 +341,12 @@
       if (el.closest('defs')) {
         continue;
       }
-      const opacity = effectiveOpacity(el, svg);
+      const opacity = opacityOf(el);
       if (opacity === 0) {
         continue;
       }
       if (el.tagName === 'text') {
-        const runs = textRuns(el, svg, toRoot);
+        const runs = textRuns(el, toRoot, opacityOf);
         if (runs === null) {
           return null;
         }
@@ -389,9 +406,9 @@
   // クリップボード用。Office や Inkscape は CSS 変数と color-mix() を読めないので、ブラウザが解決した値を
   // 属性に書き込み、style と class を外す。
   // opacity・display・visibility は継承しないので、<g> に style で付いたものも要素ごとに書き込む。
-  const PAINT_PROPS = ['fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray',
-                       'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'opacity',
-                       'display', 'visibility'];
+  // fill-opacity・stroke-opacity は色の不透明度と掛け合わせて fill・stroke と一緒に書く。
+  const PAINT_PROPS = ['fill', 'fill-rule', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap',
+                       'stroke-linejoin', 'stroke-miterlimit', 'opacity', 'display', 'visibility'];
   const TEXT_PROPS = ['font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration-line'];
   // rgb()/rgba() と color(srgb ...) は SVG 1.1 の読み手が読めないことがあるので #rrggbb と不透明度に分ける。
   function splitColor(value) {
@@ -408,9 +425,6 @@
         el.setAttribute(prop, color);
         el.setAttribute(prop + '-opacity', String(alpha * +cs.getPropertyValue(prop + '-opacity')));
       }
-      else if (prop === 'fill-opacity' || prop === 'stroke-opacity') {
-        // 色の不透明度と掛け合わせて fill / stroke と一緒に書いた。
-      }
       else if (prop === 'text-decoration-line') {
         if (value !== 'none') {
           el.setAttribute('text-decoration', value);
@@ -420,13 +434,10 @@
         el.setAttribute(prop, value);
       }
     }
-    if (el instanceof SVGRectElement) {
-      for (const prop of ['rx', 'ry']) {
-        const value = cs.getPropertyValue(prop);
-        if (value !== 'auto') {
-          el.setAttribute(prop, parseFloat(value));
-        }
-      }
+    const r = el instanceof SVGRectElement ? radii(cs) : null;
+    if (r) {
+      el.setAttribute('rx', r[0]);
+      el.setAttribute('ry', r[1]);
     }
   }
   function bakeSvg(svgText, isDark, locale) {
@@ -444,10 +455,9 @@
           bakeElement(el);
         }
         else if (el instanceof SVGStopElement) {
-          const cs = getComputedStyle(el);
-          const [color, alpha] = splitColor(cs.stopColor);
+          const [color, opacity] = stopPaint(el, 1);
           el.setAttribute('stop-color', color);
-          el.setAttribute('stop-opacity', String(alpha * +cs.stopOpacity));
+          el.setAttribute('stop-opacity', String(opacity));
         }
       }
       // <g> などに残る var() は、子に解決済みの値を書いたので継承させなくてよい。

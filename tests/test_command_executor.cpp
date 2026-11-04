@@ -203,6 +203,40 @@ TEST_F(CommandExecutorIntegrationTest, FixedBrushesDrawWithOwnColor)
     EXPECT_EQ(PixelAt(13, 1), 0xFFFFFFFFu);
 }
 
+// 図のコマンドリストは dest の幅に合わせて縮めて描き、後のコマンドの変換を元に戻す。
+TEST_F(CommandExecutorIntegrationTest, DiagramCommandListIsScaledToDest)
+{
+    ComPtr<ID2D1DeviceContext> dc;
+    ASSERT_HRESULT_SUCCEEDED(rt_.As(&dc));
+    ComPtr<ID2D1CommandList> list;
+    ComPtr<ID2D1SolidColorBrush> red;
+    ASSERT_HRESULT_SUCCEEDED(dc->CreateCommandList(&list));
+    ASSERT_HRESULT_SUCCEEDED(dc->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Red), &red));
+    ComPtr<ID2D1Image> target;
+    dc->GetTarget(&target);
+    dc->SetTarget(list.Get());
+    dc->BeginDraw();
+    dc->FillRectangle(D2D1::RectF(0, 0, 20, 20), red.Get());
+    ASSERT_HRESULT_SUCCEEDED(dc->EndDraw());
+    ASSERT_HRESULT_SUCCEEDED(list->Close());
+    dc->SetTarget(target.Get());
+
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Link, D2D1::ColorF(D2D1::ColorF::Blue) } });
+    DrawCommandList cmds;
+    // 幅 20 で記録した図を 10 の枠に描く
+    cmds.emplace_back(DrawDiagramCmd{ list.Get(), D2D1::RectF(4, 4, 14, 14), 20.0f });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(20, 20, 24, 24), BrushId::Link });
+    rt_->BeginDraw();
+    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
+    ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
+    EXPECT_EQ(PixelAt(2, 2), 0xFFFFFFFFu);
+    EXPECT_EQ(PixelAt(5, 5), 0xFFFF0000u);
+    EXPECT_EQ(PixelAt(13, 13), 0xFFFF0000u);
+    EXPECT_EQ(PixelAt(16, 16), 0xFFFFFFFFu);
+    EXPECT_EQ(PixelAt(21, 21), 0xFF0000FFu);
+}
+
 // opacity は描いた後にブラシへ残らない。
 TEST_F(CommandExecutorIntegrationTest, RoundedRectOpacityIsRestored)
 {

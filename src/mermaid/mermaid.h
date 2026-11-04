@@ -7,7 +7,7 @@
 #include "mermaid_util.h"
 #include "utility.h"
 #include "worker_latch.h"
-#include <d2d1_1.h>
+#include <d2d1_3.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -19,7 +19,6 @@
 #include <functional>
 #include <deque>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -86,6 +85,8 @@ public:
     // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。
     void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
+    // 図の保存・コピーに使う PNG。描画命令の図は今その場で描く (大きな図は画素数の上限まで縮める)。作れなければ null。
+    PngBytes DiagramPng(const DiagramEntry& entry);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
     static float EstimateWorkerDpr() noexcept;
@@ -235,13 +236,16 @@ private:
         std::vector<uint8_t> alpha;
         UINT alpha_width = 0;
         UINT alpha_height = 0;
-        PngBytes png;
+        // ディスクキャッシュに書く・から読んだ PNG か描画命令 (UTF-8)。PNG なら保存・コピーにも使う。
+        PngBytes bytes;
+        // 描画命令を worker で解析したもの。UI で commands にする。
+        std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
         // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
         Microsoft::WRL::ComPtr<IStream> captured_stream;
-        // ページが書き出した図の描画命令 (DrawResult の payload)。worker で解析して描き、bitmap と png にしたら解放する。
+        // ページが書き出した図の描画命令 (DrawResult の payload)。worker で解析して parsed と png にしたら解放する。
         std::wstring drawing;
-        // WebView2 で描画した直後の PNG (キャプチャか描画命令から描いたもの)。成功時はディスクキャッシュへ書き出す。
-        bool captured = false;
+        // ページから届いたばかりの結果 (キャプチャか描画命令)。成功時はディスクキャッシュへ書き出し、失敗は確定させる。
+        bool fresh = false;
         DWORD read_error = 0;
         // 投入後に disk_drop_gen_ が進んだので読まずに返した。
         bool dropped = false;
@@ -389,7 +393,11 @@ private:
     void OnRenderResult(Worker& w, const mermaid_util::RenderSize& size);
     void OnDrawResult(Worker& w, std::wstring_view payload);
     // worker で呼ぶ。
-    void RasterizeJob(DiskLoad& job);
+    void ParseDrawingJob(DiskLoad& job);
+    // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
+    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
+    // 図の文字を組む共有ファクトリ。図の無い文書の起動で読み込まないよう、最初に使うときに作る。
+    IDWriteFactory* WriteFactory();
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, DiagramResult result);
@@ -438,10 +446,9 @@ private:
     // DropQueued / Shutdown で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };
 
-    // 図の描画命令を worker で描くためのファクトリ。最初に描くときに作る (図の無い文書の起動で読み込まない)。
-    std::once_flag raster_factories_once_;
-    Microsoft::WRL::ComPtr<ID2D1Factory1> raster_d2d_;
-    Microsoft::WRL::ComPtr<IDWriteFactory> raster_dw_;
+    // 描画命令を記録する DeviceContext。描画先と同じデバイスから作り、描画先が変わったら作り直す。
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> dw_factory_;
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

@@ -63,6 +63,8 @@ constexpr bool IsPlausibleDpr(float dpr) noexcept
 // キャプチャする物理ピクセルが max_side_px (ビットマップの最大辺) と 1 枚あたりの確保量の上限に収まるか。
 // 収まらない図はビットマップを作れず、描き直しを繰り返すことになる。
 bool FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept;
+// 1 枚の画素数の上限。
+inline constexpr double kMaxCapturePixels = 64.0 * 1024 * 1024;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
 // 切り詰める。切り詰め時は末尾に U+2026 を付ける。
@@ -141,6 +143,8 @@ struct DiagramDrawing {
 // 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 長さは UTF-16 の単位。ページは XSS で偽れるので、欠け・余り・ありえない値があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
+// メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
+size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
 
 // まとめて描いたインライン数式 1 つの箱 (CSS px、ページの左上が原点)。baseline は箱の上端から。幅 0 は描けなかった数式。
 struct MathBox {

@@ -1,8 +1,9 @@
 #include "diagram_raster.h"
+#include "theme_palette.h"
 #include "wic_util.h"
 #include <d2d1_3.h>
 #include <dwrite.h>
-#include <array>
+#include <cmath>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -15,13 +16,19 @@ namespace {
 
 constexpr std::wstring_view kDefaultFamily = L"Segoe UI"sv;
 
-// 本文 (Theme) と同じ書体に読み替える。
+// 総称は本文 (Theme) と同じ書体に読み替える。等幅は Theme と同じく候補から入っているものを選ぶ。
 constexpr std::pair<std::wstring_view, std::wstring_view> kGenericFamilies[]{
     { L"sans-serif"sv, kDefaultFamily },
     { L"system-ui"sv, kDefaultFamily },
     { L"serif"sv, L"Times New Roman"sv },
-    { L"monospace"sv, L"Consolas"sv },
 };
+
+bool HasFamily(IDWriteFontCollection* fonts, const wchar_t* name) noexcept
+{
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    return fonts && SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists;
+}
 
 std::wstring_view TrimFamily(std::wstring_view s) noexcept
 {
@@ -77,7 +84,8 @@ private:
     std::vector<Entry> entries_;
 };
 
-void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, TextFormats& formats, ID2D1SolidColorBrush* brush, const mermaid_util::DrawingText& t)
+void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, TextFormats& formats, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base,
+             const mermaid_util::DrawingText& t)
 {
     IDWriteTextFormat* format = formats.Get(t);
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
@@ -89,16 +97,16 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, TextFormats& formats, I
         layout->SetUnderline(TRUE, { 0, static_cast<UINT32>(t.text.size()) });
     }
     // ページは 1 行ずつ送るので、ベースラインは最初の行のものを使う。
-    std::array<DWRITE_LINE_METRICS, 1> line{};
+    DWRITE_LINE_METRICS line{};
     UINT32 lines = 0;
-    layout->GetLineMetrics(line.data(), static_cast<UINT32>(line.size()), &lines);
+    layout->GetLineMetrics(&line, 1, &lines);
     if (lines == 0) {
         return;
     }
     const auto& m = t.transform;
-    dc->SetTransform(D2D1::Matrix3x2F(m[0], m[1], m[2], m[3], m[4], m[5]));
+    dc->SetTransform(D2D1::Matrix3x2F(m[0], m[1], m[2], m[3], m[4], m[5]) * base);
     brush->SetColor(D2D1::ColorF(t.rgb, t.alpha));
-    dc->DrawTextLayout(D2D1::Point2F(t.x, t.y - line[0].baseline), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    dc->DrawTextLayout(D2D1::Point2F(t.x, t.y - line.baseline), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
 }
 
 } // namespace
@@ -112,25 +120,31 @@ std::wstring ResolveFontFamily(IDWriteFontCollection* fonts, std::wstring_view c
         if (name.empty()) {
             continue;
         }
+        if (name == L"monospace"sv) {
+            for (const wchar_t* mono : theme_palette::kMonospaceFontCandidates) {
+                if (HasFamily(fonts, mono)) {
+                    return mono;
+                }
+            }
+            continue;
+        }
         for (const auto& [generic, family] : kGenericFamilies) {
             if (name == generic) {
                 return std::wstring{ family };
             }
         }
-        const std::wstring candidate{ name };
-        UINT32 index = 0;
-        BOOL exists = FALSE;
-        if (fonts && SUCCEEDED(fonts->FindFamilyName(candidate.c_str(), &index, &exists)) && exists) {
+        if (std::wstring candidate{ name }; HasFamily(fonts, candidate.c_str())) {
             return candidate;
         }
     }
     return std::wstring{ kDefaultFamily };
 }
 
-Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory1* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                                    const mermaid_util::DiagramDrawing& drawing, UINT width, UINT height,
-                                                    const wchar_t* locale)
+Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                                    const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale)
 {
+    const auto width = static_cast<UINT>(std::ceil(drawing.size.width * dpr));
+    const auto height = static_cast<UINT>(std::ceil(drawing.size.height * dpr));
     if (!d2d || !dw || !wic || width == 0 || height == 0) {
         return nullptr;
     }
@@ -138,7 +152,7 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory1* d2d, IDWriteF
     if (FAILED(wic->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap))) {
         return nullptr;
     }
-    const float dpi = 96.0f * drawing.size.dpr;
+    const float dpi = 96.0f * dpr;
     const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                                                     D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
     Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
@@ -146,18 +160,29 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory1* d2d, IDWriteF
     if (FAILED(d2d->CreateWicBitmapRenderTarget(bitmap.Get(), props, &rt)) || FAILED(rt.As(&dc))) {
         return nullptr;
     }
-    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-    if (FAILED(dw->GetSystemFontCollection(&fonts)) || FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(0), &brush))) {
+    dc->BeginDraw();
+    const bool ok = DrawDiagram(dc.Get(), dw, wic, drawing, locale);
+    if (FAILED(dc->EndDraw()) || !ok) {
         return nullptr;
     }
+    return bitmap;
+}
 
+bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
+                 const wchar_t* locale)
+{
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    if (FAILED(dw->GetSystemFontCollection(&fonts)) || FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(drawing.background), &brush))) {
+        return false;
+    }
+    D2D1::Matrix3x2F base;
+    dc->GetTransform(&base);
+    // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。背景はキャプチャと同じく塗る。
+    dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.size.width, drawing.size.height), brush.Get());
     TextFormats formats(dw, fonts.Get(), locale);
     bool ok = true;
-    dc->BeginDraw();
-    // 表示のときに縮めて描くので、ClearType の色にじみを持ち込まない。
-    dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-    dc->Clear(D2D1::ColorF(drawing.background));
     for (const auto& layer : drawing.layers) {
         if (!layer.shapes_svg.empty()) {
             const std::span bytes{ reinterpret_cast<const uint8_t*>(layer.shapes_svg.data()), layer.shapes_svg.size() };
@@ -167,16 +192,13 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory1* d2d, IDWriteF
                 ok = false;
                 break;
             }
-            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+            dc->SetTransform(base);
             dc->DrawSvgDocument(doc.Get());
         }
         for (const auto& t : layer.texts) {
-            DrawRun(dc.Get(), dw, formats, brush.Get(), t);
+            DrawRun(dc, dw, formats, brush.Get(), base, t);
         }
     }
-    dc->SetTransform(D2D1::Matrix3x2F::Identity());
-    if (FAILED(dc->EndDraw()) || !ok) {
-        return nullptr;
-    }
-    return bitmap;
+    dc->SetTransform(base);
+    return ok;
 }

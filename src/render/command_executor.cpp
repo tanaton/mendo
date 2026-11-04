@@ -289,6 +289,8 @@ void InlineMathMasks::EvictPages(size_t budget)
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks& math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
+    // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
 
     // clang-format off
     const auto draw = overloaded{
@@ -323,6 +325,17 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
         },
         [&](const DrawBitmapCmd& c) {
             rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
+        },
+        [&](const DrawDiagramCmd& c) {
+            if (c.width <= 0.0f || (!dc && FAILED(rt->QueryInterface(IID_PPV_ARGS(&dc))))) {
+                return;
+            }
+            D2D1::Matrix3x2F base;
+            dc->GetTransform(&base);
+            const float scale = (c.dest.right - c.dest.left) / c.width;
+            dc->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(c.dest.left, c.dest.top) * base);
+            dc->DrawImage(c.commands);
+            dc->SetTransform(base);
         },
         [&](const FillEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {

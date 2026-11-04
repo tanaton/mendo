@@ -1,11 +1,14 @@
 #include <gtest/gtest.h>
 #include "diagram_raster.h"
+#include "layout_cache.h"
 #include "test_helpers.h"
+#include "theme_palette.h"
 #include "wic_util.h"
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,9 +25,9 @@ protected:
         ASSERT_NE(wic_, nullptr);
     }
 
-    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing, UINT width, UINT height)
+    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing)
     {
-        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, width, height, L"ja-jp");
+        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, drawing.size.dpr, L"ja-jp");
     }
 
     // 32bpp PBGRA の 1 画素を 0xAARRGGBB で返す。
@@ -70,7 +73,7 @@ TEST_F(DiagramRasterTest, DrawsShapesScaledByDprOnOpaqueBackground)
         .layers = { { .shapes_svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10">)svg"
                                     R"svg(<rect transform="matrix(1 0 0 1 10 0)" x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>)svg" } },
     };
-    const auto bitmap = Rasterize(drawing, 40, 20);
+    const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(Pixel(bitmap.Get(), 5, 5), 0xFF1E1E1Eu);
     // CSS px の x=10〜20 は物理 px の 20〜40
@@ -89,7 +92,7 @@ TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
         .background = 0xFFFFFF,
         .layers = { { .texts = { text } } },
     };
-    const auto bitmap = Rasterize(drawing, 100, 40);
+    const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     // 変換で 20px 下げたので上半分には何も無く、ベースライン (y=36) の上に字がある
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 100, 18, 0xFFFFFFFFu), 0);
@@ -108,7 +111,7 @@ TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
                             R"svg(<rect x="0" y="0" width="100" height="40" fill="#00ff00"/></svg>)svg" },
         },
     };
-    const auto bitmap = Rasterize(drawing, 100, 40);
+    const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 100, 40, 0xFF00FF00u), 0);
 }
@@ -120,7 +123,7 @@ TEST_F(DiagramRasterTest, ReturnsNullForMalformedSvg)
         .size = { 10.0f, 10.0f, 1.0f },
         .layers = { { .shapes_svg = "<svg" } },
     };
-    EXPECT_EQ(Rasterize(drawing, 10, 10), nullptr);
+    EXPECT_EQ(Rasterize(drawing), nullptr);
 }
 
 TEST_F(DiagramRasterTest, ResolvesFirstInstalledFamily)
@@ -128,8 +131,48 @@ TEST_F(DiagramRasterTest, ResolvesFirstInstalledFamily)
     ComPtr<IDWriteFontCollection> fonts;
     ASSERT_HRESULT_SUCCEEDED(dw_->GetSystemFontCollection(&fonts));
     EXPECT_EQ(ResolveFontFamily(fonts.Get(), L"\"No Such Font 12345\", 'Arial', sans-serif"), L"Arial");
-    EXPECT_EQ(ResolveFontFamily(fonts.Get(), L"No Such Font 12345, monospace"), L"Consolas");
+    // 等幅は本文と同じく、候補のうち入っている最初のもの
+    const auto mono = std::ranges::find_if(theme_palette::kMonospaceFontCandidates, [&](const wchar_t* name) {
+        UINT32 index = 0;
+        BOOL exists = FALSE;
+        return SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists;
+    });
+    ASSERT_NE(mono, std::end(theme_palette::kMonospaceFontCandidates));
+    EXPECT_EQ(ResolveFontFamily(fonts.Get(), L"No Such Font 12345, monospace"), *mono);
     EXPECT_EQ(ResolveFontFamily(fonts.Get(), L" sans-serif "), L"Segoe UI");
     EXPECT_EQ(ResolveFontFamily(fonts.Get(), L""), L"Segoe UI");
     EXPECT_EQ(ResolveFontFamily(fonts.Get(), L"No Such Font 12345"), L"Segoe UI");
+}
+
+// 描画命令の図はビットマップを持たないので、画面外へ出ても追い出さない (見えたときに記録し直さない)。
+// デバイスロストでは旧デバイスのコマンドリストを捨てる。
+TEST_F(DiagramRasterTest, VectorDiagramSurvivesOffscreenEvictionButNotDeviceLoss)
+{
+    ComPtr<IWICBitmap> bitmap;
+    ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(4, 4, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap));
+    ComPtr<ID2D1RenderTarget> rt;
+    ASSERT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(bitmap.Get(), D2D1::RenderTargetProperties(), &rt));
+    ComPtr<ID2D1DeviceContext> dc;
+    ASSERT_HRESULT_SUCCEEDED(rt.As(&dc));
+    ComPtr<ID2D1CommandList> list;
+    ASSERT_HRESULT_SUCCEEDED(dc->CreateCommandList(&list));
+
+    DiagramEntry entry;
+    entry.commands = list;
+    entry.width = 10.0f;
+    entry.height = 10.0f;
+    entry.drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    EXPECT_TRUE(entry.HasImage());
+    EXPECT_TRUE(entry.CanExport());
+    EXPECT_FALSE(entry.NeedsRender());
+
+    entry.EvictBitmap();
+    EXPECT_TRUE(entry.HasImage());
+    EXPECT_TRUE(entry.CanExport());
+
+    entry.EvictForRetry();
+    EXPECT_FALSE(entry.HasImage());
+    EXPECT_FALSE(entry.CanExport());
+    EXPECT_TRUE(entry.NeedsRender());
+    EXPECT_EQ(entry.width, 10.0f);
 }

@@ -1440,9 +1440,9 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramCopy:
     case OverlayButton::DiagramSave: {
-        // ボタンは DiagramEntry::png があるときだけ出す。
+        // ボタンは保存・コピーの元 (DiagramEntry::CanExport) があるときだけ出す。描画命令の図はここで PNG に描く。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
-        const PngBytes png = diagram ? diagram->png : nullptr;
+        const PngBytes png = diagram ? mermaid_renderer_.DiagramPng(*diagram) : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
             clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(state_), dark);
         }

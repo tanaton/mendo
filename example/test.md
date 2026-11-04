@@ -1582,7 +1582,7 @@ sequenceDiagram
         JS-->>WV: SVG文字列
         alt 描画命令に書き出せる図
             WV-->>MR: 描画命令 (draw-result)
-            MR->>WIC: worker で D2D の SVG と DirectWrite で描き、PNG にする (RasterizeDiagram)
+            MR->>MR: worker で解析し (ParseDrawing)、UI でコマンドリストに記録する (RecordDrawing)
         else 数式のラベルなど書き出せない図
             WV-->>MR: 寸法 (render-result)
             MR->>WV: CapturePreview(PNG)
@@ -3220,7 +3220,9 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `mermaid.html` が SVG のルートに CSS 変数として書き込み、拡大表示にもそのまま渡す。
 
-表示用の図はキャプチャせず、ページが SVG を DOM に入れてブラウザが解決した値を描画命令（`draw-result`、`mermaid_util::ParseDrawing`）に書き出し、worker が `RasterizeDiagram` で描く。図形は色・不透明度・変換を属性に確定させた SVG にして `ID2D1SvgDocument` で、文字は D2D の SVG が描かないので 1 行ずつの並びにして DirectWrite で描く。文字の位置はブラウザが置いた位置（`getStartPositionOfChar`）をそのまま使い、書体は本文と同じ Segoe UI にロケールで決まるフォールバック先を明示するので、DirectWrite の字幅との差は 1389 本の並びで平均 0.02px になる（明示しないと日本語のフォールバック先が分かれて最大 86px ずれる）。図形が前の文字に重なるときだけ層を分け、文書の順の重なりを保つ。D2D の SVG はグラデーションで塗るときの塗りの不透明度を無視するので、止まりの不透明度に掛けて書き出す。書き出せない図（数式のラベルの `<foreignObject>` など）はこれまでどおりキャプチャで描く。キャプチャ（1 図 60ms ほどの待ち）が無くなり、起動から図 4 個がそろうまでが 739 → 609ms、test.md の図 8〜11 で 915 → 685ms、sankey を含む 4 個で 795 → 543ms になった（キャッシュなし、3 回交互の中央値。WebView2 の起動を含む）。mendo と WebView2 のメモリの合計はほぼ変わらない（WebView2 が 3〜26MB 減り、描くファクトリと書体の分だけ mendo が増える）。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、ブラウザが解決した値を属性に書き込んで渡す。
+表示用の図はキャプチャせず、ページが SVG を DOM に入れてブラウザが解決した値を描画命令（`draw-result`、`mermaid_util::ParseDrawing`）に書き出し、worker が解析して、UI スレッドが `DrawDiagram` で `ID2D1CommandList` に記録する（`MermaidRenderer::RecordDrawing`。描画中の Renderer とは別の DeviceContext を同じデバイスから作って使う）。図はビットマップを持たず、毎フレームそのコマンドリストを枠の幅に合わせて縮めて描く（`DrawDiagramCmd`）。図形は色・不透明度・変換を属性に確定させた SVG にして `ID2D1SvgDocument` で、文字は D2D の SVG が描かないので 1 行ずつの並びにして DirectWrite で描く。文字の位置はブラウザが置いた位置（`getStartPositionOfChar`）をそのまま使い、書体は本文と同じ Segoe UI にロケールで決まるフォールバック先を明示するので、DirectWrite の字幅との差は 1389 本の並びで平均 0.02px になる（明示しないと日本語のフォールバック先が分かれて最大 86px ずれる）。図形が前の文字に重なるときだけ層を分け、文書の順の重なりを保つ。D2D の SVG はグラデーションで塗るときの塗りの不透明度を無視するので、止まりの不透明度に掛けて書き出す。書き出せない図（数式のラベルの `<foreignObject>` など）はこれまでどおりキャプチャで描く。キャプチャ（1 図 60ms ほどの待ち）が無くなり、起動から図 4 個がそろうまでが 739 → 609ms、test.md の図 8〜11 で 915 → 685ms、sankey を含む 4 個で 795 → 543ms になった（キャッシュなし、3 回交互の中央値。WebView2 の起動を含む）。
+
+ベクタのまま持つのは、ビットマップがメモリの大半を占めるためである。図 30 個を持つと、ビットマップ（DPR 1.5）では GPU +161MB・private +125MB、コマンドリストでは GPU +0.8MB・private +4.3MB だった。代わりに毎フレーム描く手間が 1 図 0.1〜1.7ms（多くは 0.15〜0.4ms、ビットマップは 0.01〜0.11ms）かかる。mendo と WebView2 の合計は、図 4 個の文書で 221 → 201MB、test.md の図 8〜11 で 277 → 222MB、200 ノードで 243 → 179MB になった。どの倍率でもくっきり描け、ビットマップの大きさの上限も無くなる（1000 メッセージのシーケンス図も描ける）。コマンドリストは小さいので画面外へ出ても追い出さず、デバイスロストでは捨てて、ディスクキャッシュの描画命令から WebView2 を使わずに記録し直す。ディスクキャッシュには描画命令を UTF-8 で置き（図 1 個 平均 4KB、同じ図の PNG の約 1/20）、読むときは先頭のバイトで PNG（キャプチャした図）と見分ける。保存・コピーの PNG は、そのときに `RasterizeDiagram` で CPU で描く。クリップボードの SVG は、Office や Inkscape が CSS 変数と `color-mix()` を読めないので、ブラウザが解決した値を属性に書き込んで渡す。
 
 ### 6.5 MSVC ビルド最適化
 

@@ -799,8 +799,14 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
         return;
 
     case NodeType::Diagram:
-        if (diagram && diagram->bitmap) {
-            cmds_->emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top) });
+        if (diagram && diagram->HasImage()) {
+            const auto dest = MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top);
+            if (diagram->commands) {
+                cmds_->emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
+            }
+            else {
+                cmds_->emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), dest });
+            }
             GenOverlayButtons(node, diagram, x, cw, entry_text_top, node_index);
         }
         else {
