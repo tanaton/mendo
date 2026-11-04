@@ -144,7 +144,7 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
 {
     constexpr size_t kCellsPerChunk = 8;
-    return kCellsPerChunk / std::max<size_t>(col_count, 1);
+    return std::max<size_t>(kCellsPerChunk / std::max<size_t>(col_count, 1), 1);
 }
 
 // セル layout の無い行は高さを見積もるだけで、chunk の取得のほうが重いので粗く分ける。行チャンクのままだと
@@ -549,14 +549,6 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     }
 }
 
-void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
-{
-    const auto& ctx = Context();
-    for (size_t c = 0; c < tbl.col_count; c++) {
-        tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, tbl, tl, r, c);
-    }
-}
-
 float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
@@ -613,9 +605,13 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     const float base_row_height = layout::TableBaseRowHeight(*theme_);
     std::vector<float> row_heights(rows.size());
     ParallelFor(scheduler_, rows.size(), TableRowsPerChunk(tl.col_count), [&](size_t begin, size_t end) {
+        const auto& ctx = Context();
         for (size_t k = begin; k < end; k++) {
-            BuildRowCells(tbl, tl, rows[k]);
-            row_heights[k] = MeasureRowHeight(tl, tbl, rows[k], base_row_height);
+            const size_t r = rows[k];
+            for (size_t c = 0; c < tbl.col_count; c++) {
+                tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, tbl, tl, r, c);
+            }
+            row_heights[k] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
     });
 

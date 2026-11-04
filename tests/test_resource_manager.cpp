@@ -55,7 +55,7 @@ public:
     void RequestSvg(std::string_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
     {
         if (callback) {
-            callback(std::wstring{}, false);
+            callback({});
         }
     }
 

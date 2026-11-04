@@ -149,9 +149,11 @@ void App::ShareRenderTarget()
 void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
-    // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
-    // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
+    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。ApplyCachedImages は
+    // ビットマップの残るノードを飛ばすため、LoadImages の前に破棄する必要がある。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    // 再試行の間に届いて受け箱に残したデコードの結果を入れてから、足りない画像を頼む。
+    image_loader_.ProcessCompletedDecodes();
     resource_manager_.LoadImages();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
     mermaid_renderer_.ProcessJobResults();
@@ -388,10 +390,6 @@ void App::RebuildInlineMathPlan()
 
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
 {
-    // 取り消すのは終了するときと ForgetInlineMath のときだけで、どちらも結果を使わない。
-    if (result.cancelled) {
-        return;
-    }
     inline_math_plan_.FinishChunk(chunk, chunk_key);
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
@@ -1129,7 +1127,7 @@ void App::ApplyZoom()
 void App::ToggleDarkMode()
 {
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
-    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
+    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ図の描画命令のみ古い扱いにする。
     state_.document.layout_cache.InvalidateDiagramBitmaps(state_.document.doc.GetDiagramNodeIndices());
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();

@@ -338,8 +338,8 @@ void On(ReduceContext& c, const OpenPathAction& a)
 
 void ScrollToHeading(AppState& state, int node_index)
 {
-    const auto target = MakeHeadingTopTarget(node_index, state.theme->heading_spacing_above);
-    ApplyScrollTarget(state, target.node, target.offset);
+    // 見出しを md ペインの上端から heading_spacing_above だけ下げて置く。
+    ApplyScrollTarget(state, node_index, -state.theme->heading_spacing_above);
 }
 
 void On(ReduceContext& c, const FilePaneDirectoryClickedAction& a)

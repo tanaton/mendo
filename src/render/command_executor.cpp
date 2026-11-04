@@ -107,7 +107,7 @@ public:
         }
         const bool split = !cmd_.syntax_tokens.empty() || std::isfinite(cmd_.cull_left);
         if (!split || !desc || !desc->clusterMap || effect) {
-            rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushFor(effect), mode);
+            rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushOr(BrushEffect::IdOf(effect)), mode);
             return S_OK;
         }
         DrawGlyphRunParts(x, y, mode, *run, *desc);
@@ -143,20 +143,15 @@ public:
         }
         const float s = math->scale;
         rt_->SetTransform(D2D1::Matrix3x2F::Scale(s, s) * D2D1::Matrix3x2F::Translation(x, y) * *D2D1::Matrix3x2F::ReinterpretBaseType(&transform_));
-        DrawMath(rt_, *drawing, 0.0f, drawing->height, BrushFor(effect));
+        DrawMath(rt_, *drawing, 0.0f, drawing->height, BrushOr(BrushEffect::IdOf(effect)));
         rt_->SetTransform(transform_);
         return S_OK;
     }
 
 private:
-    ID2D1Brush* BrushFor(IUnknown* effect) const noexcept
+    ID2D1Brush* BrushOr(BrushId id) const noexcept
     {
-        auto* brush = FixedBrush(brushes_, BrushEffect::IdOf(effect));
-        return brush ? brush : default_brush_;
-    }
-    ID2D1Brush* TokenBrush(SyntaxTokenType type) const noexcept
-    {
-        auto* brush = FixedBrush(brushes_, SyntaxBrushId(type));
+        auto* brush = FixedBrush(brushes_, id);
         return brush ? brush : default_brush_;
     }
 
@@ -210,7 +205,7 @@ private:
         auto it = std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
         for (; it != tokens.end() && it->start < run_end; ++it) {
             draw_until(glyph_at(std::max(it->start, run_begin)), default_brush_);
-            draw_until(glyph_at(std::min(it->start + it->length, run_end)), TokenBrush(it->type));
+            draw_until(glyph_at(std::min(it->start + it->length, run_end)), BrushOr(SyntaxBrushId(it->type)));
             if (past_end()) {
                 return;
             }
@@ -222,7 +217,7 @@ private:
         if (top + thickness < cmd_.cull_top || top > cmd_.cull_bottom) {
             return;
         }
-        rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushFor(effect));
+        rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushOr(BrushEffect::IdOf(effect)));
     }
 
     ID2D1RenderTarget* rt_;

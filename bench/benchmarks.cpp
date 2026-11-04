@@ -20,6 +20,7 @@
 #include "block_h_scroll.h"
 #include "command_generator.h"
 #include "d2d_util.h"
+#include "diagram_raster.h"
 #include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "doc_dwrite_bridge.h"
@@ -951,7 +952,7 @@ void BM_TocFrame(benchmark::State& state)
     DrawCommandList cmds;
     for (auto _ : state) {
         cmds.clear();
-        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
+        chrome::EmitSidePanes({ cmds, text_layouts }, {}, theme, sp);
         benchmark::DoNotOptimize(cmds.data());
     }
 }
@@ -974,7 +975,7 @@ void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
         TextLayoutCache text_layouts;
         text_layouts.SetFactory(factory);
         cmds.clear();
-        chrome::EmitSidePanes(cmds, text_layouts, fmts, theme, sp);
+        chrome::EmitSidePanes({ cmds, text_layouts }, fmts, theme, sp);
         for (const auto& cmd : cmds) {
             if (const auto* text = std::get_if<DrawTextLayoutCmd>(&cmd)) {
                 DWRITE_TEXT_METRICS metrics{};

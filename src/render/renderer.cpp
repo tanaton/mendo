@@ -48,10 +48,14 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
 {
-    EnsurePaneListFormats(PaneTarget::File, sp.Get(PaneTarget::File).zoom);
-    EnsurePaneListFormats(PaneTarget::Toc, sp.Get(PaneTarget::Toc).zoom);
+    // 隠れているペインの書式は描画で参照しないので作らない。
+    for (const PaneTarget target : { PaneTarget::File, PaneTarget::Toc }) {
+        if (const auto& pane = sp.Get(target); pane.show) {
+            EnsurePaneListFormats(target, pane.zoom);
+        }
+    }
     frame_cmds_.clear();
-    chrome::EmitTitleBar(frame_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.titlebar_text.Get(), app_icon_bitmap_.Get(), theme_->dark, titlebar);
+    chrome::EmitTitleBar({ frame_cmds_, text_layouts_ }, fmt_.ui_icon.Get(), fmt_.titlebar_text.Get(), app_icon_bitmap_.Get(), theme_->dark, titlebar);
     const auto& file_fmt = pane_list_fmt_[std::to_underlying(PaneTarget::File)];
     const auto& toc_fmt = pane_list_fmt_[std::to_underlying(PaneTarget::Toc)];
     const chrome::SidePaneFormats fmts{
@@ -62,34 +66,22 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
         .file_icon = file_fmt.icon.Get(),
         .item_fonts = pane_item_fonts_,
     };
-    chrome::EmitSidePanes(frame_cmds_, text_layouts_, fmts, *theme_, sp);
-}
-
-std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
-{
-    if (device_lost_) {
-        if (!CreateDevice()) {
-            return FrameResult::RetryLater;
-        }
-        return FrameResult::DeviceRecreated;
-    }
-    if (!rt()) {
-        return FrameResult::Done;
-    }
-
-    text_layouts_.BeginFrame();
-    PrepareChrome(titlebar, side_panes);
-    return std::nullopt;
+    chrome::EmitSidePanes({ frame_cmds_, text_layouts_ }, fmts, *theme_, sp);
 }
 
 Renderer::FrameResult Renderer::Render(const RenderParams& p)
 {
     MENDO_PROFILE("Render");
 
-    if (const auto early = BeginFrame(p.titlebar, p.side_panes)) {
-        return *early;
+    if (device_lost_) {
+        return CreateDevice() ? FrameResult::DeviceRecreated : FrameResult::RetryLater;
+    }
+    if (!rt()) {
+        return FrameResult::Done;
     }
 
+    text_layouts_.BeginFrame();
+    PrepareChrome(p.titlebar, p.side_panes);
     if (!p.loading_angle) {
         cmd_generator_.GenerateMdPane(frame_cmds_, p.md, DpiScaleFrom(dpi_));
     }
@@ -102,7 +94,15 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
     rt()->Clear(theme_->Color(BrushId::Background));
     ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_math);
 
-    return EndFrame();
+    const HRESULT hr = rt()->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        device_lost_ = true;
+    }
+    else if (SUCCEEDED(hr)) {
+        Present();
+    }
+    // 作り直しは次のフレームの冒頭に任せる。
+    return device_lost_ ? FrameResult::RedrawNow : FrameResult::Done;
 }
 
 void Renderer::GenOverlays(const RenderParams& p)
@@ -115,39 +115,26 @@ void Renderer::GenOverlays(const RenderParams& p)
     }
     else {
         if (p.can_go_back || p.can_go_forward) {
-            overlay::EmitNavButtons(frame_cmds_, text_layouts_, fmt_.nav_button.Get(), md_pane_rect, dark, p.can_go_back, p.can_go_forward, p.nav_hovered);
+            overlay::EmitNavButtons({ frame_cmds_, text_layouts_ }, fmt_.nav_button.Get(), md_pane_rect, dark, p.can_go_back, p.can_go_forward, p.nav_hovered);
         }
         if (p.gesture.trail) {
             GenGestureTrail(*p.gesture.trail);
         }
     }
     // 読み込み中もジェスチャーとトーストは出す。
-    overlay::EmitGestureOverlay(frame_cmds_, text_layouts_, fmt_.gesture_overlay.Get(), md_pane_rect, dark, p.gesture.direction);
-    overlay::EmitToast(frame_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast_message);
+    overlay::EmitGestureOverlay({ frame_cmds_, text_layouts_ }, fmt_.gesture_overlay.Get(), md_pane_rect, dark, p.gesture.direction);
+    overlay::EmitToast({ frame_cmds_, text_layouts_ }, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast_message);
     if (p.loading_angle) {
         return;
     }
     if (p.search_bar.visible) {
         const auto sbl = ComputeSearchBarLayout(md_pane_rect, !p.search_bar.query.empty());
         const auto input = MeasureSearchInput(text_layouts_, fmt_.search_input.Get(), p.search_bar, sbl.text_width());
-        overlay::EmitSearchBar(frame_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.search_count.Get(), sbl, p.search_bar, input);
+        overlay::EmitSearchBar({ frame_cmds_, text_layouts_ }, fmt_.ui_icon.Get(), fmt_.search_count.Get(), sbl, p.search_bar, input);
     }
     if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, p.md.scroll_y, ComputeTotalContentHeight(p.md.cache, theme_->margin_bottom), p.md.cache.HasDirtyNodes())) {
         frame_cmds_.push_back(*thumb);
     }
-}
-
-Renderer::FrameResult Renderer::EndFrame()
-{
-    const HRESULT hr = rt()->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
-        device_lost_ = true;
-    }
-    else if (SUCCEEDED(hr)) {
-        Present();
-    }
-    // 作り直しは次のフレームの BeginFrame に任せる。
-    return device_lost_ ? FrameResult::RedrawNow : FrameResult::Done;
 }
 
 void Renderer::GenGestureTrail(const std::vector<DipPoint>& points)
@@ -233,7 +220,7 @@ void Renderer::LoadAppIconBitmap()
     }
 }
 
-void Renderer::RecreateBrushes()
+void Renderer::OnThemeColorsChanged()
 {
     auto* const target = rt();
     if (!target) {

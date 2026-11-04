@@ -30,7 +30,8 @@ public:
     // 4: 描画命令の層に数式のラベルの数を足した。インライン数式の組の PNG は置かなくなった。
     // 5: WebView2 でキャプチャした図の PNG を置かなくなった。キーに DPR を混ぜない。
     // 6: ファイルの拡張子を .png から .drawing にした。
-    static constexpr uint32_t VERSION = 6;
+    // 7: 層の図形を <svg> の中身だけにして <defs> を図に 1 つ持ち、図形の SVG に初期値の属性を書かなくなった。
+    static constexpr uint32_t VERSION = 7;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();

@@ -67,13 +67,11 @@ private:
     // fit_width > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
     // 戻り値: 寸法がまだ無く原文のまま組んだインライン数式がある。
     bool ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float math_font_size, float fit_width) const;
-    // MeasureTableCells / BuildRowCells 共通のセル生成処理。空セルは null。
+    // MeasureTableCells / RestoreTableRows 共通のセル生成処理。空セルは null。
     Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, TableLayoutData& tl, size_t r, size_t c) const;
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅を tl.natural_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
     void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
-    // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
-    void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     // 戻り値はテーブル全体の高さ。
     float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
 

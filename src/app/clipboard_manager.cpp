@@ -152,19 +152,14 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         node.GetText(),
         md_width,
         dark,
-        [this, key, gen, dib = std::move(dib)](std::wstring_view svg, bool cancelled) mutable {
+        [this, key, gen, dib = std::move(dib)](std::string_view svg) mutable {
             copy_in_flight_ = false;
             if (gen != copy_generation_) {
                 return;
             }
-            // ズーム・リロード等で取り消された。「コピー中」のまま終わらせない。
-            if (cancelled) {
-                EmitCopyResult(false);
-                return;
-            }
             const bool ok = WriteClipboardDiagram(hwnd_, std::move(dib), svg);
             if (ok && !svg.empty()) {
-                svg_cache_.Insert(key, std::wstring{ svg });
+                svg_cache_.Insert(key, std::string{ svg });
             }
             EmitCopyResult(ok);
         }

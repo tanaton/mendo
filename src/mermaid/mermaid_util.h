@@ -69,10 +69,10 @@ struct DrawingMath {
         return transform == o.transform && x == o.x && y == o.y && font_size == o.font_size && rgb == o.rgb && alpha == o.alpha && tex == o.tex;
     }
 };
-// 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) で、
-// ID2D1SvgDocument が読める要素だけを使う。
+// 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) の <svg> の中身で、
+// ID2D1SvgDocument が読める要素だけを使う。<svg> と <defs> は描くときに付ける (層ごとに同じものを持たない)。
 struct DrawingLayer {
-    std::string shapes_svg;
+    std::string shapes;
     std::vector<DrawingText> texts;
     std::vector<DrawingMath> maths; // 文字の後に描く
 
@@ -84,12 +84,13 @@ struct DiagramDrawing {
     float width = 0.0f; // 図の大きさ (CSS px、切り上げ済み)
     float height = 0.0f;
     uint32_t background = 0; // 0xRRGGBB
+    std::string defs;        // 層の図形が参照する <defs> の中身 (グラデーション)
     std::vector<DrawingLayer> layers;
 
     bool operator==(const DiagramDrawing&) const = default;
 };
 // ディスクキャッシュに置く描画命令の書式。
-// "<幅>:<高さ>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並び、
+// "<幅>:<高さ>:<背景 (10 進)>:<defs の長さ>:<defs><層の数>:" に続けて、層ごとに "<図形の長さ>:<図形><文字の並びの数>:" と並び、
 // "<数式の数>:" と数式を置く。
 // 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。

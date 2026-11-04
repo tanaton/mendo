@@ -115,10 +115,7 @@ constexpr size_t ScanString(std::string_view text, size_t pos, char quote, bool 
     size_t i = pos + 1;
     while (i < text.size()) {
         if (handle_escape && text[i] == '\\') {
-            i += 2;
-            if (i > text.size()) {
-                i = text.size();
-            }
+            i = std::min(i + 2, text.size());
         }
         else if (text[i] == quote) {
             return i + 1;
@@ -556,7 +553,7 @@ void TokenizeRange(
             continue;
         }
 
-        // 1. 行コメント: //
+        // 行コメント: //
         if constexpr (Cfg.line_comment_slash) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
@@ -564,7 +561,7 @@ void TokenizeRange(
             }
         }
 
-        // 1b. アングルブロックコメント: <# #>（PowerShell）
+        // アングルブロックコメント: <# #>（PowerShell）
         if constexpr (Cfg.angle_block_comment) {
             if (c == '<' && i + 1 < text.size() && text[i + 1] == '#') {
                 emit_until(ScanBlockComment(text, i, '#', '>'), SyntaxTokenType::Comment);
@@ -572,7 +569,7 @@ void TokenizeRange(
             }
         }
 
-        // 1c. 長括弧: --[[ ]] コメントと [[ ]] 文字列（Lua）
+        // 長括弧: --[[ ]] コメントと [[ ]] 文字列（Lua）
         if constexpr (Cfg.lua_long_bracket) {
             const bool comment = c == '-' && i + 2 < text.size() && text[i + 1] == '-' && text[i + 2] == '[';
             if (comment || c == '[') {
@@ -598,7 +595,7 @@ void TokenizeRange(
             }
         }
 
-        // 2. ブロックコメント: /* */
+        // ブロックコメント: /* */
         if constexpr (Cfg.block_comment) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
                 emit_until(ScanBlockComment(text, i, '*', '/'), SyntaxTokenType::Comment);
@@ -606,7 +603,7 @@ void TokenizeRange(
             }
         }
 
-        // 3. プリプロセッサ: 行頭の#（C/C++）
+        // プリプロセッサ: 行頭の#（C/C++）
         if constexpr (Cfg.preprocessor) {
             if (c == '#' && at_line_start) {
                 emit_until(SkipToLogicalEol(text, i), SyntaxTokenType::Preprocessor);
@@ -614,7 +611,7 @@ void TokenizeRange(
             }
         }
 
-        // 3b. ダブルコロンコメント: 行頭の::（cmd）
+        // ダブルコロンコメント: 行頭の::（cmd）
         if constexpr (Cfg.double_colon_comment) {
             if (c == ':' && i + 1 < text.size() && text[i + 1] == ':' && at_line_start) {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
@@ -622,7 +619,7 @@ void TokenizeRange(
             }
         }
 
-        // 3c. REMコメント: 行頭のREM（cmd）
+        // REMコメント: 行頭のREM（cmd）
         if constexpr (Cfg.rem_comment) {
             if (at_line_start && ascii_util::istarts_with(text.substr(i), "rem") &&
                 (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
@@ -631,7 +628,7 @@ void TokenizeRange(
             }
         }
 
-        // 3d. ブロックコメント: 行頭の =begin（Ruby）
+        // ブロックコメント: 行頭の =begin（Ruby）
         if constexpr (Cfg.ruby_block_comment) {
             if (c == '=' && at_line_start && text.substr(i).starts_with("=begin") &&
                 (i + 6 >= text.size() || !IsIdentChar(text[i + 6]))) {
@@ -640,7 +637,7 @@ void TokenizeRange(
             }
         }
 
-        // 3e. 逐語的文字列: @"..." / @$"..."（C#）
+        // 逐語的文字列: @"..." / @$"..."（C#）
         if constexpr (Cfg.verbatim_at_string) {
             if (c == '@' && i + 1 < text.size()) {
                 const size_t quote = text[i + 1] == '$' ? i + 2 : i + 1;
@@ -651,7 +648,7 @@ void TokenizeRange(
             }
         }
 
-        // 3f. 複数行文字列の行: \\ から行末まで（Zig）
+        // 複数行文字列の行: \\ から行末まで（Zig）
         if constexpr (Cfg.backslash_line_string) {
             if (c == '\\' && i + 1 < text.size() && text[i + 1] == '\\') {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::String);
@@ -659,7 +656,7 @@ void TokenizeRange(
             }
         }
 
-        // 3g. 組み込み関数: @import 等（Zig）
+        // 組み込み関数: @import 等（Zig）
         if constexpr (Cfg.at_builtin) {
             if (c == '@' && i + 1 < text.size() && IsIdentStart(text[i + 1])) {
                 emit_until(SkipWhile(text, i + 1, IsIdentChar), SyntaxTokenType::Function);
@@ -667,7 +664,7 @@ void TokenizeRange(
             }
         }
 
-        // 4. トリプルクォート文字列
+        // トリプルクォート文字列
         if constexpr (Cfg.triple_quote != TripleQuote::None) {
             if ((c == '"' || c == '\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
                 const size_t e = Cfg.triple_quote == TripleQuote::CountedRaw && c == '"'
@@ -678,14 +675,14 @@ void TokenizeRange(
             }
         }
 
-        // 5. 文字列リテラル
+        // 文字列リテラル
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
-            // 生文字列 R"(...)" の R は識別子として step 8 で消費されるため、ここでは通常の文字列として扱う。
+            // 生文字列 R"(...)" の R は識別子として後の分岐で消費されるため、ここでは通常の文字列として扱う。
             emit_until(ScanString(text, i, c, false), SyntaxTokenType::String);
             continue;
         }
 
-        // 6. バッククォートテンプレートリテラル（JS）
+        // バッククォートテンプレートリテラル（JS）
         if constexpr (Cfg.backtick_string) {
             if (c == '`') {
                 emit_until(ScanString(text, i, '`', true, !Cfg.raw_backtick), SyntaxTokenType::String);
@@ -693,13 +690,13 @@ void TokenizeRange(
             }
         }
 
-        // 7. 数値
+        // 数値
         if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
             emit_until(ScanNumber(text, i), SyntaxTokenType::Number);
             continue;
         }
 
-        // 8. 識別子とキーワード
+        // 識別子とキーワード
         if (IsIdentStart(c)) {
             const size_t start = i;
             i = SkipWhile(text, i, IsIdentChar);
@@ -754,7 +751,7 @@ void TokenizeRange(
             continue;
         }
 
-        // 9. その他: Plain なのでトークンにしない
+        // その他: Plain なのでトークンにしない
         step_plain(c);
     }
 }
@@ -2704,68 +2701,37 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
+template <LexerConfig Cfg, class Tokens>
+bool Lex(std::string_view text, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
+{
+    TokenizeRange<Cfg>(text, 0, keywords, types, tokens);
+    return true;
+}
+
 // TokenizeRange で解析する言語なら解析して true を返す。
 template <class Tokens>
 bool TokenizeByLexerConfig(std::string_view text, SyntaxLanguage language, Tokens& tokens)
 {
     switch (language) {
-    case SyntaxLanguage::Cpp:
-        TokenizeRange<CPP_LEXER_CONFIG>(text, 0, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Python:
-        TokenizeRange<PYTHON_LEXER_CONFIG>(text, 0, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::JavaScript:
-        TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Go:
-        TokenizeRange<GO_LEXER_CONFIG>(text, 0, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Rust:
-        TokenizeRange<RUST_LEXER_CONFIG>(text, 0, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::TypeScript:
-        TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Bash:
-        TokenizeRange<BASH_LEXER_CONFIG>(text, 0, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::PowerShell:
-        TokenizeRange<PWSH_LEXER_CONFIG>(text, 0, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Cmd:
-        TokenizeRange<CMD_LEXER_CONFIG>(text, 0, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Json:
-        TokenizeRange<JSON_LEXER_CONFIG>(text, 0, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
-        return true;
-    case SyntaxLanguage::Java:
-        TokenizeRange<JAVA_LEXER_CONFIG>(text, 0, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::CSharp:
-        TokenizeRange<CSHARP_LEXER_CONFIG>(text, 0, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Kotlin:
-        TokenizeRange<KOTLIN_LEXER_CONFIG>(text, 0, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Swift:
-        TokenizeRange<SWIFT_LEXER_CONFIG>(text, 0, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Php:
-        TokenizeRange<PHP_LEXER_CONFIG>(text, 0, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Ruby:
-        TokenizeRange<RUBY_LEXER_CONFIG>(text, 0, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Sql:
-        TokenizeRange<SQL_LEXER_CONFIG>(text, 0, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Zig:
-        TokenizeRange<ZIG_LEXER_CONFIG>(text, 0, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
-        return true;
-    case SyntaxLanguage::Lua:
-        TokenizeRange<LUA_LEXER_CONFIG>(text, 0, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
-        return true;
+    case SyntaxLanguage::Cpp: return Lex<CPP_LEXER_CONFIG>(text, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+    case SyntaxLanguage::Python: return Lex<PYTHON_LEXER_CONFIG>(text, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+    case SyntaxLanguage::JavaScript: return Lex<JS_LEXER_CONFIG>(text, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+    case SyntaxLanguage::Go: return Lex<GO_LEXER_CONFIG>(text, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+    case SyntaxLanguage::Rust: return Lex<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+    case SyntaxLanguage::TypeScript: return Lex<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+    case SyntaxLanguage::Bash: return Lex<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+    case SyntaxLanguage::PowerShell: return Lex<PWSH_LEXER_CONFIG>(text, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+    case SyntaxLanguage::Cmd: return Lex<CMD_LEXER_CONFIG>(text, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+    case SyntaxLanguage::Json: return Lex<JSON_LEXER_CONFIG>(text, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+    case SyntaxLanguage::Java: return Lex<JAVA_LEXER_CONFIG>(text, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+    case SyntaxLanguage::CSharp: return Lex<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+    case SyntaxLanguage::Kotlin: return Lex<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+    case SyntaxLanguage::Swift: return Lex<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+    case SyntaxLanguage::Php: return Lex<PHP_LEXER_CONFIG>(text, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+    case SyntaxLanguage::Ruby: return Lex<RUBY_LEXER_CONFIG>(text, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+    case SyntaxLanguage::Sql: return Lex<SQL_LEXER_CONFIG>(text, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+    case SyntaxLanguage::Zig: return Lex<ZIG_LEXER_CONFIG>(text, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
+    case SyntaxLanguage::Lua: return Lex<LUA_LEXER_CONFIG>(text, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
     default:
         return false;
     }

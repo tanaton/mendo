@@ -187,9 +187,10 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
     std::string out;
     const auto out_it = std::back_inserter(out);
     // {} の浮動小数は最短の往復表記なので、wcstof で同じ値に読み戻せる。
-    std::format_to(out_it, "{}:{}:{}:{}:", drawing.width, drawing.height, drawing.background, drawing.layers.size());
+    std::format_to(out_it, "{}:{}:{}:{}:{}{}:", drawing.width, drawing.height, drawing.background, Utf16Length(drawing.defs), drawing.defs,
+                   drawing.layers.size());
     for (const auto& layer : drawing.layers) {
-        std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes_svg), layer.shapes_svg, layer.texts.size());
+        std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes), layer.shapes, layer.texts.size());
         for (const auto& t : layer.texts) {
             const auto& m = t.transform;
             std::format_to(out_it, "{},{},{},{},{},{},{},{},{},{},{},{},{},{}:", m[0], m[1], m[2], m[3], m[4], m[5], t.x, t.y, t.font_size, t.weight,
@@ -208,9 +209,9 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
 
 size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
 {
-    size_t bytes = sizeof(drawing);
+    size_t bytes = sizeof(drawing) + drawing.defs.size();
     for (const auto& layer : drawing.layers) {
-        bytes += sizeof(layer) + layer.shapes_svg.size();
+        bytes += sizeof(layer) + layer.shapes.size();
         for (const auto& t : layer.texts) {
             bytes += sizeof(t) + (t.family.size() + t.text.size()) * sizeof(wchar_t);
         }
@@ -240,7 +241,8 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
     };
     const auto background_field = TakeField(s);
     const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
-    const auto layer_count = background ? take_count(4) : std::nullopt;
+    const auto defs = background ? TakeText(s, std::numeric_limits<uint32_t>::max()) : std::nullopt;
+    const auto layer_count = defs ? take_count(4) : std::nullopt;
     if (!layer_count || !(width > 0.0f) || !(height > 0.0f)) {
         return std::nullopt;
     }
@@ -248,6 +250,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
         .width = width,
         .height = height,
         .background = *background,
+        .defs = string_convert::WideToUtf8(*defs),
     };
     out.layers.reserve(*layer_count);
     for (uint32_t i = 0; i < *layer_count; ++i) {
@@ -256,7 +259,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
         if (!text_count) {
             return std::nullopt;
         }
-        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes_svg = string_convert::WideToUtf8(*svg) });
+        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes = string_convert::WideToUtf8(*svg) });
         layer.texts.reserve(*text_count);
         for (uint32_t k = 0; k < *text_count; ++k) {
             auto text = ParseDrawingText(s);
@@ -292,7 +295,7 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
     bool truncated = false;
     for (size_t i = 0; i < msg.size(); ++i) {
         const wchar_t c = msg[i];
-        // 改行・タブに加え、ページから届いた制御文字 (豆腐表示になる) も空白に潰す。
+        // 改行・タブに加え、pele の文言に入る制御文字 (豆腐表示になる) も空白に潰す。
         if (c <= L' ') {
             if (!prev_space) {
                 result += L' ';

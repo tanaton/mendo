@@ -20,8 +20,10 @@ target_link_libraries(mendo_tests PRIVATE
 target_link_options(mendo_tests PRIVATE $<$<CONFIG:Release>:/LTCG:INCREMENTAL>)
 # test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
-# test_pele_engine が pele.mjs の実物を読むため。
-target_compile_definitions(mendo_tests PRIVATE "MENDO_THIRD_PARTY_DIR=u8\"${CMAKE_SOURCE_DIR}/third_party\"")
+# test_pele_engine が KaTeX の書体の実物と、ビルドで作った pele と KaTeX のバイトコードを読むため。
+target_compile_definitions(mendo_tests PRIVATE "MENDO_THIRD_PARTY_DIR=u8\"${CMAKE_SOURCE_DIR}/third_party\""
+                                               "MENDO_JS_BYTECODE_DIR=u8\"${MENDO_JS_BYTECODE_DIR}\"")
+add_dependencies(mendo_tests mendo_js_bytecode)
 
 # ---- プリコンパイル済みヘッダー ----
 # `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ は mendo_test_support で include path に入る。

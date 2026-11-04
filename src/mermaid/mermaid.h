@@ -38,10 +38,8 @@ struct InlineMathBatchResult {
     };
     // 要求と同じ順。
     std::vector<Item> items;
-    // 描く前に取り消した (終了・文書の差し替え)。items の metrics はすべて空。数式のエラーではないので、後で頼み直してよい。
-    bool cancelled = false;
 };
-// 描けたとき・失敗したとき・取り消したときのどれでも 1 回だけ呼ぶ。
+// 描けたときと失敗したときに 1 回だけ呼ぶ。取り消した (終了・DropQueuedMath) 要求では呼ばない。
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
@@ -81,7 +79,7 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
-    // 描画待ちのインライン数式の要求を取り消す (cancelled で返す)。数式の寸法表を捨てたときに、もう使わない組を描かせない。
+    // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。
     void OnPeleTrimTimer();
@@ -154,8 +152,7 @@ private:
         std::shared_ptr<const ByteBuffer> bytes;
         // 描画命令。UI で commands にする。
         std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
-        // ディスクキャッシュを読めなかった。理由は read_error。
-        bool read_failed = false;
+        // ディスクキャッシュを読めなかった理由。
         DWORD read_error = 0;
         // 投入後に drop_gen_ が進んだので描かず・読まずに返した。
         bool dropped = false;
@@ -166,8 +163,8 @@ private:
         DiagramError error;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
-        // クリップボード用の SVG。
-        std::wstring svg;
+        // クリップボード用の SVG (UTF-8)。
+        std::string svg;
     };
 
     // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
@@ -177,21 +174,7 @@ private:
     // ディスクキャッシュから戻せるので画像より控えめにする。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
-    // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする。
-    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring_view svg, bool cancelled);
-    // インライン数式の要求なら、取り消したことを知らせて math->callback をクリアする。
-    static void CancelMathCallbackIfAny(RenderRequest& req);
-    // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を呼ぶ。SVG は失敗か取り消し、インライン数式は
-    // いつも取り消し。成功した要求は呼び済みで何もしない。
-    static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
-    {
-        InvokeSvgCallbackIfAny(req, {}, cancelled);
-        CancelMathCallbackIfAny(req);
-    }
     void ApplyMathResult(Job& r);
-    // queue から kind の要求を順を保って取り出す。
-    // 後始末は呼び出し側が取り出した後で行う (コールバックから描画待ちに積み直しても壊れない)。
-    static std::vector<RenderRequest> TakePending(std::deque<RenderRequest>& queue, RequestKind kind);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は pele の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
@@ -208,7 +191,6 @@ private:
         std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind == RequestKind::View; });
         return ++viewer_render_;
     }
-    void DestroyViewer();
     void FailViewer();
 
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
@@ -221,7 +203,7 @@ private:
     template <typename Work>
     void PostJob(Job job, Work work);
     // worker で呼ぶ。
-    void RenderJob(Job& job, std::wstring_view locale);
+    void RenderJob(Job& job);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
         if (req.kind == RequestKind::Display) {
@@ -230,8 +212,8 @@ private:
     }
 
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
-    // worker で呼ぶ。locale は図のラベルの数式を組み直すのに使う。
-    void LoadDiskJob(Job& job, const std::filesystem::path& path, std::wstring_view locale);
+    // worker で呼ぶ。
+    void LoadDiskJob(Job& job, const std::filesystem::path& path);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
 

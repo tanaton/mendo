@@ -8,7 +8,6 @@
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -19,7 +18,7 @@ struct ID2D1Factory1;
 struct ID2D1Device;
 struct ID2D1DeviceContext;
 struct ID3D11Device;
-struct IDXGISwapChain1;
+struct IDXGISwapChain2;
 struct IWICImagingFactory;
 struct IWICBitmap;
 
@@ -78,10 +77,8 @@ public:
         return wic_factory_.Get();
     }
     // ライト/ダーク切替。寸法とフォントは共通なのでテキストレイアウトを維持し、ブラシの色だけ差し替える。
-    void OnThemeColorsChanged()
-    {
-        RecreateBrushes();
-    }
+    // デバイスを作ったときも、ここでブラシを作る。
+    void OnThemeColorsChanged();
     // ズーム。大きさがズームに従う書式 (本文・ジェスチャー) だけ作り直す。タイトルバーやサイドペインの書式は
     // ズームしないので、それらで作ったレイアウトも残す (作り直すと 1 段ごとに 80 個ほどで約 2.7ms)。
     void OnThemeMetricsChanged()
@@ -123,9 +120,6 @@ public:
     }
 
 private:
-    // フレーム共通の前処理 (デバイスロスト復旧・タイトルバー・サイドペイン)。
-    // 描画できない場合はそのフレームの結果を返す。
-    std::optional<FrameResult> BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
     // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー、読み込み中はスピナー) を
     // frame_cmds_ に積む。
     void GenOverlays(const RenderParams& p);
@@ -138,7 +132,7 @@ private:
     bool CreateFactories(HWND hwnd);
     bool CreateDeviceResources();
     bool CreateSwapChainBitmap();
-    // 表示範囲を描画面の左上 width x height にする。対応していなければ false。
+    // 表示範囲を描画面の左上 width x height にする。失敗したら false。
     bool SetSourceSize(UINT width, UINT height) noexcept;
     void ConfigureFrameLatency() noexcept;
     // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
@@ -161,25 +155,22 @@ private:
     UINT buffer_width_ = 0;
     UINT buffer_height_ = 0;
     // EndDraw が D2DERR_RECREATE_TARGET を返したか、Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET 等を
-    // 検知したか、CreateSwapChainBitmap が失敗した。次フレームの BeginFrame で作り直す。
+    // 検知したか、CreateSwapChainBitmap が失敗した。次フレームの Render で作り直す。
     bool device_lost_ = false;
     bool frame_acquired_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain2> swap_chain_;
     UniqueEventHandle frame_latency_waitable_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
     FixedBrushArray brushes_;
 
-    void RecreateBrushes();
     void RecreateAllTextFormats();
     void CreateTextFormats(bool zoomed_only = false);
-
-    FrameResult EndFrame();
 
     struct TextFormats {
         // CommandGenerator が参照する。

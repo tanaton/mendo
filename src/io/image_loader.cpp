@@ -125,6 +125,11 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
 
 bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
+    // 描画先が無い間 (起動でデバイスを待つ間・デバイスの作り直しの再試行中) は結果を受け箱に残す。受け取ると GPU に載せられず、
+    // 要求中の印も外れるので、見えている画像を同じ間に何度もデコードし直す。描画先が戻ったら呼び出し側が受け取る。
+    if (!render_target_) {
+        return false;
+    }
     bool request_again = false;
     completed_.Drain(deadline, [&](DecodeResult& r) {
         const auto pending = pending_paths_.extract(r.path);
@@ -136,7 +141,7 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
         bool failed = !r.bitmap;
         const auto* existing = cache_.Find(r.path);
-        if (r.bitmap && render_target_ && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
+        if (r.bitmap && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
             Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
             const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
             if (SUCCEEDED(hr) && bitmap) {

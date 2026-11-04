@@ -53,7 +53,7 @@ protected:
     std::vector<std::wstring> BarTexts(const SearchBarRenderState& sb)
     {
         DrawCommandList cmds;
-        overlay::EmitSearchBar(cmds, text_layouts_, nullptr, fmt_.Get(), ComputeSearchBarLayout(kPane, !sb.query.empty()), sb, {});
+        overlay::EmitSearchBar({ cmds, text_layouts_ }, nullptr, fmt_.Get(), ComputeSearchBarLayout(kPane, !sb.query.empty()), sb, {});
         return TextsOf(cmds);
     }
 
@@ -167,7 +167,7 @@ TEST_F(SearchInputTest, TocRowsDrawHeadingText)
     chrome::SidePaneFormats fmts;
     fmts.toc_item = fmt_.Get();
     DrawCommandList cmds;
-    chrome::EmitSidePanes(cmds, text_layouts_, fmts, theme, sp);
+    chrome::EmitSidePanes({ cmds, text_layouts_ }, fmts, theme, sp);
     EXPECT_EQ(TextsOf(cmds), (std::vector<std::wstring>{ L"A", L"B" }));
 }
 
@@ -189,7 +189,7 @@ TEST_F(SearchInputTest, PaneItemFontsApplyToItemsButNotHeader)
     fmts.toc_item = fmt_.Get();
     fmts.item_fonts = &fonts;
     DrawCommandList cmds;
-    chrome::EmitSidePanes(cmds, text_layouts_, fmts, theme_, sp);
+    chrome::EmitSidePanes({ cmds, text_layouts_ }, fmts, theme_, sp);
 
     std::vector<std::wstring> names;
     for (const auto& text : CollectCmds<DrawTextLayoutCmd>(cmds)) {
@@ -209,7 +209,7 @@ TEST_F(SearchInputTest, SelectionIsPaintedBeforeText)
     ASSERT_GT(m.selection_width, 0.0f);
 
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts_, nullptr, nullptr, sbl, sb, m);
+    overlay::EmitSearchBar({ cmds, text_layouts_ }, nullptr, nullptr, sbl, sb, m);
     const auto sel = std::ranges::find_if(cmds, [](const DrawCommand& c) {
         const auto* f = std::get_if<FillRectCmd>(&c);
         return f && f->brush_id == BrushId::Selection;

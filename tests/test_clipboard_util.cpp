@@ -143,16 +143,6 @@ TEST(BuildGlobalWideFromUtf8, MatchesUtf8ToWide)
     EXPECT_FALSE(BuildGlobalWideFromUtf8(""));
 }
 
-// UTF-16 → UTF-8 を GlobalAlloc 先へ直接変換し、中間 string 版と同じ結果になる。
-TEST(BuildGlobalUtf8FromWide, MatchesWideToUtf8)
-{
-    const std::wstring_view wide = L"abc あ\U0001F600 xyz";
-    const auto mem = BuildGlobalUtf8FromWide(wide);
-    ASSERT_TRUE(mem);
-    EXPECT_EQ(ReadGlobal<char>(mem), string_convert::WideToUtf8(wide));
-    EXPECT_FALSE(BuildGlobalUtf8FromWide(L""));
-}
-
 TEST(BuildGlobalCfHtml, MatchesBuildCfHtmlPayload)
 {
     const std::string_view fragment = "<b>\xE3\x81\x82</b>";

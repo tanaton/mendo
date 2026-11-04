@@ -199,7 +199,7 @@ void DiagramView::Paint()
             dc->DrawImage(commands_.Get());
             dc->SetTransform(D2D1::Matrix3x2F::Identity());
         }
-        PaintBar(brush_.Get());
+        PaintBar();
     }
     else if (fmt_label_) {
         const std::wstring_view loading = i18n::S().loading;
@@ -270,8 +270,9 @@ DiagramView::Button DiagramView::HitButton(float x, float y) const noexcept
     return Button::None;
 }
 
-void DiagramView::PaintBar(ID2D1SolidColorBrush* brush)
+void DiagramView::PaintBar()
 {
+    ID2D1SolidColorBrush* const brush = brush_.Get();
     const Palette palette = PaletteFor(dark_);
     const D2D1_RECT_F bar = BarRect();
     brush->SetColor(palette.shadow);

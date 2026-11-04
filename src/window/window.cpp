@@ -835,7 +835,7 @@ void Win32Window::OnSearchEditChanged()
     SearchTextChangedAction changed{ std::wstring(static_cast<size_t>(text_len), L'\0') };
     const int copied = GetWindowTextW(search_edit_, changed.text.data(), text_len + 1);
     changed.text.resize(static_cast<size_t>(copied));
-    app_->Dispatch(changed);
+    app_->Dispatch(std::move(changed));
     SyncSearchCaretFromEdit();
 }
 

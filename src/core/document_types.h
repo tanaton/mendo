@@ -119,7 +119,8 @@ struct NodeTableData {
     // セルの concat_text 内終端 offset (末尾の区切り文字を含まない)。
     constexpr uint32_t CellTextEnd(size_t r, size_t c) const noexcept
     {
-        return CellTextStart(r, c) + static_cast<uint32_t>(GetCellText(r, c).size());
+        const size_t i = CellIndex(r, c);
+        return cell_text_starts[i] + static_cast<uint32_t>(CellLength(i));
     }
 
     constexpr std::string_view GetCellText(size_t r, size_t c) const noexcept

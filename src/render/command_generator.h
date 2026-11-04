@@ -39,7 +39,8 @@ public:
     // fonts は fmt の主フォントとロケールに合うものだけを渡す。
     IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box, DWRITE_TEXT_RANGE underline = {}, const FallbackFontMap* fonts = nullptr)
     {
-        if (const auto it = entries_.find(KeyView{ fmt, fonts, text, box.width, box.height, underline.startPosition, underline.length }); it != entries_.end()) {
+        const KeyTail tail{ fonts, box.width, box.height, underline.startPosition, underline.length };
+        if (const auto it = entries_.find(KeyView{ fmt, text, tail }); it != entries_.end()) {
             it->second.last_used = frame_;
             return it->second.layout.Get();
         }
@@ -57,23 +58,8 @@ public:
             layout->SetUnderline(TRUE, underline);
         }
         auto* const raw = layout.Get();
-        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), fonts, std::wstring(text), box.width, box.height, underline.startPosition, underline.length },
-                         Entry{ std::move(layout), frame_ });
+        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), std::wstring(text), tail }, Entry{ std::move(layout), frame_ });
         return raw;
-    }
-
-    // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
-    void Emit(DrawCommandList& out, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box,
-              BrushId brush_id, float opacity, const FallbackFontMap* fonts = nullptr)
-    {
-        if (auto* layout = Get(fmt, text, box, {}, fonts)) {
-            out.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
-        }
-    }
-    // 中央揃え書式で大きさ 0 のレイアウトを作り、rect の中心に置く。
-    void EmitCentered(DrawCommandList& out, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity)
-    {
-        Emit(out, text, fmt, D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f), {}, brush_id, opacity);
     }
 
     // 箱の大きさや番号ごとに増え続けないよう、描画の合間 (前フレームのレイアウトを参照し終えた後) に上限で捨てる。
@@ -99,27 +85,28 @@ public:
     static constexpr size_t kMaxEntries = 512;
 
 private:
-    struct KeyView {
-        IDWriteTextFormat* fmt;
+    // 書式と文字列以外のキー。
+    struct KeyTail {
         const FallbackFontMap* fonts;
-        std::wstring_view text;
         float width;
         float height;
         uint32_t underline_start;
         uint32_t underline_length;
+        bool operator==(const KeyTail&) const = default;
+    };
+    struct KeyView {
+        IDWriteTextFormat* fmt;
+        std::wstring_view text;
+        KeyTail tail;
         bool operator==(const KeyView&) const = default;
     };
     struct Key {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
-        const FallbackFontMap* fonts;
         std::wstring text;
-        float width;
-        float height;
-        uint32_t underline_start;
-        uint32_t underline_length;
+        KeyTail tail;
         operator KeyView() const noexcept
         {
-            return { fmt.Get(), fonts, text, width, height, underline_start, underline_length };
+            return { fmt.Get(), text, tail };
         }
     };
     struct KeyHash {
@@ -129,11 +116,11 @@ private:
             size_t h = std::hash<std::wstring_view>{}(k.text);
             const auto mix = [&h](size_t v) noexcept { h ^= v + kGoldenRatio64 + (h << 6) + (h >> 2); };
             mix(std::hash<const void*>{}(k.fmt));
-            mix(std::hash<const void*>{}(k.fonts));
-            mix(std::bit_cast<uint32_t>(k.width));
-            mix(std::bit_cast<uint32_t>(k.height));
-            mix(k.underline_start);
-            mix(k.underline_length);
+            mix(std::hash<const void*>{}(k.tail.fonts));
+            mix(std::bit_cast<uint32_t>(k.tail.width));
+            mix(std::bit_cast<uint32_t>(k.tail.height));
+            mix(k.tail.underline_start);
+            mix(k.tail.underline_length);
             return h;
         }
     };
@@ -156,7 +143,7 @@ private:
 };
 
 // DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
-inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
+inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x, float origin_y) noexcept
 {
     return D2D1::RectF(
         origin_x + m.left,
@@ -164,6 +151,36 @@ inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origi
         origin_x + m.left + m.width,
         origin_y + m.top + m.height);
 }
+
+// ボタンの背景。brush が None なら塗らない。角の半径が 0 なら矩形で塗る (不透明度は掛けない)。
+struct ButtonBg {
+    BrushId brush = BrushId::None;
+    float corner = 0.0f;
+    float opacity = 1.0f;
+};
+
+// 描画命令の積み先。文字列は text_layouts に作り置いたレイアウトで描き、fmt が null なら描かない。
+struct CmdWriter {
+    DrawCommandList& out;
+    TextLayoutCache& text_layouts;
+
+    // 書式の揃えに従って origin から box の範囲に text を描く。
+    // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
+    void Text(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity = 1.0f,
+              const FallbackFontMap* fonts = nullptr) const
+    {
+        if (auto* layout = text_layouts.Get(fmt, text, box, {}, fonts)) {
+            out.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
+        }
+    }
+    // 中央揃え書式で大きさ 0 のレイアウトを作り、rect の中心に置く。
+    void Centered(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity) const
+    {
+        Text(text, fmt, D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f), {}, brush_id, opacity);
+    }
+    // アイコンや短い文字列を rect の中央に置くボタン。書式は左右・上下とも中央揃え。
+    void Button(IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wstring_view label, ButtonBg bg, BrushId fg, float fg_opacity) const;
+};
 
 // 本文の文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) の書式。持ち主は Renderer。
 struct MdPaneFormats {
@@ -197,29 +214,25 @@ SearchInputMetrics MeasureSearchInput(TextLayoutCache& text_layouts, IDWriteText
 // 文字列の左端から local_x の位置に置くキャレットの文字位置。ドラッグ選択中は WM_MOUSEMOVE ごとに呼ばれるので、描画と同じレイアウトを引く。
 int HitTestSearchInput(TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view query, float local_x, float width);
 
-// 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。文字列は text_layouts に作り置き、fmt が null なら描かない。
+// 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。
 namespace overlay {
 // 検索バー。sbl は sb の検索語の有無で組んだもの (ComputeSearchBarLayout)。input は sbl の入力欄の幅で測ったもの。
-void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
-                   const SearchBarLayout& sbl, const SearchBarRenderState& sb, const SearchInputMetrics& input);
+void EmitSearchBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt, const SearchBarLayout& sbl, const SearchBarRenderState& sb,
+                   const SearchInputMetrics& input);
 // 読み込み中のスピナー。ペインの中央に点を回して並べ、後ろの点ほど薄くする。
 void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pane_rect);
 // 戻る/進むのボタン。押せないボタンも薄く描く。
-void EmitNavButtons(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect,
-                    bool dark, bool can_back, bool can_forward, NavDirection hovered);
+void EmitNavButtons(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect, bool dark, bool can_back, bool can_forward, NavDirection hovered);
 // ジェスチャー・スワイプで戻る/進む方向。None なら何も積まない。
-void EmitGestureOverlay(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect,
-                        bool dark, NavDirection direction);
+void EmitGestureOverlay(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect, bool dark, NavDirection direction);
 // 空なら何も積まない。
-void EmitToast(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect,
-               bool dark, std::wstring_view message);
+void EmitToast(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect, bool dark, std::wstring_view message);
 } // namespace overlay
 
 // タイトルバーとサイドペイン。デバイスに依存しないので、デバイスの作成前にも組み立てられる。
 namespace chrome {
 // app_icon が null ならアイコンを描かない。
-void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt,
-                  ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb);
+void EmitTitleBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt, ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb);
 // 一覧の書式はペインごとの倍率で作る。
 struct SidePaneFormats {
     IDWriteTextFormat* header = nullptr;
@@ -232,8 +245,7 @@ struct SidePaneFormats {
     const FallbackFontMap* item_fonts = nullptr;
 };
 // 表示中のサイドペインとスプリッタ。
-void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
-                   const SidePaneState& sp);
+void EmitSidePanes(CmdWriter w, const SidePaneFormats& fmts, const Theme& theme, const SidePaneState& sp);
 } // namespace chrome
 
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
@@ -254,93 +266,9 @@ public:
     void GenerateMdPane(DrawCommandList& out, const MdPaneParams& params, float dpi_scale);
 
 private:
-    // ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
-    // (見出し下線・空 LI の bullet・コード背景・引用装飾等)。ノード単位のカリングはこの余裕幅で
-    // 判定し、実際の切り抜きは md ペインのクリップに任せる。
-    struct NodeOverhang {
-        float above;
-        float below;
-    };
-    NodeOverhang MaxNodeOverhang() const noexcept;
-
-    // GenerateMdPane の呼び出しの間だけ意味を持つ。
-    struct FrameContext {
-        const MdPaneParams* params = nullptr;
-        float content_width = 0.0f;
-        float dpi_scale = 1.0f;
-        float snapped_scroll_y = 0.0f;
-        // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、
-        // ドキュメント Y が 10^7 オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・
-        // ハイライト矩形・グリフランのカリングに共通で使う。
-        YRange visible = YRange::None();
-        // ブロック横スクロールの clip 内で平行移動を合成し、抜けたあと復元するための基底 Translation。
-        D2D1::Matrix3x2F pane_transform;
-        NodeOverhang overhang{};
-    };
-
-    void GenerateNode(const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
-
-    // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
-    // コードブロックは横スクロールの clip に映る [cull_left, cull_right] (text_x と同じ系) を渡す。
-    void GenNodeTextDecorations(const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top,
-                                float cull_left = -YRange::kInf, float cull_right = YRange::kInf);
-    // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
-    // early return を経由せず描画したいため独立メソッド化。
-    void GenTaskListCheckbox(const Node& node, float x, float entry_text_top);
-
-    void GenHorizontalRule(float x, float w, float entry_text_top);
-    // 表は横スクロールの clip [offset_x, offset_x + clip_width] の中に描くので、列はその幅で間引く。
-    void GenTable(const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float clip_width, float entry_text_top,
-                  float h_scroll_x);
-    // selection はテーブル全体の選択範囲 (concat_text 上の UTF-8 byte)。
-    void GenCellSelection(const NodeTableData& table, size_t row, size_t col, IDWriteTextLayout* layout, TextSelection::NodeRange selection, float text_x, float text_y);
-    // box は padding 込みのコードブロック矩形 (ペインローカル)。
-    // 区切ったコードブロックの継ぎ目の側は角を丸めず、隣の背景とつなげる。
-    void GenCodeBlockBg(const D2D1_RECT_F& box, bool round_top, bool round_bottom);
-    void GenOverlayButtons(const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index);
-    void GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
-    // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
-    void EmitBlockHScrollbarIfActive(int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
-    void GenListBullet(const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
-    void GenBlockQuoteGroupDecorations(int first_visible);
-    // nodes[first, last) が 1 つの引用グループ。group_top / group_bottom はペインローカル Y。
-    void GenBlockQuoteGroup(int first, int last, int max_depth, float group_top, float group_bottom);
-    // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
-    void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error = {});
-    // 共有バッファへ HitTestTextRange を発行し、取得したメトリクスを返す。次回呼び出しまで有効。
-    std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
-    // 可視 Y 範囲と重なる矩形だけ FillRectCmd を積む。
-    void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
-    // 数式の一部に当たった選択や検索ヒットも数式全体を塗れるよう、クラスタまで広げて引く (HitTestRange)。
-    void EmitClusterRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, BrushId brush);
-    // 本文ノード（テーブル外）専用の選択ハイライト発行。doc_start / doc_length は UTF-8 byte 単位。
-    void GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
-    // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。
-    void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
-
-    // ノードのマッチ。spill_length_w は前のノードのマッチ (first_global - 1 番) がこのノードの先頭へはみ出した長さ。
-    struct NodeSearchMatches {
-        std::span<const SearchMatch> matches;
-        size_t first_global = 0;
-        uint32_t spill_length_w = 0;
-    };
-    NodeSearchMatches FindNodeSearchMatches(int node_index) const;
-    void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y);
-    // matches[begin, end) の矩形を layout で引き、FillRectCmd を積む。
-    void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
-    void EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index, float origin_x, float origin_y);
-
-    // 書式の揃えに従って origin から box の範囲に text を描く。
-    void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id);
-
     const Theme* theme_ = nullptr;
     const MdPaneFormats* formats_ = nullptr;
     TextLayoutCache* text_layouts_ = nullptr;
-    FrameContext frame_;
-
-    // 積む先。GenerateMdPane の呼び出しの間だけ意味を持つ。
-    DrawCommandList* cmds_ = nullptr;
-
+    // HitTestTextRange の結果。フレームをまたいで容量を使い回す。
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 };

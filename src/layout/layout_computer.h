@@ -131,17 +131,6 @@ inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, floa
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
-// 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
-// catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
-inline float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
-{
-    y += spacing_above;
-    const float text_top = y;
-    y += height;
-    y += spacing_below;
-    return text_top;
-}
-
 void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, float available_width);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。

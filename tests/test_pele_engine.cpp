@@ -18,14 +18,15 @@ namespace {
 
 using Status = PeleOutcome::Status;
 
-// pele と KaTeX のコンパイル (約 60ms と約 20ms) を 1 回で済ませるため、テストの間で 1 つのエンジンを使う。
+// ランタイムの用意 (バイトコードの読み込みと評価、約 5ms と約 3ms) を 1 回で済ませるため、テストの間で 1 つのエンジンを使う。
 class PeleEngineTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite()
     {
         const std::filesystem::path third_party(MENDO_THIRD_PARTY_DIR);
-        pele_ = ReadFileBytes(third_party / "pele" / "pele.mjs");
-        katex_ = ReadFileBytes(third_party / "katex" / "katex.min.js");
+        const std::filesystem::path bytecode(MENDO_JS_BYTECODE_DIR);
+        pele_ = ReadFileBytes(bytecode / "pele.qbc");
+        katex_ = ReadFileBytes(bytecode / "katex.qbc");
         ASSERT_FALSE(pele_.empty());
         ASSERT_FALSE(katex_.empty());
         fonts_.clear();
@@ -47,12 +48,12 @@ protected:
         for (const auto& f : fonts_) {
             fonts.push_back(std::as_bytes(std::span{ f }));
         }
-        return std::make_unique<PeleEngine>(std::as_bytes(std::span{ pele_ }), std::as_bytes(std::span{ katex_ }), std::move(fonts), dw_.Get());
+        return std::make_unique<PeleEngine>(std::as_bytes(std::span{ pele_ }), std::as_bytes(std::span{ katex_ }), std::move(fonts), dw_.Get(), L"ja-jp");
     }
     static std::shared_ptr<const MathDrawing> Math(std::string_view tex)
     {
         const PeleEngine::MathSource source{ tex, 16.0f };
-        return engine_->RenderMaths({ &source, 1 }, L"ja-jp")[0];
+        return engine_->RenderMaths({ &source, 1 })[0];
     }
     template <class T>
     static size_t CountItems(const MathDrawing& math)
@@ -72,7 +73,7 @@ protected:
 // 図のコードから描画命令を作る。
 TEST_F(PeleEngineTest, RendersDiagramToDrawing)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[開始] --> B[終了]", false, 800.0f, L"ja-jp");
+    const auto out = engine_->Render("flowchart LR\n  A[開始] --> B[終了]", false, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn) << string_convert::WideToUtf8(out.error);
     EXPECT_GT(out.drawing.width, 0.0f);
     EXPECT_GT(out.drawing.height, 0.0f);
@@ -89,7 +90,7 @@ TEST_F(PeleEngineTest, RendersDiagramToDrawing)
 // コードの誤りは pele の文言で返す。
 TEST_F(PeleEngineTest, ReturnsPeleErrorForInvalidCode)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[ --> ", false, 800.0f, L"ja-jp");
+    const auto out = engine_->Render("flowchart LR\n  A[ --> ", false, 800.0f);
     EXPECT_EQ(out.status, Status::Error);
     EXPECT_FALSE(out.error.empty());
 }
@@ -97,7 +98,7 @@ TEST_F(PeleEngineTest, ReturnsPeleErrorForInvalidCode)
 // ラベルの $$...$$ も KaTeX で描画命令にする。描けない TeX は pele がそのまま文字で書く。
 TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[\"面積 $$\\frac{a}{b}$$\"] --> B[\"$$\\frac{a}$$\"]", false, 800.0f, L"ja-jp");
+    const auto out = engine_->Render("flowchart LR\n  A[\"面積 $$\\frac{a}{b}$$\"] --> B[\"$$\\frac{a}$$\"]", false, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn) << string_convert::WideToUtf8(out.error);
     std::vector<const mermaid_util::DrawingMath*> maths;
     std::wstring texts;
@@ -120,12 +121,12 @@ TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
 // ディスクキャッシュの描画命令は TeX だけを持つので、読んだ後に組み直す。
 TEST_F(PeleEngineTest, ResolvesMathLabelsAfterParsing)
 {
-    auto out = engine_->Render("flowchart LR\n  A[\"$$x^2$$\"]", true, 800.0f, L"ja-jp");
+    auto out = engine_->Render("flowchart LR\n  A[\"$$x^2$$\"]", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
-    engine_->ResolveMaths(*back, L"ja-jp");
+    engine_->ResolveMaths(*back);
     size_t resolved = 0;
     for (const auto& layer : back->layers) {
         for (const auto& m : layer.maths) {
@@ -140,7 +141,7 @@ TEST_F(PeleEngineTest, ResolvesMathLabelsAfterParsing)
 TEST_F(PeleEngineTest, RendersInlineMaths)
 {
     const PeleEngine::MathSource sources[]{ { "\\frac{a}{b}", 16.0f }, { "\\frac{a}", 16.0f }, { "\\frac{a}{b}", 32.0f } };
-    const auto maths = engine_->RenderMaths(sources, L"ja-jp");
+    const auto maths = engine_->RenderMaths(sources);
     ASSERT_EQ(maths.size(), 3u);
     ASSERT_NE(maths[0], nullptr);
     EXPECT_EQ(maths[1], nullptr);
@@ -195,28 +196,28 @@ TEST_F(PeleEngineTest, FallsBackForCharactersOutsideKatexFonts)
 TEST_F(PeleEngineTest, RendersConcurrentlyAndAfterTrim)
 {
     PeleOutcome results[2];
-    std::thread other([&] { results[0] = engine_->Render("pie\n  \"a\" : 1\n  \"b\" : 2", true, 400.0f, L"zh-cn"); });
-    results[1] = engine_->Render("sequenceDiagram\n  A->>B: hi", false, 800.0f, L"ja-jp");
+    std::thread other([&] { results[0] = engine_->Render("pie\n  \"a\" : 1\n  \"b\" : 2", true, 400.0f); });
+    results[1] = engine_->Render("sequenceDiagram\n  A->>B: hi", false, 800.0f);
     other.join();
     EXPECT_EQ(results[0].status, Status::Drawn);
     EXPECT_EQ(results[1].status, Status::Drawn);
     engine_->Trim();
-    EXPECT_EQ(engine_->Render("flowchart LR\n  C --> D", false, 800.0f, L"ja-jp").status, Status::Drawn);
+    EXPECT_EQ(engine_->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
 }
 
 TEST_F(PeleEngineTest, CancelStopsRendering)
 {
     const auto engine = NewEngine();
     engine->Cancel();
-    EXPECT_EQ(engine->Render("flowchart LR\n  A --> B", false, 800.0f, L"ja-jp").status, Status::Cancelled);
+    EXPECT_EQ(engine->Render("flowchart LR\n  A --> B", false, 800.0f).status, Status::Cancelled);
     const PeleEngine::MathSource source{ "x", 16.0f };
-    EXPECT_EQ(engine->RenderMaths({ &source, 1 }, L"ja-jp")[0], nullptr);
+    EXPECT_EQ(engine->RenderMaths({ &source, 1 })[0], nullptr);
 }
 
 // C++ で作った描画命令はディスクキャッシュに書き、ParseDrawing で同じものに読み戻せる。
 TEST_F(PeleEngineTest, SerializedDrawingParsesBack)
 {
-    auto out = engine_->Render("flowchart TD\n  A[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> B((円))", true, 800.0f, L"ja-jp");
+    auto out = engine_->Render("flowchart TD\n  A[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> B((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
@@ -227,18 +228,34 @@ TEST_F(PeleEngineTest, SerializedDrawingParsesBack)
 TEST_F(PeleEngineTest, KeepsNaturalSizeWhenNotFitting)
 {
     constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
-    const auto fitted = engine_->Render(kWide, false, 200.0f, L"ja-jp");
-    const auto natural = engine_->Render(kWide, false, 200.0f, L"ja-jp", false);
+    const auto fitted = engine_->Render(kWide, false, 200.0f);
+    const auto natural = engine_->Render(kWide, false, 200.0f, false);
     ASSERT_EQ(fitted.status, Status::Drawn);
     ASSERT_EQ(natural.status, Status::Drawn);
     EXPECT_LE(fitted.drawing.width, 200.0f);
     EXPECT_GT(natural.drawing.width, 200.0f);
 }
 
+// 覚えておいた pele の出力をテーマと fit を変えて解き直しても、初めて描いたときと同じになる。
+TEST_F(PeleEngineTest, ReusedPeleOutputMatchesFreshRender)
+{
+    constexpr std::string_view kCode = "flowchart LR\n  A[\"面積 $$x^2$$\"] --> B[bbbbbbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccc]";
+    ASSERT_EQ(engine_->Render(kCode, false, 300.0f).status, Status::Drawn);
+    for (const bool dark : { false, true }) {
+        for (const bool fit : { false, true }) {
+            const auto reused = engine_->Render(kCode, dark, 300.0f, fit);
+            const auto fresh = NewEngine()->Render(kCode, dark, 300.0f, fit);
+            ASSERT_EQ(reused.status, Status::Drawn);
+            ASSERT_EQ(fresh.status, Status::Drawn);
+            EXPECT_EQ(reused.drawing, fresh.drawing) << "dark=" << dark << " fit=" << fit;
+        }
+    }
+}
+
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。
 TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[\"a &\"] --> B[円]", true, 800.0f, L"ja-jp", false);
+    const auto out = engine_->Render("flowchart LR\n  A[\"a &\"] --> B[円]", true, 800.0f, false);
     ASSERT_EQ(out.status, Status::Drawn);
     const std::string svg = DrawingToSvg(out.drawing);
     EXPECT_TRUE(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
@@ -255,7 +272,7 @@ TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
 // 数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ の文字にする。
 TEST_F(PeleEngineTest, DrawingToSvgWritesMathLabelsAsTex)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[\"$$a<b$$\"]", false, 800.0f, L"ja-jp", false);
+    const auto out = engine_->Render("flowchart LR\n  A[\"$$a<b$$\"]", false, 800.0f, false);
     ASSERT_EQ(out.status, Status::Drawn);
     const std::string svg = DrawingToSvg(out.drawing);
     EXPECT_NE(svg.find("xml:space=\"preserve\">$$a&lt;b$$</text>"), std::string::npos) << svg;

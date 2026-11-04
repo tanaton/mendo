@@ -29,8 +29,6 @@ std::optional<float> NextZoom(float zoom, float fit_zoom, int dir) noexcept;
 // 窓は MermaidRenderer が作り、メッセージを HandleMessage に回す。
 class DiagramView {
 public:
-    static constexpr UINT_PTR kTooltipTimer = 2;
-
     DiagramView(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic);
     ~DiagramView();
     DiagramView(const DiagramView&) = delete;
@@ -47,12 +45,13 @@ public:
     bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
 
 private:
+    static constexpr UINT_PTR kTooltipTimer = 2;
     // 並びは右上のバーの左から。
     enum class Button : uint8_t { None, ZoomOut, ZoomIn, Fit };
 
     bool EnsureTarget();
     void Paint();
-    void PaintBar(ID2D1SolidColorBrush* brush);
+    void PaintBar();
     // 窓と図の大きさから全体表示の倍率と、スクロールの範囲を決め直す。
     void Layout();
     void UpdateScrollBars();

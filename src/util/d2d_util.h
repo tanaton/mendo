@@ -113,13 +113,12 @@ inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
     return rt ? rt->GetMaximumBitmapSize() : kWithoutTarget;
 }
 
-// GPU メモリ見積もり。キャッシュのバイト予算に使う。A8 (インライン数式の型) のほかは PBGRA。
+// GPU メモリ見積もり (PBGRA)。キャッシュのバイト予算に使う。
 inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
 {
     if (!bitmap) {
         return 0;
     }
     const auto size = bitmap->GetPixelSize();
-    const size_t bytes_per_pixel = bitmap->GetPixelFormat().format == DXGI_FORMAT_A8_UNORM ? 1 : 4;
-    return static_cast<size_t>(size.width) * size.height * bytes_per_pixel;
+    return static_cast<size_t>(size.width) * size.height * 4;
 }

@@ -180,6 +180,13 @@ struct PopupWindow {
         return { (around.left + around.right - pixel_w) / 2, (around.top + around.bottom - pixel_h) / 2 };
     }
 
+    void HoverAt(float x, float y)
+    {
+        if (derived().UpdateHover(x, y)) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+    }
+
     // カーソルの位置からホバーを引き直す。キャプチャしているので窓の外の動きも届き、外では何にも当たらずに消える。
     void RefreshHover()
     {
@@ -188,9 +195,7 @@ struct PopupWindow {
             return;
         }
         const auto [x, y] = PixelToDip(pt.x, pt.y, dpi_scale);
-        if (derived().UpdateHover(x, y)) {
-            InvalidateRect(hwnd, nullptr, FALSE);
-        }
+        HoverAt(x, y);
     }
 
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
@@ -208,9 +213,7 @@ struct PopupWindow {
 
         case WM_MOUSEMOVE: {
             const auto [x, y] = client_dip();
-            if (derived().UpdateHover(x, y)) {
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
+            HoverAt(x, y);
             return 0;
         }
 

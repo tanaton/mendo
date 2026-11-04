@@ -45,7 +45,7 @@ TEST(QuantizeWidth, RoundsUpToMultipleOf32)
 TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 {
     const auto d = mermaid_util::ParseDrawing(
-        L"400:300.5:2039583:2:"
+        L"400:300.5:2039583:8:<g>い</g>2:"
         L"12:<svg>あ</svg>2:"
         L"1,0,0,1,10.5,20,3,4.25,16,700,1,0,16711680,0.5:10:Segoe UI,x5:a:b,c"
         L"0,1,-1,0,0,0,0,0,12,400,0,1,0,1:0:0:"
@@ -55,9 +55,10 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
     EXPECT_EQ(d->width, 400.0f);
     EXPECT_EQ(d->height, 300.5f);
     EXPECT_EQ(d->background, 0x1F1F1Fu);
+    EXPECT_EQ(d->defs, "<g>\xE3\x81\x84</g>");
     ASSERT_EQ(d->layers.size(), 2u);
-    EXPECT_EQ(d->layers[0].shapes_svg, "<svg>\xE3\x81\x82</svg>");
-    EXPECT_TRUE(d->layers[1].shapes_svg.empty());
+    EXPECT_EQ(d->layers[0].shapes, "<svg>\xE3\x81\x82</svg>");
+    EXPECT_TRUE(d->layers[1].shapes.empty());
     EXPECT_TRUE(d->layers[1].texts.empty());
     const auto& texts = d->layers[0].texts;
     ASSERT_EQ(texts.size(), 2u);
@@ -91,7 +92,7 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 // 数式も書いた形のまま読み戻せる (TeX の BMP 外の文字は UTF-16 で 2 単位に数える)。
 TEST(ParseDrawing, SerializedMathsParseBack)
 {
-    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF };
+    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF, .defs = "<linearGradient id=\"g0\"/>" };
     drawing.layers.push_back({ .maths = { { .transform = { 2.0f, 0.0f, 0.0f, 2.0f, 1.0f, 2.0f },
                                             .x = 0.5f,
                                             .y = 12.25f,
@@ -108,21 +109,23 @@ TEST(ParseDrawing, SerializedMathsParseBack)
 TEST(ParseDrawing, RejectsMalformedPayloads)
 {
     constexpr std::wstring_view kRun = L"1,0,0,1,0,0,0,0,16,400,0,0,0,1:0:1:a"sv;
-    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
-    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:0:1:0:0:1:" } + std::wstring{ math }; };
+    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:0:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
+    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:0:0:1:0:0:1:" } + std::wstring{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_math(L"1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
     const std::wstring kBad[] = {
         L"",
         L"10:x",                          // 高さが無い
-        L"nan:20:0:1:0:0:0:",             // 幅が数でない
-        L"0:20:0:1:0:0:0:",             // 幅が 0
-        L"10:20:16777216:1:0:0:0:",     // 背景が 24 ビットを超える
-        L"10:20:0:1:9:<svg>0:0:",       // SVG の長さが足りない
-        L"10:20:0:1:0:0:0:x",           // 余り
-        L"10:20:0:2:0:0:0:",            // 層が足りない
-        L"10:20:0:1:0:0:",              // 数式の数が無い
-        L"10:20:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
+        L"nan:20:0:0:1:0:0:0:",             // 幅が数でない
+        L"0:20:0:0:1:0:0:0:",             // 幅が 0
+        L"10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
+        L"10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
+        L"10:20:0:1:0:0:0:",              // defs が無い
+        L"10:20:0:0:1:9:<svg>0:0:",       // SVG の長さが足りない
+        L"10:20:0:0:1:0:0:0:x",           // 余り
+        L"10:20:0:0:2:0:0:0:",            // 層が足りない
+        L"10:20:0:0:1:0:0:",              // 数式の数が無い
+        L"10:20:0:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
         with_math(L""),                                  // 数式が足りない
         with_math(L"1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
         with_math(L"1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
