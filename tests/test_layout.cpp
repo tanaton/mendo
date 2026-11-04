@@ -250,16 +250,16 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
     }
 }
 
+// 使える幅が列数 x 最小幅 (30) より狭いときは、列数 x 最小幅まで広げて比例で分ける。
+// 「30 以上」だけでは、最小幅を無視して自然幅のまま横スクロールに回しても通ってしまう。
 TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
 {
-    // 非常に小さな利用可能スペース
     std::vector<float> natural = { 200.0f, 200.0f };
     std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 40.0f);
     ASSERT_EQ(widths.size(), 2u);
-    // 最小幅は30
     for (auto w : widths) {
-        EXPECT_GE(w, 30.0f);
+        EXPECT_NEAR(w, 30.0f, 0.01f);
     }
 }
 

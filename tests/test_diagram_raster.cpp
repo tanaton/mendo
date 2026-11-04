@@ -136,7 +136,7 @@ TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 100, 40, 0xFF00FF00u), 0);
 }
 
-// 壊れた SVG は描けない (キャプチャで描き直させるため null を返す)。
+// 壊れた SVG は描けない (null を返し、描けない図として知らせる)。
 TEST_F(DiagramRasterTest, ReturnsNullForMalformedSvg)
 {
     const mermaid_util::DiagramDrawing drawing{
@@ -367,7 +367,7 @@ TEST_F(PeleSvgTest, FoldsPaintOpacityIntoGradientStops)
     EXPECT_NE(shapes.find(R"svg(fill="url(#g0)"/>)svg"), std::string::npos) << shapes;
 }
 
-// 書き出せない要素 (数式のラベルの foreignObject) と壊れた SVG はブラウザに回す。
+// 書き出せない要素 (foreignObject) と壊れた SVG は描画命令にしない (描けない図として知らせる)。
 TEST_F(PeleSvgTest, RejectsUnsupportedOrMalformedSvg)
 {
     EXPECT_FALSE(Resolve(R"svg(<foreignObject x="0" y="0" width="10" height="10"/>)svg"));

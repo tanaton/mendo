@@ -661,24 +661,6 @@ TEST_F(MermaidFileCacheTest, UnusableIndexDiscardsWholeFolder)
     }
 }
 
-// 前の版の Clear が別名にして残したフォルダは、次に図のキャッシュを使うときに worker で消える。
-TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
-{
-    const auto dir = temp_dir_ / L"cache";
-    const auto leftover = temp_dir_ / L"cache.deleting-1";
-    const auto unrelated = temp_dir_ / L"cache-other";
-    std::filesystem::create_directories(leftover);
-    std::filesystem::create_directories(unrelated);
-    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.drawing", "x", 1));
-    cache_.SetCacheDir(dir);
-    InitCache();
-
-    EXPECT_EQ(cache_.EntryCount(), 0u);
-    scheduler_->Shutdown();
-    EXPECT_FALSE(std::filesystem::exists(leftover));
-    EXPECT_TRUE(std::filesystem::exists(unrelated));
-}
-
 // 書き込み中のファイルは着地後に消え、消した後に孤立ファイルとして現れない。
 TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoFile)
 {

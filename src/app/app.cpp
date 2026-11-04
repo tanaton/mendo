@@ -80,7 +80,7 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });

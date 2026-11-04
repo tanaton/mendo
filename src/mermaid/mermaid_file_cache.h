@@ -134,8 +134,6 @@ private:
     std::optional<IndexState> MergeWithSavedIndex();
     // new_entries 件・new_bytes バイトを足せるまで、古いものから追い出す。
     void EvictIfNeeded(IndexState& index, size_t new_entries, uint64_t new_bytes);
-    // 前の版の Clear が別名にして消し損ねたフォルダ (<cache_dir_>.deleting-*) を worker で消す。次の版で除く。
-    void RemoveDoomedDirsAsync();
     // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。
     // どのスレッドからでも呼べる。
     void PrepareWrite(const std::filesystem::path& path);

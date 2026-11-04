@@ -532,16 +532,19 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
             }
         }
     });
-    // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。
-    // 列の自然幅もここで集める。測れなかったセルと空のセルは確保したときの 0 のままなので効かない。
-    for (size_t r = 0; r < tbl.row_count; r++) {
-        for (size_t c = 0; c < col_count; c++) {
-            const size_t ci = tl.CellIndex(r, c);
-            if (!reps.empty()) {
+    // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。書き込み先は行ごとに重ならない。
+    if (!reps.empty()) {
+        ParallelFor(scheduler_, tbl.row_count, kEstimatedRowsPerChunk, [&](size_t row_begin, size_t row_end) {
+            for (size_t ci = row_begin * col_count; ci < row_end * col_count; ++ci) {
                 tl.cell_natural_widths[ci] = tl.cell_natural_widths[reps[ci]];
                 tl.cell_nowrap_heights[ci] = tl.cell_nowrap_heights[reps[ci]];
             }
-            natural_widths[c] = std::max(natural_widths[c], tl.cell_natural_widths[ci]);
+        });
+    }
+    // 列の自然幅を集める。測れなかったセルと空のセルは確保したときの 0 のままなので効かない。
+    for (size_t r = 0; r < tbl.row_count; r++) {
+        for (size_t c = 0; c < col_count; c++) {
+            natural_widths[c] = std::max(natural_widths[c], tl.cell_natural_widths[tl.CellIndex(r, c)]);
         }
     }
     if (!keep_layouts) {

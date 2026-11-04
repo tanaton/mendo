@@ -118,10 +118,11 @@ TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
     EXPECT_NE(texts.find(L"\\frac{a}"), std::wstring::npos);
 }
 
-// ディスクキャッシュの描画命令は TeX だけを持つので、読んだ後に組み直す。
-TEST_F(PeleEngineTest, ResolvesMathLabelsAfterParsing)
+// C++ で作った描画命令はディスクキャッシュに書き、ParseDrawing で同じものに読み戻せる (下付き・太字・絵文字・円のノードも)。
+// ディスクキャッシュの描画命令は TeX だけを持つので、読んだ後に数式を組み直す。
+TEST_F(PeleEngineTest, SerializedDrawingParsesBackAndResolvesMaths)
 {
-    auto out = engine_->Render("flowchart LR\n  A[\"$$x^2$$\"]", true, 800.0f);
+    auto out = engine_->Render("flowchart TD\n  A[\"$$x^2$$\"] --> B[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> C((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
     ASSERT_TRUE(back);
@@ -212,16 +213,6 @@ TEST_F(PeleEngineTest, CancelStopsRendering)
     EXPECT_EQ(engine->Render("flowchart LR\n  A --> B", false, 800.0f).status, Status::Cancelled);
     const PeleEngine::MathSource source{ "x", 16.0f };
     EXPECT_EQ(engine->RenderMaths({ &source, 1 })[0], nullptr);
-}
-
-// C++ で作った描画命令はディスクキャッシュに書き、ParseDrawing で同じものに読み戻せる。
-TEST_F(PeleEngineTest, SerializedDrawingParsesBack)
-{
-    auto out = engine_->Render("flowchart TD\n  A[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> B((円))", true, 800.0f);
-    ASSERT_EQ(out.status, Status::Drawn);
-    const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
-    ASSERT_TRUE(back);
-    EXPECT_EQ(*back, out.drawing);
 }
 
 // 拡大表示とクリップボードは本文の幅に縮めない。

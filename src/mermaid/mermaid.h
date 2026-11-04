@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <variant>
 
 class MermaidFileCache;
 class TaskScheduler;
@@ -54,12 +55,12 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // wic は Renderer と共有する。図を描いた画像を作るのに使う。
+    // wic と dw は Renderer と共有する。wic は図を描いた画像を、dw は図の文字を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
     // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
     // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
     // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
-    void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
+    void Init(HWND hwnd, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
               std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
@@ -104,8 +105,9 @@ private:
         MathBatchCallback callback;
     };
 
-    // Display だけが結果をキャッシュに持つ。Svg は SVG文字列を svg_callback で、View は描画命令を drawing_callback で、
-    // Math は結果を math->callback で返す。
+    // 拡大表示の結果。描けなければ drawing は null。
+    using ViewCallback = std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)>;
+    // RenderRequest::target の並び。Display だけが結果をキャッシュに持ち、ほかは結果を target のコールバックで返す。
     enum class RequestKind : uint8_t { Display, Svg, View, Math };
 
     struct RenderRequest {
@@ -122,12 +124,12 @@ private:
         {
             return width_free ? width_free_hash : request_hash;
         }
-        RequestKind kind = RequestKind::Display;
-        SvgCallback svg_callback;
-        // 拡大表示の要求だけが持つ。描けなければ drawing は null。
-        std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)> drawing_callback;
-        // Math の要求だけが持つ (RequestMathBatch)。code などは使わない。
-        std::unique_ptr<MathRequest> math;
+        // 結果の渡し先 (RequestKind の順)。Math (RequestMathBatch) は code などを使わない。
+        std::variant<std::monostate, SvgCallback, ViewCallback, MathRequest> target;
+        RequestKind kind() const noexcept
+        {
+            return static_cast<RequestKind>(target.index());
+        }
     };
 
     // 図の拡大表示 (窓は DiagramView が持つ)。
@@ -188,7 +190,7 @@ private:
     // 呼ばない)。新しい世代を返す。
     unsigned int InvalidateViewerDrawing()
     {
-        std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind == RequestKind::View; });
+        std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind() == RequestKind::View; });
         return ++viewer_render_;
     }
     void FailViewer();
@@ -206,7 +208,7 @@ private:
     void RenderJob(Job& job);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
-        if (req.kind == RequestKind::Display) {
+        if (req.kind() == RequestKind::Display) {
             inflight_.erase(req.request_hash);
         }
     }
@@ -219,8 +221,6 @@ private:
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
-    // 図の文字を組む共有ファクトリ。図の無い文書の起動で読み込まないよう、最初に使うときに作る。
-    IDWriteFactory* WriteFactory();
     void InsertCache(uint64_t hash, DiagramResult result);
     const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
     // 幅を混ぜないキーの結果。いまの幅の上限より狭いときだけ使える。

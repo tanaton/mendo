@@ -107,27 +107,19 @@ TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
     EXPECT_TRUE(g.can_scroll());
 }
 
-// table_layout 未確保（未計測）の Table は block_width=0 でスクロール不可。
-TEST(GetBlockHScrollGeometry, TableWithoutLayoutHasZeroWidth)
+// table_layout 未確保（未計測）の Table と段落は block_width=0 でスクロール不可。段落は natural_code_width をセットしても無視される。
+TEST(GetBlockHScrollGeometry, UnmeasuredTableAndParagraphAreNotScrollable)
 {
     const Theme theme = GetLightTheme();
-    const OneNodeDoc doc{ NodeType::Table };
-
-    const auto g = doc.Geometry(theme, 800.0f);
-    EXPECT_FLOAT_EQ(g.block_width, 0.0f);
-    EXPECT_FALSE(g.can_scroll());
-}
-
-// 段落はスクロール非対象。natural_code_width をセットしても無視される。
-TEST(GetBlockHScrollGeometry, ParagraphIsNotScrollable)
-{
-    const Theme theme = GetLightTheme();
-    OneNodeDoc doc{ NodeType::Paragraph };
-    doc.entry().set_natural_code_width(9999.0f);
-
-    const auto g = doc.Geometry(theme, 800.0f);
-    EXPECT_FLOAT_EQ(g.block_width, 0.0f);
-    EXPECT_FALSE(g.can_scroll());
+    for (const NodeType type : { NodeType::Table, NodeType::Paragraph }) {
+        OneNodeDoc doc{ type };
+        if (type == NodeType::Paragraph) {
+            doc.entry().set_natural_code_width(9999.0f);
+        }
+        const auto g = doc.Geometry(theme, 800.0f);
+        EXPECT_FLOAT_EQ(g.block_width, 0.0f) << std::to_underlying(type);
+        EXPECT_FALSE(g.can_scroll()) << std::to_underlying(type);
+    }
 }
 
 // indent_level の分だけ visible_width が縮む（ネストしたコードブロック）。

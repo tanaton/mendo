@@ -164,7 +164,7 @@ TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
         { L""sv, 100, L""sv },
         { L"simple error"sv, 100, L"simple error"sv },
         { L"Parse error on line 2:\n\n----^\t got 'X'"sv, 100, L"Parse error on line 2: ----^ got 'X'"sv },
-        // ページから届いた制御文字も豆腐表示にせず空白に潰す
+        // pele の文言に入る制御文字も豆腐表示にせず空白に潰す
         { L"got\x0b\x1bhere"sv, 100, L"got here"sv },
         { L"  \n boom \n "sv, 100, L"boom"sv },
         { L" \n\t "sv, 100, L""sv },
