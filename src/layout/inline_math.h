@@ -49,9 +49,9 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
 
-// 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数の上限。KaTeX は 1 個 平均 0.2ms ほどなので、
-// 上限でも 1 つの仕事が 40ms ほどで終わり、ほかの図や画像のデコードを長く待たせない。
-inline constexpr size_t kMaxInlineMathPerChunk = 200;
+// 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。KaTeX は 1 個 平均 0.2ms ほどなので、
+// 1 つの仕事が 13ms ほどで終わり、ほかの図や画像のデコードを長く待たせない。
+inline constexpr size_t kInlineMathPerChunk = 64;
 
 struct InlineMathChunk {
     // 組の数式のキーの並びから決まる。計画を作り直す前に頼んだ組の結果を見分けるのに使う。
@@ -59,9 +59,8 @@ struct InlineMathChunk {
     std::vector<InlineMathItem> items;
 };
 
-// 文書の数式を、同じ内容なら毎回同じ組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
-// 文書の順に重複を除いて並べ、区切りを数式のキーで決めるので、編集で数式が増減しても変わるのはその前後の組だけ
-// (ディスクキャッシュに組を置いていたときの決め方。今も組の大きさをそろえるのに使う)。
+// 文書の数式を組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
+// 文書の順に重複を除いて並べ、kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
     void Build(std::span<const Node> nodes, const Theme& theme);
