@@ -5,6 +5,7 @@
 #include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
+#include "pele_engine.h"
 #include "utility.h"
 #include "worker_latch.h"
 #include <d2d1_3.h>
@@ -55,8 +56,8 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 // false ならページをデコードも GPU へ転送もせず、寸法だけを返す。
 using MathPageGate = std::move_only_function<bool(size_t page_bytes)>;
 
-// オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
-// 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
+// Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
+// (PeleEngine)、ラベルに数式のある図・インライン数式・拡大表示・クリップボードの SVG はオフスクリーンの WebView2 で描く。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
@@ -104,6 +105,8 @@ public:
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
     void OnIdleTimer();
+    // PeleEngine の使っていないランタイムを捨てる。
+    void OnPeleTrimTimer();
     // 図のある文書を書き換えながら見ている (変更の通知で読み直した) 間は、保存のたびにコールドスタートしないよう長めに残す。
     void SetEditingDiagrams(bool editing);
 
@@ -249,6 +252,12 @@ private:
         DWORD read_error = 0;
         // 投入後に disk_drop_gen_ が進んだので読まずに返した。
         bool dropped = false;
+        // PeleEngine で描く要求。走っている数を数える。
+        bool native = false;
+        // PeleEngine で描画命令にできなかった (ブラウザに回す)。
+        bool needs_browser = false;
+        // PeleEngine が返したコードの誤りの文言。
+        std::wstring render_error;
     };
 
     // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
@@ -262,6 +271,8 @@ private:
     // この後の走査で起動を試す。データフォルダの解放待ちのような一時的な失敗から、操作なしで戻るため。
     static constexpr std::chrono::seconds WEBVIEW_RETRY_AFTER{ 30 };
     static constexpr int MAX_WORKER_RETRIES = 3;
+    // ランタイムは 5ms ほどで作り直せるので、WebView2 より早く捨てる。読み進める間の描画の切れ目では捨てない長さにする。
+    static constexpr UINT PELE_TRIM_MS = 10000;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
     // 編集中は考えている間に閉じると保存のたびに 1 秒前後待たせるので、さらに長くする。
@@ -364,8 +375,19 @@ private:
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
     void RenderInWorker(Worker& worker);
+    // PeleEngine で描ける図はそちらへ、それ以外は WebView2 の描画待ちに積む。PeleEngine へ回したら true。
+    bool EnqueueRender(RenderRequest req);
     // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。諦めている間は失敗で返す。
     void EnqueueWebRender(RenderRequest req);
+    // bg のワーカーで PeleEngine に描かせ、結果をディスクキャッシュの読み込みと同じ経路で返す。
+    void StartNativeRender(RenderRequest req);
+    // 同時に描く数の上限まで、待ちから bg へ出す。
+    void PumpNativeRenders();
+    // job を bg で work(job) してから disk_results_ に返す。投入後に disk_drop_gen_ が進んだ表示用の要求は work せずに返す。
+    template <typename Work>
+    void PostDiskJob(DiskLoad job, Work work);
+    // worker で呼ぶ。
+    void RenderNativeJob(DiskLoad& job, std::wstring_view locale, float dpr);
     void EnqueueSvg(mermaid_util::PageRequest page, std::string_view code, float max_width, bool dark_mode, SvgCallback callback);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
@@ -394,6 +416,7 @@ private:
     void OnDrawResult(Worker& w, std::wstring_view payload);
     // worker で呼ぶ。
     void ParseDrawingJob(DiskLoad& job);
+    static void SetDrawing(DiskLoad& job, std::string_view utf8, mermaid_util::DiagramDrawing drawing);
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
     // 図の文字を組む共有ファクトリ。図の無い文書の起動で読み込まないよう、最初に使うときに作る。
@@ -445,6 +468,12 @@ private:
     PostedInbox<DiskLoad> disk_results_;
     // DropQueued / Shutdown で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };
+
+    // 最初に図を描くときに作る。終了時は描き終わりを待ってから捨てる。
+    std::unique_ptr<PeleEngine> pele_;
+    // PeleEngine で描く要求のうち、上限を超えて待っているものと、bg で走っている数。
+    std::deque<RenderRequest> native_waiting_;
+    int native_running_ = 0;
 
     // 描画命令を記録する DeviceContext。描画先と同じデバイスから作り、描画先が変わったら作り直す。
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;

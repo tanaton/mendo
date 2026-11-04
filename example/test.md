@@ -1560,6 +1560,7 @@ sequenceDiagram
     participant RM as ResourceManager
     participant MR as MermaidRenderer
     participant FC as MermaidFileCache
+    participant PE as PeleEngine (bg のワーカー)
     participant WV as WebView2 (画面外ポップアップ)
     participant JS as pele
     participant WIC as WIC
@@ -1575,7 +1576,14 @@ sequenceDiagram
         WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
         APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ (UI スレッド)
         MR-->>RM: on_update → RequestMermaidRenders（要求し直してメモリキャッシュから受け取る）
-    else キャッシュミス
+    else キャッシュミスで、ラベルに数式 ($$) が無い図
+        MR->>PE: worker で Render(code)（QuickJS-ng で pele.render を動かす）
+        PE->>PE: SVG を DrawingFromPeleSvg で描画命令にする
+        PE-->>APP: WM_APP+7 MERMAID_DISK_LOADED
+        APP->>MR: ProcessDiskLoads → コマンドリストに記録してメモリキャッシュへ (RecordDrawing)
+        MR->>FC: StoreAsync(hash, css_width, css_height, 描画命令)
+        MR-->>RM: on_update → RequestMermaidRenders
+    else キャッシュミスで、数式のラベルがある図 (と描画命令にできない図)
         MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
         MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
         WV->>JS: pele.render(code)
@@ -1622,6 +1630,10 @@ public:
 `ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図は呼び出しごとの `changed` に積み、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
 要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
+
+図は WebView2 を起動せずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、WebView2 の経路と同じ描画命令（`DiagramDrawing`）にする。結果はディスクキャッシュの読み込みと同じ `DiskLoad` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。ラベルに `$$` のある図（KaTeX の MathML を描く）と、`<foreignObject>` のように描画命令にできない要素を含む図だけを WebView2 に回す。インライン数式・拡大表示・クリップボードの SVG もこれまでどおり WebView2 で描く。
+
+`PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele は最初に 1 回だけ使い捨てのランタイムでコンパイルし（約 60ms）、各ランタイムはそのバイトコードを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpNativeRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）で捨てる（`app_timer::Id::PELE_TRIM` → `OnPeleTrimTimer`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
@@ -3208,6 +3220,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | ターゲット | 種別 | 説明 |
 |:-----------|:-----|:-----|
 | `md4c` | 静的ライブラリ | サードパーティ Markdown パーサ |
+| `quickjs` | 静的ライブラリ | QuickJS-ng（pele を動かす JS エンジン。FetchContent で v0.18.0 を SHA-256 で検証して取得し、ライブラリの 4 ファイルだけを組む） |
 | `mendo_core` | 静的ライブラリ | テスト可能なコアロジック（WinMain・ウィンドウ・`App`・レンダラ実装を含まない） |
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |

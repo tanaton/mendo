@@ -594,6 +594,9 @@ void App::HandleTimer(UINT_PTR timer_id)
     case MERMAID_IDLE:
         mermaid_renderer_.OnIdleTimer();
         return;
+    case PELE_TRIM:
+        mermaid_renderer_.OnPeleTrimTimer();
+        return;
     case DEVICE_RECREATE_RETRY:
         KillTimer(id);
         Invalidate();

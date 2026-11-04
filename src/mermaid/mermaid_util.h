@@ -107,6 +107,8 @@ struct RenderSize {
     float width = 0.0f;
     float height = 0.0f;
     float dpr = 0.0f;
+
+    bool operator==(const RenderSize&) const = default;
 };
 RenderSize ParseRenderSize(std::wstring_view payload) noexcept;
 
@@ -124,12 +126,16 @@ struct DrawingText {
     float alpha = 1.0f;
     std::wstring family; // CSS の font-family (候補の並び)
     std::wstring text;
+
+    bool operator==(const DrawingText&) const = default;
 };
 // 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) で、
 // ID2D1SvgDocument が読める要素だけを使う。
 struct DrawingLayer {
     std::string shapes_svg;
     std::vector<DrawingText> texts;
+
+    bool operator==(const DrawingLayer&) const = default;
 };
 // ページが pele の SVG から書き出した描画命令 (DrawResult)。キャプチャの代わりにこれを CPU で描く。
 // 層は SVG の文書の順の重なりを保つためのもの。図形がその層の文字と重なるときだけ、ページが次の層を始める。
@@ -137,12 +143,16 @@ struct DiagramDrawing {
     RenderSize size;         // 図の大きさ (CSS px、切り上げ済み) と dpr
     uint32_t background = 0; // 0xRRGGBB
     std::vector<DrawingLayer> layers;
+
+    bool operator==(const DiagramDrawing&) const = default;
 };
 // DrawResult の payload。
 // "<幅>:<高さ>:<dpr>:<背景 (10 進)>:<層の数>:" に続けて、層ごとに "<SVG の長さ>:<SVG><文字の並びの数>:" と並びを置く。
 // 並びは "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<太さ>,<斜体 0/1>,<下線 0/1>,<色 (10 進)>,<不透明度>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 長さは UTF-16 の単位。ページは XSS で偽れるので、欠け・余り・ありえない値があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
+// ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。
+std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
 size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
 

@@ -267,6 +267,39 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
 
 } // namespace
 
+namespace {
+
+// ParseDrawing は長さを UTF-16 の単位で読む。
+size_t Utf16Length(std::string_view utf8) noexcept
+{
+    size_t n = 0;
+    for (const unsigned char c : utf8) {
+        n += (c & 0xC0) != 0x80; // 継続バイト以外で 1 文字
+        n += c >= 0xF0;          // 4 バイトの文字はサロゲートの 2 単位
+    }
+    return n;
+}
+
+} // namespace
+
+std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
+{
+    std::string out;
+    const auto out_it = std::back_inserter(out);
+    // {} の浮動小数は最短の往復表記なので、wcstof で同じ値に読み戻せる。
+    std::format_to(out_it, "{}:{}:{}:{}:{}:", drawing.size.width, drawing.size.height, drawing.size.dpr, drawing.background, drawing.layers.size());
+    for (const auto& layer : drawing.layers) {
+        std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes_svg), layer.shapes_svg, layer.texts.size());
+        for (const auto& t : layer.texts) {
+            const auto& m = t.transform;
+            std::format_to(out_it, "{},{},{},{},{},{},{},{},{},{},{},{},{},{}:", m[0], m[1], m[2], m[3], m[4], m[5], t.x, t.y, t.font_size, t.weight,
+                           t.italic ? 1 : 0, t.underline ? 1 : 0, t.rgb, t.alpha);
+            std::format_to(out_it, "{}:{}{}:{}", t.family.size(), string_convert::WideToUtf8(t.family), t.text.size(), string_convert::WideToUtf8(t.text));
+        }
+    }
+    return out;
+}
+
 size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
 {
     size_t bytes = sizeof(drawing);

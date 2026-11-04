@@ -69,6 +69,28 @@ set(WEBVIEW2_DIR "${webview2_SOURCE_DIR}")
 set(WEBVIEW2_INCLUDE "${WEBVIEW2_DIR}/build/native/include")
 set(WEBVIEW2_LIB_DIR "${WEBVIEW2_DIR}/build/native/x64")
 
+# ---- QuickJS-ng（pele を WebView2 を使わずに動かす） ----
+# ライブラリの 4 ファイルだけを組む。SOURCE_SUBDIR を無い場所にして、同梱の CMakeLists (qjs などの実行ファイル) を読ませない。
+FetchContent_Declare(
+    quickjs
+    URL https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.18.0.tar.gz
+    URL_HASH SHA256=28bcd89aa3683fd2a946537e5ce3f11cc46b5cbf3383c7561aaef3df5ff9f1dd
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR _none
+)
+FetchContent_MakeAvailable(quickjs)
+add_library(quickjs STATIC
+    ${quickjs_SOURCE_DIR}/quickjs.c
+    ${quickjs_SOURCE_DIR}/libregexp.c
+    ${quickjs_SOURCE_DIR}/libunicode.c
+    ${quickjs_SOURCE_DIR}/dtoa.c
+)
+target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
+# 同梱の CMakeLists と同じ定義と C11 (Windows の原子操作は /experimental:c11atomics)。
+target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
+set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
+target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
+
 # ---- md4c（サードパーティ） ----
 # Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
 add_library(md4c STATIC third_party/md4c/md4c.c)
@@ -118,6 +140,7 @@ add_library(mendo_core STATIC
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
+    src/mermaid/pele_engine.cpp
     # nav - ナビゲーション
     src/nav/nav.cpp
     # theme - テーマ管理
@@ -143,7 +166,7 @@ target_compile_definitions(mendo_core PUBLIC
 # リンクする OS のライブラリはここにまとめる (ソースの #pragma comment(lib) は使わない)。
 # windowscodecs は DLL を静的に読まないが、WIC の GUID がこの lib にある。
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
+    md4c quickjs d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
 )
 if(MENDO_USE_TRACY)
     # profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。TRACY_ENABLE は TracyClient から伝わる。

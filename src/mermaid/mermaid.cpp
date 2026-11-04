@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "diagram_raster.h"
+#include "pele_engine.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "mermaid_file_cache.h"
@@ -377,6 +378,13 @@ LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 } // namespace
 
+// ディスクキャッシュに書く UTF-8 と、UI でコマンドリストに記録する描画命令。
+void MermaidRenderer::SetDrawing(DiskLoad& job, std::string_view utf8, mermaid_util::DiagramDrawing drawing)
+{
+    job.bytes = std::make_shared<const ByteBuffer>(std::span{ reinterpret_cast<const uint8_t*>(utf8.data()), utf8.size() });
+    job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(drawing));
+}
+
 MermaidRenderer::~MermaidRenderer()
 {
     Shutdown();
@@ -397,9 +405,16 @@ void MermaidRenderer::Shutdown()
     }
     inflight_.clear();
 
+    native_waiting_.clear();
     disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
     disk_results_.TakeAll();
+    if (pele_) {
+        pele_->Cancel();
+    }
     latch_.Wait();
+    pele_.reset();
+    native_running_ = 0;
+    KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE));
     ReleaseWebView();
 }
@@ -532,6 +547,15 @@ void MermaidRenderer::OnIdleTimer()
     }
     // 次の要求で EnsureInitialized から作り直し、準備完了時の on_update_ で図を再要求させる。
     ReleaseWebView();
+}
+
+void MermaidRenderer::OnPeleTrimTimer()
+{
+    KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
+    // 描いている途中のものは捨てない。図 4 個の文書で mendo の private bytes が 63 → 52MB、1 個で 51 → 48MB になる。
+    if (pele_) {
+        pele_->Trim();
+    }
 }
 
 void MermaidRenderer::DestroyWorker(Worker& w)
@@ -858,6 +882,9 @@ void MermaidRenderer::DropQueued()
     for (auto& req : TakePending(&RenderRequest::is_display)) {
         ReleaseInflight(req);
     }
+    for (auto& req : std::exchange(native_waiting_, {})) {
+        ReleaseInflight(req);
+    }
 }
 
 void MermaidRenderer::DropQueuedMath()
@@ -958,31 +985,39 @@ bool MermaidRenderer::RequestRender(
         return false;
     }
 
-    EnqueueWebRender(std::move(req));
+    const bool native = EnqueueRender(std::move(req));
     // 走査のたびに true を返すと再レイアウトが続くので、文言を出すのは 1 回だけ。
-    if (!IsWebViewGivenUp() || diagram_entry.error.kind == DiagramError::Kind::WebViewUnavailable) {
+    if (native || !IsWebViewGivenUp() || diagram_entry.error.kind == DiagramError::Kind::WebViewUnavailable) {
         return false;
     }
     ApplyResult(diagram_entry, DiagramResult{ .error = { DiagramError::Kind::WebViewUnavailable } });
     return true;
 }
 
-void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream,
-                                    std::wstring drawing)
+template <typename Work>
+void MermaidRenderer::PostDiskJob(DiskLoad job, Work work)
 {
-    const bool fresh = captured_stream != nullptr || !drawing.empty();
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .drawing = std::move(drawing), .fresh = fresh };
-    // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
-    bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed), guard = latch_.Acquire()]() mutable {
+    bg_scheduler_->Post([this, job = std::move(job), work = std::move(work), drop_gen = disk_drop_gen_.load(std::memory_order_relaxed),
+                         guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
+        // 描いた直後の結果はディスクへ保存したいので捨てない。
         job.dropped = !job.fresh && job.req.is_display() && drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
-            LoadDiskJob(job, path);
+            work(job);
         }
         if (disk_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_DISK_LOADED, 0, 0);
         }
     });
+}
+
+void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream,
+                                    std::wstring drawing)
+{
+    const bool fresh = captured_stream != nullptr || !drawing.empty();
+    // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
+    PostDiskJob(DiskLoad{ .req = std::move(req), .captured_stream = std::move(captured_stream), .drawing = std::move(drawing), .fresh = fresh },
+                [this, path = std::move(png_path)](DiskLoad& job) { LoadDiskJob(job, path); });
 }
 
 void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path)
@@ -1035,9 +1070,7 @@ void MermaidRenderer::ParseDrawingJob(DiskLoad& job)
         return;
     }
     // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 4KB。同じ図の PNG の約 1/20)。
-    const std::string utf8 = string_convert::WideToUtf8(payload);
-    job.bytes = std::make_shared<const ByteBuffer>(std::span{ reinterpret_cast<const uint8_t*>(utf8.data()), utf8.size() });
-    job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing));
+    SetDrawing(job, string_convert::WideToUtf8(payload), std::move(*drawing));
 }
 
 IDWriteFactory* MermaidRenderer::WriteFactory()
@@ -1205,6 +1238,10 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         ReleaseInflight(r.req);
         return false;
     }
+    if (r.needs_browser) {
+        EnqueueWebRender(std::move(r.req));
+        return false;
+    }
     DiagramResult result{ .width = r.req.css_width, .height = r.req.css_height };
     if (r.parsed) {
         result.commands = RecordDrawing(*r.parsed);
@@ -1225,14 +1262,14 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     }
     // 描画直後の PNG を描き直しても同じ結果になるので、エラーを確定させて再要求させない。
     if (r.fresh) {
-        SetDiagramError(r.req, DiagramError::Kind::Render);
+        SetDiagramError(r.req, DiagramError::Kind::Render, r.render_error);
         ReleaseInflight(r.req);
         return true;
     }
     if (!r.bytes) {
         file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
     }
-    EnqueueWebRender(std::move(r.req));
+    EnqueueRender(std::move(r.req));
     return false;
 }
 
@@ -1244,11 +1281,82 @@ void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point dea
         return;
     }
     bool resolved = false;
-    disk_results_.Drain(deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
+    bool native_done = false;
+    disk_results_.Drain(deadline, [&](DiskLoad& r) {
+        if (r.native) {
+            --native_running_;
+            native_done = true;
+        }
+        resolved |= ApplyDiskLoad(r);
+    });
+    if (native_done) {
+        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
+        PumpNativeRenders();
+    }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
         on_update_();
     }
+}
+
+bool MermaidRenderer::EnqueueRender(RenderRequest req)
+{
+    if (req.is_display() && PeleEngine::CanRender(req.code)) {
+        StartNativeRender(std::move(req));
+        return true;
+    }
+    EnqueueWebRender(std::move(req));
+    return false;
+}
+
+void MermaidRenderer::StartNativeRender(RenderRequest req)
+{
+    if (!pele_) {
+        pele_ = std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), WriteFactory());
+    }
+    native_waiting_.push_back(std::move(req));
+    PumpNativeRenders();
+}
+
+void MermaidRenderer::PumpNativeRenders()
+{
+    // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
+    // ランタイムも同時に描く数だけ作るので、メモリの上限にもなる。
+    const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
+    while (native_running_ < limit && !native_waiting_.empty()) {
+        ++native_running_;
+        DiskLoad job{ .req = std::move(native_waiting_.front()), .native = true };
+        native_waiting_.pop_front();
+        PostDiskJob(std::move(job), [this, locale = std::wstring{ i18n::TextLocale() }, dpr = file_cache_->Dpr()](DiskLoad& j) {
+            RenderNativeJob(j, locale, dpr);
+        });
+    }
+}
+
+void MermaidRenderer::RenderNativeJob(DiskLoad& job, std::wstring_view locale, float dpr)
+{
+    using Status = PeleOutcome::Status;
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, locale);
+    switch (out.status) {
+    case Status::Cancelled:
+        job.dropped = true;
+        return;
+    case Status::NeedsBrowser:
+        job.needs_browser = true;
+        return;
+    case Status::Error:
+        job.fresh = true;
+        job.render_error = std::move(out.error);
+        return;
+    case Status::Drawn:
+        break;
+    }
+    job.fresh = true;
+    // 保存・コピーの PNG をこの DPR で描く (WebView2 で描いた図はワーカーの DPR)。
+    out.drawing.size.dpr = dpr;
+    job.req.css_width = out.drawing.size.width;
+    job.req.css_height = out.drawing.size.height;
+    SetDrawing(job, mermaid_util::SerializeDrawing(out.drawing), std::move(out.drawing));
 }
 
 void MermaidRenderer::EnqueueWebRender(RenderRequest req)
