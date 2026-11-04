@@ -139,7 +139,6 @@ struct ReduceContext {
     // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
     // 直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
-    // InvalidateWindow を積んだ。
     bool invalidated = false;
 };
 
@@ -348,7 +347,7 @@ void On(ReduceContext& c, const OpenPathAction& a)
 
 void ScrollToHeading(AppState& state, int node_index)
 {
-    // 見出しを md ペインの上端から heading_spacing_above だけ下げて置く。
+    // 見出しを上端に貼り付けず、上の余白ごと見せる。
     ApplyScrollTarget(state, node_index, -state.theme->heading_spacing_above);
 }
 

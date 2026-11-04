@@ -131,6 +131,10 @@ private:
             return static_cast<RequestKind>(target.index());
         }
     };
+    template <RequestKind K>
+    using TargetOf = std::variant_alternative_t<std::to_underlying(K), decltype(RenderRequest::target)>;
+    static_assert(std::is_same_v<TargetOf<RequestKind::Svg>, SvgCallback> && std::is_same_v<TargetOf<RequestKind::View>, ViewCallback> &&
+                  std::is_same_v<TargetOf<RequestKind::Math>, MathRequest>);
 
     // 図の拡大表示 (窓は DiagramView が持つ)。
     struct Viewer {

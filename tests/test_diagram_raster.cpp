@@ -21,7 +21,8 @@ protected:
     void SetUp() override
     {
         ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, d2d_.GetAddressOf()));
-        ASSERT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw_.GetAddressOf())));
+        dw_ = SharedDWriteFactory();
+        ASSERT_NE(dw_, nullptr);
         wic_ = wic_util::CreateWicFactory("DiagramRasterTest");
         ASSERT_NE(wic_, nullptr);
     }

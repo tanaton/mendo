@@ -272,12 +272,12 @@ std::optional<size_t> ParseNumbers(std::string_view s, std::span<double> out)
     return ok ? std::optional{ n } : std::nullopt;
 }
 
-// separator の位置。括弧と引用符の中は見ない。無ければ npos。from はトップレベルの位置 (前の separator の次) にする。
-size_t FindTopLevel(std::string_view s, char separator, size_t from = 0) noexcept
+// separator の位置。括弧と引用符の中は見ない。無ければ npos。
+size_t FindTopLevel(std::string_view s, char separator) noexcept
 {
     int depth = 0;
     char quote = 0;
-    for (size_t i = from; i < s.size(); ++i) {
+    for (size_t i = 0; i < s.size(); ++i) {
         const char c = s[i];
         if (quote) {
             quote = c == quote ? 0 : quote;
@@ -1137,17 +1137,21 @@ bool ParseColor(std::string_view v, const Rgba& current, Rgba& out);
 // color-mix(in srgb, A [p%], B [q%])。乗算済みの sRGB で混ぜる (CSS Color 5)。
 bool ParseColorMix(std::string_view args, const Rgba& current, Rgba& out)
 {
-    const size_t first = FindTopLevel(args, ',');
-    const size_t second = first == std::string_view::npos ? first : FindTopLevel(args, ',', first + 1);
-    if (second == std::string_view::npos || FindTopLevel(args, ',', second + 1) != std::string_view::npos ||
-        !ascii_util::iequal(Trim(args.substr(0, first)), "in srgb")) {
+    std::string_view parts[3];
+    size_t n = 0;
+    ForEachTopLevel(args, ',', [&](std::string_view part) {
+        if (n < std::size(parts)) {
+            parts[n] = part;
+        }
+        return ++n <= std::size(parts);
+    });
+    if (n != std::size(parts) || !ascii_util::iequal(Trim(parts[0]), "in srgb")) {
         return false;
     }
-    const std::string_view parts[2]{ args.substr(first + 1, second - first - 1), args.substr(second + 1) };
     Rgba c[2];
     float p[2]{ -1.0f, -1.0f };
     for (int i = 0; i < 2; ++i) {
-        std::string_view part = Trim(parts[i]);
+        std::string_view part = Trim(parts[i + 1]);
         // 百分率は色の前でも後ろでもよい。
         const size_t last_space = part.find_last_of(kSpaces);
         const size_t first_space = part.find_first_of(kSpaces);
@@ -1342,16 +1346,21 @@ void AppendTransform(std::string& out, const std::array<T, 6>& m)
     out += '"';
 }
 
-void AppendSvgHead(std::string& out, float width, float height)
+void AppendSvgHead(std::string& out, const mermaid_util::DiagramDrawing& drawing)
 {
     out += "<svg xmlns=\"http://www.w3.org/2000/svg\"";
-    AppendAttr(out, "width", width);
-    AppendAttr(out, "height", height);
+    AppendAttr(out, "width", drawing.width);
+    AppendAttr(out, "height", drawing.height);
     out += " viewBox=\"0 0 ";
-    AppendNum(out, width);
+    AppendNum(out, drawing.width);
     out += ' ';
-    AppendNum(out, height);
+    AppendNum(out, drawing.height);
     out += "\">";
+    if (!drawing.defs.empty()) {
+        out += "<defs>";
+        out += drawing.defs;
+        out += "</defs>";
+    }
 }
 
 // ---- スタイル ----
@@ -1719,6 +1728,12 @@ private:
     {
         return strings_.emplace_back(std::move(s));
     }
+    // Apply が持ち続ける view。var() を解いた値 (resolved_) は次の宣言で上書きされるので写す。
+    std::string_view Retain(std::string_view v)
+    {
+        const bool in_resolved = !v.empty() && v.data() >= resolved_.data() && v.data() < resolved_.data() + resolved_.size();
+        return in_resolved ? Keep(std::string(v)) : v;
+    }
     Style Compute(const Style& parent, const XmlNode& el, std::string_view extra_style = {});
     void Apply(Style& s, const Style& parent, Prop prop, std::string_view value);
     bool Walk(uint32_t index, const Style& parent, const Mat& ctm, float opacity);
@@ -1752,7 +1767,7 @@ private:
     std::deque<std::string> strings_;
     std::deque<std::wstring> wide_strings_;
     std::deque<Vars> vars_;
-    std::string resolved_; // var() を解いた値。Apply が値を持ち続けないものはここで済ませる
+    std::string resolved_; // var() を解いた値。Apply が持ち続けるものは Retain で写す
     std::unordered_map<std::string_view, uint32_t> ids_; // GradientRef が初めて引くときに作る
     bool ids_ready_ = false;
     std::vector<std::pair<std::string, std::string>> gradients_; // (id|alpha, 名前。空は塗れない参照)
@@ -1805,11 +1820,13 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         }
         break;
     case Prop::Fill:
-        ParsePaint(value, s.color, s.fill);
+    case Prop::Stroke: {
+        Paint& paint = prop == Prop::Fill ? s.fill : s.stroke;
+        if (ParsePaint(value, s.color, paint) && paint.kind == Paint::Kind::Url) {
+            paint.url = Retain(paint.url);
+        }
         break;
-    case Prop::Stroke:
-        ParsePaint(value, s.color, s.stroke);
-        break;
+    }
     case Prop::FillOpacity:
         ParseOpacityValue(value, s.fill_opacity);
         break;
@@ -1915,7 +1932,7 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         s.own.underline = value.find("underline") != std::string_view::npos;
         break;
     case Prop::BaselineShift:
-        s.own.baseline_shift = value;
+        s.own.baseline_shift = Retain(value);
         break;
     case Prop::Rx:
     case Prop::Ry: {
@@ -2016,10 +2033,6 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
                 continue;
             }
             value = resolved_;
-            // Apply が値の view を持ち続けるのは baseline-shift と塗りの url() の id だけ。
-            if (prop == Prop::BaselineShift || ((prop == Prop::Fill || prop == Prop::Stroke) && ascii_util::istarts_with(Trim(value), "url("))) {
-                value = Keep(resolved_);
-            }
         }
         Apply(s, parent, prop, value);
     }
@@ -2729,8 +2742,9 @@ std::optional<float> ParsePx(std::string_view v, float font_size)
 // 長さか百分率。em は font_size、% は KLen::pct (0〜1)。
 std::optional<KLen> ParseKLen(std::string_view v, float font_size)
 {
+    v = Trim(v);
     float out = 0.0f;
-    return ParseLengthOrPercent(v, font_size, 1.0f, out) ? std::optional{ KLen{ out, Trim(v).ends_with('%') } } : std::nullopt;
+    return ParseLengthOrPercent(v, font_size, 1.0f, out) ? std::optional{ KLen{ out, v.ends_with('%') } } : std::nullopt;
 }
 
 // 足す順を変えない (std::reduce は順を決めないので、字の位置が前と変わりうる)。
@@ -2883,11 +2897,10 @@ public:
     std::optional<MathDrawing> Run(float font_size);
 
 private:
-    static constexpr uint32_t kNone = kNoNode;
 
     std::string_view Classes(uint32_t i) const noexcept
     {
-        return i == kNone ? std::string_view{} : doc_.nodes[i].Attr("class").value_or(std::string_view{});
+        return i == kNoNode ? std::string_view{} : doc_.nodes[i].Attr("class").value_or(std::string_view{});
     }
     void Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own);
     KBox Element(uint32_t i, const KInherit& parent, const KCtx& ctx, bool force_inline_block = false);
@@ -3017,7 +3030,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
             inh.align = KAlign::Right;
         }
     }
-    if (has("vlist-r") && p != kNone && HasClass(Classes(doc_.nodes[p].parent), "mfrac")) {
+    if (has("vlist-r") && p != kNoNode && HasClass(Classes(doc_.nodes[p].parent), "mfrac")) {
         inh.align = KAlign::Center; // .mfrac > span > span
     }
 
@@ -3364,7 +3377,7 @@ KBox KatexLayout::VList(uint32_t i, const KInherit& inh)
     struct Row {
         KBox box;
         float ml = 0.0f, mr = 0.0f, y = 0.0f;
-        uint32_t content = kNone;
+        uint32_t content = kNoNode;
         KInherit wrap_inh;
     };
     std::vector<Row> placed;
@@ -3404,14 +3417,14 @@ KBox KatexLayout::VList(uint32_t i, const KInherit& inh)
                         Compute(c, placed_row.wrap_inh, pi, po);
                         pstrut = po.height.value_or(0.0f);
                     }
-                    else if (placed_row.content == kNone) {
+                    else if (placed_row.content == kNoNode) {
                         placed_row.content = c;
                     }
                     else {
                         Fail();
                     }
                 }
-                if (placed_row.content == kNone) {
+                if (placed_row.content == kNoNode) {
                     continue;
                 }
                 const float top = wrap_own.top && !wrap_own.top->pct ? wrap_own.top->v : 0.0f;
@@ -3667,14 +3680,14 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
 
 std::optional<MathDrawing> KatexLayout::Run(float font_size)
 {
-    uint32_t html = kNone;
+    uint32_t html = kNoNode;
     for (uint32_t i = 0; i < doc_.nodes.size(); ++i) {
         if (HasClass(Classes(i), "katex-html")) {
             html = i;
             break;
         }
     }
-    if (html == kNone) {
+    if (html == kNoNode) {
         return std::nullopt;
     }
     KInherit root;
@@ -4011,12 +4024,7 @@ std::pair<float, float> DiagramTextMeasurer::Extent(const DiagramFont& font)
 std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
 {
     std::string out;
-    AppendSvgHead(out, drawing.width, drawing.height);
-    if (!drawing.defs.empty()) {
-        out += "<defs>";
-        out += drawing.defs;
-        out += "</defs>";
-    }
+    AppendSvgHead(out, drawing);
     // 文字の並びと数式で共通の <text の属性。この後に字体の属性と >本文</text> を続ける。
     const auto open_text = [&out](const mermaid_util::DrawingPlacement& at, std::string_view family) {
         out += "<text";
@@ -4103,12 +4111,7 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
     DiagramTextMeasurer formats(dw, locale ? locale : L"");
     // 層の図形は <svg> の中身だけなので、どの層にも同じ頭と <defs> を付けて 1 枚の SVG にする。
     std::string svg;
-    AppendSvgHead(svg, drawing.width, drawing.height);
-    if (!drawing.defs.empty()) {
-        svg += "<defs>";
-        svg += drawing.defs;
-        svg += "</defs>";
-    }
+    AppendSvgHead(svg, drawing);
     const size_t head_size = svg.size();
     bool ok = true;
     for (const auto& layer : drawing.layers) {

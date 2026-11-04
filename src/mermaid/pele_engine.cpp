@@ -191,23 +191,39 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
             auto context = std::move(idle_.back());
             idle_.pop_back();
             // 前に別のスレッドで使ったランタイムでも、このスレッドのスタックで上限を測らせる。
-            JS_UpdateStackTop(context->rt);
+            if (context->rt) {
+                JS_UpdateStackTop(context->rt);
+            }
             return context;
         }
     }
     auto context = std::make_unique<PeleContext>();
     context->engine = this;
     context->fonts = &FontsFor(locale_);
-    context->rt = JS_NewRuntime();
-    context->ctx = context->rt ? JS_NewContext(context->rt) : nullptr;
-    if (!context->ctx) {
-        return nullptr;
-    }
-    JS_SetMaxStackSize(context->rt, kJsStackBytes);
-    JS_SetMemoryLimit(context->rt, kJsMemoryBytes);
-    JS_SetInterruptHandler(context->rt, CheckCancel, &cancel_);
-    JS_SetContextOpaque(context->ctx, context.get());
     return context;
+}
+
+// pele の出力を覚えた図 (テーマの切り替え) は測定器しか使わないので、ランタイムは JS を動かすときに作る。
+bool PeleEngine::EnsureRuntime(PeleContext& context)
+{
+    if (context.ctx) {
+        return true;
+    }
+    if (!context.rt) {
+        context.rt = JS_NewRuntime();
+        if (!context.rt) {
+            return false;
+        }
+        JS_SetMaxStackSize(context.rt, kJsStackBytes);
+        JS_SetMemoryLimit(context.rt, kJsMemoryBytes);
+        JS_SetInterruptHandler(context.rt, CheckCancel, &cancel_);
+    }
+    context.ctx = JS_NewContext(context.rt);
+    if (!context.ctx) {
+        return false;
+    }
+    JS_SetContextOpaque(context.ctx, &context);
+    return true;
 }
 
 void PeleEngine::Release(std::unique_ptr<PeleContext> context)
@@ -218,6 +234,9 @@ void PeleEngine::Release(std::unique_ptr<PeleContext> context)
 
 bool PeleEngine::EnsurePele(PeleContext& context)
 {
+    if (!EnsureRuntime(context)) {
+        return false;
+    }
     if (JS_IsFunction(context.ctx, context.render)) {
         return true;
     }
@@ -289,6 +308,9 @@ bool PeleEngine::EnsurePele(PeleContext& context)
 
 bool PeleEngine::EnsureKatex(PeleContext& context)
 {
+    if (!EnsureRuntime(context)) {
+        return false;
+    }
     if (JS_IsFunction(context.ctx, context.katex)) {
         return true;
     }
@@ -370,9 +392,6 @@ std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::spa
         return out;
     }
     auto context = Acquire();
-    if (!context) {
-        return out;
-    }
     for (size_t i = 0; i < maths.size() && !Cancelled(); ++i) {
         out[i] = LayoutMath(*context, maths[i].tex, maths[i].font_size);
     }
@@ -423,9 +442,6 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         return { .status = Status::Cancelled };
     }
     auto context = Acquire();
-    if (!context) {
-        return {};
-    }
     if (!context->measurer) {
         context->measurer.emplace(dw_, locale_);
     }
@@ -434,9 +450,12 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     PeleOutcome out;
     auto svg = FindSvg(key);
     if (!svg) {
-        out = RenderSvg(*context, code, max_width, svg);
-        if (svg) {
+        if (auto rendered = RenderSvg(*context, code, max_width)) {
+            svg = std::move(*rendered);
             StoreSvg(key, svg);
+        }
+        else {
+            out = std::move(rendered.error());
         }
     }
     if (svg) {
@@ -450,11 +469,11 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     return out;
 }
 
-PeleOutcome PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width, std::shared_ptr<const PeleSvg>& svg_out)
+std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
 {
     using Status = PeleOutcome::Status;
     if (!EnsurePele(context)) {
-        return {};
+        return std::unexpected(PeleOutcome{});
     }
     JSContext* ctx = context.ctx;
     JSValue args[5] = {
@@ -468,22 +487,21 @@ PeleOutcome PeleEngine::RenderSvg(PeleContext& context, std::string_view code, f
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
-    PeleOutcome out;
+    std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
         if (Cancelled()) {
-            out.status = Status::Cancelled;
+            out.error().status = Status::Cancelled;
         }
         else {
-            out.status = Status::Error;
-            out.error = ErrorText(ctx, error);
+            out.error().error = ErrorText(ctx, error);
         }
         JS_FreeValue(ctx, error);
     }
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            svg_out = std::make_shared<const PeleSvg>(PeleSvg{ .svg = std::string{ s, length }, .labels = std::move(context.labels) });
+            out = std::make_shared<const PeleSvg>(PeleSvg{ .svg = std::string{ s, length }, .labels = std::move(context.labels) });
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);
