@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <ranges>
 #include <utility>
 
 namespace {
@@ -360,12 +361,9 @@ void MermaidRenderer::RenderJob(Job& job)
     using Status = PeleOutcome::Status;
     job.used_pele = true;
     if (job.req.kind() == RequestKind::Math) {
-        std::vector<PeleEngine::MathSource> sources;
-        const auto& items = std::get<MathRequest>(job.req.target).items;
-        sources.reserve(items.size());
-        for (const auto& item : items) {
-            sources.push_back({ item.tex, item.font_size });
-        }
+        const auto sources = std::get<MathRequest>(job.req.target).items | std::views::transform([](const auto& item) static noexcept {
+            return PeleEngine::MathSource{ item.tex, item.font_size };
+        }) | std::ranges::to<std::vector>();
         job.maths = pele_->RenderMaths(sources);
         return;
     }

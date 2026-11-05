@@ -356,9 +356,7 @@ void MermaidFileCache::Clear()
 {
     {
         const std::lock_guard lock(pending_mutex_);
-        for (auto& [key, evicted] : pending_writes_) {
-            evicted = true;
-        }
+        std::ranges::fill(pending_writes_ | std::views::values, true);
     }
     // 消した索引を終了時に書き戻さないよう、読み込み直後と同じく dirty を落とす。
     index_.emplace();

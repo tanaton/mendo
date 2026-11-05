@@ -3,6 +3,7 @@
 #include "doc_dwrite_bridge.h"
 #include "document_utils.h"
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -31,11 +32,7 @@ void SearchState::BeginSearch(std::string_view query)
                  active.size() > matched_.text.size() && active.starts_with(matched_.text);
     candidate_nodes_.clear();
     if (narrowing_) {
-        for (const auto& m : matches_) {
-            if (candidate_nodes_.empty() || candidate_nodes_.back() != m.node_index) {
-                candidate_nodes_.push_back(m.node_index);
-            }
-        }
+        std::ranges::unique_copy(matches_ | std::views::transform(&SearchMatch::node_index), std::back_inserter(candidate_nodes_));
     }
     next_node_ = 0;
     skip_node_ = -1;

@@ -9,6 +9,7 @@
 #include "win32_util.h"
 #include <d2d1_1.h>
 #include <wincodec.h>
+#include <algorithm>
 #include <utility>
 #include <wrl/client.h>
 
@@ -252,10 +253,7 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
 void Renderer::RecreateAllTextFormats()
 {
     CreateTextFormats();
-
-    for (auto& f : pane_list_fmt_) {
-        f = {};
-    }
+    std::ranges::fill(pane_list_fmt_, PaneListFormats{});
 
     // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
     text_layouts_.SetFactory(dwrite_factory_.Get());
