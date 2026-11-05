@@ -44,11 +44,9 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
         if (current.items.empty()) {
             return;
         }
-        uint64_t key = kChunkKeySalt;
-        for (const auto& item : current.items) {
-            key = (key ^ item.key) * kFnv1a64Prime;
-        }
-        current.key = key;
+        current.key = std::ranges::fold_left(current.items, kChunkKeySalt, [](uint64_t key, const auto& item) static noexcept {
+            return (key ^ item.key) * kFnv1a64Prime;
+        });
         chunks_.push_back(std::move(current));
         current = {};
     };

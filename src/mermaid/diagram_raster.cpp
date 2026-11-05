@@ -18,6 +18,7 @@
 #include <mutex>
 #include <numbers>
 #include <numeric>
+#include <ranges>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -93,10 +94,8 @@ FamilyChain ChainFor(IDWriteFactory* dw, std::wstring_view css_family)
     const auto families = ResolveFontFamilies(fonts.Get(), css_family);
     FamilyChain chain{ .primary = families.empty() ? std::wstring{ kDefaultFamily } : families.front() };
     if (families.size() > 1) {
-        std::vector<const wchar_t*> rest;
-        for (size_t i = 1; i < families.size(); ++i) {
-            rest.push_back(families[i].c_str());
-        }
+        auto rest = families | std::views::drop(1) | std::views::transform([](const std::wstring& f) static noexcept { return f.c_str(); }) |
+                    std::ranges::to<std::vector>();
         constexpr DWRITE_UNICODE_RANGE kAll{ 0, 0x10FFFF };
         ComPtr<IDWriteFactory2> dw2;
         ComPtr<IDWriteFontFallbackBuilder> builder;
@@ -549,12 +548,7 @@ bool WalkPath(std::string_view d, Visitor& visitor)
         return TakeNumber(d, v);
     };
     const auto numbers = [&](double* v, int n) {
-        for (int i = 0; i < n; ++i) {
-            if (!number(v[i])) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(v, v + n, number);
     };
     const auto flag = [&](bool& v) {
         SkipSeparators(d);
@@ -754,7 +748,7 @@ struct XmlDoc {
 
 std::optional<std::string_view> DecodeXmlText(std::string_view in, XmlDoc& doc)
 {
-    if (in.find('&') == std::string_view::npos) {
+    if (!in.contains('&')) {
         return in;
     }
     std::string& out = doc.decoded.emplace_back();
@@ -936,9 +930,7 @@ bool ParseXml(std::string_view s, XmlDoc& doc)
             ++starts[n.parent + 1];
         }
     }
-    for (size_t k = 1; k < starts.size(); ++k) {
-        starts[k] += starts[k - 1];
-    }
+    std::partial_sum(starts.begin(), starts.end(), starts.begin());
     doc.children.resize(starts.back());
     for (uint32_t k = 0; k < nodes.size(); ++k) {
         if (nodes[k].parent != kNoNode) {
@@ -1695,8 +1687,8 @@ bool ViewportTransform(const XmlNode& el, double x, double y, double width, doub
     double ty = 0.0;
     if (align != "none") {
         sx = sy = slice ? std::max(sx, sy) : std::min(sx, sy);
-        const double fx = align.find("xMid") != std::string_view::npos ? 0.5 : align.find("xMax") != std::string_view::npos ? 1.0 : 0.0;
-        const double fy = align.find("YMid") != std::string_view::npos ? 0.5 : align.find("YMax") != std::string_view::npos ? 1.0 : 0.0;
+        const double fx = align.contains("xMid") ? 0.5 : align.contains("xMax") ? 1.0 : 0.0;
+        const double fy = align.contains("YMid") ? 0.5 : align.contains("YMax") ? 1.0 : 0.0;
         tx = (width - vb[2] * sx) * fx;
         ty = (height - vb[3] * sy) * fy;
     }
@@ -1933,7 +1925,7 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         s.anchor = ascii_util::iequal(value, "middle") ? 1 : ascii_util::iequal(value, "end") ? 2 : 0;
         break;
     case Prop::TextDecoration:
-        s.own.underline = value.find("underline") != std::string_view::npos;
+        s.own.underline = value.contains("underline");
         break;
     case Prop::BaselineShift:
         s.own.baseline_shift = Retain(value);
@@ -2487,12 +2479,7 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
         m = Compose(m, viewport);
     }
     if (container) {
-        for (const uint32_t child : el.children) {
-            if (!Walk(child, s, m, own_opacity)) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(el.children, [&](uint32_t child) { return Walk(child, s, m, own_opacity); });
     }
     if (tag == "text") {
         return Text(index, s, m, own_opacity);
@@ -2527,12 +2514,8 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     if (!ViewportTransform(root, 0.0, 0.0, w, h, root_ctm)) {
         return std::nullopt;
     }
-    if (!rs.own.display_none) {
-        for (const uint32_t child : root.children) {
-            if (!Walk(child, rs, root_ctm, rs.own.opacity)) {
-                return std::nullopt;
-            }
-        }
+    if (!rs.own.display_none && !std::ranges::all_of(root.children, [&](uint32_t child) { return Walk(child, rs, root_ctm, rs.own.opacity); })) {
+        return std::nullopt;
     }
     return mermaid_util::DiagramDrawing{
         .width = std::ceil(w),
@@ -2690,7 +2673,7 @@ void AppendItems(KBox& out, KBox&& box, float dx, float dy)
         out.items = std::move(box.items);
     }
     else {
-        out.items.insert(out.items.end(), std::make_move_iterator(box.items.begin()), std::make_move_iterator(box.items.end()));
+        out.items.append_range(box.items | std::views::as_rvalue);
     }
 }
 
@@ -2789,8 +2772,8 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
             const float gap = g->x - (prev->x + RunWidth(*prev));
             if (gap >= -0.01f) {
                 prev->advances.back() += std::max(gap, 0.0f);
-                prev->glyphs.insert(prev->glyphs.end(), g->glyphs.begin(), g->glyphs.end());
-                prev->advances.insert(prev->advances.end(), g->advances.begin(), g->advances.end());
+                prev->glyphs.append_range(g->glyphs);
+                prev->advances.append_range(g->advances);
                 continue;
             }
         }

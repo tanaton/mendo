@@ -481,7 +481,7 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
         JS_NewFloat64(ctx, max_width),
         NewString(ctx, context.fonts->sans),
         NewString(ctx, context.fonts->mono),
-        code.find("$$") != std::string_view::npos && EnsureKatex(context) ? JS_DupValue(ctx, context.katex) : JS_UNDEFINED,
+        code.contains("$$") && EnsureKatex(context) ? JS_DupValue(ctx, context.katex) : JS_UNDEFINED,
     };
     JSValue svg = JS_Call(ctx, context.render, JS_UNDEFINED, 5, args);
     for (JSValue& arg : args) {

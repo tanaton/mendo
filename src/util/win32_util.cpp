@@ -3,6 +3,7 @@
 #include <uxtheme.h>
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <thread>
 #include <vector>
 
@@ -55,10 +56,7 @@ std::vector<PendingLaunch> g_pending_launches;
 std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 {
     std::erase_if(g_pending_launches, [now](const PendingLaunch& p) { return now - p.tick > kPendingLaunchMs; });
-    std::vector<POINT> origins;
-    for (const auto& p : g_pending_launches) {
-        origins.push_back(p.origin);
-    }
+    auto origins = g_pending_launches | std::views::transform(&PendingLaunch::origin) | std::ranges::to<std::vector>();
     wchar_t cls[256];
     if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
         return origins;

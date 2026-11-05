@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cassert>
 #include <cmath>
+#include <iterator>
 #include <ranges>
 #include <string_view>
 
@@ -590,11 +591,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     auto& tl = *entry.table_layout();
     const auto [r_begin, r_end] = tl.VisibleRowRange(viewport.top, viewport.bottom);
     std::vector<size_t> rows;
-    for (size_t r = r_begin; r < r_end; r++) {
-        if (tl.IsRowEvicted(r)) {
-            rows.push_back(r);
-        }
-    }
+    std::ranges::copy_if(std::views::iota(r_begin, r_end), std::back_inserter(rows), [&](size_t r) { return tl.IsRowEvicted(r); });
     if (rows.empty()) {
         return result;
     }
