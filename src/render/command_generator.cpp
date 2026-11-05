@@ -144,12 +144,18 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
     return {};
 }
 
-// リストの記号と番号の書式は 3 種類を段ごとに繰り返す。GitHub (ブラウザ既定) は 3 段目より深くても 3 種類目のままだが、
-// 深い段も見分けられるようにする。段を持たない (0 以下) ときは最外側として扱う。
-constexpr int ListStyleIndex(int list_depth) noexcept
+// 段ごとに繰り返す書式の何番目か。GitHub (ブラウザ既定) は 3 段目より深くても 3 種類目のままだが、深い段も見分けられる
+// ようにする。段を持たない (0 以下) ときは最外側として扱う。
+constexpr int ListStyleIndex(int list_depth, int styles) noexcept
 {
-    return (std::max(list_depth, 1) - 1) % 3;
+    return (std::max(list_depth, 1) - 1) % styles;
 }
+
+// 番号は 1. → i. → a. の 3 種類。
+constexpr int kListNumberStyles = 3;
+// 記号は ● ○ ■ □ の 4 種類。3 種類では ■ の次が ● になり、塗った記号が続いて段の境が見分けにくい (#407)。
+// 菱形は描画命令を足す必要があるので入れない。
+constexpr int kListBulletStyles = 4;
 
 } // namespace
 
@@ -168,7 +174,7 @@ void CmdWriter::Button(IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wst
 
 std::wstring_view FormatListNumber(std::span<wchar_t, kListNumberMaxLen> buf, int32_t number, int list_depth) noexcept
 {
-    const int style = ListStyleIndex(list_depth);
+    const int style = ListStyleIndex(list_depth, kListNumberStyles);
     size_t len = 0;
     if (style == 1 && number >= 1 && number <= 3999) {
         static constexpr std::pair<int32_t, std::wstring_view> kRoman[] = {
@@ -961,17 +967,23 @@ struct MdPaneEmitter : CmdWriter {
         const float bullet_x = SnapToPhysicalPixel(x - theme.list_bullet_offset * LIST_BULLET_X_FACTOR, dpi_scale);
         const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, dpi_scale);
         const float r = theme.list_bullet_radius;
-        switch (ListStyleIndex(node.list_depth())) {
+        // 中心は物理ピクセル境界にあるので、四角の半辺も物理ピクセル単位にして辺をにじませない。
+        const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, dpi_scale);
+        switch (ListStyleIndex(node.list_depth(), kListBulletStyles)) {
         case 0:
             out.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, BrushId::Text });
             break;
         case 1:
             out.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, 1.0f, BrushId::Text });
             break;
-        default: {
-            // 中心は物理ピクセル境界にあるので、半辺も物理ピクセル単位にして辺をにじませない。
-            const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, dpi_scale);
+        case 2:
             out.emplace_back(FillRectCmd{ D2D1::RectF(bullet_x - h, bullet_y - h, bullet_x + h, bullet_y + h), BrushId::Text });
+            break;
+        default: {
+            // 線は辺を中心に引かれるので、太さを物理ピクセルの整数にして半分だけ内側に引き、■ と同じ外形で画素に揃える。
+            const float stroke = std::max(1.0f, std::round(dpi_scale)) / dpi_scale;
+            const float e = h - stroke * 0.5f;
+            out.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(bullet_x - e, bullet_y - e, bullet_x + e, bullet_y + e), 0.0f, stroke, BrushId::Text });
             break;
         }
         }

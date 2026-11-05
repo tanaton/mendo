@@ -217,10 +217,10 @@ TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
     EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
-// ● ○ ■ を段ごとに繰り返す (issue#365)。
+// ● ○ ■ □ を段ごとに繰り返す (issue#365, #407)。
 TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
 {
-    const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4");
+    const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4\n        - 5");
     std::vector<char> shapes;
     for (const auto& cmd : cmds) {
         if (std::holds_alternative<FillEllipseCmd>(cmd)) {
@@ -232,8 +232,24 @@ TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
         else if (const auto* r = std::get_if<FillRectCmd>(&cmd); r && r->brush_id == BrushId::Text) {
             shapes.push_back('S');
         }
+        else if (const auto* d = std::get_if<DrawRoundedRectCmd>(&cmd); d && d->brush_id == BrushId::Text) {
+            shapes.push_back('Q');
+        }
     }
-    EXPECT_EQ(shapes, (std::vector<char>{ 'F', 'O', 'S', 'F' }));
+    EXPECT_EQ(shapes, (std::vector<char>{ 'F', 'O', 'S', 'Q', 'F' }));
+}
+
+// □ は ■ と同じ外形にする (線は外形の内側に収める)。
+TEST_F(CmdGenContentTest, OutlinedSquareBulletMatchesFilledSquare)
+{
+    const auto cmds = Generate("- a\n  - b\n    - c\n      - d");
+    const auto filled = FindFirst<FillRectCmd>(cmds, [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    const auto outlined = FindFirst<DrawRoundedRectCmd>(cmds, [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    ASSERT_TRUE(filled.has_value());
+    ASSERT_TRUE(outlined.has_value());
+    EXPECT_FLOAT_EQ(outlined->radius, 0.0f);
+    EXPECT_NEAR(outlined->rect.right - outlined->rect.left + outlined->stroke_width, filled->rect.right - filled->rect.left, 0.01f);
+    EXPECT_NEAR((outlined->rect.top + outlined->rect.bottom) * 0.5f, ExpectedBulletY(3), 0.01f);
 }
 
 // 四角は円と同じ中心に置き、円より大きくしない。
@@ -265,7 +281,8 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
         { 3,                                   1, L"3."               },
         { 3,                                   2, L"iii."             },
         { 3,                                   3, L"c."               },
-        { 3,                                   4, L"3."               },
+        { 3,                                   4, L"3."               }, // 記号 (4 種類) と違い 3 種類で繰り返す
+        { 3,                                   5, L"iii."             },
         { 3,                                   0, L"3."               }, // 段を持たないノード
         { 4,                                   2, L"iv."              },
         { 1994,                                2, L"mcmxciv."         },

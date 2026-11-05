@@ -117,7 +117,7 @@ private:
 };
 
 // $...$ の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
-// InlineMathObjectOf で引いた描画命令を本文の色で描く。scale は寸法と描画命令に掛ける倍率 (幅に収まらないブロック数式を縮める)。
+// InlineMathObjectOf で引いた描画命令を本文の色で描く (色を指定した部分はその色)。scale は寸法と描画命令に掛ける倍率 (幅に収まらないブロック数式を縮める)。
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale);
 struct InlineMathObjectRef {
     uint64_t key = 0;

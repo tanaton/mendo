@@ -1237,10 +1237,14 @@ bool ParseColor(std::string_view v, const Rgba& current, Rgba& out)
     return false;
 }
 
+uint32_t ColorByte(float v) noexcept
+{
+    return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
+}
+
 uint32_t ToRgb(const Rgba& c) noexcept
 {
-    const auto byte = [](float v) { return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
-    return (byte(c.r) << 16) | (byte(c.g) << 8) | byte(c.b);
+    return (ColorByte(c.r) << 16) | (ColorByte(c.g) << 8) | ColorByte(c.b);
 }
 
 void AppendHexColor(std::string& out, const Rgba& c)
@@ -2612,6 +2616,7 @@ struct KInherit {
     KFont font;
     KAlign align = KAlign::Center;
     std::optional<std::pair<float, float>> shadow; // text-shadow の x, y
+    MathDrawing::Color color;
 };
 
 struct KLen {
@@ -2638,6 +2643,7 @@ struct KOwn {
     std::optional<float> vertical_align; // 上向きが正
     std::optional<KLen> top, left, right, bottom;
     bool reflect = false;
+    MathDrawing::Color background, border_color; // border_color が無ければ color (currentColor)
 };
 
 constexpr float kKatexSizes[]{ 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f, 1.44f, 1.728f, 2.074f, 2.488f };
@@ -2779,7 +2785,8 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
     for (size_t i = 0; i < items.size(); ++i) {
         auto* g = std::get_if<MathDrawing::Glyphs>(&items[i]);
         auto* prev = kept == 0 ? nullptr : std::get_if<MathDrawing::Glyphs>(&items[kept - 1]);
-        if (g && prev && !g->mirror && !prev->mirror && prev->face == g->face && prev->size == g->size && prev->y == g->y && !prev->advances.empty()) {
+        if (g && prev && !g->mirror && !prev->mirror && prev->face == g->face && prev->size == g->size && prev->y == g->y && prev->color == g->color &&
+            !prev->advances.empty()) {
             const float gap = g->x - (prev->x + RunWidth(*prev));
             if (gap >= -0.01f) {
                 prev->advances.back() += std::max(gap, 0.0f);
@@ -3218,7 +3225,13 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
             own.position = value == "absolute" ? KPosition::Absolute : value == "relative" ? KPosition::Relative : KPosition::Static;
         }
         else if (name == "color" || name == "background-color" || name == "border-color") {
-            // 数式は本文の色で描く (\color は使わない)。\colorbox の背景は本文の色で塗ると中の文字が隠れるので描かない。
+            // 2026-11-04 に本文の色だけで描く (\color を読み捨て、\colorbox の背景も描かない) と決めたが、#412 で指定の色を
+            // 優先して描くことにした。\colorbox の背景も、ダークモードで中の文字が読みにくくなっても指定どおり描く。
+            // 読めない色はブラウザと同じく無視する (数式ごと描けなくはしない)。
+            if (Rgba rgba; ParseColor(value, Rgba{}, rgba)) {
+                const uint32_t packed = ToRgb(rgba) << 8 | ColorByte(rgba.a);
+                (name == "color" ? inh.color : name == "background-color" ? own.background : own.border_color) = packed;
+            }
         }
         else if (name == "text-shadow") {
             std::array<float, 2> v{};
@@ -3295,7 +3308,7 @@ void KatexLayout::Text(std::string_view text, const KInherit& inh, KBox& out)
         face->GetDesignGlyphMetrics(&glyph, 1, &gm, FALSE);
         const float advance = gm.advanceWidth * size / fm.designUnitsPerEm;
         if (!run || run->face.Get() != face) {
-            run = &std::get<MathDrawing::Glyphs>(out.items.emplace_back(MathDrawing::Glyphs{ .face = face, .size = size, .x = x }));
+            run = &std::get<MathDrawing::Glyphs>(out.items.emplace_back(MathDrawing::Glyphs{ .face = face, .size = size, .x = x, .color = inh.color }));
         }
         run->glyphs.push_back(glyph);
         run->advances.push_back(advance);
@@ -3339,7 +3352,7 @@ void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float
                 Fail();
                 return;
             }
-            out.items.emplace_back(MathDrawing::Path{ .shape = assets_.Shape(*d), .transform = ToArray(m), .clip = clip });
+            out.items.emplace_back(MathDrawing::Path{ .shape = assets_.Shape(*d), .transform = ToArray(m), .clip = clip, .color = inh.color });
         }
         else if (child.name == "line") {
             // 座標の % はビューポートに対して。viewBox の無い SVG だけで使われる。
@@ -3358,7 +3371,7 @@ void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float
             d += ' ';
             AppendNum(d, y2);
             out.items.emplace_back(
-                MathDrawing::Path{ .shape = assets_.Shape(d), .transform = { 1.0f, 0.0f, 0.0f, 1.0f, x0, y0 }, .clip = clip, .stroke = stroke });
+                MathDrawing::Path{ .shape = assets_.Shape(d), .transform = { 1.0f, 0.0f, 0.0f, 1.0f, x0, y0 }, .clip = clip, .stroke = stroke, .color = inh.color });
         }
         else {
             Fail();
@@ -3527,6 +3540,8 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
     }
     KBox out;
     out.pct = pct || (own.display == KDisplay::Inline && content.pct);
+    using Side = MathDrawing::Rect::Side;
+    const MathDrawing::Color border_color = own.border_color ? own.border_color : inh.color;
 
     float cw = content.w;
     float top = 0.0f, bottom = 0.0f; // 内容の箱 (ベースラインからの y)
@@ -3537,8 +3552,12 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
         out.has_content = content.has_content || out.w != 0.0f;
         top = -content.asc;
         bottom = content.desc;
+        const float outer_w = content.w + frame_w;
+        if (own.background) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, top, outer_w, bottom - top + bb, Side::Fill, false, own.background });
+        }
         if (bb > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, content.w + frame_w, bb, MathDrawing::Rect::Side::Bottom, own.dashed[2] });
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, outer_w, bb, Side::Bottom, own.dashed[2], border_color });
         }
         AppendItems(out, std::move(content), edge_l, 0.0f);
     }
@@ -3573,18 +3592,25 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
         bottom -= va;
         const float pad_l = own.margin_l + bl;
         const float pad_w = own.padding_l + cw + own.padding_r;
+        const float outer_top = top - bt;
+        const float outer_w = bl + pad_w + br;
+        const float outer_h = bt + (bottom - top) + bb;
+        // 背景は枠の下まで塗る (background-clip: border-box)。
+        if (own.background) {
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, outer_top, outer_w, outer_h, Side::Fill, false, own.background });
+        }
         // 枠は外側の端に合わせる (MathDrawing::Rect の rule)。
         if (bt > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, top - bt, bl + pad_w + br, bt, MathDrawing::Rect::Side::Top, own.dashed[0] });
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, outer_top, outer_w, bt, Side::Top, own.dashed[0], border_color });
         }
         if (bb > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, bl + pad_w + br, bb, MathDrawing::Rect::Side::Bottom, own.dashed[2] });
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, bottom, outer_w, bb, Side::Bottom, own.dashed[2], border_color });
         }
         if (bl > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, top - bt, bl, bt + (bottom - top) + bb, MathDrawing::Rect::Side::Left, own.dashed[3] });
+            out.items.emplace_back(MathDrawing::Rect{ own.margin_l, outer_top, bl, outer_h, Side::Left, own.dashed[3], border_color });
         }
         if (br > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ pad_l + pad_w, top - bt, br, bt + (bottom - top) + bb, MathDrawing::Rect::Side::Right, own.dashed[1] });
+            out.items.emplace_back(MathDrawing::Rect{ pad_l + pad_w, outer_top, br, outer_h, Side::Right, own.dashed[1], border_color });
         }
         AppendItems(out, std::move(content), edge_l + AlignOffset(inh.align, cw - content.w), -va);
     }
@@ -3840,6 +3866,20 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
     const auto snap_y = [&](float v) { return scale_y > 0.0f ? (std::round(v * scale_y + offset_y) - offset_y) / scale_y : v; };
     // 罫線の太さ。Chrome の border と同じく CSS px に切り捨て、1px 未満は 1px にする (分数の線 0.04em は DPR 1.5 で 1.5 画素)。
     const auto thickness = [](float v) { return v < 1.0f ? 1.0f : std::floor(v + 1e-3f); };
+    // 色を指定した部分のブラシ。色の無い数式では作らない。
+    ComPtr<ID2D1SolidColorBrush> colored;
+    const auto brush_for = [&](const MathDrawing::Color& color) -> ID2D1Brush* {
+        if (!color) {
+            return brush;
+        }
+        const D2D1::ColorF c(*color >> 8, static_cast<float>(*color & 0xFF) / 255.0f);
+        if (!colored && FAILED(rt->CreateSolidColorBrush(c, &colored))) {
+            return brush;
+        }
+        colored->SetColor(c);
+        colored->SetOpacity(brush->GetOpacity());
+        return colored.Get();
+    };
     for (const auto& item : math.items) {
         if (const auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
             DWRITE_GLYPH_RUN run{};
@@ -3853,7 +3893,7 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             if (g->mirror) {
                 rt->SetTransform(D2D1::Matrix3x2F::Scale(-1.0f, 1.0f, D2D1::Point2F(x + g->x + RunWidth(*g) / 2, gy)) * base);
             }
-            rt->DrawGlyphRun(D2D1::Point2F(x + g->x, gy), &run, brush, DWRITE_MEASURING_MODE_NATURAL);
+            rt->DrawGlyphRun(D2D1::Point2F(x + g->x, gy), &run, brush_for(g->color), DWRITE_MEASURING_MODE_NATURAL);
             if (g->mirror) {
                 rt->SetTransform(base);
             }
@@ -3875,12 +3915,15 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             case Side::Right:
                 left = right - thickness(r->w);
                 break;
+            case Side::Fill:
+                break;
             }
             if (right <= left || bottom <= top) {
                 continue;
             }
+            ID2D1Brush* const rect_brush = brush_for(r->color);
             if (!r->dashed) {
-                rt->FillRectangle(D2D1::RectF(left, top, right, bottom), brush);
+                rt->FillRectangle(D2D1::RectF(left, top, right, bottom), rect_brush);
                 continue;
             }
             // Chrome の破線に近い、太さの 3 倍の線と隙間。
@@ -3889,7 +3932,7 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             const float len = horizontal ? right - left : bottom - top;
             for (float p = 0.0f; p < len; p += t * 6) {
                 const float e = std::min(len, p + t * 3);
-                rt->FillRectangle(horizontal ? D2D1::RectF(left + p, top, left + e, bottom) : D2D1::RectF(left, top + p, right, top + e), brush);
+                rt->FillRectangle(horizontal ? D2D1::RectF(left + p, top, left + e, bottom) : D2D1::RectF(left, top + p, right, top + e), rect_brush);
             }
         }
         else if (const auto* p = std::get_if<MathDrawing::Path>(&item)) {
@@ -3912,10 +3955,10 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             rt->PushAxisAlignedClip(D2D1::RectF(p->clip[0], p->clip[1], p->clip[2], p->clip[3]), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             rt->SetTransform(ToD2D(p->transform) * origin);
             if (p->stroke > 0.0f) {
-                rt->DrawGeometry(geometry.Get(), brush, p->stroke);
+                rt->DrawGeometry(geometry.Get(), brush_for(p->color), p->stroke);
             }
             else {
-                rt->FillGeometry(geometry.Get(), brush);
+                rt->FillGeometry(geometry.Get(), brush_for(p->color));
             }
             rt->SetTransform(origin);
             rt->PopAxisAlignedClip();

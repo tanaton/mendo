@@ -22,7 +22,8 @@ constexpr std::wstring_view kWindowClass = L"mendo_MermaidViewer";
 // 最初の大きさ。本体に対する割合。
 constexpr int kSizePercent = 90;
 
-// 右上のバーの寸法 (DIP)。窓の右端からの位置は、スクロールバーがクライアント領域の外にあるので上と同じにする。
+// 右上のバーの寸法 (DIP)。窓の右端からの位置は、縦のスクロールバーが出ているときの位置に固定する。クライアント領域の
+// 右端に付けると、拡大でスクロールバーが出た瞬間にバーが左へずれ、連打した + の位置に全体表示のボタンが来る (#408)。
 constexpr float kBarMargin = 12.0f;
 constexpr float kBarPadding = 4.0f;
 constexpr float kBarGap = 2.0f;
@@ -331,7 +332,9 @@ void DiagramView::Paint()
 D2D1_RECT_F DiagramView::BarRect() const noexcept
 {
     const float width = kBarPadding * 2.0f + kButtonWidth * 3.0f + kLabelWidth + kBarGap * 3.0f;
-    const float right = view_width_ - kBarMargin;
+    const bool vscroll = (GetWindowLongPtrW(hwnd_, GWL_STYLE) & WS_VSCROLL) != 0;
+    const float reserve = vscroll ? 0.0f : PixelToDip(static_cast<float>(GetSystemMetricsForDpi(SM_CXVSCROLL, GetDpiForWindow(hwnd_))), Scale());
+    const float right = view_width_ - reserve - kBarMargin;
     return D2D1::RectF(right - width, kBarMargin, right, kBarMargin + kBarPadding * 2.0f + kButtonHeight);
 }
 
