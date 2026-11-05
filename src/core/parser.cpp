@@ -834,16 +834,14 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
     const bool has_content = (marker_end < current_text.size());
 
     const size_t full_label_len = AlertLabelLength(type); // "icon Label"
+    const auto content_start = static_cast<uint32_t>(full_label_len + (has_content ? 1 : 0));
     std::string new_text;
     new_text.reserve(full_label_len + 1 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
     new_text += ' ';
     new_text.append(label);
-
-    size_t new_content_start = full_label_len;
     if (has_content) {
         new_text += '\n';
-        new_content_start = full_label_len + 1;
         new_text.append(current_text.substr(marker_end));
     }
 
@@ -858,7 +856,6 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     // マーカー部分を除外し、残りを新しい本文開始位置へ平行移動する。
     const auto marker = static_cast<uint32_t>(marker_end);
-    const auto content_start = static_cast<uint32_t>(new_content_start);
     for (TextRun adjusted : node.runs()) {
         const uint32_t run_end = adjusted.start + adjusted.length;
         if (run_end <= marker) {

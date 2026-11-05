@@ -188,7 +188,7 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
             break;
         }
         const auto& node = ctx.nodes[i];
-        if (node.type != NodeType::CodeBlock && node.type != NodeType::Diagram) {
+        if (!layout::MayHaveOverlayButtons(node)) {
             continue;
         }
         // ボタンは上端 (コードブロックは padding だけ上) から COPY_BTN_MARGIN 下に 1 段だけ並ぶ。
@@ -197,8 +197,7 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
         }
         const float x = NodeBlockX(node, ctx.theme);
         const float w = NodeContentWidth(node, ctx.theme, ctx.content_width);
-        const DiagramEntry* diagram = node.type == NodeType::Diagram ? ctx.cache.FindDiagram(static_cast<size_t>(i)) : nullptr;
-        layout::ForEachOverlayButton(node, diagram, x, w, entry_text_top, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
+        layout::ForEachOverlayButton(node, ctx.cache, static_cast<size_t>(i), x, w, entry_text_top, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
             if (PointInRectInclusive(dip_x, dip_y, btn)) {
                 out = { i, kind };
             }
@@ -213,9 +212,9 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     if (!node) {
         return false;
     }
-    // ボタンを出す条件 (layout::ForEachOverlayButton) と同じく、描けていて保存・コピーの元がある図だけ。
+    // ボタンを出す図だけ。
     const DiagramEntry* diagram = ctx.cache.FindDiagram(static_cast<size_t>(node_index));
-    if (!diagram || !diagram->CanExport()) {
+    if (!layout::HasDiagramButtons(diagram)) {
         return false;
     }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);

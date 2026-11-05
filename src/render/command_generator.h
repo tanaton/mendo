@@ -176,7 +176,8 @@ struct CmdWriter {
     // 中央揃え書式で大きさ 0 のレイアウトを作り、rect の中心に置く。
     void Centered(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity) const
     {
-        Text(text, fmt, D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f), {}, brush_id, opacity);
+        const DipPoint c = RectCenter(rect);
+        Text(text, fmt, D2D1::Point2F(c.x, c.y), {}, brush_id, opacity);
     }
     // アイコンや短い文字列を rect の中央に置くボタン。書式は左右・上下とも中央揃え。
     void Button(IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wstring_view label, ButtonBg bg, BrushId fg, float fg_opacity) const;
@@ -194,6 +195,7 @@ struct MdPaneFormats {
 // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height,
                                                bool may_grow = false) noexcept;
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, float scroll_y, bool may_grow = false) noexcept;
 
 // 番号付きリストの番号の文字列 ("3." / "iii." / "c.")。段ごとに 10 進・小文字ローマ数字・小文字アルファベットの順で、
 // 4 段目からは繰り返す (箇条書きの記号と同じ)。

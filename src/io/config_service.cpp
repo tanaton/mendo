@@ -3,6 +3,7 @@
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "utf8_codec.h"
+#include "win32_util.h"
 #include "win_handle.h"
 #include <algorithm>
 #include <charconv>
@@ -147,14 +148,10 @@ namespace {
 std::filesystem::path DefaultConfigDir()
 {
     // SHGetKnownFolderPath は初回に windows.storage.dll のロード等で ms 単位かかるため、環境変数を優先する。
-    wchar_t env[MAX_PATH];
-    const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", env, MAX_PATH);
-    if (len < MAX_PATH) {
-        std::filesystem::path base(std::wstring_view(env, len));
-        if (base.is_absolute()) {
-            base /= L"mendo";
-            return base;
-        }
+    if (std::filesystem::path base = QueryPath([](wchar_t* b, UINT n) static { return GetEnvironmentVariableW(L"LOCALAPPDATA", b, n); });
+        base.is_absolute()) {
+        base /= L"mendo";
+        return base;
     }
     // 失敗時も解放が必要なので RAII で受ける。
     UniqueCoTaskMemStr appdata;

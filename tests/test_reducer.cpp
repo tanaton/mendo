@@ -400,7 +400,7 @@ TEST_F(ReducerTest, MouseLeave_NoTooltip_NoEffect)
 
 TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
 {
-    Reduce(state, PointerHoverAction{ PointerHover{ { .titlebar = TitleBarHitZone::Help, .h_block = 4 } } });
+    Reduce(state, PointerHoverAction{ { .titlebar = TitleBarHitZone::Help, .h_block = 4 } });
     auto effects = Reduce(state, MouseLeaveAction{});
     EXPECT_EQ(state.view.hover.titlebar, TitleBarHitZone::None);
     EXPECT_EQ(state.view.hover.h_block, -1);
@@ -413,7 +413,7 @@ TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
 TEST_F(ReducerTest, PointerHover_NewTooltipEmitsSetTooltipWithText)
 {
     const TooltipHover hover{ kLinkTooltip, L"https://example.com" };
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ {}, hover } });
+    auto effects = Reduce(state, PointerHoverAction{ {}, hover });
 
     ASSERT_EQ(effects.size(), 1u);
     const auto* set = std::get_if<effect::SetTooltip>(&effects[0]);
@@ -422,7 +422,7 @@ TEST_F(ReducerTest, PointerHover_NewTooltipEmitsSetTooltipWithText)
     EXPECT_EQ(state.interaction.tooltip, kLinkTooltip);
 
     // 同じ対象の上を動いている間は出し直さない (文言は作られずに空で来る)。
-    EXPECT_TRUE(Reduce(state, PointerHoverAction{ PointerHover{ {}, { kLinkTooltip } } }).empty());
+    EXPECT_TRUE(Reduce(state, PointerHoverAction{ {}, { kLinkTooltip } }).empty());
 }
 
 // ハイライトが変われば再描画し、同じなら何もしない。
@@ -448,7 +448,7 @@ TEST_F(ReducerTest, PointerHover_RedrawsOnlyWhenHighlightChanges)
         SCOPED_TRACE(c.name);
         state.view.hover = c.before;
 
-        auto effects = Reduce(state, PointerHoverAction{ PointerHover{ c.hover } });
+        auto effects = Reduce(state, PointerHoverAction{ c.hover });
 
         EXPECT_EQ(state.view.hover, c.hover);
         if (c.changed) {
@@ -474,12 +474,12 @@ TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_HidesTooltip)
 // ホバーはマウス位置の全体を表すので、別ゾーンへ移ると前のゾーンのハイライトは消える。
 TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
 {
-    Reduce(state, PointerHoverAction{ PointerHover{ { .titlebar = TitleBarHitZone::Close } } });
-    Reduce(state, PointerHoverAction{ PointerHover{ { .side_index = { 2, -1 } } } });
+    Reduce(state, PointerHoverAction{ { .titlebar = TitleBarHitZone::Close } });
+    Reduce(state, PointerHoverAction{ { .side_index = { 2, -1 } } });
     EXPECT_EQ(state.view.hover.titlebar, TitleBarHitZone::None);
     EXPECT_EQ(state.view.hover.side_index[0], 2);
 
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = NavDirection::Back } } });
+    auto effects = Reduce(state, PointerHoverAction{ { .nav = NavDirection::Back } });
     EXPECT_EQ(state.view.hover.side_index[0], -1);
     EXPECT_EQ(state.view.hover.nav, NavDirection::Back);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -487,7 +487,7 @@ TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
 
 TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
 {
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .search_bar = SearchBarHitZone::Input } } });
+    auto effects = Reduce(state, PointerHoverAction{ { .search_bar = SearchBarHitZone::Input } });
     EXPECT_EQ(state.view.hover.search_bar, SearchBarHitZone::None);
     EXPECT_TRUE(effects.empty());
 }
@@ -545,7 +545,7 @@ TEST_F(ReducerTest, NewWindowAction_ChoosesPathToOpen)
 // 隠したペインを再び表示したとき、隠す前のホバー強調が残らない。
 TEST_F(ReducerTest, TogglePane_ClearsThatPaneHover)
 {
-    Reduce(state, PointerHoverAction{ PointerHover{ { .side_index = { 3, 5 }, .side_button = { PaneHeaderButton::Refresh, PaneHeaderButton::Close } } } });
+    Reduce(state, PointerHoverAction{ { .side_index = { 3, 5 }, .side_button = { PaneHeaderButton::Refresh, PaneHeaderButton::Close } } });
     Reduce(state, TogglePaneAction{ PaneTarget::File });
     EXPECT_EQ(state.view.hover.side_index[0], -1);
     EXPECT_EQ(state.view.hover.side_button[0], PaneHeaderButton::None);
@@ -1100,6 +1100,45 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
 
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// スピナーを出すと本文ペインを描かないので、出す前に始まった本文ペインのドラッグとホバーを打ち切る。
+// 見えたままのタイトルバーとサイドペインのホバーは残す。
+TEST_F(ReducerTest, LoadingShown_EndsMdPaneDragAndHover)
+{
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 1 };
+    state.view.hover = { .titlebar = TitleBarHitZone::Help, .side_index = { 3, -1 } };
+    state.view.hover.overlay_button = { 2, OverlayButton::CodeCopy };
+    state.view.hover.h_block = 2;
+    state.interaction.tooltip = kLinkTooltip;
+
+    const auto effects = Reduce(state, LoadingShownAction{ true });
+
+    EXPECT_TRUE(state.view.loading_shown);
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
+    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+    EXPECT_EQ(state.view.hover, (HoverHighlights{ .titlebar = TitleBarHitZone::Help, .side_index = { 3, -1 } }));
+    EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+
+    // 消すときは描き直すだけ。
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 1 };
+    const auto hidden = Reduce(state, LoadingShownAction{ false });
+    EXPECT_FALSE(state.view.loading_shown);
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::TextSelect);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(hidden));
+    EXPECT_TRUE(Reduce(state, LoadingShownAction{ false }).empty()) << "変わらなければ何もしない";
+}
+
+// サイドペインのスプリッタは見えたままなので続ける。
+TEST_F(ReducerTest, LoadingShown_KeepsSplitterDrag)
+{
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::Toc };
+
+    const auto effects = Reduce(state, LoadingShownAction{ true });
+
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::Splitter);
+    EXPECT_FALSE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
 // ---- TextSelection* テスト ----

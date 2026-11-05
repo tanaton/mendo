@@ -454,10 +454,10 @@ void ApplyHoverHighlights(ReduceContext& c, HoverHighlights h)
 
 void On(ReduceContext& c, const PointerHoverAction& a)
 {
-    ApplyHoverHighlights(c, a.hover);
-    if (a.hover.tooltip.target != c.state.interaction.tooltip) {
-        c.state.interaction.tooltip = a.hover.tooltip.target;
-        PushEffect(c.effects, effect::SetTooltip{ a.hover.tooltip.text });
+    ApplyHoverHighlights(c, a);
+    if (a.tooltip.target != c.state.interaction.tooltip) {
+        c.state.interaction.tooltip = a.tooltip.target;
+        PushEffect(c.effects, effect::SetTooltip{ a.tooltip.text });
     }
 }
 
@@ -465,6 +465,26 @@ void On(ReduceContext& c, const PointerHoverAction& a)
 void On(ReduceContext& c, const MouseLeaveAction&)
 {
     ApplyHoverHighlights(c, {});
+    ClearTooltip(c);
+}
+
+// スピナーの間は本文ペインを描かないので、出す前に始まった本文ペインのドラッグとホバーをここで打ち切る。
+// 続けると、離したときに見えない旧文書のリンクを開き、旧文書の選択を伸ばしてしまう。
+void On(ReduceContext& c, const LoadingShownAction& a)
+{
+    auto& view = c.state.view;
+    if (std::exchange(view.loading_shown, a.shown) == a.shown) {
+        return;
+    }
+    Invalidate(c);
+    if (!a.shown) {
+        return;
+    }
+    if (IsMdPaneDrag(view.drag.kind)) {
+        view.drag = {};
+    }
+    // 見えたままのタイトルバーとサイドペインのホバーは残す。
+    ApplyHoverHighlights(c, { .titlebar = view.hover.titlebar, .side_index = view.hover.side_index, .side_button = view.hover.side_button });
     ClearTooltip(c);
 }
 
@@ -712,6 +732,7 @@ void ContinueSearch(ReduceContext& c, bool force_invalidate = false)
 }
 
 // 今のクエリで検索し直す。終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
+// クエリが空ならマッチを消すだけで終わる。
 void RunSearchAndLocate(ReduceContext& c, bool scroll_to_match = false)
 {
     // 入力欄は UTF-16、Document テキストは UTF-8。
@@ -739,11 +760,8 @@ void On(ReduceContext& c, const OpenSearchBarAction&)
     }
     sg.search_state.Show();
     ResetSearchCaret(sg);
-    if (!sg.query_wide.empty()) {
-        RunSearchAndLocate(c);
-    }
+    RunSearchAndLocate(c);
     PushEffect(c.effects, effect::SearchFocus{});
-    Invalidate(c);
 }
 
 void On(ReduceContext& c, const ToggleHighlightAction&)
@@ -762,6 +780,15 @@ void On(ReduceContext& c, const SearchContinueAction&)
 void On(ReduceContext& c, const SearchSelectAllAction&)
 {
     PushEffect(c.effects, effect::SearchFocus{});
+}
+
+// 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないので、語の境界を自分で求めて選ぶ。
+void On(ReduceContext& c, const SearchSelectWordAction& a)
+{
+    const auto wb = FindWordBoundaries(std::wstring_view{ c.state.search.query_wide }, static_cast<uint32_t>(a.pos));
+    if (wb.found()) {
+        PushEffect(c.effects, effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
+    }
 }
 
 void On(ReduceContext& c, const SearchStepAction& a)
@@ -787,11 +814,6 @@ void On(ReduceContext& c, const SearchTextChangedAction& a)
         return;
     }
     sg.query_wide = a.text;
-    if (a.text.empty()) {
-        sg.search_state.BeginSearch({});
-        Invalidate(c);
-        return;
-    }
     // 検索は時間で区切って進むので、大きな文書でも入力を待たせずにすぐ始める。
     RunSearchAndLocate(c, true);
 }
@@ -799,10 +821,7 @@ void On(ReduceContext& c, const SearchTextChangedAction& a)
 void On(ReduceContext& c, const ToggleCaseSensitiveAction&)
 {
     c.state.search.search_state.ToggleCaseSensitive();
-    if (!c.state.search.query_wide.empty()) {
-        RunSearchAndLocate(c);
-    }
-    Invalidate(c);
+    RunSearchAndLocate(c);
 }
 
 // 表示中は常に入力欄がフォーカスを持つので、表示中だけ描き直す。
@@ -854,7 +873,7 @@ void On(ReduceContext& c, const SelectWordAction& a)
         return;
     }
     const auto wb = FindNodeWordBoundaries(nodes, static_cast<size_t>(a.node_index), a.text_pos);
-    if (!wb.found) {
+    if (!wb.found()) {
         return;
     }
     c.state.view.viewport.SetSelection(TextSelection::MakeOrdered(static_cast<int>(wb.start_node), wb.start, static_cast<int>(wb.end_node), wb.end));
@@ -988,16 +1007,17 @@ void On(ReduceContext& c, const ResizeAction& a)
         return;
     }
     // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面もレイアウトも変わらない。
-    const bool dpi_changed = std::exchange(c.state.window.dpi_changed, false);
-    if (a.width == c.state.window.client_width && a.height == c.state.window.client_height && !dpi_changed) {
+    auto& w = c.state.window;
+    if (a.width == w.client_width && a.height == w.client_height && w.cached_dpi_scale == w.client_dpi_scale) {
         return;
     }
-    c.state.window.client_width = a.width;
-    c.state.window.client_height = a.height;
-    c.state.window.size_changed_in_sizing = true;
-    PushEffect(c.effects, effect::RendererResize{ a.width, a.height, c.state.window.is_sizing });
-    c.state.window.titlebar.UpdateLayout(c.state.window.WidthDip());
-    if (c.state.window.is_sizing) {
+    w.client_width = a.width;
+    w.client_height = a.height;
+    w.client_dpi_scale = w.cached_dpi_scale;
+    w.size_changed_in_sizing = true;
+    PushEffect(c.effects, effect::RendererResize{ a.width, a.height, w.is_sizing });
+    w.titlebar.UpdateLayout(w.WidthDip());
+    if (w.is_sizing) {
         c.state.view.viewport.ClampScroll(MdMaxScroll(c.state));
         Invalidate(c);
     }
@@ -1026,9 +1046,7 @@ void On(ReduceContext& c, const DpiChangedAction& a)
 {
     c.state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
     // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
-    // 続く WM_SIZE が同じピクセルサイズでも処理させる。
     c.state.window.size_changed_in_sizing = true;
-    c.state.window.dpi_changed = true;
     PushEffect(c.effects, effect::ApplyDpi{ static_cast<float>(a.dpi), a.suggested });
 }
 
@@ -1094,7 +1112,7 @@ void On(ReduceContext& c, const DocumentReloadedAction& a)
 
 void On(ReduceContext& c, const ReloadSettledAction&)
 {
-    if (c.state.search.search_state.IsVisible() && !c.state.search.query_wide.empty()) {
+    if (c.state.search.search_state.IsVisible()) {
         RunSearchAndLocate(c);
     }
 }

@@ -3,6 +3,7 @@
 #include "d2d_util.h"
 #include "diagram_raster.h"
 #include "i18n.h"
+#include "pane_layout.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "win32_util.h"
@@ -56,6 +57,12 @@ Palette PaletteFor(bool dark) noexcept
     }
     return { D2D1::ColorF(0xFFFFFF), D2D1::ColorF(0x333333), D2D1::ColorF(0xF0F0F0, 0.94f), D2D1::ColorF(0x000000, 0.1f),
              D2D1::ColorF(0x000000, 0.18f) };
+}
+
+// 余白込みの面の大きさ。
+float ContentExtent(float size, float zoom) noexcept
+{
+    return size * zoom + diagram_view::kPadding * 2.0f;
 }
 
 } // namespace
@@ -252,7 +259,7 @@ void DiagramView::SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing>
 
 float DiagramView::Scale() const noexcept
 {
-    return static_cast<float>(GetDpiForWindow(hwnd_)) / USER_DEFAULT_SCREEN_DPI;
+    return DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 }
 
 D2D1_POINT_2F DiagramView::ToDip(LPARAM lparam) const noexcept
@@ -268,7 +275,7 @@ bool DiagramView::EnsureTarget()
     }
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    const float dpi = Scale() * USER_DEFAULT_SCREEN_DPI;
+    const float dpi = Scale() * DEFAULT_DPI;
     // D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった (2 回に 1 回)。
     if (!d2d_ || FAILED(d2d_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
                                                      D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right, rc.bottom)),
@@ -283,10 +290,10 @@ bool DiagramView::EnsureTarget()
 
 D2D1_POINT_2F DiagramView::Origin() const noexcept
 {
-    const auto place = [](float content, float view, float scroll) {
-        return content + diagram_view::kPadding * 2.0f <= view ? (view - content) / 2.0f : diagram_view::kPadding - scroll;
+    const auto place = [this](float size, float view, float scroll) {
+        return ContentExtent(size, zoom_) <= view ? (view - size * zoom_) / 2.0f : diagram_view::kPadding - scroll;
     };
-    return { place(drawing_->width * zoom_, view_width_, scroll_x_), place(drawing_->height * zoom_, view_height_, scroll_y_) };
+    return { place(drawing_->width, view_width_, scroll_x_), place(drawing_->height, view_height_, scroll_y_) };
 }
 
 void DiagramView::Paint()
@@ -448,7 +455,7 @@ void DiagramView::Layout()
         view_width_ = static_cast<float>(rc.right) / scale;
         view_height_ = static_cast<float>(rc.bottom) / scale;
         if (rt_) {
-            rt_->SetDpi(scale * USER_DEFAULT_SCREEN_DPI, scale * USER_DEFAULT_SCREEN_DPI);
+            rt_->SetDpi(scale * DEFAULT_DPI, scale * DEFAULT_DPI);
             rt_->Resize(D2D1::SizeU(rc.right, rc.bottom));
         }
         if (drawing_) {
@@ -472,7 +479,7 @@ void DiagramView::UpdateScrollBars()
 {
     const float scale = Scale();
     const auto apply = [&](int bar, float content, float view, float& scroll) {
-        const float max_scroll = std::max(0.0f, content - view);
+        const float max_scroll = MaxScroll(content, view);
         scroll = std::clamp(scroll, 0.0f, max_scroll);
         SCROLLINFO si{ .cbSize = sizeof(si), .fMask = SIF_RANGE | SIF_PAGE | SIF_POS };
         if (max_scroll > 0.0f) {
@@ -482,9 +489,8 @@ void DiagramView::UpdateScrollBars()
         }
         SetScrollInfo(hwnd_, bar, &si, TRUE);
     };
-    const float pad = diagram_view::kPadding * 2.0f;
-    apply(SB_HORZ, drawing_ ? drawing_->width * zoom_ + pad : 0.0f, view_width_, scroll_x_);
-    apply(SB_VERT, drawing_ ? drawing_->height * zoom_ + pad : 0.0f, view_height_, scroll_y_);
+    apply(SB_HORZ, drawing_ ? ContentExtent(drawing_->width, zoom_) : 0.0f, view_width_, scroll_x_);
+    apply(SB_VERT, drawing_ ? ContentExtent(drawing_->height, zoom_) : 0.0f, view_height_, scroll_y_);
 }
 
 void DiagramView::ScrollTo(float x, float y)
@@ -492,9 +498,8 @@ void DiagramView::ScrollTo(float x, float y)
     if (!drawing_) {
         return;
     }
-    const float pad = diagram_view::kPadding * 2.0f;
-    x = std::clamp(x, 0.0f, std::max(0.0f, drawing_->width * zoom_ + pad - view_width_));
-    y = std::clamp(y, 0.0f, std::max(0.0f, drawing_->height * zoom_ + pad - view_height_));
+    x = std::clamp(x, 0.0f, MaxScroll(ContentExtent(drawing_->width, zoom_), view_width_));
+    y = std::clamp(y, 0.0f, MaxScroll(ContentExtent(drawing_->height, zoom_), view_height_));
     // 端を越えて送っても描き直さない。
     if (x == scroll_x_ && y == scroll_y_) {
         return;
@@ -746,7 +751,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
 
     // キーの配置に依らず、打った文字で倍率を変える。
     case WM_CHAR:
-        if (GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0) {
+        if (IsKeyDown(VK_CONTROL) || IsKeyDown(VK_MENU)) {
             return false;
         }
         switch (wparam) {

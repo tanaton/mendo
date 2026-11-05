@@ -269,15 +269,6 @@ void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
     }
 }
 
-void LayoutCache::InvalidateDiagramBitmaps(std::span<const size_t> diagram_indices) noexcept
-{
-    for (const size_t idx : diagram_indices) {
-        if (auto* d = FindDiagram(idx)) {
-            d->MarkStale();
-        }
-    }
-}
-
 void LayoutCache::EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
 {
     for (auto& [idx, d] : diagrams_) {

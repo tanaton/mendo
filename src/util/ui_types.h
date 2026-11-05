@@ -91,6 +91,12 @@ enum class OverlayButton : uint8_t {
     DiagramView,
 };
 
+// 図のボタン (保存・コピー・拡大表示)。図のボタンは図の上かボタンの上にいる間だけ出す。
+constexpr bool IsDiagramButton(OverlayButton kind) noexcept
+{
+    return kind == OverlayButton::DiagramSave || kind == OverlayButton::DiagramCopy || kind == OverlayButton::DiagramView;
+}
+
 // マウス位置にあるオーバーレイボタン。マウス座標は 1 点なので同時に当たるのは 1 つだけ。
 struct OverlayButtonHit {
     int node = -1;
@@ -118,6 +124,12 @@ enum class LeftDrag : uint8_t {
 constexpr bool IsDocumentBoundDrag(LeftDrag d) noexcept
 {
     return d == LeftDrag::TextSelect || d == LeftDrag::BlockHScroll || d == LeftDrag::SearchInput;
+}
+
+// 本文ペイン (本文・検索バー・スクロールバー) の上のドラッグ。
+constexpr bool IsMdPaneDrag(LeftDrag d) noexcept
+{
+    return IsDocumentBoundDrag(d) || d == LeftDrag::MdScrollbar;
 }
 
 // 履歴移動の向き。ジェスチャー / 水平スワイプの向きと、ナビボタンのホバー対象を表す。

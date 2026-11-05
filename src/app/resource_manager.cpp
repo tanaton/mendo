@@ -254,10 +254,10 @@ void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
         return;
     }
 
-    InvalidateMermaidForWidthChange(content_width);
+    const bool dark_mode = state_.theme->dark;
+    InvalidateDiagramsForRequestChange(content_width, dark_mode);
     DropQueuesIfJumped();
     const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
-    const bool dark_mode = state_.theme->dark;
     for (const size_t i : slices | std::views::join) {
         RequestDiagramRender(i, content_width, dark_mode, changed);
     }
@@ -337,22 +337,31 @@ std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::s
     return { visible, all.subspan(above + visible.size()), all.first(above) };
 }
 
-void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
+void ResourceManager::InvalidateDiagramsForRequestChange(float content_width, bool dark_mode)
 {
-    if (last_mermaid_content_width_ > 0.0f &&
-        mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
+    // 初回は比べる相手が無い。
+    const bool requested_before = last_mermaid_content_width_ > 0.0f;
+    // 図はテーマの色を焼き込むので、テーマが変われば全部描き直す。
+    const bool dark_changed = requested_before && dark_mode != last_mermaid_dark_mode_;
+    const bool width_changed =
+        requested_before && mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_);
+    if (dark_changed || width_changed) {
         const float min_width = std::min(content_width, last_mermaid_content_width_);
-        // 幅変化 invalidation は全 diagram を対象にする必要がある（不可視分も旧幅ビットマップを持ちうるため）。
-        // メモリキャッシュはキーに量子化幅を含むので消さず、幅を戻したときに再利用する。
+        // 不可視の図も旧幅・旧テーマの結果を持ちうるので、全部の図を見る。
+        // メモリキャッシュはキーに量子化幅とテーマを含むので消さず、戻したときに再利用する。
         for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
             auto* diagram = state_.document.layout_cache.FindDiagram(i);
+            if (!diagram) {
+                continue;
+            }
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
-            if (diagram && !(diagram->HasImage() && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
+            if (dark_changed || !(diagram->HasImage() && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
                 diagram->MarkStale();
             }
         }
-        // 旧幅の描画待ちを捨て、新しい幅の要求を先に処理させる。描画中のものは旧幅のキャッシュに入るだけ。
+        // 旧幅・旧テーマの描画待ちを捨て、新しい要求を先に処理させる。描画中のものは旧幅・旧テーマのキャッシュに入るだけ。
         mermaid_.DropQueued();
     }
     last_mermaid_content_width_ = content_width;
+    last_mermaid_dark_mode_ = dark_mode;
 }

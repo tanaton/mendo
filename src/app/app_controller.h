@@ -34,6 +34,7 @@ struct MdPaneHit {
         OverlayButton, // コピー / ダイアグラムコピー / 保存 / 拡大表示
         Scrollbar,
         Content,
+        None, // 何も描いていない (読み込み中)
     };
     Kind kind = Kind::Content;
     SearchBarHitZone search_bar = SearchBarHitZone::None;
@@ -63,7 +64,7 @@ enum class PointerCursor : uint8_t {
 };
 struct PointerHoverResult {
     // 各ゾーンは自分のホバーだけを書き、それ以外は既定値 (ホバー無し) のまま返して reducer に解除させる。
-    PointerHover hover;
+    PointerHoverAction hover;
     PointerCursor cursor = PointerCursor::Arrow;
 };
 // maximized は最大化ボタンの文言 (元に戻す) に使う。

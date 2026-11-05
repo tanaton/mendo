@@ -86,7 +86,8 @@ public:
     void OnPeleTrimTimer();
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
-    void OpenViewer(std::string_view code, float max_width, bool dark_mode);
+    // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
+    void OpenViewer(std::string_view code, int node, float max_width, bool dark_mode);
     void CloseViewer();
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
     void SetViewerDarkMode(bool dark_mode);
@@ -94,6 +95,15 @@ public:
     std::optional<std::string_view> ViewerCode() const noexcept
     {
         return ViewerOpen() ? std::optional<std::string_view>{ viewer_.code } : std::nullopt;
+    }
+    // 開いている図の目印。閉じていれば -1。読み直しで図を見失ったら SetViewerNode(-1) にする。
+    int ViewerNode() const noexcept
+    {
+        return ViewerOpen() ? viewer_.node : -1;
+    }
+    void SetViewerNode(int node) noexcept
+    {
+        viewer_.node = node;
     }
     // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
     void UpdateViewerCode(std::string_view code);
@@ -141,6 +151,7 @@ private:
         std::unique_ptr<DiagramView> view;
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
+        int node = -1;
         float max_width = 0.0f;
         bool dark_mode = false;
         // この図を出した。以後は描き直しに失敗しても窓を閉じない。
@@ -185,7 +196,6 @@ private:
     void ApplyMathResult(Job& r);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は pele の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
-    static void ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result);
 
     bool ViewerOpen() const noexcept
     {

@@ -96,7 +96,8 @@ private:
     // 範囲が決まらないときは全件を可視部分として返す。要求キューは FIFO なので、
     // スクロール位置の復元やジャンプの直後に、画面より上の分が見えている分より先に処理されないようにする。
     std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices);
-    void InvalidateMermaidForWidthChange(float content_width);
+    // 前回の要求から量子化幅かテーマが変わっていれば、描き直す図を stale にして旧条件の描画待ちを捨てる。
+    void InvalidateDiagramsForRequestChange(float content_width, bool dark_mode);
 
     AppState& state_;
     ImageLoader& image_loader_;
@@ -105,6 +106,7 @@ private:
     ResourceManagerHost& host_;
 
     float last_mermaid_content_width_ = 0.0f;
+    bool last_mermaid_dark_mode_ = false;
     float last_request_scroll_ = 0.0f;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::wstring resolved_dir_;

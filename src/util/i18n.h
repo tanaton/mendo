@@ -41,16 +41,10 @@ struct Strings {
     std::wstring_view gesture_back;
     std::wstring_view gesture_forward;
 
-    // コピーボタン tooltip
+    // ブロック右上のボタンの tooltip
     std::wstring_view tooltip_copy;
-
-    // 保存ボタン tooltip
     std::wstring_view tooltip_save_image;
-
-    // ダイアグラムコピーボタン tooltip
     std::wstring_view tooltip_copy_diagram;
-
-    // 拡大表示ボタン tooltip
     std::wstring_view tooltip_view_diagram;
 
     // 図の拡大表示ウィンドウ
@@ -90,7 +84,6 @@ struct Strings {
     std::wstring_view toast_diagram_copy_failed;
     std::wstring_view toast_diagram_view_failed;
 
-    // ローディング
     std::wstring_view loading;
 
     // ダイアグラム描画エラー (詳細メッセージが取れなかった場合のフォールバック)

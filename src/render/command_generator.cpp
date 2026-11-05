@@ -217,7 +217,11 @@ std::wstring_view FormatListNumber(std::span<wchar_t, kListNumberMaxLen> buf, in
 // つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow) noexcept
 {
-    const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
+    return VScrollThumb(pane, ComputeScrollInfo(pane, header_height, total_content_height), scroll_y, may_grow);
+}
+
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, float scroll_y, bool may_grow) noexcept
+{
     if (!ShowsVScrollbar(info, may_grow)) {
         return std::nullopt;
     }
@@ -785,7 +789,7 @@ struct MdPaneEmitter : CmdWriter {
             if (diagram && diagram->commands) {
                 const auto dest = MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top);
                 out.emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
-                GenOverlayButtons(node, diagram, x, cw, entry_text_top, node_index);
+                GenOverlayButtons(node, x, cw, entry_text_top, node_index);
             }
             else {
                 GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? DiagramErrorText(diagram->error) : std::wstring_view{});
@@ -800,7 +804,7 @@ struct MdPaneEmitter : CmdWriter {
             gen_h_scroll_block(box, pad_bottom, [&](float scroll_x) {
                 GenNodeTextDecorations(node, entry, node_index, text_x, entry_text_top, box.left + scroll_x, box.right + scroll_x);
             });
-            GenOverlayButtons(node, nullptr, x, cw, entry_text_top, node_index);
+            GenOverlayButtons(node, x, cw, entry_text_top, node_index);
             return;
         }
 
@@ -928,13 +932,13 @@ struct MdPaneEmitter : CmdWriter {
             BrushId::ScrollbarThumb });
     }
 
-    void GenOverlayButtons(const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index)
+    void GenOverlayButtons(const Node& node, float x, float cw, float entry_text_top, int node_index)
     {
         // 図のボタンは普段は隠し、マウスが図の画像領域かボタンの上にあるときだけ出す。
         if (node.type == NodeType::Diagram && p.hovered_diagram != node_index) {
             return;
         }
-        layout::ForEachOverlayButton(node, diagram, x, cw, entry_text_top, theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
+        layout::ForEachOverlayButton(node, p.cache, static_cast<size_t>(node_index), x, cw, entry_text_top, theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
             // 保存は Download、拡大表示は FullScreen、コピーは Copy (Segoe Fluent Icons)。
             const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : kind == OverlayButton::DiagramView ? L'\uE740' : L'\uE8C8';
             GenOverlayButton(btn, icon, p.hovered == OverlayButtonHit{ node_index, kind });

@@ -132,7 +132,8 @@ void Renderer::GenOverlays(const RenderParams& p)
         const auto input = MeasureSearchInput(text_layouts_, fmt_.search_input.Get(), p.search_bar, sbl.text_width());
         overlay::EmitSearchBar({ frame_cmds_, text_layouts_ }, fmt_.ui_icon.Get(), fmt_.search_count.Get(), sbl, p.search_bar, input);
     }
-    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, p.md.scroll_y, ComputeTotalContentHeight(p.md.cache, theme_->margin_bottom), p.md.cache.HasDirtyNodes())) {
+    const auto bar = MdPaneScrollbar(p.md.cache, md_pane_rect, theme_->margin_bottom);
+    if (const auto thumb = VScrollThumb(md_pane_rect, bar.info, p.md.scroll_y, bar.may_grow)) {
         frame_cmds_.push_back(*thumb);
     }
 }

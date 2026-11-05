@@ -1525,9 +1525,9 @@ AppAction MakeReduceEvent(ReduceEvent kind, int i)
     const bool odd = (i & 1) != 0;
     switch (kind) {
     case ReduceEvent::Hover:
-        return PointerHoverAction{ PointerHover{ { .h_block = odd ? 3 : -1 } } };
+        return PointerHoverAction{ { .h_block = odd ? 3 : -1 } };
     case ReduceEvent::HoverSame:
-        return PointerHoverAction{ PointerHover{ { .h_block = 3 } } };
+        return PointerHoverAction{ { .h_block = 3 } };
     case ReduceEvent::Wheel:
         return MouseWheelAction{ .delta = odd ? WHEEL_DELTA : -WHEEL_DELTA, .tick = static_cast<uint64_t>(i) };
     case ReduceEvent::SelectDrag:

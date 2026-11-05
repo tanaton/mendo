@@ -98,7 +98,6 @@ WordBoundary FindWordBoundariesImpl(SV text, uint32_t pos) noexcept
 
     result.start = start;
     result.end = end;
-    result.found = true;
     return result;
 }
 
@@ -154,15 +153,15 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
     // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
     if (const auto [run, base] = FindRunAt(nodes[node], pos); run && run->math()) {
         const uint32_t start = base + run->start;
-        return { node, start, node, start + run->length, true };
+        return { node, start, node, start + run->length };
     }
     const std::string_view text = nodes[node].GetText();
     const auto wb = FindWordBoundaries(text, pos);
-    if (!wb.found) {
+    if (!wb.found()) {
         return {};
     }
     const auto category = CategorizeCodePoint(utf8_codec::DecodeAt(text, wb.start).cp);
-    NodeWordRange r{ node, wb.start, node, wb.end, true };
+    NodeWordRange r{ node, wb.start, node, wb.end };
     // 空白も句読点も無い長い語 (base64 など) は 2 つ以上の継ぎ目をまたぐ。
     while (r.start == 0 && r.start_node > 0 && JoinsPrevInline(nodes[r.start_node])) {
         const std::string_view prev = nodes[r.start_node - 1].GetText();
