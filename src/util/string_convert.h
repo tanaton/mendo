@@ -26,14 +26,18 @@ inline std::wstring Utf8ToWide(std::string_view utf8)
 inline std::string WideToUtf8(std::wstring_view wide)
 {
     std::string out;
-    // wide.size() * 3 のオーバーフローと cb*Char の int 制限を同時にガード
-    if (wide.empty() || wide.size() > static_cast<size_t>(std::numeric_limits<int>::max()) / 3) {
+    if (wide.empty() || wide.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
         return out;
     }
-    // UTF-8 byte 数 <= UTF-16 wchar 数 * 3 が常に成立するため、上限確保で API 1 回呼び出し
-    out.resize_and_overwrite(wide.size() * 3, [wide](char* buf, size_t count) -> size_t {
-        const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), buf, static_cast<int>(count), nullptr, nullptr);
-        return n > 0 ? static_cast<size_t>(n) : 0;
+    // 上限 (wchar 数 * 3) で確保すると、MSVC の resize_and_overwrite は縮めないので ASCII では容量が 3 倍のまま残る
+    // (図のキャッシュの SVG 本文が、予算に数える大きさの 3 倍のヒープを持っていた)。先に長さを問い合わせる。
+    const int src_len = static_cast<int>(wide.size());
+    const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), src_len, nullptr, 0, nullptr, nullptr);
+    if (n <= 0) {
+        return out;
+    }
+    out.resize_and_overwrite(static_cast<size_t>(n), [&](char* buf, size_t count) -> size_t {
+        return WideCharToMultiByte(CP_UTF8, 0, wide.data(), src_len, buf, n, nullptr, nullptr) == n ? count : 0;
     });
     return out;
 }

@@ -98,15 +98,9 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     const auto& nodes = doc.GetNodes();
     const std::string_view raw = doc.GetRawText();
     ASSERT_FALSE(nodes.empty());
-
-    bool checked_any = false;
     for (const auto& n : nodes) {
-        const size_t off = n.SourceOffset();
-        EXPECT_LT(off, raw.size())
-            << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
-        checked_any = true;
+        EXPECT_LT(n.SourceOffset(), raw.size()) << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
     }
-    EXPECT_TRUE(checked_any);
 }
 
 // ---- 1.2 view 化 sanity (Document move) ----

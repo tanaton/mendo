@@ -15,7 +15,7 @@ TEST(SimdAsciiFindTest, SingleByteAtEveryPosition)
             t[at] = 'x';
             EXPECT_EQ(ascii_util::Find(t, "x", 0), at) << len << " " << at;
             t[at] = 'X';
-            EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(t, "x", 0), at) << len << " " << at;
+            EXPECT_EQ(ascii_util::Find(t, "x", 0, /*fold=*/true), at) << len << " " << at;
             EXPECT_EQ(ascii_util::Find(t, "x", 0), ascii_util::npos) << len << " " << at;
             EXPECT_EQ(ascii_util::Find(t, "X", at + 1), ascii_util::npos) << len << " " << at;
         }
@@ -41,7 +41,7 @@ TEST(AsciiUtilIequal, IstartsWith)
 }
 
 // ─────────────────────────────────────────────
-// Find (先頭+末尾 2 点フィルタ) / FindAsciiCaseInsensitive
+// Find (先頭+末尾 2 点フィルタ)。fold の有無の両方
 // ─────────────────────────────────────────────
 
 namespace {
@@ -56,7 +56,7 @@ void ExpectFindMatchesReference(std::string_view text, std::string_view query)
         EXPECT_EQ(ascii_util::Find(text, query, start), expected == std::string_view::npos ? ascii_util::npos : expected)
             << "start=" << start << " query=" << query;
         const size_t expected_ci = std::string_view(lower_text).find(lower_query, start);
-        EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(text, lower_query, start), expected_ci == std::string_view::npos ? ascii_util::npos : expected_ci)
+        EXPECT_EQ(ascii_util::Find(text, lower_query, start, /*fold=*/true), expected_ci == std::string_view::npos ? ascii_util::npos : expected_ci)
             << "start=" << start << " query=" << query;
     }
 }
@@ -102,8 +102,8 @@ TEST(AsciiUtilFind, MatchesReferenceForEdgeCases)
 TEST(AsciiUtilFind, CaseInsensitiveDoesNotFoldNonAscii)
 {
     // 'Ä' (C3 84) と 'ä' (C3 A4) は ASCII 畳み込みの対象外
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84y", "\xC3\xA4", 0), ascii_util::npos);
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84Y", "\xC3\x84y", 0), 1u);
+    EXPECT_EQ(ascii_util::Find("x\xC3\x84y", "\xC3\xA4", 0, /*fold=*/true), ascii_util::npos);
+    EXPECT_EQ(ascii_util::Find("x\xC3\x84Y", "\xC3\x84y", 0, /*fold=*/true), 1u);
 }
 
 // SIMD の大文字の範囲の境目と UTF-8 の継続バイトを畳まない。1 バイトのクエリは先頭の比較を SIMD だけで決める。
@@ -111,15 +111,15 @@ TEST(AsciiUtilFind, CaseInsensitiveFoldsOnlyUppercaseRange)
 {
     const std::string at_signs(32, '@');
     const std::string after_z(32, '[');
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(at_signs, "`", 0), ascii_util::npos);
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(after_z, "{", 0), ascii_util::npos);
+    EXPECT_EQ(ascii_util::Find(at_signs, "`", 0, /*fold=*/true), ascii_util::npos);
+    EXPECT_EQ(ascii_util::Find(after_z, "{", 0, /*fold=*/true), ascii_util::npos);
     // 「あいうえお一二三四」。継続バイト 0x81〜0x8C に 0x20 を足した値と一致させない
     const std::string_view kana = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
                                   "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B";
     for (const std::string_view q : { "\xA1", "\xA2", "\xA4", "\xAC" }) {
-        EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(kana, q, 0), ascii_util::npos);
+        EXPECT_EQ(ascii_util::Find(kana, q, 0, /*fold=*/true), ascii_util::npos);
     }
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive(after_z + "Z", "z", 0), 32u);
+    EXPECT_EQ(ascii_util::Find(after_z + "Z", "z", 0, /*fold=*/true), 32u);
 }
 
 TEST(AsciiUtilFind, HasAsciiLetter)

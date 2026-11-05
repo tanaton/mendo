@@ -282,6 +282,7 @@ TEST(IniParserTest, ParseSections)
         // 空のセクションは持っても持たなくてもよい。
         std::erase_if(data, [](const auto& section) { return section.second.empty(); });
         EXPECT_EQ(data, c.expected);
+        EXPECT_EQ(ini::Parse(ini::Serialize(c.expected)), c.expected);
     }
 }
 
@@ -312,60 +313,24 @@ TEST(IniParserTest, ParseValue)
     }
 }
 
-// ---- Serialize テスト ----
-
-TEST(IniParserTest, SerializeEmpty)
+// セクションは名前順で間に空行を入れ、空のセクションは書かない。名前の無いセクションは見出しを付けない。
+TEST(IniParserTest, Serialize)
 {
-    ini::IniData data;
-    EXPECT_EQ(ini::Serialize(data), "");
-}
-
-TEST(IniParserTest, SerializeSingleSection)
-{
-    ini::IniData data;
-    data["Window"]["X"] = "100";
-    data["Window"]["Y"] = "200";
-    std::string result = ini::Serialize(data);
-    EXPECT_TRUE(result.contains("[Window]"));
-    EXPECT_TRUE(result.contains("X=100"));
-    EXPECT_TRUE(result.contains("Y=200"));
-}
-
-TEST(IniParserTest, SerializeSkipsEmptySections)
-{
-    ini::IniData data;
-    data["Empty"];  // 空のセクション
-    data["Full"]["K"] = "V";
-    std::string result = ini::Serialize(data);
-    EXPECT_FALSE(result.contains("Empty"));
-    EXPECT_TRUE(result.contains("[Full]"));
-}
-
-TEST(IniParserTest, SerializeMultipleSectionsSeparatedByBlankLine)
-{
-    ini::IniData data;
-    data["A"]["K1"] = "V1";
-    data["B"]["K2"] = "V2";
-    std::string result = ini::Serialize(data);
-    // セクション間に空行がある
-    EXPECT_TRUE(result.contains("\n\n[B]"));
-}
-
-TEST(IniParserTest, RoundTrip)
-{
-    ini::IniData original;
-    original["Window"]["X"] = "100";
-    original["Window"]["Y"] = "-50";
-    original["View"]["DarkMode"] = "1";
-    original["Session"]["LastFile"] = "C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\test.md";
-
-    std::string text = ini::Serialize(original);
-    auto parsed = ini::Parse(text);
-
-    EXPECT_EQ(parsed["Window"]["X"], "100");
-    EXPECT_EQ(parsed["Window"]["Y"], "-50");
-    EXPECT_EQ(parsed["View"]["DarkMode"], "1");
-    EXPECT_EQ(parsed["Session"]["LastFile"], original["Session"]["LastFile"]);
+    struct Case {
+        const char* label;
+        ini::IniData data;
+        std::string_view expected;
+    };
+    const Case kCases[] = {
+        { "Empty",             {},                                                           ""                           },
+        { "SkipsEmptySection", { { "Empty", {} }, { "Full", { { "K", "V" } } } },            "[Full]\nK=V\n"              },
+        { "MultipleSections",  { { "A", { { "K1", "V1" } } }, { "B", { { "K2", "V2" } } } }, "[A]\nK1=V1\n\n[B]\nK2=V2\n" },
+        { "Unnamed",           { { "", { { "Orphan", "1" } } }, { "S", { { "K", "2" } } } }, "Orphan=1\n\n[S]\nK=2\n"     },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        EXPECT_EQ(ini::Serialize(c.data), c.expected);
+    }
 }
 
 class SessionTest : public TempDirTestBase {
@@ -453,28 +418,42 @@ TEST_F(SessionTest, LoadsDefaultsWhenNothingSaved)
 
 // ---- SaveScrollPosition / LoadScrollPosition ----
 
+// offset は丸めて保存する。ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
 TEST_F(SessionTest, SaveAndLoadScrollPosition)
 {
-    session::SaveScrollPosition(config_, 5, 49.6f);
+    struct Case {
+        int node;
+        float offset;
+        int expected_offset;
+    };
+    constexpr Case kCases[] = {
+        { 5, 49.6f,   50   },
+        { 3, -150.0f, -150 }
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.offset);
+        session::SaveScrollPosition(config_, c.node, c.offset);
+        const auto pos = session::LoadScrollPosition(config_);
+        EXPECT_EQ(pos.node, c.node);
+        EXPECT_EQ(pos.offset, c.expected_offset);
+    }
+}
 
+// node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
+TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
+{
+    config_.SaveInt("Session", "ScrollNode", 10000000);
+    config_.SaveInt("Session", "ScrollOffset", 99999999);
     const auto pos = session::LoadScrollPosition(config_);
-    EXPECT_EQ(pos.node, 5);
-    EXPECT_EQ(pos.offset, 50); // lround(49.6)
+    EXPECT_EQ(pos.node, -1);
+    EXPECT_EQ(pos.offset, 0);
 }
 
 // ---- SaveLastFilePath / LoadLastFilePath ----
 
-TEST_F(SessionTest, SaveLastFilePathStoresPath)
-{
-    // LoadLastFilePath は実在しないパスを弾くため、実ファイルを作って往復させる。
-    const auto file = WriteTempFile(L"last.md", "# last").wstring();
-    session::SaveLastFilePath(config_, file);
-    EXPECT_EQ(session::LoadLastFilePath(config_), std::wstring_view{ file });
-}
-
+// 保存したパスを読み戻し、空のパスでは上書きしない。LoadLastFilePath は実在しないパスを弾くので実ファイルを作る。
 TEST_F(SessionTest, SaveLastFilePathSkipsEmpty)
 {
-    // 空パスで既存の保存値を上書きしない。
     const auto file = WriteTempFile(L"last.md", "# last").wstring();
     session::SaveLastFilePath(config_, file);
     session::SaveLastFilePath(config_, L"");
@@ -508,25 +487,4 @@ TEST_F(SessionTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
         config_.SaveWString("Session", "LastFile", prefixed);
         EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
     }
-}
-
-// ---- SaveScrollPosition / LoadScrollPosition の境界 ----
-
-TEST_F(SessionTest, SaveScrollPosition_NegativeOffsetRoundtrips)
-{
-    // ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
-    session::SaveScrollPosition(config_, 3, -150.0f);
-    const auto pos = session::LoadScrollPosition(config_);
-    EXPECT_EQ(pos.node, 3);
-    EXPECT_EQ(pos.offset, -150);
-}
-
-// node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
-TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
-{
-    config_.SaveInt("Session", "ScrollNode", 10000000);
-    config_.SaveInt("Session", "ScrollOffset", 99999999);
-    const auto pos = session::LoadScrollPosition(config_);
-    EXPECT_EQ(pos.node, -1);
-    EXPECT_EQ(pos.offset, 0);
 }

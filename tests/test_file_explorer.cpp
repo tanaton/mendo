@@ -184,27 +184,18 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
 }
 
 // .md / .markdown / .mkd (大文字小文字無視) とディレクトリだけを、ディレクトリを先にして並べる。
+// 名前も大文字小文字を無視して並べる (区別すると Readme.md が aaa.md より前に来る)。
 TEST_F(FileExplorerTest, ListsMarkdownFilesAndDirectoriesOnly)
 {
-    for (const auto* name : { L"aaa.md", L"readme.md", L"doc.markdown", L"doc.mkd", L"upper.MD", L"image.png", L"data.json", L"script.py" }) {
+    for (const auto* name : { L"aaa.md", L"Readme.md", L"doc.markdown", L"doc.mkd", L"upper.MD", L"image.png", L"data.json", L"script.py" }) {
         WriteTempFile(name);
     }
     CreateDir(L"zzz_dir");
 
     ListTempDir();
-    ASSERT_EQ(ListedNames(), (std::vector<std::wstring>{ L"zzz_dir", L"aaa.md", L"doc.markdown", L"doc.mkd", L"readme.md", L"upper.MD" }));
+    ASSERT_EQ(ListedNames(), (std::vector<std::wstring>{ L"zzz_dir", L"aaa.md", L"doc.markdown", L"doc.mkd", L"Readme.md", L"upper.MD" }));
     EXPECT_TRUE(FindEntry(L"zzz_dir")->is_directory);
     EXPECT_FALSE(FindEntry(L"aaa.md")->is_directory);
-}
-
-TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
-{
-    WriteTempFile(L"Bbb.md");
-    WriteTempFile(L"aaa.md");
-    WriteTempFile(L"ccc.md");
-
-    ListTempDir();
-    EXPECT_EQ(ListedNames(), (std::vector<std::wstring>{ L"aaa.md", L"Bbb.md", L"ccc.md" }));
 }
 
 // ---- SetCurrentFile テスト ----
@@ -229,7 +220,6 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
     CreateDir(L"subdir");
 
     ListTempDir();
-    // パスが一致してもディレクトリはcurrentとしてマークされないこと
     explorer_.SetCurrentFile((temp_dir_ / L"subdir").wstring());
     EXPECT_EQ(CountCurrent(), 0u);
 }

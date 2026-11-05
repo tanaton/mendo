@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <iterator>
 #include <utility>
 
 namespace {
@@ -61,6 +62,21 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {})
     }
 }
 
+struct SidePaneContext {
+    PaneScrollInfo info;
+    float item_height;
+    float& scroll_y;
+};
+
+SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
+{
+    return {
+        SidePaneScrollInfo(state, pane, ComputePaneLayout(state)),
+        SidePaneItemHeight(state, pane),
+        state.view.panes.SidePaneScroll(pane),
+    };
+}
+
 } // namespace
 
 PaneLayout ComputePaneLayout(const AppState& state) noexcept
@@ -70,15 +86,6 @@ PaneLayout ComputePaneLayout(const AppState& state) noexcept
         return {};
     }
     return state.view.panes.ComputeLayout(state.window.WidthDip(), state.window.HeightDip(), state.theme->splitter_width, TitleBar::BASE_HEIGHT);
-}
-
-SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
-{
-    return {
-        SidePaneScrollInfo(state, pane, ComputePaneLayout(state)),
-        SidePaneItemHeight(state, pane),
-        state.view.panes.SidePaneScroll(pane),
-    };
 }
 
 void SyncActiveTocIndex(AppState& state)
@@ -114,21 +121,6 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
     return GetBlockHScrollGeometry(nodes, cache, static_cast<size_t>(node_index), *state.theme, md_width);
 }
 
-// MD ペインの総コンテンツ高。詳細は layout_cache.h の ComputeTotalContentHeight 注記参照。
-// アクションのペイロードで運ぶと、遅延レイアウト進行中にドラッグ開始と移動で
-// 別計測の値が混ざりサム位置が跳ねるため、reducer 側で都度導出する。
-float MdScrollableContentHeight(const AppState& state) noexcept
-{
-    return ComputeTotalContentHeight(
-        state.document.layout_cache,
-        state.theme->margin_bottom);
-}
-
-float MdMaxScroll(const AppState& state) noexcept
-{
-    return MaxScroll(MdScrollableContentHeight(state), ComputePaneLayout(state).md_rect.height);
-}
-
 namespace {
 
 // Reduce の呼び出し 1 回の文脈。アクションごとの処理 On はどれもこれを受ける。
@@ -139,15 +131,13 @@ struct ReduceContext {
     // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
     // 直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
+    // 描き直しは Reduce の最後に 1 件だけ積む。
     bool invalidated = false;
 };
 
-// 描き直させる。1 回の Reduce で何度呼んでも、最初に呼んだ位置に 1 件だけ積む (モーダルの副作用より前の位置を保つ)。
 void Invalidate(ReduceContext& c)
 {
-    if (!std::exchange(c.invalidated, true)) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
-    }
+    c.invalidated = true;
 }
 
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
@@ -171,7 +161,7 @@ void EmitScrollChangedSideEffects(ReduceContext& c)
     }
 }
 
-void ApplyScrollTarget(AppState& state, int node, float offset)
+void ScrollToNode(AppState& state, int node, float offset)
 {
     auto& viewport = state.view.viewport;
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
@@ -324,7 +314,7 @@ void ApplyNavResult(ReduceContext& c, NavEntry&& entry)
         c.state.view.pending_restore = {};
         // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
         c.state.view.nav_history.CommitPending();
-        ApplyScrollTarget(c.state, entry.node, entry.offset);
+        ScrollToNode(c.state, entry.node, entry.offset);
     }
 }
 
@@ -348,7 +338,7 @@ void On(ReduceContext& c, const OpenPathAction& a)
 void ScrollToHeading(AppState& state, int node_index)
 {
     // 見出しを上端に貼り付けず、上の余白ごと見せる。
-    ApplyScrollTarget(state, node_index, -state.theme->heading_spacing_above);
+    ScrollToNode(state, node_index, -state.theme->heading_spacing_above);
 }
 
 void On(ReduceContext& c, const FilePaneDirectoryClickedAction& a)
@@ -659,20 +649,17 @@ void On(ReduceContext& c, const RightClickGestureMovedAction& a)
 
 void On(ReduceContext& c, const RightClickGestureCompletedAction& a)
 {
-    switch (c.state.interaction.gesture.OnRButtonUp()) {
-    case GestureResult::ShowContextMenu:
-        PushEffect(c.effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
-        break;
-    case GestureResult::Back:
-        On(c, NavigateHistoryAction{ .forward = false });
-        break;
-    case GestureResult::Forward:
-        On(c, NavigateHistoryAction{ .forward = true });
-        break;
-    case GestureResult::None:
+    auto& gesture = c.state.interaction.gesture;
+    if (gesture.GetPhase() == GesturePhase::Idle) {
         return;
     }
     Invalidate(c);
+    if (const NavDirection dir = gesture.OnRButtonUp(); dir != NavDirection::None) {
+        On(c, NavigateHistoryAction{ .forward = dir == NavDirection::Forward });
+        return;
+    }
+    // 方向が確定しなければ通常の右クリック扱いにし、メニューを失わない。
+    PushEffect(c.effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
 }
 
 // ---- 検索バー ----
@@ -828,11 +815,18 @@ void On(ReduceContext& c, const ToggleCaseSensitiveAction&)
 void On(ReduceContext& c, const SearchSelectionAction& a)
 {
     auto& sg = c.state.search;
-    if (sg.caret_pos == a.sel_end && sg.selection_start == a.sel_start) {
+    int anchor = a.anchor;
+    int caret = a.caret;
+    // 向きが分からなければ、前の基点が後ろ端に残っているときは後ろ向きとみなす (Shift+← や Shift+Home)。
+    // 両端とも動いたときは前向き (EDIT と同じくキャレットを後ろ端に描く)。
+    if (a.ordered && anchor != caret && caret == sg.selection_start) {
+        std::swap(anchor, caret);
+    }
+    if (sg.caret_pos == caret && sg.selection_start == anchor) {
         return;
     }
-    sg.caret_pos = a.sel_end;
-    sg.selection_start = a.sel_start;
+    sg.caret_pos = caret;
+    sg.selection_start = anchor;
     if (sg.search_state.IsVisible()) {
         Invalidate(c);
     }
@@ -1176,7 +1170,11 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     if (c.emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
         EmitScrollChangedSideEffects(c);
     }
-    // メニューのモーダルループより先に済ませるよう先頭に積む。
+    // 描き直しとキャプチャの変更は、モーダルの副作用 (メニュー・ファイルを開くダイアログ) より先に済ませるよう先頭に積む。
+    // 描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った。
+    if (c.invalidated) {
+        effects.insert(effects.begin(), effect::InvalidateWindow{});
+    }
     const bool needs_capture = CaptureRequired(state);
     if (needs_capture != had_capture) {
         effects.insert(effects.begin(), needs_capture ? SideEffect{ effect::SetCapture{} } : SideEffect{ effect::ReleaseCapture{} });

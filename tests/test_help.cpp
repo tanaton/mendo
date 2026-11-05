@@ -35,14 +35,6 @@ TEST(HelpPathTest, MatchesOnlyExactHelpPath)
 // ヘルプパスでDocumentを作成
 // ═══════════════════════════════════════════════
 
-TEST(HelpDocumentTest, FromMarkdownWithHelpPath)
-{
-    auto doc = Document::FromMarkdown("# Help\ntext", HELP_PATH);
-    EXPECT_FALSE(doc.IsEmpty());
-    EXPECT_EQ(doc.GetFilePath(), HELP_PATH);
-    EXPECT_TRUE(IsHelpPath(doc.GetFilePath()));
-}
-
 // 埋め込みの文書はヘルプとサードパーティのライセンスだけ。ヘルプ扱い (言語の切り替えで読み直す) はヘルプだけ。
 TEST(HelpPathTest, EmbeddedPathsAreHelpAndLicenses)
 {
@@ -59,11 +51,6 @@ TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
     EXPECT_FALSE(Document::FromMarkdown("# Licenses", LICENSES_PATH).HasBackingFile());
     EXPECT_FALSE(Document::FromMarkdown("# Empty", L"").HasBackingFile());
     EXPECT_TRUE(Document::FromMarkdown("# File", L"C:/docs/readme.md").HasBackingFile());
-}
-
-TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
-{
-    EXPECT_FALSE(path_util::IsMarkdownFile(HELP_PATH));
 }
 
 // ═══════════════════════════════════════════════

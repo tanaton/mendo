@@ -162,15 +162,15 @@ TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
     SetContentWidth(0.0f);
     rm_.LoadImages();
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
     rm_.RequestMermaidRenders();
     EXPECT_EQ(host_.recompute_layout, 0);
     EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
-// ---- 画像経路: リロード時の ApplyCachedImagesForReload (issue #148) ----
+// ---- 画像経路: ApplyImageCacheHeights (issue #148) ----
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
+TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesHeightFromCache)
 {
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
@@ -181,7 +181,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
     const size_t img_idx = image_indices[0];
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f);
 
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
 
     // content_width=800, image_width=1000 → スケール係数 800/1000、
     // height=800 * 0.8 = 640
@@ -228,7 +228,7 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
 }
 
 // 画像の src をキャッシュのキーへ解決する規則。引いてはいけない行のキーは、判定を外したときに解決されるパスで入れる。
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadResolvesSrc)
+TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
 {
     const auto joined = [](const wchar_t* dir, const wchar_t* rel) {
         return (std::filesystem::path(dir) / rel).lexically_normal().wstring();
@@ -286,12 +286,12 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadResolvesSrc)
         for (const auto& e : c.entries) {
             image_loader_.InsertCacheEntryForTest(e.key, 400.0f, e.height);
         }
-        EXPECT_EQ(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }), c.height.has_value());
+        EXPECT_EQ(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }), c.height.has_value());
         EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, c.height.value_or(100.0f));
     }
 }
 
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
+TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesBeyondVisibleRange)
 {
     // issue #148 の本質: 可視範囲外の画像も全件走査して height を更新する。
     // 画像を 2 個配置し、2 個目を viewport から大きく外して LoadImages との差を出す。
@@ -312,15 +312,15 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
     // 2個目の高さはまだ SeedLayoutCache の block_height=3000 のまま。
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
 
-    // ApplyCachedImagesForReload は可視範囲に縛られないので残りの 1 件も適用する。
+    // ApplyImageCacheHeights は可視範囲に縛られないので残りの 1 件も適用する。
     // 1 個目は LoadImages で diagram.bitmap がセットされていないのでもう一度適用される。
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
     EXPECT_FALSE(cache_[image_indices[1]].layout_dirty);
 }
 
 // リロードでは変わった範囲のノードにだけ当てる (引き継いだノードは実測の高さを持っている)。
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesOnlyGivenRange)
+TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesOnlyGivenRange)
 {
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     const auto& image_indices = doc_.GetImageNodeIndices();
@@ -328,7 +328,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesOnlyGivenRange)
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ image_indices[1], image_indices[1] + 1 }));
+    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ image_indices[1], image_indices[1] + 1 }));
     EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, 3000.0f);
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
 }
@@ -364,7 +364,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
     ASSERT_GE(doc_.GetDiagramNodeIndices().size(), 2u);
 
     rm_.RequestMermaidRenders();
-    // 1個目 (y=0, 可視範囲内) のみ Render される
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 }
 
@@ -393,11 +392,11 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRedrawsSynchronousDiagramError)
 }
 
 // リロード前の高さの適用は Y を組み直さないので、変えた範囲を後の再レイアウトに持ち越さない。
-TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadDoesNotCarryChangeRange)
+TEST_F(ResourceManagerTest, ApplyImageCacheHeightsDoesNotCarryChangeRange)
 {
     LoadMarkdown("![one](one.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    ASSERT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    ASSERT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
 
     mock_mermaid_.sync_apply_bitmap = true;
     rm_.RequestMermaidRenders();
@@ -475,15 +474,6 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
     EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
-    EXPECT_TRUE(mock_mermaid_.last_dark_mode);
-}
-
-TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    theme_.dark = true;
-
-    rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 
@@ -672,15 +662,15 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 {
     LoadMarkdown("![alt](old.png)\n");
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
 
     LoadMarkdown("![alt](new.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
 
     image_loader_.InsertCacheEntryForTest(L"C:\\other\\same.png", 400.0f, 300.0f);
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\dir\\doc.md");
-    EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\other\\doc.md");
-    EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
 }

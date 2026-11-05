@@ -4,6 +4,7 @@
 #include "layout_computer.h"
 #include "theme.h"
 #include "test_helpers.h"
+#include <optional>
 
 // 全レイアウトの無効化 (ズームなど) は計測結果を捨てる。旧倍率の実測値や高さが残ると、推定が縮めないので
 // 画面外のコードブロック等の高さや総高さが古いまま過大になる。位置は次のレイアウトで組み直すまで保つ。
@@ -307,65 +308,37 @@ Node MakeTwoByTwoTableNode()
     return n;
 }
 
-NodeLayoutEntry MakeEntry(float height)
-{
-    NodeLayoutEntry e;
-    e.height = height;
-    return e;
-}
-
 } // namespace
 
-TEST(EstimateInvisibleNodeHeight, DiagramLanguageSkipped)
+// 計測済みで幅が同じなら実測を残す。それ以外は推定まで伸ばすが、縮めはしない。図のコードブロックは高さに触らない。
+TEST(EstimateInvisibleNodeHeight, GrowsToEstimateUnlessMeasuredAtSameWidth)
 {
-    auto node = MakeCodeBlockNode(SyntaxLanguage::Mermaid);
-    auto entry = MakeEntry(/*height=*/5.0f);
     const auto& theme = GetLightTheme();
-    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 5.0f); // 触らない
-}
-
-TEST(EstimateInvisibleNodeHeight, DoesNotShrinkBelowExisting)
-{
-    auto node = MakeParagraphNode(/*line_count=*/0);
-    auto entry = MakeEntry(/*height=*/9999.0f);
-    const auto& theme = GetLightTheme();
-    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_FLOAT_EQ(entry.height, 9999.0f);
-}
-
-TEST(EstimateInvisibleNodeHeight, GrowsToEstimateWhenSmaller)
-{
-    auto node = MakeParagraphNode(/*line_count=*/3);
-    auto entry = MakeEntry(/*height=*/1.0f);
-    const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
-    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_FLOAT_EQ(entry.height, estimated);
-}
-
-TEST(EstimateInvisibleNodeHeight, KeepsMeasuredHeightWhenWidthMatches)
-{
-    auto node = MakeParagraphNode(/*line_count=*/20);
-    NodeLayoutEntry entry;
-    entry.height = 1.0f; // 推定値より小さい
-    entry.cached_width = 200.0f;
-    const auto& theme = GetLightTheme();
-    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 1.0f);
-}
-
-TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
-{
-    auto node = MakeParagraphNode(/*line_count=*/2);
-    NodeLayoutEntry entry;
-    entry.height = 1.0f;
-    entry.cached_width = 200.0f;
-    const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
-    // node_width が cached_width と離れているので fallback は EstimateNodeHeight
-    EstimateInvisibleNodeHeight(node, entry, theme, 800.0f);
-    EXPECT_FLOAT_EQ(entry.height, estimated);
+    struct Case {
+        const char* label;
+        Node node;
+        float height;
+        float cached_width;
+        float node_width;
+        std::optional<float> expected; // 無ければ推定 (EstimateNodeHeight)
+    };
+    constexpr float kUnmeasured = NodeLayoutEntry::kUnmeasuredWidth;
+    const Case kCases[] = {
+        { "DiagramLanguageSkipped", MakeCodeBlockNode(SyntaxLanguage::Mermaid), 5.0f, kUnmeasured, 200.0f, 5.0f },
+        { "DoesNotShrinkBelowExisting", MakeParagraphNode(/*line_count=*/0), 9999.0f, kUnmeasured, 400.0f, 9999.0f },
+        { "GrowsToEstimateWhenSmaller", MakeParagraphNode(/*line_count=*/3), 1.0f, kUnmeasured, 400.0f, std::nullopt },
+        { "NonDiagramCodeBlockGrows", MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4), 0.0f, kUnmeasured, 400.0f, std::nullopt },
+        { "KeepsMeasuredHeightWhenWidthMatches", MakeParagraphNode(/*line_count=*/20), 1.0f, 200.0f, 200.0f, 1.0f },
+        { "FallsBackToEstimateWhenWidthDiffers", MakeParagraphNode(/*line_count=*/2), 1.0f, 200.0f, 800.0f, std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        NodeLayoutEntry entry;
+        entry.height = c.height;
+        entry.cached_width = c.cached_width;
+        EstimateInvisibleNodeHeight(c.node, entry, theme, c.node_width);
+        EXPECT_FLOAT_EQ(entry.height, c.expected.value_or(EstimateNodeHeight(c.node, theme, 0.0f)));
+    }
 }
 
 TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
@@ -382,16 +355,6 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_FLOAT_EQ(entry.height, 200.0f);
     EXPECT_EQ(entry.table_layout(), &tl);
-}
-
-TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)
-{
-    auto node = MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4);
-    auto entry = MakeEntry(/*height=*/0.0f);
-    const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
-    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_FLOAT_EQ(entry.height, estimated);
 }
 
 // 画像・図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。

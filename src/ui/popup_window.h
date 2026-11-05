@@ -401,17 +401,11 @@ private:
         rt->BeginDraw();
         rt->Clear(theme->Color(BrushId::PaneBg));
         constexpr float half = POPUP_FRAME_WIDTH * 0.5f;
-        // clang-format off
-        rt->DrawRoundedRectangle(
-            {
-                { half, half, width - half, height - half },
-                POPUP_CORNER,
-                POPUP_CORNER
-            },
-            brushes.frame.Get(),
-            POPUP_FRAME_WIDTH
-        );
-        // clang-format on
+        const D2D1_ROUNDED_RECT frame{
+            { half, half, width - half, height - half },
+            POPUP_CORNER, POPUP_CORNER
+        };
+        rt->DrawRoundedRectangle(frame, brushes.frame.Get(), POPUP_FRAME_WIDTH);
         derived().PaintContent();
         if (rt->EndDraw() == D2DERR_RECREATE_TARGET) {
             rt.Reset();

@@ -11,7 +11,6 @@
 #include "pane_layout.h"
 #include "settings_dialog.h"
 #include "profiler.h"
-#include "reload_flow.h"
 #include "resource.h"
 #include "string_convert.h"
 #include "titlebar.h"
@@ -80,7 +79,7 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -384,8 +383,7 @@ bool App::RequestInlineMathChunk(uint64_t key)
 
 void App::RebuildInlineMathPlan()
 {
-    // 数式の無い文書でも省かない。test.md x8 (6922 ノード) で 66µs、数式 12000 個で 2.6ms (BM_InlineMathPlanBuild)。
-    inline_math_plan_.Build(state_.document.doc.GetNodes(), theme_service_.GetTheme());
+    inline_math_plan_.Build(state_.document.doc.GetNodes(), state_.document.doc.GetMathNodeIndices(), theme_service_.GetTheme());
 }
 
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
@@ -715,11 +713,9 @@ void App::StartPreloadAsync(std::wstring path)
     load_coordinator_.Start(std::move(path), theme_service_.CreateTheme(session::LoadZoomLevel(config_)));
 }
 
-void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
+void App::HandleLoadFailureFallback(FileLoadError error)
 {
-    if (error) {
-        ShowToast(FileLoadErrorMessage(*error, i18n::S()));
-    }
+    ShowToast(FileLoadErrorMessage(error, i18n::S()));
     // ファイル一覧から開いたファイルが消えていたなら、一覧を今の中身に直す。
     if (error == FileLoadError::NotFound) {
         RefreshFilePane();
@@ -758,7 +754,7 @@ void App::OnParseComplete()
     case ParseCompleteStep::IgnoreStale:
         return;
     case ParseCompleteStep::Fail:
-        MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
+        MENDO_TRACE("OnParseComplete: load failed");
         HandleLoadFailureFallback(outcome->error());
         break;
     case ParseCompleteStep::Retry:
@@ -814,7 +810,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
     if (state_.view.pending_restore.IsValid()) {
         MENDO_TRACEF("FinishLoad: node={} offset={}", state_.view.pending_restore.node, state_.view.pending_restore.offset);
-        if (ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
+        if (resource_manager_.ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
             layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
         }
     }
@@ -882,7 +878,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     // Mermaid の図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。引き継いだノードは実測の高さを持っているので、
     // 当てるのは変わった範囲だけでよい。引き継いだ高さと合わせて Y を 1 回で組み直す。
-    const bool applied = ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
+    const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
     }
@@ -926,13 +922,6 @@ void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
         node = it != diagrams.end() ? static_cast<int>(*it) : -1;
     }
     mermaid_renderer_.SetViewerNode(node);
-}
-
-bool App::ApplyCachedHeights(IndexRange nodes)
-{
-    const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload(nodes);
-    const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes);
-    return mermaid_applied || image_applied;
 }
 
 void App::StartFileWatch(FileWatchTarget target)
@@ -990,11 +979,6 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::SearchUnfocus& ev) {
             window_.UnfocusSearch(ev.clear_text);
         },
-        [this](const effect::ApplyDpi& ev) {
-            renderer_.SetDpi(ev.dpi);
-            const RECT& r = ev.suggested;
-            SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
-        },
         [this](const effect::ApplyZoom&) {
             ApplyZoom();
         },
@@ -1006,6 +990,11 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::RendererResize& ev) {
             renderer_.Resize(ev.width, ev.height, ev.live);
+        },
+        [this](const effect::ApplyDpi& ev) {
+            renderer_.SetDpi(ev.dpi);
+            const RECT& r = ev.suggested;
+            SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
         },
         // ---- Navigation ----
         [this](const effect::LoadFile& ev) {
@@ -1135,7 +1124,7 @@ void App::ToggleDarkMode()
 
 App::HitResult App::HitTest(int px, int py)
 {
-    return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, ComputePaneLayout(state_), px, py));
+    return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, ComputePaneLayout(state_), PixelToDip(px, py)));
 }
 
 // CS_DBLCLKS により連続クリックの 2 回目は WM_LBUTTONDBLCLK で届く。ボタン・スクロールバー・スプリッタは
@@ -1385,7 +1374,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
 bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 {
     const int hover = state_.view.hover.h_block;
-    const auto geom = ResolveBlockHScrollGeometry(state_, hover, hit_ctx.md_rect.width);
+    const auto geom = ResolveBlockHScrollGeometry(state_, hover);
     if (!geom.can_scroll() || !hit_test::BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
         return false;
     }
@@ -1397,7 +1386,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_do
 {
     using Kind = app_controller::MdPaneHit::Kind;
     const auto layout = ComputePaneLayout(state_);
-    const auto hit_ctx = app_controller::MakeMdPaneHitContext(state_, layout, px, py);
+    const auto hit_ctx = app_controller::MakeMdPaneHitContext(state_, layout, { dip_x, dip_y });
     const auto target = app_controller::ResolveMdPaneHit(state_, hit_ctx, layout, dip_x, dip_y);
     switch (target.kind) {
     case Kind::SearchBar:
@@ -1462,7 +1451,7 @@ const FileEntry* App::FileEntryAt(float dip_x, float dip_y)
         return nullptr;
     }
     const auto hit = app_controller::ResolveSidePaneHit(state_, PaneTarget::File, ComputePaneLayout(state_), dip_x, dip_y);
-    if (hit.in_header || hit.scrollbar || hit.item < 0) {
+    if (hit.scrollbar || hit.item < 0) {
         return nullptr;
     }
     return &state_.file_explorer.GetEntries()[hit.item];

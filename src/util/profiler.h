@@ -9,8 +9,6 @@
 //   MENDO_PROFILE(label)             : スコープ計測。label は文字列リテラル必須。
 //   MENDO_FRAME_MARK()               : フレーム境界マーカー。OnPaint 末尾で 1 回呼ぶ。
 //   MENDO_PLOT(label, value)         : 数値の時系列プロット。double / int 受け入れ可。
-//   MENDO_COUNT_INC(counter)         : 累積カウンタの ++。Tracy OFF で no-op (DCE 担保)。
-//   MENDO_COUNT_SET(counter, value)  : 累積でない直近値の代入。Tracy OFF で no-op。
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージのデバッグログ ("[mendo] " 付き)。
 //   MENDO_TRACEF(fmt, ...)           : std::format 形式のデバッグログ ("{}", "{:.1f}" 等)。
@@ -38,11 +36,6 @@
     ZoneNamedN(_MENDO_DETAIL_CONCAT(_mendo_zone_, __LINE__), label, true)
 #define MENDO_FRAME_MARK() FrameMark
 #define MENDO_PLOT(label, value) TracyPlot(label, value)
-
-// 累積カウンタ系。Tracy OFF では完全に no-op になるため、対象カウンタが
-// 他から参照されない限り、変数定義ごと dead code として消える。
-#define MENDO_COUNT_INC(counter) (++(counter))
-#define MENDO_COUNT_SET(counter, value) ((counter) = (value))
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
 // 256 バイト固定はトレース用途として十分 (callsite が短いメッセージのみ生成)。
@@ -69,8 +62,6 @@
 #define MENDO_PROFILE(label) ((void)0)
 #define MENDO_FRAME_MARK() ((void)0)
 #define MENDO_PLOT(label, value) ((void)0)
-#define MENDO_COUNT_INC(counter) ((void)0)
-#define MENDO_COUNT_SET(counter, value) ((void)0)
 #define MENDO_IF_TRACY(...)
 #define MENDO_LOGF(fmt, ...) ((void)0)
 #define MENDO_TRACE(msg) ((void)0)

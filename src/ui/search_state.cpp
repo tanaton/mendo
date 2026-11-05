@@ -3,18 +3,10 @@
 #include "doc_dwrite_bridge.h"
 #include "document_utils.h"
 #include <algorithm>
-#include <iterator>
 #include <limits>
 #include <optional>
 #include <ranges>
 #include <utility>
-
-namespace {
-size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
-{
-    return fold ? ascii_util::FindAsciiCaseInsensitive(text, query, pos) : ascii_util::Find(text, query, pos);
-}
-} // namespace
 
 void SearchState::BeginSearch(std::string_view query)
 {
@@ -32,7 +24,19 @@ void SearchState::BeginSearch(std::string_view query)
                  active.size() > matched_.text.size() && active.starts_with(matched_.text);
     candidate_nodes_.clear();
     if (narrowing_) {
-        std::ranges::unique_copy(matches_ | std::views::transform(&SearchMatch::node_index), std::back_inserter(candidate_nodes_));
+        const auto add = [this](int node) {
+            if (candidate_nodes_.empty() || candidate_nodes_.back() != node) {
+                candidate_nodes_.push_back(node);
+            }
+        };
+        // 継ぎ目をまたいだマッチの続きのノードは、またいだ分を飛ばして探したので、
+        // その先頭から始まる前回のクエリを数えていない。マッチが無くても調べ直す。
+        for (const SearchMatch& m : matches_) {
+            add(m.node_index);
+            if (m.next_length_w > 0) {
+                add(m.node_index + 1);
+            }
+        }
     }
     next_node_ = 0;
     skip_node_ = -1;
@@ -126,7 +130,7 @@ size_t SearchState::FindTextMatches(std::string_view text, std::string_view next
     Utf16OffsetCursor cursor{ text };
     size_t pos = from;
     size_t found;
-    while (pending_.size() < MAX_MATCHES && (found = FindNext(text, query, fold, pos)) != ascii_util::npos) {
+    while (pending_.size() < MAX_MATCHES && (found = ascii_util::Find(text, query, pos, fold)) != ascii_util::npos) {
         const auto w = cursor.WideRange(static_cast<uint32_t>(found), query_len);
         pending_.emplace_back(SearchMatch{
             .node_index = node_index,
@@ -147,7 +151,7 @@ size_t SearchState::FindTextMatches(std::string_view text, std::string_view next
     const std::string_view tail = text.substr(tail_begin);
     std::string joined{ tail };
     joined.append(next.substr(0, query_len - 1));
-    const size_t at = FindNext(joined, query, fold, 0);
+    const size_t at = ascii_util::Find(joined, query, 0, fold);
     if (at == ascii_util::npos || at >= tail.size()) {
         return 0;
     }
@@ -177,7 +181,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     size_t cursor_cell = std::numeric_limits<size_t>::max();
     std::optional<Utf16OffsetCursor> cursor;
     size_t pos = 0;
-    while (pending_.size() < MAX_MATCHES && (pos = FindNext(concat, query, fold, pos)) != ascii_util::npos) {
+    while (pending_.size() < MAX_MATCHES && (pos = ascii_util::Find(concat, query, pos, fold)) != ascii_util::npos) {
         const size_t cell = tbl.CellIndexAt(static_cast<uint32_t>(pos));
         if (cell >= cell_limit) {
             break;

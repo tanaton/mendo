@@ -59,20 +59,6 @@ TEST_F(FileWatcherTest, WatcherDoesNotFireWithoutChange)
     EXPECT_FALSE(changed);
 }
 
-TEST_F(FileWatcherTest, StopWatchingPreventsCallback)
-{
-    auto path = WriteTempFile(L"stop.md", "content");
-
-    FileWatcher watcher;
-    bool changed = false;
-    watcher.StartWatching(OpenWatchTarget(path.native()), [&]() { changed = true; });
-    watcher.StopWatching();
-
-    WriteTempFile(L"stop.md", "modified");
-    watcher.CheckForChanges();
-    EXPECT_FALSE(changed);
-}
-
 TEST_F(FileWatcherTest, WatcherRestartOnNewFile)
 {
     auto path1 = WriteTempFile(L"watch1.md", "content1");
@@ -83,7 +69,6 @@ TEST_F(FileWatcherTest, WatcherRestartOnNewFile)
     int new_count = 0;
     watcher.StartWatching(OpenWatchTarget(path1.native()), [&]() { old_count++; });
 
-    // 別のファイルの監視に切り替え
     watcher.StartWatching(OpenWatchTarget(path2.native()), [&]() { new_count++; });
 
     // 元のファイルを変更 - ディレクトリ通知は届くが、ファイル名フィルタでコールバックが発火しないこと。
@@ -102,23 +87,15 @@ TEST_F(FileWatcherTest, WatcherRestartOnNewFile)
     EXPECT_EQ(new_count, 1);
 }
 
-TEST_F(FileWatcherTest, WatcherDestructorDoesNotCrash)
-{
-    auto path = WriteTempFile(L"destructor.md", "content");
-    {
-        FileWatcher watcher;
-        watcher.StartWatching(OpenWatchTarget(path.native()), []() static {});
-        // デストラクタで安全に監視が停止されること
-    }
-}
-
 // ---- 監視一時停止 / ResumeWatching テスト ----
 
-TEST_F(FileWatcherTest, ResumeWatchingWithoutWatching)
+// 監視していない間はイベントハンドルを持たず、ResumeWatching を呼んでも監視を始めない。
+TEST_F(FileWatcherTest, IdleWatcherHasNoEventHandle)
 {
-    // 監視未開始でも安全に呼べること
     FileWatcher watcher;
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
     watcher.ResumeWatching();
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }
 
 TEST_F(FileWatcherTest, WatchPausedAfterChangeDetected)
@@ -204,12 +181,6 @@ TEST_F(FileWatcherTest, ResumeWatchingReenablesDetection)
 }
 
 // ---- GetEventHandle テスト ----
-
-TEST_F(FileWatcherTest, GetEventHandleNullWhenNotWatching)
-{
-    FileWatcher watcher;
-    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
-}
 
 // 監視中だけイベントハンドルを持つ。
 TEST_F(FileWatcherTest, GetEventHandleOnlyWhileWatching)

@@ -25,6 +25,9 @@ struct NodeIndices {
     std::vector<size_t> image_indices;
     std::vector<size_t> diagram_indices;
     std::vector<size_t> table_indices;
+    // インライン数式の run を持つノード (表はどれかのセル)。開く・読み直し・ズームのたびに数式の組を作るのに全ノードを
+    // 回らないため (100MB の文書で 5.8ms)。
+    std::vector<size_t> math_indices;
     // 脚注番号順の定義ノード。脚注は文書末尾に参照順で並ぶ。
     std::vector<int32_t> footnote_def_indices;
     std::vector<FootnoteRef> footnote_refs;

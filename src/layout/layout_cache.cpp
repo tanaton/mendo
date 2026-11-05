@@ -6,55 +6,6 @@
 #include <optional>
 #include <ranges>
 
-namespace {
-
-struct LineHit {
-    uint32_t pos;
-    float line_top;
-    float line_bottom;
-};
-
-std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
-{
-    BOOL is_trailing = FALSE;
-    BOOL is_inside = FALSE;
-    DWRITE_HIT_TEST_METRICS m{};
-    if (FAILED(layout->HitTestPoint(0.0f, y, &is_trailing, &is_inside, &m))) {
-        return std::nullopt;
-    }
-    const auto line = LineBoxAt(layout, m.textPosition);
-    if (!line) {
-        return std::nullopt;
-    }
-    return LineHit{ m.textPosition, line->top, line->top + line->height };
-}
-
-} // namespace
-
-// 行のテキスト位置を隣の行の位置で挟む。行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても
-// 境界になる (RTL の行でも成り立つ)。layout の端を越えた側は先に行が無いので引かない。
-std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& entry, YRange view)
-{
-    auto* const layout = entry.text_layout();
-    uint32_t begin = 0;
-    uint32_t end = UINT32_MAX;
-    if (view.top > 0.0f) {
-        if (const auto first = HitLineAt(layout, view.top); first && first->line_top > 0.0f) {
-            if (const auto prev = HitLineAt(layout, first->line_top - 0.5f); prev && prev->line_top < first->line_top) {
-                begin = prev->pos;
-            }
-        }
-    }
-    if (view.bottom < entry.height) {
-        if (const auto last = HitLineAt(layout, view.bottom)) {
-            if (const auto next = HitLineAt(layout, last->line_bottom + 0.5f); next && next->line_top > last->line_top) {
-                end = next->pos;
-            }
-        }
-    }
-    return { begin, end };
-}
-
 NodeLayoutEntry::Aux::~Aux() = default;
 
 // ---------- TableLayoutData ----------
@@ -250,7 +201,7 @@ bool LayoutCache::InvalidatePendingMathLayouts(bool tables) noexcept
 {
     bool any = false;
     for (auto& e : entries_) {
-        if (!e.pending_math && !(tables && e.table_layout() && e.table_layout()->pending_math)) {
+        if (!e.pending_math || (!tables && e.table_layout())) {
             continue;
         }
         // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。

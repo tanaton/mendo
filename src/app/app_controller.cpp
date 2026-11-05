@@ -13,6 +13,14 @@ namespace app_controller {
 
 namespace {
 
+// サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
+int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
+{
+    const float item_h = SidePaneItemHeight(state, pane);
+    const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane));
+    return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
+}
+
 // 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
 // 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
 constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
@@ -183,7 +191,7 @@ std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
         return i18n::S().tooltip_view_diagram;
     case OverlayButton::CodeCopy:
     case OverlayButton::None:
-        return i18n::S().tooltip_copy;
+        return i18n::S().copy_formatted;
     }
     std::unreachable();
 }
@@ -260,7 +268,7 @@ std::wstring_view PaneHeaderButtonTooltipText(PaneHeaderButton hit) noexcept
     case PaneHeaderButton::None:
         return {};
     case PaneHeaderButton::Close:
-        return i18n::S().tooltip_pane_close;
+        return i18n::S().tooltip_close;
     case PaneHeaderButton::Refresh:
         return i18n::S().tooltip_pane_refresh;
     case PaneHeaderButton::Reveal:
@@ -339,11 +347,11 @@ void HoverSidePane(const AppState& state, PaneTarget target, const PaneLayout& l
     result.cursor = hit.button != PaneHeaderButton::None ? PointerCursor::Hand : PointerCursor::Arrow;
 }
 
-void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y, int px, int py, PointerHoverResult& result)
+void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y, PointerHoverResult& result)
 {
     auto& hover = result.hover;
     const auto& current_tooltip = state.interaction.tooltip;
-    const auto hit_ctx = MakeMdPaneHitContext(state, layout, px, py);
+    const auto hit_ctx = MakeMdPaneHitContext(state, layout, { dip_x, dip_y });
     const auto target = ResolveMdPaneHit(state, hit_ctx, layout, dip_x, dip_y);
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
@@ -397,18 +405,16 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
 
 } // namespace
 
-MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, int px, int py) noexcept
+MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, DipPoint window_dip) noexcept
 {
     const Theme& theme = *state.theme;
+    const float scroll_y = state.view.viewport.GetScrollY();
     return MdPaneHitContext{
         .nodes = state.document.doc.GetNodes(),
         .cache = state.document.layout_cache,
         .theme = theme,
-        .scroll_y = state.view.viewport.GetScrollY(),
-        .md_rect = layout.md_rect,
-        .dpi_scale = state.window.cached_dpi_scale,
-        .screen_x = px,
-        .screen_y = py,
+        .scroll_y = scroll_y,
+        .point = { window_dip.x - layout.md_rect.x, window_dip.y - layout.md_rect.y + scroll_y },
         .content_width = theme.ContentWidth(layout.md_rect.width),
         .block_scroll_x = &state.view.block_scroll_x,
     };
@@ -463,13 +469,14 @@ SidePaneHit ResolveSidePaneHit(const AppState& state, PaneTarget target, const P
 {
     const float header_h = state.theme->pane_header_height;
     const PaneRect& rect = layout.Get(target);
-    SidePaneHit hit{
-        .in_header = dip_y - rect.y < header_h,
-        .button = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, target == PaneTarget::File, SidePaneRevealEnabled(state, target)),
-        .item = SidePaneItemAt(state, target, rect, dip_y),
-    };
-    if (!hit.in_header) {
+    SidePaneHit hit{ .in_header = dip_y - rect.y < header_h };
+    if (hit.in_header) {
+        hit.button = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, target == PaneTarget::File, SidePaneRevealEnabled(state, target));
+    }
+    // スクロールしていると、ヘッダーの位置にもその下に隠れた項目が並んでいる。
+    else {
         hit.scrollbar = IsOverPaneScrollbar(dip_x, rect, SidePaneScrollInfo(state, target, layout));
+        hit.item = SidePaneItemAt(state, target, rect, dip_y);
     }
     return hit;
 }
@@ -496,7 +503,7 @@ PointerHoverResult ResolvePointerHover(const AppState& state, const PaneLayout& 
         HoverSidePane(state, *ToPaneTarget(zone), layout, dip.x, dip.y, result);
         break;
     case PaneZone::MdPane:
-        HoverMdPane(state, layout, dip.x, dip.y, px, py, result);
+        HoverMdPane(state, layout, dip.x, dip.y, result);
         break;
     case PaneZone::None:
         break;

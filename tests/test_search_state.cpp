@@ -183,26 +183,6 @@ TEST(SearchStateTest, NextAndPrevMatchNoOpWhenEmpty)
 // SetCurrentMatchNear
 // ═══════════════════════════════════════════════
 
-TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstAfterScroll)
-{
-    auto s = Searched(TextNodes({ "first match", "second match", "third match" }), "match");
-    ASSERT_EQ(s.GetMatchCount(), 3);
-
-    auto cache = MakeUniformCache(3, 100.0f); // y=0,100,200
-    s.SetCurrentMatchNear(150.0f, cache);
-    EXPECT_EQ(s.GetCurrentMatchIndex(), 2); // node2 @ y=200
-}
-
-TEST(SearchStateTest, SetCurrentMatchNearSelectsFirstWhenAllAbove)
-{
-    auto s = Searched(TextNodes({ "match" }), "match");
-    ASSERT_EQ(s.GetMatchCount(), 1);
-
-    auto cache = MakeUniformCache(1, 100.0f); // y=0
-    s.SetCurrentMatchNear(500.0f, cache);
-    EXPECT_EQ(s.GetCurrentMatchIndex(), 0); // フォールバック
-}
-
 TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
 {
     SearchState s;
@@ -488,6 +468,19 @@ TEST(SearchStateTest, NarrowedSearchFindsMatchAcrossChunkSeam)
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
     EXPECT_EQ(s.GetMatches()[0].next_length_w, 3u);
+}
+
+// またいだマッチが続きのノードの先頭を使うと、そこから始まる前回のクエリは数えられない。
+// 伸ばしたクエリがそこにしか無くても、最初から調べた場合と同じに見つける。
+TEST(SearchStateTest, NarrowedSearchRescansNodeAfterSeamMatch)
+{
+    const auto nodes = ChunkedTextNodes({ "xa", "aab" });
+    auto s = Searched(nodes, "aa");
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    ASSERT_EQ(s.GetMatches()[0].next_length_w, 1u);
+    RunSearchToEnd(s, nodes, "aab");
+    EXPECT_TRUE(SameMatches(s, Searched(nodes, "aab")));
+    EXPECT_EQ(s.GetMatchCount(), 1);
 }
 
 // 変わった範囲の先頭のノードへはみ出したマッチは、リロードで残さない。

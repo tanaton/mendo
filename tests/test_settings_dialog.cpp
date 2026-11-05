@@ -145,7 +145,7 @@ TEST_F(SettingsDialogLayoutTest, ClearingCacheDisablesButton)
     dialog_.Activate({ HitKind::ClearCache });
     EXPECT_EQ(clear_calls_, 1);
     EXPECT_EQ(dialog_.cache_size_text, L"0 B");
-    EXPECT_FALSE(dialog_.CanClearCache());
+    EXPECT_FALSE(dialog_.can_clear);
 }
 
 // 範囲外を押したら閉じる。中を押しても閉じない。

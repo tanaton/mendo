@@ -103,7 +103,7 @@ TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
 namespace {
 
 // 右端から左へ並ぶ順
-constexpr PaneHeaderSlot kPaneHeaderSlots[] = { PaneHeaderSlot::Close, PaneHeaderSlot::Refresh, PaneHeaderSlot::Reveal };
+constexpr PaneHeaderButton kPaneHeaderButtons[] = { PaneHeaderButton::Close, PaneHeaderButton::Refresh, PaneHeaderButton::Reveal };
 
 } // namespace
 
@@ -112,18 +112,18 @@ TEST(PaneHeaderButtonRectTest, SquareCenteredInHeaderAndRightAligned)
 {
     constexpr float pane_width = 220.0f;
     constexpr float header_height = 32.0f;
-    for (const auto slot : kPaneHeaderSlots) {
-        SCOPED_TRACE(static_cast<int>(slot));
-        const auto r = PaneHeaderButtonRect(pane_width, header_height, slot);
+    for (const auto button : kPaneHeaderButtons) {
+        SCOPED_TRACE(static_cast<int>(button));
+        const auto r = PaneHeaderButtonRect(pane_width, header_height, button);
         EXPECT_GE(r.left, 0.0f);
         EXPECT_LE(r.right, pane_width);
         EXPECT_FLOAT_EQ(r.right - r.left, r.bottom - r.top);
-        EXPECT_NEAR((r.top + r.bottom) / 2.0f, header_height / 2.0f, 0.01f);
+        EXPECT_NEAR(RectCenter(r).y, header_height / 2.0f, 0.01f);
 
-        const auto taller = PaneHeaderButtonRect(pane_width, 64.0f, slot);
+        const auto taller = PaneHeaderButtonRect(pane_width, 64.0f, button);
         EXPECT_GT(taller.right - taller.left, r.right - r.left);
 
-        const auto wider = PaneHeaderButtonRect(pane_width + 200.0f, header_height, slot);
+        const auto wider = PaneHeaderButtonRect(pane_width + 200.0f, header_height, button);
         EXPECT_FLOAT_EQ(wider.right - wider.left, r.right - r.left);
         EXPECT_FLOAT_EQ(wider.left, r.left + 200.0f);
     }
@@ -131,10 +131,10 @@ TEST(PaneHeaderButtonRectTest, SquareCenteredInHeaderAndRightAligned)
 
 TEST(PaneHeaderButtonRectTest, SitsLeftOfNeighborWithSameSize)
 {
-    for (size_t i = 1; i < std::size(kPaneHeaderSlots); ++i) {
+    for (size_t i = 1; i < std::size(kPaneHeaderButtons); ++i) {
         SCOPED_TRACE(i);
-        const auto l = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderSlots[i]);
-        const auto r = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderSlots[i - 1]);
+        const auto l = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderButtons[i]);
+        const auto r = PaneHeaderButtonRect(220.0f, 32.0f, kPaneHeaderButtons[i - 1]);
         EXPECT_FLOAT_EQ(l.right - l.left, r.right - r.left);
         EXPECT_FLOAT_EQ(l.top, r.top);
         EXPECT_LT(l.right, r.left);
@@ -246,10 +246,10 @@ TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
                 const auto where = [&] { return std::format("w={} {} h={}", w, file_buttons ? "file" : "toc", header_h); };
                 ASSERT_LT(rect->left, rect->right) << where();
                 ASSERT_GE(rect->left, 0.0f) << where();
-                ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Close).left) << where();
+                ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderButton::Close).left) << where();
                 if (file_buttons) {
-                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Refresh).left) << where();
-                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderSlot::Reveal).left) << where();
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderButton::Refresh).left) << where();
+                    ASSERT_LE(rect->right, PaneHeaderButtonRect(w, header_h, PaneHeaderButton::Reveal).left) << where();
                 }
             }
             // 通常幅では見出しが出る (常に nullopt で上のループを素通りしないこと)。

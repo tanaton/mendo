@@ -22,7 +22,8 @@ protected:
 
 // ---- 基本レイアウト ----
 
-TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
+// 空の文書は高さを持たない (node_count == 0 で size_t のアンダーフローを起こさない)。
+TEST_F(MockLayoutTest, EmptyDocumentHasNoHeight)
 {
     std::vector<Node> nodes;
     LayoutCache cache;
@@ -128,7 +129,6 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     }
     md += "\nFollow-up paragraph";
 
-    // 1) フルレイアウトでテーブルの実測高さを取得
     auto [nodes, cache] = ParseAndLayout(md, ViewportWidthFor(800.0f));
     ASSERT_GE(nodes.size(), 2u);
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
@@ -136,21 +136,18 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     const float measured_table_h = cache[table_idx].height;
     EXPECT_GT(measured_table_h, 0.0f);
 
-    // テーブル直後の段落
     const size_t para_idx = static_cast<size_t>(table_idx) + 1;
     ASSERT_LT(para_idx, nodes.size());
 
-    // 2) 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
-    //    テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
-    //    上書きされて高さが縮む。
+    // 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
+    // テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
+    // 上書きされて高さが縮む。
     ComputeLayout(engine_, nodes, cache, 600.0f, 0.0f, 10.0f);
 
-    // テーブルの高さが実測値から縮んでいないこと。
-    // 修正後の partial モードは shrink を起こさないため厳密一致を期待する。
+    // partial モードでも実測した高さを見積もりで縮めない (幅を狭めたので、見積もりで伸びることはある)。
     EXPECT_GE(cache[table_idx].height, measured_table_h)
         << "partial モードで実測済みテーブルの高さが推定値で縮められた";
 
-    // テーブル直後の段落の y_position もテーブル下端より下にあること
     const float table_bottom = cache.Top(table_idx) + cache[table_idx].height;
     EXPECT_GE(cache.Top(para_idx), table_bottom)
         << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";

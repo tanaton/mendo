@@ -65,7 +65,8 @@ struct InlineMathChunk {
 // 文書の順に重複を除いて並べ、kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
-    void Build(std::span<const Node> nodes, const Theme& theme);
+    // math_nodes はインライン数式を持つノードの番号 (文書の順。Document::GetMathNodeIndices)。
+    void Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme);
     std::span<const InlineMathChunk> Chunks() const noexcept
     {
         return chunks_;
@@ -99,8 +100,6 @@ public:
     bool Resolve(uint64_t key, InlineMathMetrics metrics);
     // 待っている数式を頼まなかったことにする。同じ数式がまた測られたら頼み直す。
     void ForgetRequest(uint64_t key);
-    // 分かっている寸法。FindOrRequest と違い、無くても頼まない。
-    std::optional<InlineMathMetrics> Find(uint64_t key);
     // 頼んで結果を待っている数式がある。
     bool HasUnresolved();
     // すべて忘れる。表を引いて組んだレイアウトも捨てて、組み直させること。

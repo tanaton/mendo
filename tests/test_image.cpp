@@ -253,11 +253,9 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
     LayoutCache cache(nodes.size());
     SetImageSize(cache, 0, 1600.0f, 900.0f);
 
-    // 広い幅
     ComputeLayout(engine_, nodes, cache, 1800.0f);
     float h_wide = cache[0].height;
 
-    // 狭い幅 → 再計算で高さが変わること
     ComputeLayout(engine_, nodes, cache, 400.0f);
     float h_narrow = cache[0].height;
 
@@ -283,7 +281,6 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
-    // 寸法 (DiagramEntry) が未設定 = 未読み込み
     auto cache = Layout(nodes);
     ASSERT_EQ(cache.FindDiagram(0), nullptr);
 
@@ -467,7 +464,6 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
         { L"test.png", GUID_ContainerFormatPng, 100, 80 },
         { L"test.bmp", GUID_ContainerFormatBmp, 50, 50 },
         { L"test.jpg", GUID_ContainerFormatJpeg, 200, 150 },
-        { L"large.png", GUID_ContainerFormatPng, 1024, 512 },
         { L"tiny.png", GUID_ContainerFormatPng, 1, 1 },
     };
     for (const auto& c : kCases) {
@@ -932,13 +928,10 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
 {
     const auto path = GetTestImagePath(L"transient.png");
 
-    // 1回目: ファイルが存在しないので失敗
     ASSERT_TRUE(FailLoads(path, 1));
 
-    // ファイルを作成（一時障害から復帰を模擬）
     ASSERT_TRUE(CreateTestImage(L"transient.png", GUID_ContainerFormatPng, 70, 50));
 
-    // 2回目: リトライが許可され、今度は成功すること
     DiagramEntry entry;
     ASSERT_TRUE(LoadAndGet(path, entry)) << "一時障害後のリトライが成功しなかった";
     EXPECT_FLOAT_EQ(entry.width, 70.0f);
@@ -947,7 +940,8 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
 
 TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
 {
-    ASSERT_TRUE(CreateTestImage(L"wide.png", GUID_ContainerFormatPng, 1000, 500));
+    // 見るのは幅だけなので、作って縮める手間を減らすために低くする。
+    ASSERT_TRUE(CreateTestImage(L"wide.png", GUID_ContainerFormatPng, 1000, 20));
     const auto path = GetTestImagePath(L"wide.png");
 
     // 300 DIP (96 DPI で 300px) は 256px 単位に切り上げて 512px でデコードする。
@@ -959,7 +953,7 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     EXPECT_EQ(cached->bitmap->GetPixelSize().width, 512u);
     // レイアウトは原寸基準のまま。
     EXPECT_FLOAT_EQ(cached->pixel_width, 1000.0f);
-    EXPECT_FLOAT_EQ(cached->pixel_height, 500.0f);
+    EXPECT_FLOAT_EQ(cached->pixel_height, 20.0f);
     EXPECT_EQ(cached->sharp_width_px, 512u);
     EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 500.0f));
     EXPECT_TRUE(loader_.NeedsSharperDecode(*cached, 600.0f));

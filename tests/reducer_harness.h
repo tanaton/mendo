@@ -3,11 +3,19 @@
 #include "document.h"
 #include "reducer.h"
 #include "side_effect.h"
+#include "test_helpers.h"
 #include "theme.h"
 #include <algorithm>
 #include <string>
 #include <string_view>
 #include <variant>
+
+// 文書を差し替え、各ノードを node_height ずつ縦に並べたレイアウトを持たせる。
+inline void SetDocument(AppState& state, std::string_view md, std::wstring_view path, float node_height = 100.0f)
+{
+    state.document.doc = Document::FromMarkdown(std::string(md), path);
+    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), node_height);
+}
 
 // SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。
 template <typename T>
@@ -122,17 +130,11 @@ public:
         return Reduce(state, action, resource);
     }
 
-    // App::ClampScrollToContent 相当。
-    void ClampScrollToContent()
-    {
-        state.view.viewport.ClampScroll(MdMaxScroll(state));
-    }
-
-    // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める。
+    // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める (App::ClampScrollToContent)。
     void ResizeMdPane(float md_height)
     {
         SetWindowSize(state, static_cast<float>(state.window.client_width), md_height);
-        ClampScrollToContent();
+        state.view.viewport.ClampScroll(MdMaxScroll(state));
     }
 
     int NodeCount() const noexcept

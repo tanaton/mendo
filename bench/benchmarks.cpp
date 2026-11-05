@@ -562,9 +562,9 @@ void BM_InlineMathLayout(benchmark::State& state)
 BENCHMARK(BM_InlineMathLayout)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
 // 文書を開く・読み直す・ズームのたびに UI スレッドで作る、インライン数式の組。
-void BM_InlineMathPlanBuild(benchmark::State& state, bool math)
+void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
 {
-    auto md = math ? InlineMathMd(2000) : RepeatTestMd(state, 8);
+    auto md = math ? InlineMathMd(2000) : bytes ? RepeatTestMd(state, 0, bytes) : RepeatTestMd(state, 8);
     if (state.skipped()) {
         return;
     }
@@ -572,14 +572,15 @@ void BM_InlineMathPlanBuild(benchmark::State& state, bool math)
     const Theme theme = GetLightTheme();
     InlineMathPlan plan;
     for (auto _ : state) {
-        plan.Build(doc.GetNodes(), theme);
+        plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), theme);
         benchmark::DoNotOptimize(plan.Chunks().data());
     }
     state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
     state.counters["chunks"] = static_cast<double>(plan.Chunks().size());
 }
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false, 0)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
 void BM_ResizeRemeasure(benchmark::State& state, const char* path)
@@ -1131,17 +1132,12 @@ BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_2kb, JsonCodeBlock(60, 2 * 1024))->Unit
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_12kb, JsonCodeBlock(60, 12 * 1024))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, plain_12kb, JsonCodeBlock(60, 12 * 1024, ""))->Unit(benchmark::kMicrosecond);
 
-Document MakeBenchTableDoc()
-{
-    return Document::FromMarkdown(BenchTableMd(20000), L"bench.md");
-}
-
 // 大きな表 (evict 前提) の計測。ワーカー 8 本。
 class TableMeasure : public benchmark::Fixture {
 public:
     void SetUp(benchmark::State& state) override
     {
-        doc_.emplace(MakeBenchTableDoc());
+        doc_.emplace(Document::FromMarkdown(BenchTableMd(20000), L"bench.md"));
         table_ = FirstTableOrSkip(state, *doc_);
         layout_.emplace(8);
         if (!table_) {
@@ -1332,15 +1328,6 @@ Document MakeInlineCodeTableDoc()
 constexpr float kTableViewWidth = 1400.0f;
 constexpr float kTableViewHeight = 900.0f;
 
-// 表を開いて最初の画面を組んだキャッシュ。
-LayoutCache OpenTable(const Document& doc, LayoutEngine& engine)
-{
-    LayoutCache cache(doc.GetNodes().size());
-    engine.Reestimate(doc.GetNodes(), cache, kTableViewWidth);
-    engine.EnsureVisibleLayout(doc.GetNodes(), cache, kTableViewWidth, 0.0f, kTableViewHeight);
-    return cache;
-}
-
 // 1 画面ずつ下へスクロールしたときの、行の復元と evict。測るのは time_evict で選んだ方。ワーカー 8 本。
 // 捨てたレイアウトの解放は呼び出し側がワーカーへ回すので測らない。
 void BM_TableScroll(benchmark::State& state, bool time_evict)
@@ -1352,7 +1339,9 @@ void BM_TableScroll(benchmark::State& state, bool time_evict)
     if (l.SkipIfFailed(state)) {
         return;
     }
-    auto cache = OpenTable(doc, l.engine);
+    LayoutCache cache(nodes.size());
+    l.engine.Reestimate(nodes, cache, kTableViewWidth);
+    l.engine.EnsureVisibleLayout(nodes, cache, kTableViewWidth, 0.0f, kTableViewHeight);
     float top = 0.0f;
     for (auto _ : state) {
         top += kTableViewHeight;

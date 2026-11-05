@@ -5,10 +5,10 @@
 #include <cmath>
 #include <numbers>
 #include <optional>
+#include <utility>
 
 inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 
-// ローディングスピナーの定数
 namespace spinner {
 inline constexpr float RADIUS = 20.0f;
 inline constexpr int DOT_COUNT = 8;
@@ -130,17 +130,19 @@ inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 inline constexpr float DISABLED_UI_ALPHA = 0.35f;
 
 // ペインヘッダーのボタン。右端から 閉じる・更新・「現在のファイルの場所へ移動」の順に並ぶ。
-enum class PaneHeaderSlot : uint8_t {
+enum class PaneHeaderButton : uint8_t {
+    None,
     Close,
-    Refresh,
-    Reveal,
+    Refresh, // ファイルペインのみ
+    Reveal,  // ファイルペインのみ
 };
 
-// ペインヘッダー内のボタン矩形を返す（ペインローカル座標）。
-inline D2D1_RECT_F PaneHeaderButtonRect(float pane_width, float header_height, PaneHeaderSlot slot) noexcept
+// ペインヘッダー内のボタン矩形を返す（ペインローカル座標）。None は渡さない。
+inline D2D1_RECT_F PaneHeaderButtonRect(float pane_width, float header_height, PaneHeaderButton button) noexcept
 {
+    const float slot = static_cast<float>(std::to_underlying(button) - 1);
     const float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
-    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN - static_cast<float>(slot) * (btn_size + PANE_CLOSE_BTN_MARGIN);
+    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN - slot * (btn_size + PANE_CLOSE_BTN_MARGIN);
     const float btn_y = (header_height - btn_size) / 2.0f;
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
@@ -151,7 +153,7 @@ inline std::optional<D2D1_RECT_F> PaneHeaderTextRect(float pane_width, float hea
 {
     constexpr float TEXT_LEFT = 8.0f;
     constexpr float BUTTON_GAP = 4.0f;
-    const D2D1_RECT_F leftmost_button = PaneHeaderButtonRect(pane_width, header_height, with_file_buttons ? PaneHeaderSlot::Reveal : PaneHeaderSlot::Close);
+    const D2D1_RECT_F leftmost_button = PaneHeaderButtonRect(pane_width, header_height, with_file_buttons ? PaneHeaderButton::Reveal : PaneHeaderButton::Close);
     const float right = leftmost_button.left - BUTTON_GAP;
     if (right <= TEXT_LEFT) {
         return std::nullopt;

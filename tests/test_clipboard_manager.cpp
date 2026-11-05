@@ -75,56 +75,28 @@ protected:
     ClipboardManager manager_;
 };
 
-// ---- CopyCodeBlock 入力検証 ----
+// ---- 入力検証 ----
 
-TEST_F(ClipboardManagerTest, CopyCodeBlockNoOpForOutOfRangeIndex)
-{
-    Load("para");
-    manager_.CopyCodeBlock(doc_, -1, false);
-    manager_.CopyCodeBlock(doc_, 9999, false);
-    EXPECT_TRUE(toasts_.empty());
-}
-
-TEST_F(ClipboardManagerTest, CopyCodeBlockNoOpForNonCodeBlock)
+// 範囲外・種別違いのノードと、描いた絵の無い図は何もしない (トーストも出さず、図も頼まない)。
+TEST_F(ClipboardManagerTest, InvalidTargetsAreNoOps)
 {
     Load("paragraph text");
+    manager_.CopyCodeBlock(doc_, -1, false);
+    manager_.CopyCodeBlock(doc_, 9999, false);
     manager_.CopyCodeBlock(doc_, 0, false);
-    EXPECT_TRUE(toasts_.empty());
-}
 
-// ---- SaveDiagramAsPng 入力検証 ----
+    const int code = Load("```cpp\nint main(){}\n```\n", NodeType::CodeBlock);
+    ASSERT_GE(code, 0);
+    manager_.SaveDiagramAsPng(doc_, code, {});
 
-TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpForOutOfRangeIndex)
-{
-    Load(kMermaidMd);
+    const int diagram = Load(kMermaidMd);
+    ASSERT_GE(diagram, 0);
     manager_.SaveDiagramAsPng(doc_, -1, {});
     manager_.SaveDiagramAsPng(doc_, 9999, {});
-    EXPECT_TRUE(toasts_.empty());
-}
-
-TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpForNonDiagramLanguage)
-{
-    const int cb_idx = Load("```cpp\nint main(){}\n```\n", NodeType::CodeBlock);
-    ASSERT_GE(cb_idx, 0);
-    manager_.SaveDiagramAsPng(doc_, cb_idx, {});
-    EXPECT_TRUE(toasts_.empty());
-}
-
-TEST_F(ClipboardManagerTest, SaveDiagramAsPngNoOpWithoutImage)
-{
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-    manager_.SaveDiagramAsPng(doc_, cb_idx, {});
-    EXPECT_TRUE(toasts_.empty());
-}
-
-// ---- CopyDiagramToClipboard 入力検証 ----
-
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpForOutOfRangeIndex)
-{
-    Load(kMermaidMd);
+    manager_.SaveDiagramAsPng(doc_, diagram, {});
     CopyDiagram(-1);
     CopyDiagram(9999);
+
     EXPECT_EQ(renderer_.request_count, 0);
     EXPECT_TRUE(toasts_.empty());
 }
@@ -152,7 +124,8 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeWidthAndDarkModeToR
     renderer_.FireCallback({});
 }
 
-// 待っている間の再入は弾く。結果が届いたら次の要求を受け付ける。
+// 待っている間の再入は弾く。弾いた再入で世代を進めると、待っている要求の結果が古い扱いになりトーストが出ない。
+// 結果 (描けなかったときも) が届いたら次の要求を受け付ける。
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
 {
     const int cb_idx = Load(kMermaidMd);
@@ -171,29 +144,3 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     EXPECT_EQ(renderer_.request_count, 2);
 }
 
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightReentryDoesNotStaleInProgress)
-{
-    // in-flight 中の再入(2回目)で世代を進めてしまうと、進行中リクエストのコールバックが
-    // stale 扱いになり結果(トースト)が出ずに終わる退行を防ぐ。
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-
-    CopyDiagram(cb_idx); // request 1 (gen 捕捉)
-    CopyDiagram(cb_idx); // in-flight で弾く (世代は進めない)
-    EXPECT_EQ(renderer_.request_count, 1);
-
-    const auto before = toasts_.size();
-    renderer_.FireCallback({}); // request 1 完了。stale でないので結果トーストを出す
-    EXPECT_EQ(toasts_.size(), before + 1);
-}
-
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardEmptyResultEmitsFailToast)
-{
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-
-    CopyDiagram(cb_idx);
-    const auto before = toasts_.size();
-    renderer_.FireCallback({});
-    EXPECT_EQ(toasts_.size(), before + 1);
-}

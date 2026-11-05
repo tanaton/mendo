@@ -63,27 +63,6 @@ constexpr bool IsAsciiWordChar(Char c) noexcept
     return IsAsciiAlnum(c) || c == static_cast<Char>('_');
 }
 
-namespace detail {
-
-inline constexpr size_t kSimdStep = 16;
-
-// 各レーンに対して 'A'-'Z' なら全 1、それ以外は 0 を立てる比較マスク。
-// epi8 は符号付き比較だが ASCII 範囲は正値で問題なし。非 ASCII (signed の負値) は ge_a で必ず弾かれる。
-inline __m128i AsciiUpperRangeMask(__m128i c) noexcept
-{
-    const __m128i ge_a = _mm_cmpgt_epi8(c, _mm_set1_epi8(static_cast<char>('A' - 1)));
-    const __m128i le_z = _mm_cmpgt_epi8(_mm_set1_epi8(static_cast<char>('Z' + 1)), c);
-    return _mm_and_si128(ge_a, le_z);
-}
-
-// ASCII 大文字レーンにだけ 0x20 を載せた加算ベクタ (それ以外は 0)。
-inline __m128i AsciiUpperToLowerAdd(__m128i c) noexcept
-{
-    return _mm_and_si128(AsciiUpperRangeMask(c), _mm_set1_epi8(0x20));
-}
-
-} // namespace detail
-
 // ASCII の英字だけを小文字にした写し。
 inline std::string ToLowerAsciiCopy(std::string_view text)
 {
@@ -94,12 +73,18 @@ inline std::string ToLowerAsciiCopy(std::string_view text)
 
 namespace detail {
 
+inline constexpr size_t kSimdStep = 16;
+
+// kFold なら 'A'-'Z' のレーンにだけ 0x20 を足して小文字にする。
+// epi8 は符号付き比較だが ASCII 範囲は正値で問題なし。非 ASCII (signed の負値) は ge_a で必ず弾かれる。
 template <bool kFold>
 inline __m128i LoadBytes(const char* p) noexcept
 {
     const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p));
     if constexpr (kFold) {
-        return _mm_add_epi8(c, AsciiUpperToLowerAdd(c));
+        const __m128i ge_a = _mm_cmpgt_epi8(c, _mm_set1_epi8(static_cast<char>('A' - 1)));
+        const __m128i le_z = _mm_cmpgt_epi8(_mm_set1_epi8(static_cast<char>('Z' + 1)), c);
+        return _mm_add_epi8(c, _mm_and_si128(_mm_and_si128(ge_a, le_z), _mm_set1_epi8(0x20)));
     }
     else {
         return c;
@@ -188,15 +173,10 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
 
 } // namespace detail
 
-inline size_t Find(std::string_view text, std::string_view query, size_t start) noexcept
+// fold なら ASCII の大文字小文字を区別しない。そのとき query は ASCII 小文字化済みであること。
+inline size_t Find(std::string_view text, std::string_view query, size_t start, bool fold = false) noexcept
 {
-    return detail::FindImpl<false>(text, query, start);
-}
-
-// ASCII の大文字小文字を区別しない検索。lower_query は ASCII 小文字化済みであること。
-inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view lower_query, size_t start) noexcept
-{
-    return detail::FindImpl<true>(text, lower_query, start);
+    return fold ? detail::FindImpl<true>(text, query, start) : detail::FindImpl<false>(text, query, start);
 }
 
 // ASCII 英字を含むか。含まなければ ASCII 大文字小文字無視の検索は通常検索と同一の結果になる。

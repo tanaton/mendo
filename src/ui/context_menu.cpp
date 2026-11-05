@@ -2,6 +2,7 @@
 #include "i18n.h"
 #include "resource.h"
 #include <algorithm>
+#include <cassert>
 #include <format>
 
 using namespace context_menu_constants;
@@ -22,15 +23,14 @@ void ContextMenu::BuildItems(const ContextMenuParams& params)
     if (params.show_file_items) {
         items.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.can_edit_file);
         items.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection);
-        items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection);
+        items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.copy_formatted, params.has_selection);
         items.emplace_back(ItemType::Separator);
     }
+    assert(params.zoom);
     zoom = params.zoom;
     on_zoom = params.on_zoom;
-    if (zoom) {
-        items.emplace_back(ItemType::ZoomRow, 0, ls.menu_zoom);
-        items.emplace_back(ItemType::Separator);
-    }
+    items.emplace_back(ItemType::ZoomRow, 0, ls.menu_zoom);
+    items.emplace_back(ItemType::Separator);
     items.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, ls.menu_dark_mode, true, params.dark_mode_checked);
     items.emplace_back(ItemType::Separator);
     items.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, ls.menu_file_pane, true, params.file_pane_checked);
@@ -123,9 +123,6 @@ int ContextMenu::NavHitTest(float x, float y) const noexcept
 
 std::optional<ZoomDirection> ContextMenu::ZoomHitTest(float x, float y) const noexcept
 {
-    if (!zoom) {
-        return std::nullopt;
-    }
     const std::pair<const DipRect&, ZoomDirection> buttons[] = {
         { zoom_layout.out_rect, ZoomDirection::Out },
         { zoom_layout.in_rect, ZoomDirection::In },
@@ -233,7 +230,7 @@ void ContextMenu::DrawZoomRow(const Item& item)
 
 void ContextMenu::DrawSeparator(const Item& item)
 {
-    const float cy = (item.rect.top + item.rect.bottom) / 2.0f;
+    const float cy = RectCenter(item.rect).y;
     rt->DrawLine(
         { item.rect.left + SEPARATOR_MARGIN_X, cy },
         { item.rect.right - SEPARATOR_MARGIN_X, cy },

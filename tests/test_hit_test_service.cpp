@@ -14,17 +14,16 @@
 
 class HitTestTest : public MockLayoutTestBase {
 protected:
-    // dpi=1・ペイン原点 0 なので、画面座標がそのままペイン内の DIP になる。
-    MdPaneHitContext Ctx(const ParsedLayout& pl, float scroll_y, int screen_x, int screen_y) const
+    // ペインの原点を窓の原点に置いたときの、窓の座標 (x, y) の点。
+    MdPaneHitContext Ctx(const ParsedLayout& pl, float scroll_y, float x, float y) const
     {
-        return { pl.nodes, pl.cache, theme_, scroll_y, PaneRect{}, 1.0f, screen_x, screen_y };
+        return { pl.nodes, pl.cache, theme_, scroll_y, { x, y + scroll_y } };
     }
 
-    // オーバーレイボタンは可視範囲 (ペインの高さ) とコンテンツ幅で決まる。
-    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, int screen_x, int screen_y, float scroll_y = 0.0f, float pane_h = 600.0f) const
+    // オーバーレイボタンはコンテンツ幅で決まる。
+    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, float x, float y, float scroll_y = 0.0f) const
     {
-        return { pl.nodes, pl.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f,
-                 screen_x, screen_y, theme_.ContentWidth(800.0f) };
+        return { pl.nodes, pl.cache, theme_, scroll_y, { x, y + scroll_y }, theme_.ContentWidth(800.0f) };
     }
 };
 
@@ -42,9 +41,8 @@ TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
     for (const auto& md : kPanes) {
         const D2D1_RECT_F b = NavBackButtonRect(md);
         const D2D1_RECT_F f = NavForwardButtonRect(md);
-        const float b_cx = (b.left + b.right) * 0.5f;
-        const float b_cy = (b.top + b.bottom) * 0.5f;
-        const float f_cy = (f.top + f.bottom) * 0.5f;
+        const auto [b_cx, b_cy] = RectCenter(b);
+        const auto [f_cx, f_cy] = RectCenter(f);
         const struct {
             const char* name;
             float x;
@@ -52,7 +50,7 @@ TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
             NavDirection expected;
         } cases[] = {
             { "BackCenter", b_cx, b_cy, NavDirection::Back },
-            { "ForwardCenter", (f.left + f.right) * 0.5f, f_cy, NavDirection::Forward },
+            { "ForwardCenter", f_cx, f_cy, NavDirection::Forward },
             // PointInRectInclusive なので左右の端ちょうども Back
             { "BackLeftEdge", b.left, b_cy, NavDirection::Back },
             { "BackRightEdge", b.right, b_cy, NavDirection::Back },
@@ -85,13 +83,13 @@ TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
     auto pr = ParseAndLayout("First paragraph\n\nSecond paragraph");
     ASSERT_FALSE(pr.nodes.empty());
 
-    // 全ノードの下端より十分下（dpi=1, scroll=0 なので dip_y = screen_y）
+    // 全ノードの下端より十分下 (scroll=0 なので y がそのまま文書の Y)
     float last_bottom = 0.0f;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
         const float text_top = pr.cache.Top(i);
         last_bottom = std::max(last_bottom, text_top + pr.cache[i].height);
     }
-    const auto ctx = Ctx(pr, 0.0f, 50, static_cast<int>(last_bottom) + 1000);
+    const auto ctx = Ctx(pr, 0.0f, 50.0f, last_bottom + 1000.0f);
     auto r = hit_test::HitTest(ctx);
 
     const auto last_non_empty = std::ranges::find_last_if(
@@ -275,7 +273,7 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 
     const float content_width = theme_.ContentWidth(800.0f);
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
-    const auto ctx = OverlayCtx(pr, static_cast<int>(theme_.margin_left + content_width - 10), static_cast<int>(entry_text_top + 5));
+    const auto ctx = OverlayCtx(pr, theme_.margin_left + content_width - 10.0f, entry_text_top + 5.0f);
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
@@ -293,22 +291,21 @@ protected:
         return theme_.ContentWidth(800.0f);
     }
 
-    // コードブロックのコピーボタン中心をスクリーン座標で返す (dpi_scale=1, md_pane_left=0 前提)。
-    // HitTest は dip_y = screen_y + scroll_y で逆変換する。
-    std::pair<int, int> CopyBtnCenter(const ParsedLayout& pr, int node_index, float scroll_y = 0.0f) const
+    // コードブロックのコピーボタン中心を、ペインの原点を窓の原点に置いたときの窓の座標で返す。文書の Y は y + scroll_y。
+    DipPoint CopyBtnCenter(const ParsedLayout& pr, int node_index, float scroll_y = 0.0f) const
     {
         const float indent = NodeIndent(pr.nodes[node_index], theme_);
         const float x = theme_.margin_left + indent;
         const float w = ContentWidth() - indent;
         const float block_top = pr.cache.Top(node_index) - NodeBoxPadTop(pr.nodes[node_index], theme_);
         const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top, OverlayButton::CodeCopy);
-        return { static_cast<int>((btn.left + btn.right) * 0.5f),
-                 static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y) };
+        const auto [cx, cy] = RectCenter(btn);
+        return { cx, cy - scroll_y };
     }
 
-    int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f) const
+    int CopyNodeAt(const ParsedLayout& pr, float x, float y, float scroll_y = 0.0f) const
     {
-        const auto hit = hit_test::OverlayButtonHitTest(OverlayCtx(pr, x, y, scroll_y, pane_h));
+        const auto hit = hit_test::OverlayButtonHitTest(OverlayCtx(pr, x, y, scroll_y));
         return hit.kind == OverlayButton::CodeCopy ? hit.node : -1;
     }
 };
@@ -344,13 +341,13 @@ TEST_F(CopyButtonTest, MissesOutsideCopyButton)
 {
     struct Case {
         std::string_view md;
-        int x;
-        int y;
+        float x;
+        float y;
     };
     constexpr Case kCases[] = {
-        { "```\nsome code\n```", 5, 5 },
-        { "Just a paragraph", 400, 20 },
-        { "", 400, 400 },
+        { "```\nsome code\n```", 5.0f, 5.0f },
+        { "Just a paragraph", 400.0f, 20.0f },
+        { "", 400.0f, 400.0f },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
@@ -394,10 +391,9 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     const int code_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
     ASSERT_GE(code_idx, 0);
 
-    // コードブロックが見えるようにスクロール
     const float scroll_y = std::max(0.0f, pr.cache.Top(code_idx) - 50.0f);
     auto [sx, sy] = CopyBtnCenter(pr, code_idx, scroll_y);
-    EXPECT_EQ(CopyNodeAt(pr, sx, sy, scroll_y, 600.0f), code_idx);
+    EXPECT_EQ(CopyNodeAt(pr, sx, sy, scroll_y), code_idx);
 }
 
 // 区切ったコードブロックのコピーボタンは先頭にだけ置く。

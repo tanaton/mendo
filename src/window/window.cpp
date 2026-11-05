@@ -863,7 +863,8 @@ void Win32Window::FocusSearchEdit(int anchor, int caret)
         SetFocus(search_edit_);
     }
     SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
-    SyncSearchCaretFromEdit();
+    // 向きは呼び出し側が知っている (caret -1 は末尾で前向き)。
+    SyncSearchCaretFromEdit(caret >= 0 && caret < anchor);
 }
 
 void Win32Window::UnfocusSearch(bool clear_text)
@@ -884,10 +885,17 @@ void Win32Window::RepositionSearchEdit()
     SetWindowPos(search_edit_, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-void Win32Window::SyncSearchCaretFromEdit()
+void Win32Window::SyncSearchCaretFromEdit(std::optional<bool> backward)
 {
     DWORD sel_start = 0;
     DWORD sel_end = 0;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
-    app_->Dispatch(SearchSelectionAction{ static_cast<int>(sel_start), static_cast<int>(sel_end) });
+    const int lo = static_cast<int>(sel_start);
+    const int hi = static_cast<int>(sel_end);
+    if (!backward) {
+        app_->Dispatch(SearchSelectionAction{ lo, hi, /*ordered=*/true });
+    }
+    else {
+        app_->Dispatch(*backward ? SearchSelectionAction{ hi, lo } : SearchSelectionAction{ lo, hi });
+    }
 }

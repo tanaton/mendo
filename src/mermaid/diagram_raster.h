@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
@@ -21,6 +22,10 @@ struct ID2D1Factory;
 struct IDWriteFactory;
 struct IDWriteFontCollection;
 struct IDWriteTextFormat;
+
+// 図の背景。拡大表示の窓もそろえる。
+inline constexpr uint32_t kDiagramLightBackground = 0xFFFFFF;
+inline constexpr uint32_t kDiagramDarkBackground = 0x1E1E1E;
 
 // CSS の font-family の候補のうち fonts にある書体の名前を順に返す。総称 (sans-serif など) は本文と同じ書体に読み替え、
 // 重なりは除く。図の文字は先頭の書体で組み、残りをシステムより先にフォールバック先にする。

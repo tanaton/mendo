@@ -234,44 +234,31 @@ void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, ui
     AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
 }
 
-constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const theme_palette::SharedColors& palette) noexcept
-{
-    switch (type) {
-    case SyntaxTokenType::Plain:
-        return std::nullopt;
-    case SyntaxTokenType::Keyword:
-        return palette.syntax_keyword;
-    case SyntaxTokenType::Type:
-        return palette.syntax_type;
-    case SyntaxTokenType::String:
-        return palette.syntax_string;
-    case SyntaxTokenType::Number:
-        return palette.syntax_number;
-    case SyntaxTokenType::Comment:
-        return palette.syntax_comment;
-    case SyntaxTokenType::Preprocessor:
-        return palette.syntax_preprocessor;
-    case SyntaxTokenType::Function:
-        return palette.syntax_function;
-    case SyntaxTokenType::Inserted:
-        return palette.syntax_inserted;
-    case SyntaxTokenType::Deleted:
-        return palette.syntax_deleted;
-    }
-    std::unreachable();
-}
+// 添字は SyntaxTokenType。Plain は span を付けない。
+using theme_palette::SharedColors;
+constexpr uint32_t SharedColors::* kSyntaxColors[]{
+    nullptr,
+    &SharedColors::syntax_keyword,
+    &SharedColors::syntax_type,
+    &SharedColors::syntax_string,
+    &SharedColors::syntax_number,
+    &SharedColors::syntax_comment,
+    &SharedColors::syntax_preprocessor,
+    &SharedColors::syntax_function,
+    &SharedColors::syntax_inserted,
+    &SharedColors::syntax_deleted,
+};
+static_assert(std::size(kSyntaxColors) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
 
-// Plain は span を付けずにエスケープのみ行う。
-void AppendSyntaxHighlightedSpan(
-    std::string& out, std::string_view chunk, SyntaxTokenType type, const theme_palette::SharedColors& palette)
+void AppendSyntaxHighlightedSpan(std::string& out, std::string_view chunk, SyntaxTokenType type, const SharedColors& palette)
 {
-    const auto color = SyntaxTokenColor(type, palette);
+    const auto color = kSyntaxColors[std::to_underlying(type)];
     if (!color) {
         AppendHtmlEscaped(out, chunk);
         return;
     }
     out.append("<span style=\"color:");
-    ascii_util::AppendHexColor(out, *color);
+    ascii_util::AppendHexColor(out, palette.*color);
     out.append("\">");
     AppendHtmlEscaped(out, chunk);
     out.append("</span>");
@@ -559,9 +546,7 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
                 if (tbl->cell_run_starts[idx] == tbl->cell_run_starts[idx + 1]) {
                     continue;
                 }
-                const size_t r = idx / tbl->col_count;
-                const size_t c = idx % tbl->col_count;
-                skip_delimiters(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), tbl->CellTextStart(r, c));
+                skip_delimiters(tbl->CellText(idx), tbl->CellRuns(idx), tbl->cell_text_starts[idx]);
             }
         }
     }

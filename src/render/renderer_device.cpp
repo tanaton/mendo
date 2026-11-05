@@ -73,11 +73,6 @@ void Renderer::ConfigureFrameLatency() noexcept
 Renderer::Renderer() noexcept = default;
 Renderer::~Renderer() = default;
 
-ID2D1Factory* Renderer::GetD2DFactory() const noexcept
-{
-    return d2d_factory_.Get();
-}
-
 bool Renderer::CreateFactories(HWND hwnd)
 {
     hwnd_ = hwnd;

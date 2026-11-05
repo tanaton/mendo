@@ -12,7 +12,7 @@
 namespace layout {
 
 namespace {
-// 列幅計算の下限。半角 2-3 文字相当（Theme の body フォントサイズ ~14pt 基準）。
+// 列幅計算の下限。半角 2-3 文字相当（本文 16 DIP 基準）。
 // 短いセルが極端に潰れないようにするための実用下限で、フォントサイズを変えても
 // 視覚的に違和感が出にくい固定値として採用している。
 constexpr float MIN_COLUMN_WIDTH = 30.0f;
@@ -216,7 +216,6 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
 void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
-    // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
     // layout_dirtyフラグは変更しない（後続のViewportLayoutが正しく計測できるようにする）。
     assert(cache.size() == nodes.size());

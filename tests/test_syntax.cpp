@@ -16,6 +16,9 @@
 
 namespace {
 
+// 全言語を回すテストの上限。言語を足したら直す。
+constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
+
 // 描画と HTML 化はトークンを start 昇順・非重複として隙間を Plain で埋める。Plain 自体は出力しない。
 testing::AssertionResult TokensWellFormed(const std::vector<SyntaxToken>& tokens, size_t text_length)
 {
@@ -58,13 +61,6 @@ int CountTokens(const std::vector<SyntaxToken>& tokens, SyntaxTokenType type)
 std::string_view GetTokenText(std::string_view text, const SyntaxToken& token)
 {
     return text.substr(token.start, token.length);
-}
-
-const SyntaxToken* FindTokenByText(std::string_view code, const std::vector<SyntaxToken>& tokens,
-                                   std::string_view text)
-{
-    const auto it = std::ranges::find(tokens, text, [code](const SyntaxToken& t) { return GetTokenText(code, t); });
-    return it != tokens.end() ? &*it : nullptr;
 }
 
 struct LanguageCase {
@@ -508,6 +504,22 @@ TEST(Syntax, FirstTokenText)
     using enum SyntaxTokenType;
     static constexpr TokenTextCase kCases[] = {
         { "CppSingleLineComment", "x = 1; // comment\ny = 2;", Cpp, Comment, "// comment" },
+        { "CppRawStringAfterSpaceR", "x R\"(test)\"", Cpp, String, "R\"(test)\"" },
+        { "CppNumberOctal", "0o77", Cpp, Number, "0o77" },
+        { "NumberStartsWithDot", ".5f", Cpp, Number, ".5f" },
+        { "CppCommentEol", "int x; // comment", Cpp, Comment, "// comment" },
+        // 識別子の末尾の R では生文字列にしない (バグ #16)。
+        { "CppRawStringNotAfterIdentifierEndingR", "RENDER\"hello\"", Cpp, String, "\"hello\"" },
+        { "CppRawStringNotAfterLongerIdentifier", "xR\"(a)\"", Cpp, String, "\"(a)\"" },
+        { "PythonFString", "f\"hello {name}\"", Python, String, "\"hello {name}\"" },
+        { "PythonUnterminatedTripleQuote", "s = \"\"\"never closed", Python, String, "\"\"\"never closed" },
+        { "TsTemplateLiteral", "`hello ${name}`", TypeScript, String, "`hello ${name}`" },
+        { "RustLineComment", "let x = 1; // comment", Rust, Comment, "// comment" },
+        { "BashBacktick", "result=`ls -la`", Bash, String, "`ls -la`" },
+        { "PwshHashComment", "$x = 1  # comment\n$y = 2", PowerShell, Comment, "# comment" },
+        { "PwshString", "\"hello world\"", PowerShell, String, "\"hello world\"" },
+        { "CmdRemCommentCaseInsensitive", "rem comment here", Cmd, Comment, "rem comment here" },
+        { "CmdString", "echo \"hello world\"", Cmd, String, "\"hello world\"" },
         { "TerminatedBlockCommentStillWorks", "/* ok */ x", Cpp, Comment, "/* ok */" },
         { "CppStringDouble", "x = \"hello world\"", Cpp, String, "\"hello world\"" },
         { "CppStringSingle", "c = 'x'", Cpp, String, "'x'" },
@@ -624,33 +636,6 @@ TEST(Syntax, FirstTokenText)
     }
 }
 
-TEST(Syntax, HasToken)
-{
-    using enum SyntaxLanguage;
-    using enum SyntaxTokenType;
-    static constexpr TypedCase kCases[] = {
-        { "CppRawStringAfterSpaceR", "x R\"(test)\"", Cpp, String },
-        { "CppNumberOctal", "0o77", Cpp, Number },
-        { "NumberStartsWithDot", ".5f", Cpp, Number },
-        { "CppCommentEol", "int x; // comment", Cpp, Comment },
-        { "PythonFString", "f\"hello {name}\"", Python, String },
-        { "PythonUnterminatedTripleQuote", "s = \"\"\"never closed", Python, String },
-        { "TsTemplateLiteral", "`hello ${name}`", TypeScript, String },
-        { "RustLineComment", "let x = 1; // comment", Rust, Comment },
-        { "BashBacktick", "result=`ls -la`", Bash, String },
-        { "PwshHashComment", "$x = 1  # comment\n$y = 2", PowerShell, Comment },
-        { "PwshString", "\"hello world\"", PowerShell, String },
-        { "CmdRemCommentCaseInsensitive", "rem comment here", Cmd, Comment },
-        { "CmdString", "echo \"hello world\"", Cmd, String },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        const auto tokens = Tokenize(c.code, c.lang);
-        AssertTokensWellFormed(tokens, c.code.size());
-        EXPECT_NE(FindToken(tokens, c.type), nullptr);
-    }
-}
-
 TEST(Syntax, WholeInputIsSingleToken)
 {
     using enum SyntaxLanguage;
@@ -718,22 +703,6 @@ TEST(Syntax, PlainOnlyTextHasNoTokens)
     }
 }
 
-// バグ #16: 生文字列 R" の検出が R で終わる識別子 (例: RENDER"hello") でトリガーされないこと
-TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
-{
-    std::string code = "RENDER\"hello\"";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensWellFormed(tokens, code.size());
-
-    // RENDER は Plain の識別子なので String に取り込まれず、"hello" だけが String になる
-    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
-    const auto* str = FindTokenByText(code, tokens, "\"hello\"");
-    EXPECT_NE(str, nullptr) << "\"hello\"が文字列トークンとして見つかるべき";
-    if (str != nullptr) {
-        EXPECT_EQ(str->type, SyntaxTokenType::String);
-    }
-}
-
 // 区切りが規格 (16 文字以内、空白・改行なし) を満たさない R" は通常の文字列として読み、
 // 後続行の '(' まで区切りとして飲み込まない。
 TEST(Syntax, CppRawStringDelimiterFollowsStandardLimits)
@@ -764,21 +733,6 @@ TEST(Syntax, CppRawStringDelimiterFollowsStandardLimits)
     }
 }
 
-TEST(Syntax, CppRawStringNotTriggeredWhenRIsPartOfLongerIdentifier)
-{
-    // 識別子が "R" 単独でない ("xR") ため生文字列扱いされず、"(a)" は通常の文字列として解釈される
-    std::string code = "xR\"(a)\"";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensWellFormed(tokens, code.size());
-
-    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
-    const auto* str = FindTokenByText(code, tokens, "\"(a)\"");
-    EXPECT_NE(str, nullptr) << "\"(a)\"が通常の文字列トークンとして見つかるべき";
-    if (str != nullptr) {
-        EXPECT_EQ(str->type, SyntaxTokenType::String);
-    }
-}
-
 // ============================================================
 // ランダム入力でのプロパティ
 // ============================================================
@@ -802,12 +756,12 @@ constexpr std::string_view kSyntaxFuzzPieces[] = {
 
 // 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を
 // 文字先頭に丸めるため、区切り以外に境界があると色付け範囲が 1 文字ずれる。
-testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, const std::vector<SyntaxToken>& tokens)
+// bounds は text の ForwardDecodeBoundaries (言語ごとに作り直さない)。
+testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, std::span<const uint32_t> bounds, const std::vector<SyntaxToken>& tokens)
 {
     if (auto r = TokensWellFormed(tokens, text.size()); !r) {
         return r;
     }
-    const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(text);
     for (size_t i = 0; i < tokens.size(); ++i) {
         const auto& t = tokens[i];
         const uint64_t end = static_cast<uint64_t>(t.start) + t.length;
@@ -822,24 +776,16 @@ testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, const 
 
 TEST(Syntax, FuzzTokensAlignToCodePointBoundaries)
 {
-    constexpr SyntaxLanguage kLanguages[] = {
-        SyntaxLanguage::Cpp, SyntaxLanguage::Python, SyntaxLanguage::JavaScript, SyntaxLanguage::Go,
-        SyntaxLanguage::Rust, SyntaxLanguage::TypeScript, SyntaxLanguage::Bash, SyntaxLanguage::PowerShell,
-        SyntaxLanguage::Cmd, SyntaxLanguage::Json, SyntaxLanguage::Java, SyntaxLanguage::CSharp,
-        SyntaxLanguage::Kotlin, SyntaxLanguage::Swift, SyntaxLanguage::Php, SyntaxLanguage::Ruby, SyntaxLanguage::Sql,
-        SyntaxLanguage::Yaml, SyntaxLanguage::Toml, SyntaxLanguage::Ini, SyntaxLanguage::Html, SyntaxLanguage::Xml,
-        SyntaxLanguage::Css, SyntaxLanguage::Scss, SyntaxLanguage::Diff, SyntaxLanguage::Dockerfile,
-        SyntaxLanguage::Makefile, SyntaxLanguage::Zig, SyntaxLanguage::Haskell, SyntaxLanguage::Clojure,
-        SyntaxLanguage::EmacsLisp, SyntaxLanguage::CommonLisp, SyntaxLanguage::Scheme, SyntaxLanguage::Lua,
-        SyntaxLanguage::Vim, SyntaxLanguage::Vim9,
-    };
+    // 字句解析を持たない言語 (None など) は空を返すだけなので、全部回して新しい言語も漏らさない。
     for (const uint32_t seed : utf8_fuzz::kFuzzSeeds) {
         std::mt19937 rng{ seed };
         for (int iter = 0; iter < 300; ++iter) {
             const auto text = utf8_fuzz::RandomPiecesWithMalformed(rng, kSyntaxFuzzPieces, 1, 24);
-            for (const auto lang : kLanguages) {
+            const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(text);
+            for (int l = 0; l <= kLastLanguage; ++l) {
+                const auto lang = static_cast<SyntaxLanguage>(l);
                 // 失敗時だけ評価されるメッセージに文脈を載せ、成功ケースで文字列を組み立てない。
-                ASSERT_TRUE(TokensAlignToCpBoundaries(text, Tokenize(text, lang)))
+                ASSERT_TRUE(TokensAlignToCpBoundaries(text, bounds, Tokenize(text, lang)))
                     << std::format("seed={} iter={} lang={} text={}", seed, iter, static_cast<int>(lang), utf8_fuzz::HexEscape(text));
             }
         }
@@ -1069,10 +1015,11 @@ TEST(TokensCrossing, MatchesFullTokenizeOnRandomCode)
         "foo", "int", "return", "class", "x_1", "日本語", "(", ")", ";", ",", "=", "-", "+", "*", "/", ".", ":", "<", ">", "[", "]",
         "123", "1'000", "0x1F", "1.5e+3", ".5", "1.", "1e", "0b1'0",
     };
-    constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
+    // 100 seed で足りる。語を飛ばすときに区切りを無視する・空白まで戻らない改変は、300 seed で 291 件・1179 件落ち、
+    // そのうち 95 件・372 件が最初の 100 seed に入る (2026-11-06)。
     for (int l = 0; l <= kLastLanguage; ++l) {
         const auto language = static_cast<SyntaxLanguage>(l);
-        for (uint32_t seed = 0; seed < 300; ++seed) {
+        for (uint32_t seed = 0; seed < 100; ++seed) {
             std::mt19937 rng(seed * 1000 + l);
             std::string text;
             const size_t pieces = rng() % 400;

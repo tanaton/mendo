@@ -271,14 +271,14 @@ std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_
     };
 }
 
-void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::shared_ptr<const ByteBuffer> data)
+void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::string data)
 {
-    if (!data || data->empty()) {
+    if (data.empty()) {
         return;
     }
     auto& index = Index();
 
-    const uint32_t file_size = static_cast<uint32_t>(data->size());
+    const uint32_t file_size = static_cast<uint32_t>(data.size());
 
     // 既存キーの上書きは新規スロットを要さない。先に旧エントリを除去してから EvictIfNeeded を
     // 呼び、満杯時に無関係なエントリを巻き込んで削除しないようにする。
@@ -310,7 +310,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         PrepareWrite(path);
 
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
-        (void)WriteAllBytes(path, data->data(), data->size());
+        (void)WriteAllBytes(path, data.data(), data.size());
 
         bool evicted = false;
         {

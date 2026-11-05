@@ -3,6 +3,7 @@
 #include "document_test_helpers.h"
 #include "test_helpers.h"
 #include "document_utils.h"
+#include "example_files.h"
 #include "parse_invariants.h"
 #include "parser.h"
 #include "test_nodes.h"
@@ -40,24 +41,12 @@ std::optional<std::string_view> CellLinkUrl(const Node& table, size_t row, size_
 
 // ---- 基本的なパース ----
 
-TEST(Parser, EmptyInputReturnsNoNodes)
+TEST(Parser, EmptyOrWhitespaceInputReturnsNoNodes)
 {
-    auto nodes = ParseNodes("");
-    EXPECT_TRUE(nodes.empty());
-}
-
-TEST(Parser, WhitespaceOnlyReturnsNoNodes)
-{
-    auto nodes = ParseNodes("   \n\n  ");
-    EXPECT_TRUE(nodes.empty());
-}
-
-TEST(Parser, SingleParagraph)
-{
-    auto nodes = ParseNodes("Hello world");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[0].GetText(), "Hello world");
+    for (const std::string_view md : { "", "   \n\n  " }) {
+        SCOPED_TRACE(md);
+        EXPECT_TRUE(ParseNodes(md).empty());
+    }
 }
 
 TEST(Parser, MultipleParagraphs)
@@ -121,6 +110,55 @@ TEST(Parser, InlineSpanBecomesStyledRun)
         EXPECT_EQ(run.code(), c.code);
         EXPECT_EQ(run.strikethrough(), c.strikethrough);
         EXPECT_FALSE(run.has_link());
+    }
+}
+
+// md4c は強調の入れ子に上限が無い。256 段を超えても、内側を閉じたあとの外側の斜体が切れない。
+TEST(Parser, DeeplyNestedEmphasisKeepsStyle)
+{
+    constexpr int kDepth = 300;
+    std::string md;
+    for (int i = 0; i < kDepth; ++i) {
+        md += "*a ";
+    }
+    md += 'z';
+    for (int i = 0; i < kDepth; ++i) {
+        md += " a*";
+    }
+    auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto runs = nodes[0].runs();
+    ASSERT_FALSE(runs.empty());
+    EXPECT_TRUE(std::ranges::all_of(runs, &TextRun::italic));
+    // 斜体が途中で切れると、残りの文字は run を持たない。
+    EXPECT_EQ(runs.back().start + runs.back().length, nodes[0].GetText().size());
+}
+
+// インライン数式を持つノード (表はどれかのセル) の番号は、全ノードを見て集めたものと一致し、文書の順に並ぶ。
+// 数式の組 (InlineMathPlan) はこの番号のノードしか見ない。区切った長い段落の続きのノードも数える。
+TEST(Parser, MathIndicesListEveryNodeWithMath)
+{
+    std::string long_para;
+    for (int i = 0; i < 3000; ++i) {
+        long_para += std::format("word{0} $x_{0}$ ", i);
+    }
+    const std::string crafted = "# $h$\n\n$a$ text\n\nplain\n\n> [!NOTE]\n> $q$\n\n- $l$\n\n| $t$ | b |\n|---|---|\n| c | d |\n\n"
+                                "| no | math |\n|---|---|\n| x | y |\n\n```math\nx^2\n```\n\n" +
+                                long_para + "\n\nnote[^1]\n\n[^1]: $f$\n";
+    const std::string example = ReadExampleFileBytes("example/test.md");
+    ASSERT_FALSE(example.empty());
+    for (const std::string* md : { &crafted, &example }) {
+        const auto storage = ParseMarkdown(*md);
+        std::vector<size_t> expected;
+        for (size_t i = 0; i < storage.nodes.size(); ++i) {
+            const Node& n = storage.nodes[i];
+            const auto* tbl = n.table_data();
+            if (tbl ? std::ranges::any_of(tbl->all_runs, &TextRun::math) : std::ranges::any_of(n.runs(), &TextRun::math)) {
+                expected.push_back(i);
+            }
+        }
+        EXPECT_GT(expected.size(), 8u);
+        EXPECT_EQ(storage.indices.math_indices, expected);
     }
 }
 
@@ -564,7 +602,6 @@ TEST(Parser, TableAlignment)
                      "|:--|:--:|--:|\n"
                      "| a | b | c |");
     ASSERT_EQ(nodes.size(), 1u);
-    // データ行の配置を確認（配置はMD_BLOCK_TD_DETAILから取得、列単位）
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 2u);
     ASSERT_EQ(tbl->col_count, 3u);
@@ -1043,18 +1080,11 @@ TEST(Parser, AlertRunsShiftExactlyPastLabelLine)
     EXPECT_EQ(node.view_link_urls()[runs[2].link_url_index], "u");
 }
 
+// 複数段落の Alert は全ノードに種類を伝え、ラベルは最初のノードだけに付ける。
 TEST(Parser, AlertMultiParagraphGrouping)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> First para\n>\n> Second para");
-    // 複数の引用の段落が生成され、すべて同じ alert_type を持つべき
-    EXPECT_GE(std::ranges::count_if(nodes, [](const Node& node) static { return IsQuoteParagraph(node) && node.alert_type == AlertType::Note; }), 2)
-        << "複数段落のAlertは全ノードに伝播されるべき";
-}
-
-TEST(Parser, AlertOnlyFirstNodeHasLabel)
-{
-    auto nodes = ParseNodes("> [!TIP]\n> First\n>\n> Second");
-    // 最初のノードだけ alert_label_length > 0
+    EXPECT_GE(std::ranges::count_if(nodes, [](const Node& node) static { return IsQuoteParagraph(node) && node.alert_type == AlertType::Note; }), 2);
     EXPECT_EQ(std::ranges::count_if(nodes, [](const Node& node) static { return node.alert_label_length() > 0; }), 1);
 }
 
@@ -1204,7 +1234,6 @@ TEST(Parser, AlertWithInlineFormatting)
     auto nodes = ParseNodes("> [!TIP]\n> Use **bold** and `code`");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
-    // テキストにboldとcodeが含まれるべき
     EXPECT_TRUE(nodes[0].GetText().contains("bold"));
     EXPECT_TRUE(nodes[0].GetText().contains("code"));
     // ラベル以外の太字と code のランがあるべき
@@ -1611,9 +1640,11 @@ TEST(ParserChunks, LongCodeBlockSplitsAtLineEnds)
 // 区切りを待つ改行の後が空行だけでブロックが終わっても、空のノードを作らずに元のテキストに戻る。
 TEST(ParserChunks, TrailingBlankLinesNearBoundaryKeepCodeText)
 {
+    const std::string all = MakeNumberedLines(800);
     for (size_t lines = 650; lines < 800; ++lines) {
         SCOPED_TRACE(lines);
-        const std::string content = MakeNumberedLines(lines) + "\n\n";
+        // 先頭の lines 行 (MakeNumberedLines(lines) と同じ)。
+        const std::string content = all.substr(0, all.find(std::format("line {} ", lines))) + "\n\n";
         const std::string md = "```\n" + content + "```\n";
         const auto nodes = ParseNodes(md);
         ASSERT_TRUE(ParseInvariantsHold(md, nodes));

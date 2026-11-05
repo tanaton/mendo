@@ -94,12 +94,9 @@ std::optional<Box> Extent(const DrawCommand& cmd)
         const float hy = (c->p0.y == c->p1.y) ? c->stroke_width * 0.5f : 0.0f;
         return Box{ kind, std::min(c->p0.x, c->p1.x) - hx, std::min(c->p0.y, c->p1.y) - hy, std::max(c->p0.x, c->p1.x) + hx, std::max(c->p0.y, c->p1.y) + hy };
     }
-    if (const auto* c = std::get_if<FillEllipseCmd>(&cmd)) {
-        return Box{ kind, c->center.x - c->radius, c->center.y - c->radius, c->center.x + c->radius, c->center.y + c->radius };
-    }
-    if (const auto* c = std::get_if<DrawEllipseCmd>(&cmd)) {
+    if (const auto* c = std::get_if<DrawRoundedRectCmd>(&cmd)) {
         const float h = c->stroke_width * 0.5f;
-        return Box{ kind, c->center.x - c->radius - h, c->center.y - c->radius - h, c->center.x + c->radius + h, c->center.y + c->radius + h };
+        return Box{ kind, c->rect.left - h, c->rect.top - h, c->rect.right + h, c->rect.bottom + h };
     }
     if (const auto* c = std::get_if<DrawTextLayoutCmd>(&cmd)) {
         DWRITE_TEXT_METRICS m{};

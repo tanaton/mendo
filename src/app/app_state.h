@@ -8,7 +8,6 @@
 #include "nav.h"
 #include "file_explorer.h"
 #include "mouse_gesture.h"
-#include "swipe_detector.h"
 #include "titlebar.h"
 #include "tooltip.h"
 #include "ui_types.h"
@@ -105,7 +104,7 @@ inline GestureRenderState ResolveGestureOverlay(const MouseGesture& gesture, con
 // 入力は非表示の EDIT (Win32Window) で受け、変わるたびにアクションで写してくる。
 struct SearchGroup {
     SearchState search_state;
-    // EDIT の選択 [selection_start, caret_pos)。-1 はテキスト末尾。
+    // EDIT の選択。selection_start は基点で、caret_pos はその前のことも後ろのこともある。-1 はテキスト末尾。
     int caret_pos = -1;
     int selection_start = -1;
     std::wstring ime_composition;
@@ -167,12 +166,6 @@ inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 // reducer と App (Win32 層) の双方が AppState から導出するペイン/ブロック情報。
 // 非 inline 関数の定義は reducer.cpp。
 
-struct SidePaneContext {
-    PaneScrollInfo info;
-    float item_height;
-    float& scroll_y;
-};
-SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 // 目次のアクティブ見出しを今の scroll_y と見出しの Y から決め直し、変わったら目次ペインを追従させる。
 // 描画のたびに呼ぶので、スクロール・計測・画像や図の高さの確定など Y が動くどの経路でも同期が漏れない。
 void SyncActiveTocIndex(AppState& state);
@@ -191,14 +184,6 @@ inline float SidePaneItemHeight(const AppState& state, PaneTarget pane) noexcept
 inline PaneScrollInfo SidePaneScrollInfo(const AppState& state, PaneTarget pane, const PaneLayout& layout)
 {
     return ComputeScrollInfo(layout.Get(pane), state.theme->pane_header_height, SidePaneContentHeight(SidePaneItemCount(state, pane), SidePaneItemHeight(state, pane)));
-}
-
-// サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
-inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
-{
-    const float item_h = SidePaneItemHeight(state, pane);
-    const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane));
-    return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }
 
 // Reveal ボタンを押せるか。無効時は描画のみ行い、ヒットしない。
@@ -220,13 +205,17 @@ inline BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, i
 {
     return ResolveBlockHScrollGeometry(state, node_index, ComputePaneLayout(state).md_rect.width);
 }
-float MdScrollableContentHeight(const AppState& state) noexcept;
+// 総コンテンツ高はアクションのペイロードで運ばず、都度導出する
+// (運ぶと、遅延レイアウト進行中にドラッグ開始と移動で別計測の値が混ざり、つまみの位置が跳ねる)。
 inline PaneScrollInfo MdScrollInfo(const AppState& state, const PaneLayout& layout) noexcept
 {
-    return ComputeScrollInfo(layout.md_rect, 0.0f, MdScrollableContentHeight(state));
+    return MdPaneScrollbar(state.document.layout_cache, layout.md_rect, state.theme->margin_bottom).info;
+}
+inline float MdMaxScroll(const AppState& state) noexcept
+{
+    return MdScrollInfo(state, ComputePaneLayout(state)).max_scroll;
 }
 inline SearchBarLayout SearchBarLayoutFor(const AppState& state, const PaneRect& md_rect) noexcept
 {
     return ComputeSearchBarLayout(md_rect, !state.search.query_wide.empty());
 }
-float MdMaxScroll(const AppState& state) noexcept;

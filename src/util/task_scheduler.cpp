@@ -32,8 +32,9 @@ void TaskScheduler::StartWorkersLocked()
     if (!workers_.empty()) {
         return;
     }
-    workers_.reserve(thread_count_);
-    for (size_t i = 0; i < thread_count_; ++i) {
+    const size_t count = thread_count_.load(std::memory_order_relaxed);
+    workers_.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
         workers_.emplace_back(&TaskScheduler::WorkerLoop, this);
     }
 }
@@ -75,7 +76,7 @@ void TaskScheduler::Shutdown()
         }
     }
     workers_.clear();
-    thread_count_ = 0;
+    thread_count_.store(0, std::memory_order_relaxed);
 }
 
 void TaskScheduler::EnsureWorkerCom() noexcept

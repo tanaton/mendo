@@ -33,7 +33,7 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
     return table.IsHeaderRow(row) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
 }
 
-void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
+void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
 {
     constexpr uint64_t kChunkKeySalt = 0xA54FF53A5F1D36F1ULL;
 
@@ -71,12 +71,9 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
             }
         }
     };
-    for (const auto& node : nodes) {
+    for (const size_t i : math_nodes) {
+        const Node& node = nodes[i];
         if (const auto* tbl = node.table_data()) {
-            // 文書を開くたび・ズームのたびに通るので、数式の無い巨大な表でセルを回らない。
-            if (std::ranges::none_of(tbl->all_runs, &TextRun::math)) {
-                continue;
-            }
             for (size_t r = 0; r < tbl->row_count; ++r) {
                 const float size = MathFontSize(theme, *tbl, r);
                 for (size_t c = 0; c < tbl->col_count; ++c) {
@@ -167,13 +164,6 @@ void InlineMathTable::ForgetRequest(uint64_t key)
         entries_.erase(it);
         --unresolved_;
     }
-}
-
-std::optional<InlineMathMetrics> InlineMathTable::Find(uint64_t key)
-{
-    const std::lock_guard lock(mutex_);
-    const auto it = entries_.find(key);
-    return it != entries_.end() ? it->second : std::nullopt;
 }
 
 bool InlineMathTable::HasUnresolved()

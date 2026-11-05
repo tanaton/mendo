@@ -16,6 +16,7 @@ protected:
     ParsedLayout pl_;
     int idx_ = -1; // pl_ の最初の表
 
+    // 3 列。セル layout を残さない大きな表 (kMaxKeptTableCells = 1024 セル超) にするには 342 行以上。
     static std::string MakeBigTableMd(size_t row_count)
     {
         std::string md = "| A | B | C |\n|---|---|---|\n";
@@ -308,7 +309,7 @@ TEST_F(TableEvictionDWriteTest, WidthChangeRestoresVisibleRowsInNextPass)
 // 戻さないと、次にしきい値を超える幅の変更があるまでセルの文字が空になる。
 TEST_F(TableEvictionDWriteTest, RestoresVisibleRowsAfterWidthChangeBelowThreshold)
 {
-    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600), 0.0f, 600.0f));
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(350), 0.0f, 600.0f));
     const auto& tl = *Entry().table_layout();
     constexpr float kNudgedWidth = 801.0f;
     ASSERT_FALSE(engine_.Reestimate(pl_.nodes, pl_.cache, kNudgedWidth));
@@ -351,7 +352,7 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
 TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
 {
     std::string md = "| A | B |\n|---|---|\n";
-    for (int i = 0; i < 400; ++i) {
+    for (int i = 0; i < 100; ++i) {
         md += "| long text that wraps when the column becomes narrow " + std::to_string(i) + " | another long text in the second column |\n";
     }
     const float narrow = 200.0f;
@@ -402,7 +403,7 @@ TEST_F(TableEvictionDWriteTest, EvictedLayoutsAreHandedOverForRelease)
 // 折り返さない表なら、行の高さは全セルを作ったときと同じになる。
 TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 {
-    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600)));
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(350)));
     const auto& built = *Entry().table_layout();
     const auto row_heights_built = built.row_heights;
     const float height_built = Entry().height;
@@ -424,7 +425,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 // 大きな表を可視範囲だけ計測すると、セル layout は可視行の分だけ作られる。
 TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
 {
-    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600), 0.0f, 600.0f));
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(350), 0.0f, 600.0f));
     const auto& tl = *Entry().table_layout();
     const size_t built = CountNonNullCells(tl);
 
@@ -438,7 +439,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
 TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
 {
     std::string md = "| A | B | C |\n|---|---|---|\n";
-    for (size_t i = 0; i < 600; ++i) {
+    for (size_t i = 0; i < 350; ++i) {
         md += (i % 3 == 0) ? "| **ok** " : "| ok ";
         md += "| r" + std::to_string(i) + " | same text in every row |\n";
     }

@@ -19,10 +19,10 @@ struct Strings {
     std::wstring_view tooltip_minimize;
     std::wstring_view tooltip_maximize;
     std::wstring_view tooltip_restore;
+    // タイトルバーとペインの閉じるボタン。
     std::wstring_view tooltip_close;
 
     // ペインボタン tooltip
-    std::wstring_view tooltip_pane_close;
     std::wstring_view tooltip_pane_refresh;
     std::wstring_view tooltip_pane_reveal;
 
@@ -42,7 +42,6 @@ struct Strings {
     std::wstring_view gesture_forward;
 
     // ブロック右上のボタンの tooltip
-    std::wstring_view tooltip_copy;
     std::wstring_view tooltip_save_image;
     std::wstring_view tooltip_copy_diagram;
     std::wstring_view tooltip_view_diagram;
@@ -58,7 +57,8 @@ struct Strings {
     std::wstring_view menu_open_in_new_window;
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
-    std::wstring_view menu_copy_formatted;
+    // コードブロックのコピーボタンと右クリックメニュー。
+    std::wstring_view copy_formatted;
     std::wstring_view menu_dark_mode;
     std::wstring_view menu_file_pane;
     std::wstring_view menu_toc_pane;
@@ -119,7 +119,6 @@ inline constexpr Strings kJa = {
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"元に戻す",
     .tooltip_close = L"閉じる",
-    .tooltip_pane_close = L"閉じる",
     .tooltip_pane_refresh = L"更新",
     .tooltip_pane_reveal = L"現在のファイルの場所へ移動",
     .tooltip_search_prev = L"前のマッチ (Shift+Enter)",
@@ -131,7 +130,6 @@ inline constexpr Strings kJa = {
     .tooltip_nav_forward = L"進む (Alt+\u2192)",
     .gesture_back = L"\u2190 戻る",
     .gesture_forward = L"\u2192 進む",
-    .tooltip_copy = L"書式付きコピー",
     .tooltip_save_image = L"画像を保存",
     .tooltip_copy_diagram = L"クリップボードにコピー",
     .tooltip_view_diagram = L"拡大表示",
@@ -143,7 +141,7 @@ inline constexpr Strings kJa = {
     .menu_open_in_new_window = L"新しいウィンドウで開く",
     .menu_edit_file = L"エディタで開く",
     .menu_copy = L"コピー",
-    .menu_copy_formatted = L"書式付きコピー",
+    .copy_formatted = L"書式付きコピー",
     .menu_dark_mode = L"ダークモード",
     .menu_file_pane = L"ファイルペイン",
     .menu_toc_pane = L"目次ペイン",
@@ -186,7 +184,6 @@ inline constexpr Strings kEn = {
     .tooltip_maximize = L"Maximize",
     .tooltip_restore = L"Restore",
     .tooltip_close = L"Close",
-    .tooltip_pane_close = L"Close",
     .tooltip_pane_refresh = L"Refresh",
     .tooltip_pane_reveal = L"Go to current file location",
     .tooltip_search_prev = L"Previous Match (Shift+Enter)",
@@ -198,7 +195,6 @@ inline constexpr Strings kEn = {
     .tooltip_nav_forward = L"Forward (Alt+\u2192)",
     .gesture_back = L"\u2190 Back",
     .gesture_forward = L"\u2192 Forward",
-    .tooltip_copy = L"Copy as HTML",
     .tooltip_save_image = L"Save Image",
     .tooltip_copy_diagram = L"Copy to clipboard",
     .tooltip_view_diagram = L"Enlarge",
@@ -210,7 +206,7 @@ inline constexpr Strings kEn = {
     .menu_open_in_new_window = L"Open in New Window",
     .menu_edit_file = L"Open in Editor",
     .menu_copy = L"Copy",
-    .menu_copy_formatted = L"Copy as HTML",
+    .copy_formatted = L"Copy as HTML",
     .menu_dark_mode = L"Dark Mode",
     .menu_file_pane = L"File Pane",
     .menu_toc_pane = L"TOC Pane",
@@ -253,7 +249,6 @@ inline constexpr Strings kZh = {
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"还原",
     .tooltip_close = L"关闭",
-    .tooltip_pane_close = L"关闭",
     .tooltip_pane_refresh = L"刷新",
     .tooltip_pane_reveal = L"转到当前文件所在位置",
     .tooltip_search_prev = L"上一个匹配 (Shift+Enter)",
@@ -265,7 +260,6 @@ inline constexpr Strings kZh = {
     .tooltip_nav_forward = L"前进 (Alt+→)",
     .gesture_back = L"← 后退",
     .gesture_forward = L"→ 前进",
-    .tooltip_copy = L"复制为 HTML",
     .tooltip_save_image = L"保存图像",
     .tooltip_copy_diagram = L"复制到剪贴板",
     .tooltip_view_diagram = L"放大查看",
@@ -277,7 +271,7 @@ inline constexpr Strings kZh = {
     .menu_open_in_new_window = L"在新窗口中打开",
     .menu_edit_file = L"在编辑器中打开",
     .menu_copy = L"复制",
-    .menu_copy_formatted = L"复制为 HTML",
+    .copy_formatted = L"复制为 HTML",
     .menu_dark_mode = L"深色模式",
     .menu_file_pane = L"文件窗格",
     .menu_toc_pane = L"目录窗格",
@@ -320,7 +314,6 @@ inline constexpr Strings kZhHant = {
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"還原",
     .tooltip_close = L"關閉",
-    .tooltip_pane_close = L"關閉",
     .tooltip_pane_refresh = L"重新整理",
     .tooltip_pane_reveal = L"前往目前檔案所在位置",
     .tooltip_search_prev = L"上一個相符項目 (Shift+Enter)",
@@ -332,7 +325,6 @@ inline constexpr Strings kZhHant = {
     .tooltip_nav_forward = L"下一頁 (Alt+→)",
     .gesture_back = L"← 上一頁",
     .gesture_forward = L"→ 下一頁",
-    .tooltip_copy = L"複製為 HTML",
     .tooltip_save_image = L"儲存圖片",
     .tooltip_copy_diagram = L"複製到剪貼簿",
     .tooltip_view_diagram = L"放大檢視",
@@ -344,7 +336,7 @@ inline constexpr Strings kZhHant = {
     .menu_open_in_new_window = L"在新視窗中開啟",
     .menu_edit_file = L"在編輯器中開啟",
     .menu_copy = L"複製",
-    .menu_copy_formatted = L"複製為 HTML",
+    .copy_formatted = L"複製為 HTML",
     .menu_dark_mode = L"深色模式",
     .menu_file_pane = L"檔案窗格",
     .menu_toc_pane = L"目錄窗格",
@@ -387,7 +379,6 @@ inline constexpr Strings kKo = {
     .tooltip_maximize = L"최대화",
     .tooltip_restore = L"이전 크기로 복원",
     .tooltip_close = L"닫기",
-    .tooltip_pane_close = L"닫기",
     .tooltip_pane_refresh = L"새로 고침",
     .tooltip_pane_reveal = L"현재 파일 위치로 이동",
     .tooltip_search_prev = L"이전 일치 항목 (Shift+Enter)",
@@ -399,7 +390,6 @@ inline constexpr Strings kKo = {
     .tooltip_nav_forward = L"앞으로 (Alt+→)",
     .gesture_back = L"← 뒤로",
     .gesture_forward = L"→ 앞으로",
-    .tooltip_copy = L"HTML로 복사",
     .tooltip_save_image = L"이미지 저장",
     .tooltip_copy_diagram = L"클립보드에 복사",
     .tooltip_view_diagram = L"크게 보기",
@@ -411,7 +401,7 @@ inline constexpr Strings kKo = {
     .menu_open_in_new_window = L"새 창에서 열기",
     .menu_edit_file = L"편집기에서 열기",
     .menu_copy = L"복사",
-    .menu_copy_formatted = L"HTML로 복사",
+    .copy_formatted = L"HTML로 복사",
     .menu_dark_mode = L"다크 모드",
     .menu_file_pane = L"파일 창",
     .menu_toc_pane = L"목차 창",

@@ -4,11 +4,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <format>
 #include <functional>
-#include <iterator>
 #include <memory>
-#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -23,10 +20,6 @@ public:
     // 中身は未初期化。呼び出し側が size バイトを書き込む。
     explicit ByteBuffer(size_t size) : data_(std::make_unique_for_overwrite<uint8_t[]>(size)), size_(size)
     {}
-    ByteBuffer(std::span<const uint8_t> bytes) : ByteBuffer(bytes.size())
-    {
-        std::ranges::copy(bytes, data_.get());
-    }
 
     uint8_t* data() noexcept
     {

@@ -27,11 +27,10 @@ namespace {
 
 class HitTestDWriteTest : public DWriteTestBase {
 protected:
-    // dpi=1, ペイン原点 0, scroll_y=0 なので画面座標 == DIP。
+    // スクロールしていないので、ペイン内の点 p がそのまま文書の点になる。
     MdPaneHitContext Ctx(const ParsedLayout& pl, DipPoint p) const
     {
-        return { pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-                 static_cast<int>(p.x), static_cast<int>(p.y), theme_.ContentWidth(800.0f) };
+        return { pl.nodes, pl.cache, theme_, 0.0f, p, theme_.ContentWidth(800.0f) };
     }
 
     // 段落ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置。
@@ -164,26 +163,6 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     EXPECT_EQ(r.text_pos, cell_start + 1);
     EXPECT_EQ(r.char_pos, cell_start);
     EXPECT_EQ(FindLinkAtPosition(node, r.char_pos), "https://l.example");
-}
-
-// ペイン原点 (md_rect.x/y) だけずらした同じ点は、同じノード・同じ文字位置に当たる。
-TEST_F(HitTestDWriteTest, OffsetPaneHitMatchesUnoffsetPane)
-{
-    auto pl = ParseAndLayout("Hello, this is a long paragraph for hit testing.");
-    ASSERT_FALSE(pl.nodes.empty());
-
-    constexpr float kPaneX = 220.0f;
-    constexpr float kPaneY = 32.0f;
-    const DipPoint p{ theme_.margin_left + 50.0f, pl.cache.Top(0) + 4.0f };
-
-    const auto base = Ctx(pl, p);
-    auto offset = Ctx(pl, { p.x + kPaneX, p.y + kPaneY });
-    offset.md_rect.x = kPaneX;
-    offset.md_rect.y = kPaneY;
-    const auto a = hit_test::HitTest(base);
-    const auto b = hit_test::HitTest(offset);
-    EXPECT_EQ(a.node_index, b.node_index);
-    EXPECT_EQ(a.text_pos, b.text_pos);
 }
 
 // テーブル row_cum_y / col_cum_x 経由の hit test。

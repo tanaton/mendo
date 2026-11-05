@@ -24,15 +24,15 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
 
 namespace {
 
-// wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
+// wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。有限でない値もそのまま返すので、
+// 範囲は呼ぶ側が確かめる。
 float ParseFloatPrefix(std::wstring_view s) noexcept
 {
     wchar_t buf[64];
     const auto num_len = std::min(s.size(), std::size(buf) - 1);
     std::char_traits<wchar_t>::copy(buf, s.data(), num_len);
     buf[num_len] = L'\0';
-    const float v = std::wcstof(buf, nullptr);
-    return std::isfinite(v) ? v : 0.0f;
+    return std::wcstof(buf, nullptr);
 }
 
 // sep で区切った数を先頭から out に読む。足りない分は 0 のまま。
@@ -47,10 +47,6 @@ void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noex
         s.remove_prefix(pos + 1);
     }
 }
-
-} // namespace
-
-namespace {
 
 // s の先頭から sep までを切り出して進める。sep が無ければ nullopt。
 std::optional<std::wstring_view> TakeField(std::wstring_view& s, wchar_t sep = L':') noexcept
@@ -83,11 +79,11 @@ std::optional<uint32_t> ParseDecimal(std::wstring_view s, uint32_t max) noexcept
     return static_cast<uint32_t>(v);
 }
 
-// "<長さ>:<本文>" を切り出して進める。
-std::optional<std::wstring_view> TakeText(std::wstring_view& s, uint32_t max_len) noexcept
+// "<長さ>:<本文>" を切り出して進める。長さは残りを超えられないので、偽った長さで大きく確保することはない。
+std::optional<std::wstring_view> TakeText(std::wstring_view& s) noexcept
 {
     const auto len_field = TakeField(s);
-    const auto len = len_field ? ParseDecimal(*len_field, max_len) : std::nullopt;
+    const auto len = len_field ? ParseDecimal(*len_field, std::numeric_limits<uint32_t>::max()) : std::nullopt;
     if (!len || *len > s.size()) {
         return std::nullopt;
     }
@@ -97,27 +93,26 @@ std::optional<std::wstring_view> TakeText(std::wstring_view& s, uint32_t max_len
 }
 
 constexpr uint32_t kMaxRgb = 0xFFFFFF;
-constexpr uint32_t kMaxFamilyLength = 1024;
 
 // 置き方の数 (変換 6・x・y・大きさ・色・不透明度)。文字と数式の数の並びの先頭に書く。
 constexpr size_t kPlacementNumbers = 11;
 
-// 数の並びのうち先頭 kPlacementNumbers 個を読む。大きさと色が範囲の外なら nullopt。
+// 数の並びのうち先頭 kPlacementNumbers 個を読む。書けない置き方 (IsStorable) なら nullopt。
 std::optional<mermaid_util::DrawingPlacement> ToPlacement(std::span<const float> v) noexcept
 {
-    const float font_size = v[8];
     const float rgb = v[9];
-    if (!(font_size > 0.0f && font_size <= 1000.0f) || !(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
+    if (!(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
         return std::nullopt;
     }
-    return mermaid_util::DrawingPlacement{
+    const mermaid_util::DrawingPlacement p{
         .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
         .x = v[6],
         .y = v[7],
-        .font_size = font_size,
+        .font_size = v[8],
         .rgb = static_cast<uint32_t>(rgb),
-        .alpha = std::clamp(v[10], 0.0f, 1.0f),
+        .alpha = v[10],
     };
+    return mermaid_util::IsStorable(p) ? std::optional{ p } : std::nullopt;
 }
 
 template <class Out>
@@ -140,8 +135,8 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
     if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || (v[13] != 0.0f && v[13] != 1.0f)) {
         return std::nullopt;
     }
-    const auto family = TakeText(s, kMaxFamilyLength);
-    const auto text = family ? TakeText(s, std::numeric_limits<uint32_t>::max()) : std::nullopt;
+    const auto family = TakeText(s);
+    const auto text = family ? TakeText(s) : std::nullopt;
     if (!text) {
         return std::nullopt;
     }
@@ -155,9 +150,6 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
     };
 }
 
-// 数式のラベルの TeX の長さの上限。pele は 1 ラベルの数式を数十個までにするので、長い TeX は偽りとみなす。
-constexpr uint32_t kMaxTexLength = 64 * 1024;
-
 std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
 {
     const auto numbers = TakeField(s);
@@ -167,16 +159,12 @@ std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
     float v[kPlacementNumbers]{};
     ParseFloatList(*numbers, L',', v);
     const auto at = ToPlacement(v);
-    const auto tex = at ? TakeText(s, kMaxTexLength) : std::nullopt;
+    const auto tex = at ? TakeText(s) : std::nullopt;
     if (!tex) {
         return std::nullopt;
     }
     return mermaid_util::DrawingMath{ .at = *at, .tex = string_convert::WideToUtf8(*tex) };
 }
-
-} // namespace
-
-namespace {
 
 // ParseDrawing は長さを UTF-16 の単位で読む。
 size_t Utf16Length(std::string_view utf8) noexcept
@@ -190,6 +178,12 @@ size_t Utf16Length(std::string_view utf8) noexcept
 }
 
 } // namespace
+
+bool mermaid_util::IsStorable(const DrawingPlacement& p) noexcept
+{
+    return std::ranges::all_of(p.transform, [](float v) static { return std::isfinite(v); }) && std::isfinite(p.x) && std::isfinite(p.y) &&
+           p.font_size > 0.0f && p.font_size <= kMaxFontSize && p.rgb <= kMaxRgb && p.alpha >= 0.0f && p.alpha <= 1.0f;
+}
 
 std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
 {
@@ -248,9 +242,9 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
     };
     const auto background_field = TakeField(s);
     const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
-    const auto defs = background ? TakeText(s, std::numeric_limits<uint32_t>::max()) : std::nullopt;
+    const auto defs = background ? TakeText(s) : std::nullopt;
     const auto layer_count = defs ? take_count(4) : std::nullopt;
-    if (!layer_count || !(width > 0.0f) || !(height > 0.0f)) {
+    if (!layer_count || !(width > 0.0f && std::isfinite(width)) || !(height > 0.0f && std::isfinite(height))) {
         return std::nullopt;
     }
     DiagramDrawing out{
@@ -261,7 +255,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
     };
     out.layers.reserve(*layer_count);
     for (uint32_t i = 0; i < *layer_count; ++i) {
-        const auto svg = TakeText(s, std::numeric_limits<uint32_t>::max());
+        const auto svg = TakeText(s);
         const auto text_count = svg ? take_count(30) : std::nullopt;
         if (!text_count) {
             return std::nullopt;

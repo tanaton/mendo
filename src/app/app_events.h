@@ -232,9 +232,12 @@ struct SearchTextChangedAction {
 struct SearchContinueAction {};
 struct ToggleCaseSensitiveAction {};
 struct ToggleHighlightAction {};
+// 検索 EDIT の選択。caret は基点 (anchor) より前のこともある。EM_GETSEL は向きを失って (小さい方, 大きい方) で返すので、
+// キー操作の後に読んだ選択は ordered にして、向きを reducer に推定させる。
 struct SearchSelectionAction {
-    int sel_start;
-    int sel_end;
+    int anchor;
+    int caret;
+    bool ordered = false;
 };
 struct ImeCompositionAction {
     std::wstring text;

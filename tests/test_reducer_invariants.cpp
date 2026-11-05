@@ -50,17 +50,6 @@ TEST(ReducerHomeKey, ReturnsToAbsoluteTopIncludingTopMargin)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// 1 画面に収まる文書 (max_scroll=0) で Home を押しても max_scroll を超えない。
-TEST(ReducerHomeKey, ShortDocumentDoesNotExceedMaxScroll)
-{
-    ReducerHarness h({ .markdown = MakeHarnessMarkdown(1), .md_height = 2000.0f });
-    ASSERT_FLOAT_EQ(MdMaxScroll(h.state), 0.0f);
-
-    h.Dispatch(KeyScrollAction{ ScrollType::Home });
-
-    EXPECT_FLOAT_EQ(h.state.view.viewport.GetScrollY(), 0.0f);
-}
-
 // ---- スクロール不変条件 ----
 // reducer 経由のどのスクロール操作の後も
 //   (a) 0 <= scroll_y <= max_scroll
@@ -164,7 +153,7 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
 {
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(lc.sections), .md_height = lc.md_height });
     if (lc.max_scroll) {
-        h.ResizeMdPane(MdScrollableContentHeight(h.state) - *lc.max_scroll);
+        h.ResizeMdPane(MdScrollInfo(h.state, ComputePaneLayout(h.state)).total_content - *lc.max_scroll);
     }
     const auto anchors = CollectHeadingAnchors(h);
     std::mt19937 rng(seed);

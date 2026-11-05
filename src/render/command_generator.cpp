@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <utility>
@@ -20,25 +21,59 @@ using layout::NodeBoxPadTop;
 using layout::NodeContentWidth;
 using layout::NodeTextXOffset;
 
-#ifdef MENDO_USE_TRACY
 namespace {
 
-struct CmdGenStats {
-    int64_t hittest_range = 0;
-    int64_t last_visible_node_count = 0;
+struct LineHit {
+    uint32_t pos;
+    float line_top;
+    float line_bottom;
 };
-CmdGenStats g_cmd_gen_stats;
 
-void PublishCmdGenStats() noexcept
+std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
 {
-    MENDO_PLOT("cmdgen.hittest_range", g_cmd_gen_stats.hittest_range);
-    MENDO_PLOT("cmdgen.visible_node_count", g_cmd_gen_stats.last_visible_node_count);
+    BOOL is_trailing = FALSE;
+    BOOL is_inside = FALSE;
+    DWRITE_HIT_TEST_METRICS m{};
+    if (FAILED(layout->HitTestPoint(0.0f, y, &is_trailing, &is_inside, &m))) {
+        return std::nullopt;
+    }
+    const auto line = LineBoxAt(layout, m.textPosition);
+    if (!line) {
+        return std::nullopt;
+    }
+    return LineHit{ m.textPosition, line->top, line->top + line->height };
 }
 
-} // namespace
-#endif
+// 本文 text_layout の、view (layout ローカル Y) にかかる行とその上下 1 行のテキスト範囲 [first, second) (UTF-16)。
+// 検索・選択ハイライトが矩形を引く範囲を絞るのに使う。行の位置を覚えず毎フレーム引く (BM_SelectionFrame / BM_SearchFrame)。
+// 行のテキスト位置を隣の行の位置で挟む。行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても
+// 境界になる (RTL の行でも成り立つ)。layout の端を越えた側は先に行が無いので引かない。
+std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& entry, YRange view)
+{
+    auto* const layout = entry.text_layout();
+    uint32_t begin = 0;
+    uint32_t end = UINT32_MAX;
+    if (view.top > 0.0f) {
+        if (const auto first = HitLineAt(layout, view.top); first && first->line_top > 0.0f) {
+            if (const auto prev = HitLineAt(layout, first->line_top - 0.5f); prev && prev->line_top < first->line_top) {
+                begin = prev->pos;
+            }
+        }
+    }
+    if (view.bottom < entry.height) {
+        if (const auto last = HitLineAt(layout, view.bottom)) {
+            if (const auto next = HitLineAt(layout, last->line_bottom + 0.5f); next && next->line_top > last->line_top) {
+                end = next->pos;
+            }
+        }
+    }
+    return { begin, end };
+}
 
-namespace {
+constexpr D2D1_RECT_F SquareAround(float cx, float cy, float half) noexcept
+{
+    return D2D1::RectF(cx - half, cy - half, cx + half, cy + half);
+}
 
 // DIP。
 constexpr float NAV_BTN_CORNER = 6.0f;
@@ -309,12 +344,11 @@ void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pa
         }
         return a;
     }();
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    const auto [cx, cy] = RectCenter(ToD2DRect(md_pane_rect));
     for (int i = 0; i < spinner::DOT_COUNT; i++) {
         const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-        out.push_back(FillEllipseCmd{
-            .center = D2D1::Point2F(cx + spinner::RADIUS * std::cos(a), cy + spinner::RADIUS * std::sin(a)),
+        out.push_back(FillRoundedRectCmd{
+            .rect = SquareAround(cx + spinner::RADIUS * std::cos(a), cy + spinner::RADIUS * std::sin(a), SPINNER_DOT_RADIUS),
             .radius = SPINNER_DOT_RADIUS,
             .brush_id = BrushId::Text,
             .opacity = kAlphas[i],
@@ -351,8 +385,7 @@ void EmitGestureOverlay(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_
         return;
     }
     constexpr float h = GESTURE_OVERLAY_HEIGHT;
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    const auto [cx, cy] = RectCenter(ToD2DRect(md_pane_rect));
     const auto& text = (direction == NavDirection::Back) ? i18n::S().gesture_back : i18n::S().gesture_forward;
     EmitPanel(w, fmt, D2D1::RectF(cx - GESTURE_OVERLAY_WIDTH / 2, cy - h / 2, cx + GESTURE_OVERLAY_WIDTH / 2, cy + h / 2),
               D2D1::SizeF(GESTURE_OVERLAY_WIDTH, h), GESTURE_OVERLAY_CORNER, dark ? 0.8f : 0.6f, text);
@@ -364,7 +397,7 @@ void EmitToast(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect
         return;
     }
     constexpr float h = TOAST_OVERLAY_HEIGHT;
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float cx = RectCenter(ToD2DRect(md_pane_rect)).x;
     const float bottom_y = NavBackButtonRect(md_pane_rect).top - TOAST_OVERLAY_BOTTOM_OFFSET;
     EmitPanel(w, fmt, D2D1::RectF(cx - TOAST_OVERLAY_WIDTH / 2, bottom_y - h, cx + TOAST_OVERLAY_WIDTH / 2, bottom_y),
               D2D1::SizeF(TOAST_OVERLAY_WIDTH, h), TOAST_OVERLAY_CORNER, dark ? 0.85f : 0.7f, message);
@@ -975,19 +1008,19 @@ struct MdPaneEmitter : CmdWriter {
         const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, dpi_scale);
         switch (ListStyleIndex(node.list_depth(), kListBulletStyles)) {
         case 0:
-            out.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, BrushId::Text });
+            out.emplace_back(FillRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, BrushId::Text });
             break;
         case 1:
-            out.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, 1.0f, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, 1.0f, BrushId::Text });
             break;
         case 2:
-            out.emplace_back(FillRectCmd{ D2D1::RectF(bullet_x - h, bullet_y - h, bullet_x + h, bullet_y + h), BrushId::Text });
+            out.emplace_back(FillRectCmd{ SquareAround(bullet_x, bullet_y, h), BrushId::Text });
             break;
         default: {
             // 線は辺を中心に引かれるので、太さを物理ピクセルの整数にして半分だけ内側に引き、■ と同じ外形で画素に揃える。
             const float stroke = std::max(1.0f, std::round(dpi_scale)) / dpi_scale;
             const float e = h - stroke * 0.5f;
-            out.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(bullet_x - e, bullet_y - e, bullet_x + e, bullet_y + e), 0.0f, stroke, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, e), 0.0f, stroke, BrushId::Text });
             break;
         }
         }
@@ -1212,10 +1245,9 @@ struct MdPaneEmitter : CmdWriter {
         vline(offset_x + table_width);
     }
 
-    // 共有バッファへ HitTestTextRange を発行し、取得したメトリクスを返す。次回呼び出しまで有効。
+    // 返すメトリクスは共有バッファを指し、次の呼び出しまで有効。
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
     {
-        MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
         const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer);
         return { hit_test_buffer.data(), count };
     }
@@ -1365,6 +1397,5 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
 
     out.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     out.emplace_back(PopClipCmd{});
-    MENDO_COUNT_SET(g_cmd_gen_stats.last_visible_node_count, visible_count);
-    MENDO_IF_TRACY(PublishCmdGenStats());
+    MENDO_PLOT("cmdgen.visible_node_count", static_cast<int64_t>(visible_count));
 }

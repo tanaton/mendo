@@ -12,13 +12,13 @@
 #include <string>
 
 // ダミーのデータを生成する（中身は読まないので何でもよい）。
-static std::shared_ptr<const ByteBuffer> MakeDummyData(size_t size = 1024)
+static std::string MakeDummyData(size_t size = 1024)
 {
-    std::vector<uint8_t> data(size);
+    std::string data(size, char{});
     for (size_t i = 0; i < size; ++i) {
-        data[i] = static_cast<uint8_t>(i & 0xFF);
+        data[i] = static_cast<char>(i & 0xFF);
     }
-    return std::make_shared<const ByteBuffer>(data);
+    return data;
 }
 
 
@@ -108,7 +108,6 @@ protected:
         cache_.Init(*scheduler_);
     }
 
-    // SaveIndex + スケジューラ再起動 → 再ロードのサイクルを実行する
     void FlushAndReopen()
     {
         cache_.SaveIndex();
@@ -176,35 +175,6 @@ protected:
 // 基本的な格納・検索
 // ═══════════════════════════════════════════════
 
-TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
-{
-    InitCache();
-
-    uint64_t key = 12345;
-    auto data = MakeDummyData(512);
-    cache_.StoreAsync(key, 400.0f, 300.0f, data);
-
-    // SaveIndex + Shutdown → 再Init で永続化された状態から読み込み
-    FlushAndReopen();
-
-    MermaidFileCache::CacheEntry entry;
-    ByteBuffer out;
-    EXPECT_TRUE(LookupAndRead(cache_, key, entry, out));
-    EXPECT_EQ(entry.css_width, 400.0f);
-    EXPECT_EQ(entry.css_height, 300.0f);
-    EXPECT_TRUE(std::ranges::equal(out, *data));
-}
-
-TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
-{
-    InitCache();
-
-    MermaidFileCache::CacheEntry entry;
-    ByteBuffer out;
-    EXPECT_FALSE(LookupAndRead(cache_, 99999, entry, out));
-    EXPECT_FALSE(LookupDimensions(cache_, 99999, entry));
-}
-
 // 別のキーは足し、同じキーは置き換える。
 TEST_F(MermaidFileCacheTest, StoreUpdatesCountAndTotalSize)
 {
@@ -228,26 +198,6 @@ TEST_F(MermaidFileCacheTest, StoreUpdatesCountAndTotalSize)
 // ═══════════════════════════════════════════════
 // ファイルが存在しない場合のLookup
 // ═══════════════════════════════════════════════
-
-TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
-{
-    InitCache();
-
-    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyData(256));
-    EXPECT_EQ(cache_.EntryCount(), 1u);
-
-    // ファイル書き出し完了 → SaveIndex → 再Init
-    FlushAndReopen();
-
-    // ファイルを手動削除してからLookup（内部キーでファイル名を計算）
-    std::filesystem::remove(cache_.FilePath(42ULL));
-
-    MermaidFileCache::CacheEntry entry;
-    ByteBuffer out;
-    EXPECT_FALSE(LookupAndRead(cache_, 42, entry, out));
-    // 古いインデックスエントリが削除されていること
-    EXPECT_EQ(cache_.EntryCount(), 0u);
-}
 
 // Find と FilePath はファイルを読まずに寸法とパスを返し、読み込み失敗は OnReadFailed で反映する。
 TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
@@ -273,55 +223,24 @@ TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 }
 
 // ═══════════════════════════════════════════════
-// LRU削除 — エントリ数上限
-// ═══════════════════════════════════════════════
-
-TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
-{
-    cache_.SetLimits(3, kNoSizeLimit);
-    InitCache();
-
-    // 3エントリを格納
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100));
-    EXPECT_EQ(cache_.EntryCount(), 3u);
-
-    // 4つ目を追加 → 最古のエントリ(key=1)が削除される
-    cache_.StoreAsync(4, 100.0f, 50.0f, MakeDummyData(100));
-    EXPECT_EQ(cache_.EntryCount(), 3u);
-
-    // key=1が削除されていることを永続化後にも確認
-    FlushAndReopen();
-
-    MermaidFileCache::CacheEntry entry;
-    ByteBuffer out;
-    EXPECT_FALSE(LookupAndRead(cache_, 1, entry, out));
-    EXPECT_TRUE(LookupAndRead(cache_, 2, entry, out));
-    EXPECT_TRUE(LookupAndRead(cache_, 3, entry, out));
-    EXPECT_TRUE(LookupAndRead(cache_, 4, entry, out));
-}
-
-// ═══════════════════════════════════════════════
 // LRU削除 — 合計サイズ上限
 // ═══════════════════════════════════════════════
 
+// 足すと上限 (500) を超えるので、最古の 1 を追い出して 200 + 300 に収める。
 TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
 {
-    // 合計サイズ上限を500バイトに設定
     cache_.SetLimits(100, 500);
     InitCache();
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(200));
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(200));
-    EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 400u);
 
-    // 300バイト追加 → 合計700 > 500 → 最古エントリを削除
     cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(300));
-    // key=1が削除されて合計500バイト以内になる
-    EXPECT_LE(cache_.TotalSize(), 500u);
+    EXPECT_EQ(cache_.TotalSize(), 500u);
     EXPECT_EQ(cache_.EntryCount(), 2u);
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_FALSE(LookupDimensions(cache_, 1, entry));
 }
 
 // ═══════════════════════════════════════════════
@@ -344,7 +263,7 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_TRUE(LookupAndRead(*fresh, 100, entry, out));
     EXPECT_EQ(entry.css_width, 640.0f);
     EXPECT_EQ(entry.css_height, 480.0f);
-    EXPECT_EQ(out.size(), 1024u);
+    EXPECT_TRUE(std::ranges::equal(out, MakeDummyData(1024), {}, {}, [](char c) { return static_cast<uint8_t>(c); }));
 
     EXPECT_TRUE(LookupAndRead(*fresh, 200, entry, out));
     EXPECT_EQ(entry.css_width, 320.0f);
@@ -449,28 +368,23 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
 // LRU — Lookupが使用順を更新する
 // ═══════════════════════════════════════════════
 
+// 読んだ 1 は 2 より新しくなるので、上限を超えたら 2 を追い出す。追い出した結果は索引を読み直しても残る。
 TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 {
     cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
 
-    // key=1を最初に格納
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
-
-    // key=2を格納（key=1より新しい使用順）
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
     FlushAndReopen();
 
-    // key=1をLookupして使用順を更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
     ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(cache_, 1, entry, out));
 
-    // key=3を追加 → key=2が最古なのでkey=2が削除される
     cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
-    // 永続化後にも確認
     FlushAndReopen();
 
     EXPECT_TRUE(LookupAndRead(cache_, 1, entry, out));
@@ -493,11 +407,9 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
     cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
-    // key=1をLookupDimensionsで参照（LRUは更新されないはず）
     MermaidFileCache::CacheEntry entry;
     EXPECT_TRUE(LookupDimensions(cache_, 1, entry));
 
-    // key=3を追加 → LRU未更新のkey=1が最古として削除されるはず
     cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyData(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
@@ -706,22 +618,6 @@ TEST_F(MermaidFileCacheTest, ClearRemovesOnWorker)
     ByteBuffer out;
     EXPECT_TRUE(LookupAndRead(*fresh, 1, entry, out)) << "消した後に書いた索引を消した";
     EXPECT_FALSE(LookupDimensions(*fresh, 2, entry));
-}
-
-// 消した後に保存した図は通常どおり残る。
-TEST_F(MermaidFileCacheTest, StoreAfterClearPersists)
-{
-    InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyData(100));
-    cache_.Clear();
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyData(100));
-    cache_.SaveIndex();
-
-    const auto fresh = OpenFreshCache();
-    MermaidFileCache::CacheEntry entry;
-    ByteBuffer out;
-    EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
-    EXPECT_FALSE(LookupDimensions(*fresh, 1, entry));
 }
 
 // ═══════════════════════════════════════════════

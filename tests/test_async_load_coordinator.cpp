@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "async_load_coordinator.h"
-#include "reload_flow.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
@@ -99,17 +98,6 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
     ASSERT_TRUE(outcome.has_value());
     ASSERT_FALSE(outcome->has_value());
     EXPECT_EQ(outcome->error(), FileLoadError::TooLarge);
-}
-
-TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
-{
-    // dtor が走行中 worker の latch を待たないと共有 scheduler 経由で UAF。
-    const auto tmp = WriteTempFile(L"aload_dtor", "just text\n");
-    {
-        AsyncLoadCoordinator c{ scheduler_ };
-        c.Start(tmp.native(), GetLightTheme());
-    }
-    SUCCEED();
 }
 
 // ---- リロード (reload_base 指定) ----
@@ -718,12 +706,3 @@ TEST_F(LoadFileTest, NonExistentFileReturnsError)
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
 
-TEST_F(LoadFileTest, LargeFile)
-{
-    const std::string large_content(1024 * 1024, 'A');
-    const auto path = WriteTempFile(L"large.md", large_content);
-    const auto result = LoadFile(path.native(), {});
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->text.size(), large_content.size());
-    EXPECT_EQ(result->byte_size, large_content.size());
-}

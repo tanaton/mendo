@@ -46,11 +46,12 @@ void MermaidRenderer::Shutdown()
     CloseViewer();
 }
 
-void MermaidRenderer::Init(HWND hwnd, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
+void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
                            std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
 {
     hwnd_ = hwnd;
     file_cache_ = &file_cache;
+    d2d_factory_ = d2d;
     wic_factory_ = wic;
     dw_factory_ = dw;
     bg_scheduler_ = &bg_scheduler;
@@ -99,16 +100,13 @@ std::shared_ptr<const mermaid_util::DiagramDrawing> MermaidRenderer::FindWidthFr
     return free ? free->drawing : nullptr;
 }
 
-void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg)
+void MermaidRenderer::SetDiagramError(uint64_t request_hash, DiagramError::Kind kind, std::wstring_view msg)
 {
-    if (req.kind() != RequestKind::Display) {
-        return;
-    }
     // 枠に収まらない分は描くときに省略記号で切る (placeholder_text の書式)。pele の文言は長さに上限が無いので、
     // キャッシュと TextLayoutCache のキーに丸ごと持つ量だけをここで抑える。
     constexpr size_t MAX_ERROR_LEN = 1024;
-    InsertCache(req.request_hash, DiagramResult{
-                                      .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) }
+    InsertCache(request_hash, DiagramResult{
+                                  .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) }
     });
 }
 
@@ -121,7 +119,7 @@ void MermaidRenderer::DropQueued()
         if (r.kind() != RequestKind::Display) {
             return false;
         }
-        ReleaseInflight(r);
+        inflight_.erase(r.request_hash);
         return true;
     });
 }
@@ -209,16 +207,12 @@ Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const me
 
 Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing)
 {
-    Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
-    if (render_target_) {
-        render_target_->GetFactory(&d2d);
-    }
     // 大きな図はビットマップの最大辺と画素数の上限に収まるまで縮める。
     const float w = drawing.width;
     const float h = drawing.height;
     const float dpr = std::min({ DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_))), static_cast<float>(MaxBitmapDim(render_target_)) / std::max(w, h),
                                  static_cast<float>(std::sqrt(MAX_EXPORT_PIXELS / (static_cast<double>(w) * h))) });
-    return RasterizeDiagram(d2d.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
+    return RasterizeDiagram(d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
 }
 
 void MermaidRenderer::ApplyMathResult(Job& r)
@@ -264,7 +258,7 @@ bool MermaidRenderer::ApplyJobResult(Job& r)
     }
     // 表示に要るなら要求し直される。
     if (r.dropped) {
-        ReleaseInflight(r.req);
+        inflight_.erase(r.req.request_hash);
         return false;
     }
     if (r.parsed) {
@@ -276,14 +270,14 @@ bool MermaidRenderer::ApplyJobResult(Job& r)
             }
             result.drawing = std::move(r.parsed);
             InsertCache(r.req.CacheKey(), std::move(result));
-            ReleaseInflight(r.req);
+            inflight_.erase(r.req.request_hash);
             return true;
         }
     }
     // 描いたばかりの図は描き直しても同じ結果になるので、エラーを確定させて再要求させない。
     if (r.rendered) {
-        SetDiagramError(r.req, r.error.empty() ? DiagramError::Kind::Render : r.error.kind, r.error.message);
-        ReleaseInflight(r.req);
+        SetDiagramError(r.req.request_hash, r.error.empty() ? DiagramError::Kind::Render : r.error.kind, r.error.message);
+        inflight_.erase(r.req.request_hash);
         return true;
     }
     if (r.read_error) {
@@ -328,11 +322,8 @@ void MermaidRenderer::EnsurePele()
     if (pele_) {
         return;
     }
-    std::vector<std::span<const std::byte>> fonts;
-    fonts.reserve(std::size(kKatexFontFiles));
-    for (UINT i = 0; i < std::size(kKatexFontFiles); ++i) {
-        fonts.push_back(LoadRcData(IDR_KATEX_FONT_FIRST + i));
-    }
+    auto fonts = std::views::iota(0u, static_cast<UINT>(std::size(kKatexFontFiles))) |
+                 std::views::transform([](UINT i) { return LoadRcData(IDR_KATEX_FONT_FIRST + i); }) | std::ranges::to<std::vector>();
     pele_ = std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), dw_factory_.Get(), i18n::TextLocale());
 }
 
@@ -386,10 +377,9 @@ void MermaidRenderer::RenderJob(Job& job)
         job.svg = DrawingToSvg(out.drawing);
         return;
     }
-    // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 4KB)。
+    // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
     if (job.req.kind() == RequestKind::Display) {
-        const auto utf8 = mermaid_util::SerializeDrawing(out.drawing);
-        job.bytes = std::make_shared<const ByteBuffer>(std::span{ reinterpret_cast<const uint8_t*>(utf8.data()), utf8.size() });
+        job.bytes = mermaid_util::SerializeDrawing(out.drawing);
     }
     job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
 }
@@ -431,11 +421,10 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
     viewer_.code.assign(code);
     viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
-    viewer_.has_image = false;
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = DiagramView::Open(hwnd_, dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
+    else if (viewer_.view = DiagramView::Open(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
         FailViewer();
         return;
     }
@@ -481,23 +470,11 @@ void MermaidRenderer::FailViewer()
     on_viewer_failed_();
 }
 
-// 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
-void MermaidRenderer::OnViewerResult(bool drawn)
-{
-    if (drawn) {
-        viewer_.has_image = true;
-    }
-    else if (!viewer_.has_image) {
-        FailViewer();
-    }
-}
-
 void MermaidRenderer::RequestViewerDrawing()
 {
     const unsigned int render = InvalidateViewerDrawing();
     if (auto drawing = FindWidthFreeDrawing(viewer_.code, viewer_.max_width, viewer_.dark_mode)) {
         viewer_.view->SetDrawing(std::move(drawing));
-        OnViewerResult(true);
         return;
     }
     StartRender(RenderRequest{
@@ -509,11 +486,13 @@ void MermaidRenderer::RequestViewerDrawing()
                 if (render != viewer_render_ || !ViewerOpen()) {
                     return;
                 }
-                const bool drawn = drawing != nullptr;
-                if (drawn) {
+                if (drawing) {
                     viewer_.view->SetDrawing(std::move(drawing));
                 }
-                OnViewerResult(drawn);
+                // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+                else if (!viewer_.view->HasDrawing()) {
+                    FailViewer();
+                }
             } },
     });
 }

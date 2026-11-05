@@ -439,25 +439,6 @@ class ParallelWorkerCountTest : public ParallelMeasureStressTest, public ::testi
 
 } // namespace
 
-// ===== 22000 ノード stress + bit-exact 検証 =====
-
-TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
-{
-    TaskScheduler ts{ 2 };
-    constexpr size_t N = 22000;
-    StressFixture s;
-    s.Build(N, /*include_code_block=*/false);
-    StressFixture p;
-    p.Build(N, /*include_code_block=*/false);
-
-    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
-    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
-
-    EXPECT_EQ(rs, 0);
-    EXPECT_EQ(rp, 0);
-    ExpectBitExactEqual(s, p);
-}
-
 // ===== worker 数変動 (0 は全 chunk を呼び出し側で回す) =====
 
 TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)

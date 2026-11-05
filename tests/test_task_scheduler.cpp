@@ -79,7 +79,6 @@ TEST(TaskScheduler, PostNeverDropsTasksWhileBacklogged)
 
 TEST(TaskScheduler, TasksDistributedAcrossWorkers)
 {
-    // 複数ワーカーで並行処理されることを観測する。
     // 各タスクがワーカーをブロックしている間に他のワーカーが別タスクを拾うはず。
     constexpr int WORKERS = 4;
     TaskScheduler sch{ WORKERS };
@@ -96,7 +95,6 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
                 std::lock_guard lock(m);
                 observed_threads.insert(std::this_thread::get_id());
             }
-            // 他のワーカーも到達するまで少し待つ
             PollUntil([&] { return running.load() >= 2; }, std::chrono::milliseconds(500));
             finished.fetch_add(1);
         });
@@ -137,7 +135,6 @@ TEST(TaskScheduler, DestructorJoinsWorkersEvenIfShutdownNotCalled)
         for (int i = 0; i < 10; ++i) {
             sch.Post([&] { count.fetch_add(1); });
         }
-        // Shutdown を呼ばずスコープを抜ける → デストラクタで join される
     }
     EXPECT_EQ(count.load(), 10);
 }
@@ -271,7 +268,7 @@ TEST(TaskScheduler, WorkerCountReportsConfiguredCountBeforeFirstPost)
 
 TEST(TaskScheduler, ZeroThreadsThenShutdownIsSafe)
 {
-    TaskScheduler sch{ 0 }; // ワーカーなし
+    TaskScheduler sch{ 0 };
     sch.Shutdown();
     SUCCEED();
 }

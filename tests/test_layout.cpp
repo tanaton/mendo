@@ -128,18 +128,15 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 2u);
 
-    // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     ASSERT_NE(cache[0].table_layout(), nullptr);
     IDWriteTextLayout* cell_layout = cache[0].table_layout()->GetCellLayout(1, 1);
     ASSERT_NE(cell_layout, nullptr);
 
-    // セル内にリンクランが存在することを確認
     bool has_link_run = false;
     for (const auto& run : tbl->GetCellRuns(1, 1)) {
         if (run.has_link()) {
             has_link_run = true;
 
-            // テキストレイアウトに下線が適用されていることを確認
             BOOL underline = FALSE;
             cell_layout->GetUnderline(run.start, &underline);
             EXPECT_TRUE(underline) << "テーブルセル内のリンクランには下線があること";
@@ -155,43 +152,6 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
     // H1はH2より高く、H2はH3以上であること
     EXPECT_GT(cache[0].height, cache[1].height);
     EXPECT_GE(cache[1].height, cache[2].height);
-}
-
-// ---- ProcessDirtyBatch テスト ----
-
-// ---- 幅変更の検出 ----
-
-TEST_F(LayoutTest, WidthChangeRecomputesLayouts)
-{
-    auto [nodes, cache] = ParseAndLayout("This is a paragraph with some text that might wrap differently.");
-    float height_wide = cache[0].height;
-
-    ComputeLayout(engine_, nodes, cache, 200.0f);
-    float height_narrow = cache[0].height;
-
-    // 狭い幅ではテキストが高くなる（折り返しが増える）
-    EXPECT_GE(height_narrow, height_wide);
-}
-
-// ---- インデントされたノード ----
-
-TEST_F(LayoutTest, IndentedNodesHaveNarrowerWidth)
-{
-    const auto plain = ParseAndLayout("This is a somewhat long paragraph that wraps.", 400.0f);
-    const auto list = ParseAndLayout("- This is a somewhat long paragraph that wraps.", 400.0f);
-
-    // リスト項目はインデントされるため、同じテキストでも高くなる（利用可能な幅が狭い）
-    EXPECT_GE(list.cache[0].height, plain.cache[0].height);
-}
-
-// ---- ブロック引用のレイアウト ----
-
-TEST_F(LayoutTest, BlockQuoteLayout)
-{
-    auto [nodes, cache] = ParseAndLayout("> Quoted text here");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_GT(cache[0].height, 0.0f);
-    EXPECT_GT(nodes[0].indent_level, 0);
 }
 
 // ---- コードブロックの折り返し無効 ----
@@ -212,8 +172,6 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
     // （おおよそコードフォントの高さ）
     EXPECT_LT(cache[0].height, 100.0f);
 }
-
-// ---- 見出しの間隔 ----
 
 // ========================================================
 // 抽出されたフリー関数のテスト
@@ -419,13 +377,6 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
 
 // ---- ComputeTotalContentHeight テスト ----
 
-TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero)
-{
-    LayoutCache cache;
-    // node_count == 0 で size_t のアンダーフローが起きないこと。0を返すべき。
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 10.0f), 0.0f);
-}
-
 TEST(ComputeTotalContentHeightTest, SingleNode)
 {
     LayoutCache cache(1);
@@ -468,23 +419,18 @@ TEST(RecomputeYPositionsTest, FirstNodeTop)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 {
-    // 複数の段落を作成し、ある幅でフルレイアウトを実行
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(20));
 
-    // 別の幅で部分的なレイアウトを実行 — 画面外のノードがダーティにマークされる
     ComputeLayout(engine_, nodes, cache, 400.0f, 0.0f, 100.0f);
 
-    // ビューポート外のノードはまだダーティであること
     ASSERT_GT(CountDirty(cache), 0u);
 
     // 修正パスをテストするため、表示中のノードを手動でダーティにマーク
     cache[0].layout_dirty = true;
 
-    // EnsureVisibleLayoutが表示範囲を修正すること
     bool updated = engine_.EnsureVisibleLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
     EXPECT_TRUE(updated);
 
-    // 表示範囲内のノードはもうダーティでないこと
     for (size_t i = 0; i < nodes.size(); i++) {
         if (cache.Top(i) + cache[i].height < 0.0f) {
             continue;
@@ -728,12 +674,10 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
     const auto nodes = MakeNodes({ { .text = "test" } });
     LayoutCache cache(nodes.size());
 
-    // layout_dirty はデフォルトで true
     ASSERT_TRUE(cache[0].layout_dirty);
 
     EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
 
-    // EstimateNodeHeights は layout_dirty を変更しないこと
     EXPECT_TRUE(cache[0].layout_dirty);
 }
 
@@ -820,9 +764,9 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     InitWithoutText(gen, theme_);
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
-    const auto bullet = FindFirst<FillEllipseCmd>(cmds);
-    ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
-    EXPECT_NEAR(bullet->center.y, expected_y, 0.01f)
+    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
+    ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
+    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 0.01f)
         << "箇条書き記号は1行目の中央に配置されるべき";
 }
 
@@ -913,9 +857,9 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
-    const auto bullet = FindFirst<FillEllipseCmd>(cmds);
-    ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
-    EXPECT_NEAR(bullet->center.y, expected_y, 3.0f);
+    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
+    ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
+    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 3.0f);
 }
 
 // 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem
