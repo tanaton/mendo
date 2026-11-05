@@ -175,7 +175,11 @@ private:
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // ディスクキャッシュから戻せるので画像より控えめにする。
+    // 数えるのは描画命令だけで、ID2D1CommandList (その約 5 倍) は数えないので、普通の図では件数の上限が先に効く。
+    // 表示中の結果は DiagramEntry と CommandList を共有し、余分に持つのは画面外の結果だけ。図 27 個の文書で、幅を 10 段
+    // 変えるたびに全体を読み進めても 128 件で commit 約 10MB (15%)。CommandList を数えて 8MB にしても -6% で、
+    // テーマの切り替え (58 件、5%) には効かない。結果はここを経由してしか DiagramEntry に届かないので、
+    // 1 回に届く結果より小さな上限にすると描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
