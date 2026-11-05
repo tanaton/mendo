@@ -119,6 +119,7 @@ winget install tanaton.mendo
 - Windows 10 이상
 - Visual Studio 2026 (MSVC, C++23 지원)
 - CMake 4.2+ (Visual Studio 2026 생성기를 지원하는 버전)
+- clang-cl (선택. 일부 빌드에 사용합니다. 없으면 MSVC를 사용합니다.)
 
 ### 빌드 절차
 
