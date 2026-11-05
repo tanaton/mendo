@@ -2,7 +2,6 @@
 #include "document.h"
 #include "ascii_util.h"
 #include "profiler.h"
-#include "string_convert.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <charconv>
@@ -134,18 +133,15 @@ NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
         return { RunContaining(node.runs(), pos), 0 };
     }
     const size_t idx = tbl->CellIndexAt(pos);
-    const size_t col_count = tbl->col_count;
-    const size_t r = idx / col_count;
-    const size_t c = idx % col_count;
-    if (r >= tbl->row_count) {
+    if (idx >= static_cast<size_t>(tbl->row_count) * tbl->col_count) {
         return {};
     }
+    const uint32_t base = tbl->cell_text_starts[idx];
     // 区切り文字の位置は前のセルに当たるので、セルの終端で外す。
-    if (pos >= tbl->CellTextEnd(r, c)) {
+    if (pos - base >= tbl->CellLength(idx)) {
         return {};
     }
-    const uint32_t base = tbl->CellTextStart(r, c);
-    return { RunContaining(tbl->GetCellRuns(r, c), pos - base), base };
+    return { RunContaining(tbl->CellRuns(idx), pos - base), base };
 }
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
@@ -278,16 +274,6 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     return tokens;
 }
 
-namespace {
-
-// 区切ったコードの並びをつないだテキストでの、ノード k の終わり。begins は各ノードの始まり。
-size_t RunEnd(std::span<const Node> run, std::span<const size_t> begins, size_t k) noexcept
-{
-    return begins[k] + run[k].GetText().size();
-}
-
-} // namespace
-
 void AnnotateCodeChunkLeads(std::span<Node> run)
 {
     MENDO_PROFILE("AnnotateCodeChunkLeads");
@@ -302,6 +288,8 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         begins[j] = pos;
         pos += run[j].GetText().size();
     }
+    // 区切ったコードの並びをつないだテキストでの、ノード k の終わり。
+    const auto run_end = [&](size_t k) noexcept { return begins[k] + run[k].GetText().size(); };
 
     // 全トークンを作ると 16MB のコードでパースが 18ms から 65ms になり、worker 4 本に配っても 27ms かかる。
     // TokensCrossing は語を飛ばすので直列で約 20ms (実際の C++ で 107ms が約 40ms) で済み、worker に配っても 1〜2ms しか縮まない。
@@ -316,7 +304,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     size_t window = kWindowNodes;
     while (next < n) {
         const size_t last = std::min(n, next + window);
-        const size_t end = RunEnd(run, begins, last - 1);
+        const size_t end = run_end(last - 1);
         const std::string_view head = run[next - 1].GetText();
         seg.reserve(end - restart);
         seg.assign(head.substr(std::min(restart - begins[next - 1], head.size())));
@@ -342,7 +330,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
             }
             if (t < tokens.size() && restart + tokens[t].start < b) {
                 const size_t token_end = restart + tokens[t].start + tokens[t].length;
-                run[next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, next)) - b), tokens[t].type);
+                run[next].set_code_lead(static_cast<uint32_t>(std::min(token_end, run_end(next)) - b), tokens[t].type);
             }
         }
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
@@ -445,7 +433,8 @@ LinkClickResult ClassifyLinkClick(std::string_view url)
         result.target = PercentDecode(url.substr(1));
         return result;
     }
-    if (url.starts_with("mendo://") && IsEmbeddedPath(string_convert::Utf8ToWide(url))) {
+    // 仮想パスは ASCII なので変換せずに比べる (非 ASCII のバイトは負の char になり一致しない)。
+    if (std::ranges::equal(url, HELP_PATH) || std::ranges::equal(url, LICENSES_PATH)) {
         result.type = LinkClickResult::Type::Embedded;
         result.target = url;
         return result;

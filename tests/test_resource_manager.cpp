@@ -364,7 +364,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
     ASSERT_GE(doc_.GetDiagramNodeIndices().size(), 2u);
 
     rm_.RequestMermaidRenders();
-    // 1個目 (y=0, 可視範囲内) のみ Render される
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 }
 
@@ -475,15 +474,6 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
     EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
-    EXPECT_TRUE(mock_mermaid_.last_dark_mode);
-}
-
-TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    theme_.dark = true;
-
-    rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 

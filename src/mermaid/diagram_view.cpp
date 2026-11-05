@@ -19,6 +19,10 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
+// 8 倍は試作で確かめた範囲。
+constexpr float kZoomStops[]{ 0.05f, 0.1f, 0.25f, 0.33f, 0.5f, 0.67f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f };
+constexpr float kPadding = 16.0f;
+
 constexpr std::wstring_view kWindowClass = L"mendo_MermaidViewer";
 // 最初の大きさ。本体に対する割合。
 constexpr int kSizePercent = 90;
@@ -48,21 +52,20 @@ struct Palette {
     D2D1_COLOR_F shadow;
 };
 
-// 背景は図の背景 (DrawDiagram) とそろえる。
 Palette PaletteFor(bool dark) noexcept
 {
     if (dark) {
-        return { D2D1::ColorF(0x1E1E1E), D2D1::ColorF(0xDDDDDD), D2D1::ColorF(0x323232, 0.94f), D2D1::ColorF(0xFFFFFF, 0.15f),
+        return { D2D1::ColorF(kDiagramDarkBackground), D2D1::ColorF(0xDDDDDD), D2D1::ColorF(0x323232, 0.94f), D2D1::ColorF(0xFFFFFF, 0.15f),
                  D2D1::ColorF(0x000000, 0.5f) };
     }
-    return { D2D1::ColorF(0xFFFFFF), D2D1::ColorF(0x333333), D2D1::ColorF(0xF0F0F0, 0.94f), D2D1::ColorF(0x000000, 0.1f),
+    return { D2D1::ColorF(kDiagramLightBackground), D2D1::ColorF(0x333333), D2D1::ColorF(0xF0F0F0, 0.94f), D2D1::ColorF(0x000000, 0.1f),
              D2D1::ColorF(0x000000, 0.18f) };
 }
 
 // 余白込みの面の大きさ。
 float ContentExtent(float size, float zoom) noexcept
 {
-    return size * zoom + diagram_view::kPadding * 2.0f;
+    return size * zoom + kPadding * 2.0f;
 }
 
 } // namespace
@@ -291,7 +294,7 @@ bool DiagramView::EnsureTarget()
 D2D1_POINT_2F DiagramView::Origin() const noexcept
 {
     const auto place = [this](float size, float view, float scroll) {
-        return ContentExtent(size, zoom_) <= view ? (view - size * zoom_) / 2.0f : diagram_view::kPadding - scroll;
+        return ContentExtent(size, zoom_) <= view ? (view - size * zoom_) / 2.0f : kPadding - scroll;
     };
     return { place(drawing_->width, view_width_, scroll_x_), place(drawing_->height, view_height_, scroll_y_) };
 }
@@ -556,7 +559,7 @@ void DiagramView::SetZoom(float zoom)
     zoom_ = zoom;
     Layout();
     // 新しい倍率で同じ点が中央に来るスクロール位置。余白込みの面では図の左上が kPadding にある。
-    ScrollTo(diagram_view::kPadding + ax * zoom_ - view_width_ / 2.0f, diagram_view::kPadding + ay * zoom_ - view_height_ / 2.0f);
+    ScrollTo(kPadding + ax * zoom_ - view_width_ / 2.0f, kPadding + ay * zoom_ - view_height_ / 2.0f);
 }
 
 void DiagramView::Fit()

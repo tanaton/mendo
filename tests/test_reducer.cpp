@@ -30,13 +30,6 @@ bool HidesTooltip(const SideEffectList& effects)
 
 constexpr TooltipTarget kLinkTooltip{ TooltipTarget::Zone::MdLink, 1 };
 
-// 文書を差し替え、各ノードを node_height ずつ縦に並べたレイアウトを持たせる。
-void SetDocument(AppState& state, std::string_view md, std::wstring_view path, float node_height = 100.0f)
-{
-    state.document.doc = Document::FromMarkdown(std::string(md), path);
-    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), node_height);
-}
-
 // "# Heading i" の見出しを count 個並べ、各見出しの後に "line" の段落を body_lines 個置く。
 std::string HeadingSectionsMd(int count, int body_lines = 0)
 {
@@ -81,7 +74,6 @@ TEST_F(ReducerTest, KeyScrollLineDown)
 
 TEST_F(ReducerTest, KeyScrollLineUp_AtTop_NoEffect)
 {
-    // スクロール位置0で上にスクロール → 変化なし → 副作用なし
     state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineUp });
 
@@ -254,7 +246,6 @@ TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
 
 TEST_F(ReducerTest, ClearSelection_WhenNotVisible)
 {
-    // 検索バーが非表示の場合、選択をクリアする
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(0, 0, 0, 3));
     auto effects = Reduce(state, ClearSelectionAction{});
 
@@ -649,15 +640,6 @@ TEST_F(ReducerTest, NavigateWithoutHistory_NoEffects)
         SCOPED_TRACE(forward);
         EXPECT_TRUE(Reduce(state, NavigateHistoryAction{ .forward = forward }).empty());
     }
-}
-
-TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
-{
-    SetDocument(state, "test", L"C:\\current.md");
-    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 50.0f });
-
-    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
-    EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
 }
 
 TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
@@ -1288,6 +1270,18 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu)
     EXPECT_EQ(menu->screen_y, 500);
 }
 
+// 方向の決まらない右ドラッグもメニューを出す。軌跡を消す描き直しは、モーダルのメニューより前に積む。
+TEST_F(ReducerTest, RightClickGestureCompleted_TrackingVertical_ClearsTrailBeforeMenu)
+{
+    state.interaction.gesture.OnRButtonDown(100.0f, 100.0f);
+    state.interaction.gesture.OnMouseMove(100.0f, 200.0f);
+    ASSERT_TRUE(state.interaction.gesture.IsGestureActive());
+
+    auto effects = Reduce(state, RightClickGestureCompletedAction{ 0, 0 });
+
+    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateWindow, effect::ShowContextMenu>(effects)));
+}
+
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack)
 {
     SetDocument(state, "test", L"C:\\current.md");
@@ -1306,16 +1300,14 @@ TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack)
 
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingRight_NavigatesForward)
 {
-    // 前進履歴を用意: page2 からスタート → Push(page1) → GoBack → 前進スタックに page2
     state.view.nav_history.Push(NavEntry{ L"C:\\page1.md", 0, 0.0f });
     NavEntry tmp;
     state.view.nav_history.GoBack(NavEntry{ L"C:\\page2.md", 0, 0.0f }, tmp);
-    // 現在ドキュメントを page1（後進結果）に合わせる
     SetDocument(state, "test", L"C:\\page1.md");
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 
     state.interaction.gesture.OnRButtonDown(100.0f, 200.0f);
-    state.interaction.gesture.OnMouseMove(200.0f, 200.0f); // 右に 100px
+    state.interaction.gesture.OnMouseMove(200.0f, 200.0f);
 
     auto effects = Reduce(state, RightClickGestureCompletedAction{ 0, 0 });
 

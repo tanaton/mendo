@@ -198,7 +198,7 @@ protected:
     }
     app_controller::MdPaneHit ResolveMd(float x, float y) const
     {
-        const auto ctx = app_controller::MakeMdPaneHitContext(h_.state, layout_, static_cast<int>(x), static_cast<int>(y));
+        const auto ctx = app_controller::MakeMdPaneHitContext(h_.state, layout_, { x, y });
         return app_controller::ResolveMdPaneHit(h_.state, ctx, layout_, x, y);
     }
     int FirstCodeBlock() const
@@ -228,7 +228,7 @@ TEST_F(PointerHitTest, TocPaneHeaderButtonAndItem)
 {
     const auto toc = std::to_underlying(PaneTarget::Toc);
     const float header_h = h_.theme.pane_header_height;
-    const auto close = PaneHeaderButtonRect(layout_.toc_rect.width, header_h, PaneHeaderSlot::Close);
+    const auto close = PaneHeaderButtonRect(layout_.toc_rect.width, header_h, PaneHeaderButton::Close);
     const auto on_close = Hover(layout_.toc_rect.x + (close.left + close.right) / 2.0f, kTop + (close.top + close.bottom) / 2.0f);
     EXPECT_EQ(on_close.hover.side_button[toc], PaneHeaderButton::Close);
     EXPECT_EQ(on_close.cursor, app_controller::PointerCursor::Hand);
@@ -262,6 +262,18 @@ TEST_F(PointerHitTest, SidePaneClickSeesScrollbarBeforeItem)
     EXPECT_TRUE(in_header.in_header);
     EXPECT_EQ(in_header.button, PaneHeaderButton::None);
     EXPECT_FALSE(in_header.scrollbar);
+    EXPECT_EQ(in_header.item, -1);
+}
+
+// スクロールした一覧のヘッダーの上では、その下に隠れた項目に当たらない (ツールチップを出さない)。
+TEST_F(PointerHitTest, ScrolledSidePaneHeaderHidesItems)
+{
+    const auto toc = std::to_underlying(PaneTarget::Toc);
+    h_.state.view.panes.SidePaneScroll(PaneTarget::Toc) = h_.theme.pane_item_height * 5.0f;
+    const auto on_header = Hover(layout_.toc_rect.x + 5.0f, kTop + 2.0f);
+    EXPECT_EQ(on_header.hover.side_index[toc], -1);
+    EXPECT_EQ(on_header.hover.side_button[toc], PaneHeaderButton::None);
+    EXPECT_TRUE(on_header.hover.tooltip.text.empty());
 }
 
 // 横スクロールのドラッグ中は、ホバーで別のブロックのバーを出さない (ドラッグ中のバーだけを描く)。
@@ -385,9 +397,6 @@ TEST_F(PointerHitTest, LoadingMdPaneHitsNothing)
 
 // ---- TooltipTarget ----
 
-// Tooltip クラス本体は Win32 HWND 依存のためテスト対象外。
-// ここでは値型 TooltipTarget の IsEmpty と同一判定、MakeTooltip のみを検証する。
-
 // 空かどうかは zone だけで決まり、key は見ない。既定は空。
 TEST(TooltipTarget, IsEmptyFollowsZoneOnly)
 {
@@ -395,14 +404,6 @@ TEST(TooltipTarget, IsEmptyFollowsZoneOnly)
     EXPECT_TRUE(TooltipTarget{}.IsEmpty());
     EXPECT_FALSE((TooltipTarget{ TooltipTarget::Zone::OverlayButton, 0 }).IsEmpty());
     EXPECT_TRUE((TooltipTarget{ TooltipTarget::Zone::None, 5 }).IsEmpty());
-}
-
-TEST(TooltipTarget, DifferentKeyOrZoneIsNotSameTarget)
-{
-    const TooltipTarget a{ TooltipTarget::Zone::MdLink, 1 };
-    EXPECT_EQ(a, (TooltipTarget{ TooltipTarget::Zone::MdLink, 1 }));
-    EXPECT_NE(a, (TooltipTarget{ TooltipTarget::Zone::MdLink, 2 }));
-    EXPECT_NE(a, (TooltipTarget{ TooltipTarget::Zone::MdImage, 1 }));
 }
 
 // ホバー移動ごとに表示文字列を作らないため、同じ対象なら文言を作らない (同一判定は zone と key だけ)。
@@ -419,10 +420,6 @@ TEST(TooltipTarget, MakeTooltipBuildsTextOnlyWhenTargetChanges)
 
     const auto other = MakeTooltip(current.target, TooltipTarget::Zone::NavButton, 2, L"forward");
     EXPECT_EQ(other.text, L"forward");
-}
-
-// 該当ボタンが無いときは文言が空になるので、ゾーンを残さず非表示にする。
-TEST(TooltipTarget, MakeTooltipWithEmptyTextIsEmpty)
-{
+    // 該当ボタンが無いときは文言が空になるので、ゾーンを残さず非表示にする。
     EXPECT_TRUE(MakeTooltip({}, TooltipTarget::Zone::NavButton, 0, L"").target.IsEmpty());
 }

@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -287,19 +288,22 @@ TEST_F(PeleEngineTest, KeepsNaturalSizeWhenNotFitting)
     EXPECT_GT(natural.drawing.width, 200.0f);
 }
 
-// 覚えておいた pele の出力をテーマと fit を変えて解き直しても、初めて描いたときと同じになる。
+// 覚えておいた pele の出力をテーマか fit を変えて解き直しても、初めて描いたときと同じになる。
+// 最初はライト・fit ありで描くので、テーマだけ・fit だけを変えた 2 通りで足りる (エンジンを作るのは 1 回 25ms ほど)。
 TEST_F(PeleEngineTest, ReusedPeleOutputMatchesFreshRender)
 {
     constexpr std::string_view kCode = "flowchart LR\n  A[\"面積 $$x^2$$\"] --> B[bbbbbbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccc]";
     ASSERT_EQ(engine_->Render(kCode, false, 300.0f).status, Status::Drawn);
-    for (const bool dark : { false, true }) {
-        for (const bool fit : { false, true }) {
-            const auto reused = engine_->Render(kCode, dark, 300.0f, fit);
-            const auto fresh = NewEngine()->Render(kCode, dark, 300.0f, fit);
-            ASSERT_EQ(reused.status, Status::Drawn);
-            ASSERT_EQ(fresh.status, Status::Drawn);
-            EXPECT_EQ(reused.drawing, fresh.drawing) << "dark=" << dark << " fit=" << fit;
-        }
+    constexpr std::pair<bool, bool> kVariants[]{
+        { true,  true  },
+        { false, false }
+    };
+    for (const auto [dark, fit] : kVariants) {
+        const auto reused = engine_->Render(kCode, dark, 300.0f, fit);
+        const auto fresh = NewEngine()->Render(kCode, dark, 300.0f, fit);
+        ASSERT_EQ(reused.status, Status::Drawn);
+        ASSERT_EQ(fresh.status, Status::Drawn);
+        EXPECT_EQ(reused.drawing, fresh.drawing) << "dark=" << dark << " fit=" << fit;
     }
 }
 

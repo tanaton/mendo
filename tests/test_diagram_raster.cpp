@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "diagram_raster.h"
 #include "layout_cache.h"
+#include "mermaid_util.h"
+#include "string_convert.h"
 #include "test_helpers.h"
 #include "theme_palette.h"
 #include "wic_util.h"
@@ -9,6 +11,7 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -35,12 +38,9 @@ protected:
     // 32bpp PBGRA の 1 画素を 0xAARRGGBB で返す。
     static uint32_t Pixel(IWICBitmap* bitmap, UINT x, UINT y)
     {
-        UINT w = 0;
-        UINT h = 0;
-        bitmap->GetSize(&w, &h);
-        std::vector<uint8_t> bytes(size_t{ w } * h * 4);
-        bitmap->CopyPixels(nullptr, w * 4, static_cast<UINT>(bytes.size()), bytes.data());
-        const uint8_t* p = &bytes[(size_t{ y } * w + x) * 4];
+        const WICRect rect{ static_cast<INT>(x), static_cast<INT>(y), 1, 1 };
+        std::array<uint8_t, 4> p{};
+        bitmap->CopyPixels(&rect, 4, static_cast<UINT>(p.size()), p.data());
         return (uint32_t{ p[3] } << 24) | (uint32_t{ p[2] } << 16) | (uint32_t{ p[1] } << 8) | p[0];
     }
 
@@ -183,6 +183,8 @@ TEST_F(DiagramRasterTest, ResolvesInstalledFamiliesInOrder)
     ASSERT_NE(mono, std::end(theme_palette::kMonospaceFontCandidates));
     EXPECT_EQ(ResolveFontFamilies(fonts.Get(), L"No Such Font 12345, monospace"), Families{ *mono });
     EXPECT_EQ(ResolveFontFamilies(fonts.Get(), L" sans-serif "), Families{ L"Segoe UI" });
+    // 総称名は CSS と同じく大文字小文字を区別しない。
+    EXPECT_EQ(ResolveFontFamilies(fonts.Get(), L"Sans-Serif, MONOSPACE"), (Families{ L"Segoe UI", *mono }));
     EXPECT_TRUE(ResolveFontFamilies(fonts.Get(), L"").empty());
     EXPECT_TRUE(ResolveFontFamilies(fonts.Get(), L"No Such Font 12345").empty());
 }
@@ -382,4 +384,23 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
     const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="6" style="rx:min(var(--undefined, 4px),3px)"/>)svg");
     ASSERT_TRUE(drawing);
     EXPECT_NE(drawing->layers[0].shapes.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes;
+}
+
+// 大きさ 0 の文字は見えないので書かない。書くとディスクキャッシュから読み戻せず、開くたびに描き直す。
+TEST_F(PeleSvgTest, SkipsZeroSizedTextAndParsesBack)
+{
+    const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:0">a</text><text x="0" y="40">b</text>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
+    EXPECT_EQ(drawing->layers[0].texts[0].text, L"b");
+    EXPECT_TRUE(mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(*drawing))));
+}
+
+// 読めない長さは前の値を残す (float に収まらない値で inf を書き出さない)。
+TEST_F(PeleSvgTest, KeepsLengthWhenValueOverflows)
+{
+    const auto drawing = Resolve(R"svg(<path d="M0 0L10 0" stroke="#000" style="stroke-dasharray:2;stroke-dashoffset:1e39"/>)svg");
+    ASSERT_TRUE(drawing);
+    const auto& shapes = drawing->layers[0].shapes;
+    EXPECT_EQ(shapes.find("stroke-dashoffset"), std::string::npos) << shapes;
 }

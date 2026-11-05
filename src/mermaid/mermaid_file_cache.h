@@ -13,7 +13,7 @@
 class TaskScheduler;
 
 // Mermaidダイアグラムの描画命令 (UTF-8) をファイルに永続化するキャッシュ。
-// 幅は mermaid_util::QuantizeWidth で量子化し、コード・テーマの組み合わせごとに保持する。
+// コード・テーマと、量子化した幅 (mermaid_util::QuantizeWidth) または幅に縛られないことの組み合わせごとに保持する。
 // 書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
 // インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
 // 書く直前に読み直して、他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
@@ -58,7 +58,7 @@ public:
     std::filesystem::path FilePath(uint64_t key) const;
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    void StoreAsync(uint64_t key, float css_width, float css_height, std::shared_ptr<const ByteBuffer> data);
+    void StoreAsync(uint64_t key, float css_width, float css_height, std::string data);
     void SaveIndex();
     // 索引とファイルをすべて消す。書き込み中のファイルは着地後に worker が消す。
     void Clear();

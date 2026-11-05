@@ -70,19 +70,19 @@ constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
     return (cp >= 0xFF01 && cp <= 0xFF0F) || (cp >= 0xFF1A && cp <= 0xFF20) || (cp >= 0xFF3B && cp <= 0xFF40) || (cp >= 0xFF5B && cp <= 0xFF65);
 }
 
-} // namespace
-
-std::string GenerateAnchorId(std::string_view text)
+// kSlug なら GitHub のスラグ、そうでなければ小文字にするだけ。
+// 出力は入力サイズ以下 (UTF-8 長が伸びる変換は表から除いてある) なので一括確保して書き出す。
+template <bool kSlug>
+std::string LowerAnchor(std::string_view text)
 {
-    std::string slug;
-    // 出力は入力サイズ以下で確定のため一括確保して書き出す。
-    slug.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
+    std::string out;
+    out.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
         char* dst = buf;
         size_t pos = 0;
         while (pos < text.size()) {
             const char c = text[pos];
             if (static_cast<unsigned char>(c) < 0x80) {
-                if (ascii_util::IsAsciiWordChar(c) || c == '-') {
+                if (!kSlug || ascii_util::IsAsciiWordChar(c) || c == '-') {
                     *dst++ = ascii_util::ToLowerAscii(c);
                 }
                 else if (c == ' ' || c == '\t') {
@@ -92,43 +92,28 @@ std::string GenerateAnchorId(std::string_view text)
                 continue;
             }
             const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
-            // U+FFFD は不正/truncated バイト由来。アンカーには採用しない。
-            if (decoded.cp != utf8_codec::kReplacement && !IsAnchorSkippableSymbol(decoded.cp)) {
+            // U+FFFD は不正/truncated バイト由来。スラグには採用せず、小文字化では元のバイトを残す
+            // (U+FFFD は小文字を持たないので WriteLowerNonAscii が写す。どの見出しとも一致しないままにする)。
+            if (!kSlug || (decoded.cp != utf8_codec::kReplacement && !IsAnchorSkippableSymbol(decoded.cp))) {
                 dst += WriteLowerNonAscii(decoded, text.data() + pos, dst);
             }
             pos += decoded.len;
         }
         return static_cast<size_t>(dst - buf);
     });
-    return slug;
+    return out;
+}
+
+} // namespace
+
+std::string GenerateAnchorId(std::string_view text)
+{
+    return LowerAnchor<true>(text);
 }
 
 std::string ToLowerAnchorCopy(std::string_view text)
 {
-    std::string result;
-    result.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
-        char* dst = buf;
-        size_t pos = 0;
-        while (pos < text.size()) {
-            const char c = text[pos];
-            if (static_cast<unsigned char>(c) < 0x80) {
-                *dst++ = ascii_util::ToLowerAscii(c);
-                ++pos;
-                continue;
-            }
-            const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
-            // 不正バイトは U+FFFD に置き換えず元のバイトを残す (どの見出しとも一致しないままにする)。
-            if (decoded.cp == utf8_codec::kReplacement) {
-                *dst++ = c;
-                ++pos;
-                continue;
-            }
-            dst += WriteLowerNonAscii(decoded, text.data() + pos, dst);
-            pos += decoded.len;
-        }
-        return static_cast<size_t>(dst - buf);
-    });
-    return result;
+    return LowerAnchor<false>(text);
 }
 
 std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node_index)

@@ -51,9 +51,9 @@ public:
     // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。高さを変えたら true。
     // 読み込みは後続の RelayoutViewport (FlushPendingResources) が起動する。
     bool ApplyCachedImagesForReload(IndexRange range);
-    // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
-    // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
-    bool ApplyMermaidCacheHeightsForReload(IndexRange range);
+    // 開くときとリロードのスクロール位置の計算用に、range のノードの推定高さを図と画像のキャッシュにある実測の寸法で
+    // 上書きする。変えたら true (Y は組み直さない)。呼び出し前にノード高さの初期化 (EstimateNodeHeights) は済ませておく。
+    bool ApplyCachedHeights(IndexRange range);
     void LoadImages();
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
     void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
@@ -67,6 +67,9 @@ public:
     void OnBitmapManageTimer();
 
 private:
+    // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
+    // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
+    bool ApplyMermaidCacheHeights(IndexRange range);
     // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは changed に積む。
     // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     void ApplyCachedImages(IndexRange& changed);

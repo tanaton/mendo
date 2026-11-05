@@ -92,10 +92,6 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
     void CreateTextFormats();
     void ComputeLayout();
     Hit HitTest(float x, float y) const noexcept;
-    bool CanClearCache() const noexcept
-    {
-        return can_clear;
-    }
     void Activate(const Hit& hit);
 
     // PopupWindow から呼ばれる。

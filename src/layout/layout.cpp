@@ -1,6 +1,6 @@
 #include "layout.h"
 #include "document.h"
-#include "parallel_for.h"
+#include "task_scheduler.h"
 #include "profiler.h"
 #include "viewport_manager.h"
 #include <algorithm>

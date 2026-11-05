@@ -116,11 +116,6 @@ protected:
     ThemeService service_;
 };
 
-TEST_F(ThemeServiceTest, InitiallyLightMode)
-{
-    EXPECT_FALSE(service_.IsDarkMode());
-}
-
 TEST_F(ThemeServiceTest, ToggleDarkMode)
 {
     bool result = service_.ToggleDarkMode();

@@ -182,13 +182,14 @@ TEST_F(FileIoTest, IsFileLargerThan_MissingFile_ReturnsFalse)
 // AtomicWriteAllBytes: tmp → MoveFileExW(REPLACE_EXISTING) 経路
 // ═══════════════════════════════════════════════
 
-// 新しく作るときも上書きするときも中身を書き、tmp は MoveFileExW で消費されて残らない。
+// 新しく作るときも上書きするとき (0 バイトも) も中身を書き、tmp は MoveFileExW で消費されて残らない。
 TEST_F(FileIoTest, AtomicWrite_CreatesAndOverwritesFile)
 {
     const auto path = temp_dir_ / L"atomic.bin";
-    for (const std::string_view payload : { "first-content-longer-than-second", "short" }) {
+    for (const std::string_view payload : { "first-content-longer-than-second", "short", "" }) {
         SCOPED_TRACE(payload);
         ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
+        EXPECT_TRUE(fs::exists(path));
         EXPECT_EQ(ReadAsString(path), payload);
         EXPECT_FALSE(fs::exists(TmpOf(path)));
     }
@@ -217,17 +218,6 @@ TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
     ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
 
     EXPECT_EQ(ReadAsString(path), payload);
-    EXPECT_FALSE(fs::exists(TmpOf(path)));
-}
-
-TEST_F(FileIoTest, AtomicWrite_ZeroBytesProducesEmptyFile)
-{
-    const auto path = temp_dir_ / L"atomic_zero.bin";
-
-    ASSERT_TRUE(AtomicWriteAllBytes(path, "", 0));
-
-    EXPECT_TRUE(fs::exists(path));
-    EXPECT_EQ(fs::file_size(path), 0u);
     EXPECT_FALSE(fs::exists(TmpOf(path)));
 }
 

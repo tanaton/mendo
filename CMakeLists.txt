@@ -146,12 +146,6 @@ add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
 target_compile_options(md4c PRIVATE /W0)
 
-# ---- サブディレクトリ定義 ----
-set(MENDO_SRC_DIRS
-    src src/app src/window src/core src/render src/layout
-    src/ui src/input src/io src/mermaid src/nav src/theme src/util
-)
-
 # ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
@@ -191,14 +185,13 @@ add_library(mendo_core STATIC
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
     src/mermaid/diagram_view.cpp
-    # nav - ナビゲーション
-    src/nav/nav.cpp
     # theme - テーマ管理
     src/theme/theme.cpp
     # app - アプリケーション制御
     src/app/async_load_coordinator.cpp
     src/app/app_controller.cpp
     src/app/clipboard_manager.cpp
+    src/app/nav.cpp
     src/app/reducer.cpp
     src/app/resource_manager.cpp
     src/app/startup_plan.cpp
@@ -209,7 +202,10 @@ add_library(mendo_core STATIC
     src/util/task_scheduler.cpp
     src/util/win32_util.cpp
 )
-target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS})
+target_include_directories(mendo_core PUBLIC
+    src src/app src/window src/core src/render src/layout
+    src/ui src/input src/io src/mermaid src/theme src/util
+)
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )

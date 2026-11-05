@@ -154,8 +154,6 @@ private:
         int node = -1;
         float max_width = 0.0f;
         bool dark_mode = false;
-        // この図を出した。以後は描き直しに失敗しても窓を閉じない。
-        bool has_image = false;
     };
 
     // bg のワーカーの仕事 1 つ (図や数式の描画・ディスクキャッシュの読み込み) とその結果。
@@ -164,7 +162,7 @@ private:
         // インライン数式の要求の結果。MathRequest::items と同じ順で、描けなかった数式は null。
         std::vector<std::shared_ptr<const MathDrawing>> maths;
         // 描いたばかりの図の、ディスクキャッシュに書く描画命令 (UTF-8)。
-        std::shared_ptr<const ByteBuffer> bytes;
+        std::string bytes;
         // 描画命令。UI で commands にする。
         std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
         // ディスクキャッシュを読めなかった理由。
@@ -195,14 +193,12 @@ private:
 
     void ApplyMathResult(Job& r);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は pele の文言で、空なら汎用の文言を出す。
-    void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
+    void SetDiagramError(uint64_t request_hash, DiagramError::Kind kind, std::wstring_view msg);
 
     bool ViewerOpen() const noexcept
     {
         return viewer_.view && viewer_.view->IsOpen();
     }
-    // 描けた図を出したら drawn。描けなければ、図が出ていなければ閉じる。
-    void OnViewerResult(bool drawn);
     void RequestViewerDrawing();
     // 今までの要求の結果を要らなくする。描画中の分は世代で捨て、待ちの分は描かせない (結果を待つ人がいないのでコールバックは
     // 呼ばない)。新しい世代を返す。
@@ -224,12 +220,6 @@ private:
     void PostJob(Job job, Work work);
     // worker で呼ぶ。
     void RenderJob(Job& job);
-    void ReleaseInflight(const RenderRequest& req) noexcept
-    {
-        if (req.kind() == RequestKind::Display) {
-            inflight_.erase(req.request_hash);
-        }
-    }
 
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。

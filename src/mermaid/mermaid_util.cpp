@@ -48,10 +48,6 @@ void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noex
     }
 }
 
-} // namespace
-
-namespace {
-
 // s の先頭から sep までを切り出して進める。sep が無ければ nullopt。
 std::optional<std::wstring_view> TakeField(std::wstring_view& s, wchar_t sep = L':') noexcept
 {
@@ -173,10 +169,6 @@ std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
     }
     return mermaid_util::DrawingMath{ .at = *at, .tex = string_convert::WideToUtf8(*tex) };
 }
-
-} // namespace
-
-namespace {
 
 // ParseDrawing は長さを UTF-16 の単位で読む。
 size_t Utf16Length(std::string_view utf8) noexcept

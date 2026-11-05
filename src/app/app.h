@@ -171,7 +171,6 @@ public:
     bool IsOverMdScrollbar(float dip_x, float dip_y);
 
 private:
-    // reducer が返した副作用を実行する。
     void Execute(const SideEffectList& effects)
     {
         for (const auto& e : effects) {
@@ -251,7 +250,7 @@ private:
     // dirty が残っていれば空き時間の遅延レイアウト (HasIdleWork) が拾い、その完了時に画像と図を整理する。
     // 残っていなければ今整理させる。
     void SettleLayout();
-    // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
+    // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウトを追従させる (目次は描画の SyncActiveTocIndex)。
     void RelayoutViewport();
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。
     bool RequestInlineMathChunk(uint64_t key);
@@ -296,11 +295,8 @@ private:
     // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
     void ScheduleLoadingAnimation();
     void StopLoadingAnimation();
-    // error があればトーストで知らせる。
-    void HandleLoadFailureFallback(std::optional<FileLoadError> error);
-    // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
-    // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
-    bool ApplyCachedHeights(IndexRange nodes);
+    // 理由をトーストで知らせ、文書が無ければヘルプを出す。
+    void HandleLoadFailureFallback(FileLoadError error);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。

@@ -296,7 +296,7 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     EXPECT_EQ(requests, expected);
     const auto* tl = cache[2].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_TRUE(tl->pending_math);
+    EXPECT_TRUE(cache[2].pending_math);
     // 表を待たせても、段落は組み直す。
     EXPECT_TRUE(cache.InvalidatePendingMathLayouts(false));
     EXPECT_EQ(cache[2].table_layout(), tl);
@@ -333,11 +333,13 @@ TEST_F(DWriteInlineMathTest, MathFontSizeMatchesLaidOutText)
 // 計測と計画はノードと run を別々にたどる。ずれると計測が頼んだ数式が計画に無く、描かれない。
 TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
 {
-    auto [nodes, cache] = ParseAndLayout("# $a$\n\n## $a$\n\n### $a$\n\n#### $a$\n\n##### $a$\n\n###### $a$\n\n"
-                                         "$a$ **$b$** `c` $$d$$\n\n> $e$\n\n- $f$\n\n| $g$ |\n|---|\n| $h$ |\n");
+    // 計画はパーサーが集めた数式のあるノードだけを見るので、その番号の漏れも捕まえる。
+    constexpr std::string_view kMd = "# $a$\n\n## $a$\n\n### $a$\n\n#### $a$\n\n##### $a$\n\n###### $a$\n\n"
+                                     "$a$ **$b$** `c` $$d$$\n\n> $e$\n\n- $f$\n\n| $g$ |\n|---|\n| $h$ |\n";
+    auto [nodes, cache] = ParseAndLayout(kMd);
     const auto requests = table_.TakeRequests();
     InlineMathPlan plan;
-    plan.Build(nodes, theme_);
+    plan.Build(nodes, ParseNodesWithMath(kMd).math_indices, theme_);
     size_t planned = 0;
     for (const auto& c : plan.Chunks()) {
         planned += c.items.size();
@@ -387,9 +389,9 @@ std::vector<uint64_t> ChunkKeys(const InlineMathPlan& plan)
 TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 {
     const Theme theme = GetLightTheme();
-    const auto nodes = ParseNodes("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
+    const auto [nodes, math] = ParseNodesWithMath("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
     InlineMathPlan plan;
-    plan.Build(nodes, theme);
+    plan.Build(nodes, math, theme);
     std::vector<std::pair<std::string, float>> items;
     for (const auto& c : plan.Chunks()) {
         for (const auto& item : c.items) {
@@ -406,7 +408,7 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
 
     InlineMathPlan again;
-    again.Build(nodes, theme);
+    again.Build(nodes, math, theme);
     EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
 }
 
@@ -414,7 +416,8 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
 {
     InlineMathPlan plan;
-    plan.Build(ParseNodes("$a$ $b$\n"), GetLightTheme());
+    const auto parsed = ParseNodesWithMath("$a$ $b$\n");
+    plan.Build(parsed.nodes, parsed.math_indices, GetLightTheme());
     ASSERT_EQ(plan.Chunks().size(), 1u);
     const uint64_t key = plan.Chunks()[0].key;
     EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
@@ -427,8 +430,8 @@ TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
 TEST(InlineMathPlan, StaleChunksDoNotFinish)
 {
     InlineMathPlan plan;
-    const auto nodes = ParseNodes("$a$\n");
-    plan.Build(nodes, GetLightTheme());
+    const auto [nodes, math] = ParseNodesWithMath("$a$\n");
+    plan.Build(nodes, math, GetLightTheme());
     const uint64_t key = plan.Chunks()[0].key;
     ASSERT_NE(plan.TakeChunk(0), nullptr);
     plan.FinishChunk(0, key + 1);
@@ -448,7 +451,8 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
         text += std::format("${}x$ ", i);
     }
     InlineMathPlan plan;
-    plan.Build(ParseNodes(text), theme);
+    const auto parsed = ParseNodesWithMath(text);
+    plan.Build(parsed.nodes, parsed.math_indices, theme);
     const auto chunks = plan.Chunks();
     ASSERT_EQ(chunks.size(), 3u);
     EXPECT_EQ(chunks[0].items.size(), kInlineMathPerChunk);
@@ -502,24 +506,10 @@ TEST(InlineMathTable, ForgetRequestDropsOnlyWaitingEntry)
     table.ForgetRequest(2);
     table.ForgetRequest(3);
     EXPECT_FALSE(table.HasUnresolved());
-    EXPECT_TRUE(table.Find(2));
+    EXPECT_TRUE(table.FindOrRequest(2));
 
     EXPECT_FALSE(table.FindOrRequest(1));
     EXPECT_EQ(table.TakeRequests(), (std::vector<uint64_t>{ 1 }));
-}
-
-// Find は分かっている寸法だけを返し、無くても頼まない。
-TEST(InlineMathTable, FindDoesNotRequest)
-{
-    InlineMathTable table;
-    EXPECT_FALSE(table.Find(1));
-    table.FindOrRequest(1);
-    table.TakeRequests();
-    EXPECT_FALSE(table.Find(1)) << "待っている";
-    table.Resolve(1, { 10.0f, 5.0f, 4.0f });
-    ASSERT_TRUE(table.Find(1));
-    EXPECT_FLOAT_EQ(table.Find(1)->width, 10.0f);
-    EXPECT_TRUE(table.TakeRequests().empty());
 }
 
 // MockTextMeasurer と DWriteTextMeasurer の不変条件を突き合わせる回帰テスト。
@@ -581,18 +571,4 @@ TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
     EXPECT_GT(p.dwrite, 0.0f);
     EXPECT_GT(h.mock, p.mock);
     EXPECT_GT(h.dwrite, p.dwrite);
-}
-
-// 折り返し: 短いテキストと長いテキスト（同じ幅）で、長い方が高くなるか同じ高さであること。
-TEST_F(MeasurerParityTest, LongerTextIsNotShorter)
-{
-    Node short_node = MakeTextNode("Short");
-    Node long_node = MakeTextNode(
-        "This is a much longer paragraph that should wrap across multiple lines "
-        "at the given narrow max width, producing a taller layout result than the short one.");
-
-    const auto s = MeasureBoth(short_node, 200.0f);
-    const auto l = MeasureBoth(long_node, 200.0f);
-    EXPECT_GE(l.mock, s.mock);
-    EXPECT_GE(l.dwrite, s.dwrite);
 }

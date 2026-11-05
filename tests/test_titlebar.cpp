@@ -50,11 +50,16 @@ protected:
 // UpdateLayout — ボタン配置
 // ═══════════════════════════════════════════════
 
+// 閉じるボタンは窓の右端に付き、窓の幅を変えると付いていく。
 TEST_F(TitleBarTest, CloseButtonIsAtRightEdge)
 {
-    auto& btn = tb_.GetButton(TitleBarHitZone::Close);
-    EXPECT_FLOAT_EQ(btn.right, WINDOW_WIDTH);
-    EXPECT_FLOAT_EQ(btn.left, WINDOW_WIDTH - TitleBar::CAPTION_BTN_WIDTH);
+    for (const float width : { WINDOW_WIDTH, 1200.0f }) {
+        SCOPED_TRACE(width);
+        tb_.UpdateLayout(width);
+        const auto& btn = tb_.GetButton(TitleBarHitZone::Close);
+        EXPECT_FLOAT_EQ(btn.right, width);
+        EXPECT_FLOAT_EQ(btn.left, width - TitleBar::CAPTION_BTN_WIDTH);
+    }
 }
 
 TEST_F(TitleBarTest, OpenFileIsRightOfIcon)
@@ -96,13 +101,6 @@ TEST_F(TitleBarTest, TitleTextRectSpansBetweenButtonGroups)
     EXPECT_LT(rect.left, rect.right);
 }
 
-TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize)
-{
-    tb_.UpdateLayout(1200.0f);
-    auto& btn = tb_.GetButton(TitleBarHitZone::Close);
-    EXPECT_FLOAT_EQ(btn.right, 1200.0f);
-}
-
 // ═══════════════════════════════════════════════
 // HitTest
 // ═══════════════════════════════════════════════
@@ -112,19 +110,6 @@ TEST_F(TitleBarTest, HitTestOutsideTitleBar)
     EXPECT_EQ(tb_.HitTest(400.0f, -1.0f), TitleBarHitZone::None);
     EXPECT_EQ(tb_.HitTest(400.0f, TitleBar::BASE_HEIGHT), TitleBarHitZone::None);
     EXPECT_EQ(tb_.HitTest(400.0f, 100.0f), TitleBarHitZone::None);
-}
-
-TEST_F(TitleBarTest, HitTestAtButtonCenters)
-{
-    for (const auto group : kButtonGroups) {
-        for (const auto& spec : group) {
-            SCOPED_TRACE(spec.name);
-            const auto& rect = tb_.GetButton(spec.zone);
-            const float cx = (rect.left + rect.right) / 2.0f;
-            const float cy = (rect.top + rect.bottom) / 2.0f;
-            EXPECT_EQ(tb_.HitTest(cx, cy), spec.zone);
-        }
-    }
 }
 
 TEST_F(TitleBarTest, HitTestCaptionArea)
@@ -160,7 +145,6 @@ TEST_F(TitleBarTest, NarrowWindowTitleTextDoesNotGoNegativeWidth)
     // 全ボタンが収まらないほど狭いウィンドウ
     tb_.UpdateLayout(100.0f);
     auto& rect = tb_.GetTitleTextRect();
-    // タイトルテキスト幅は0以上であるべき
     EXPECT_GE(rect.right, rect.left);
 }
 

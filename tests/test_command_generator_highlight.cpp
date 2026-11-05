@@ -95,13 +95,11 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     auto pl = ParseAndLayout("Hello World");
     ASSERT_FALSE(pl.nodes.empty());
 
-    // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
     // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
     // ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
     const SearchMatch matches[] = { { 0, -1, -1, 0, 5 } };
     const auto& cmds = Draw(pl, TextSelection::MakeOrdered(0, 6, 0, 11), matches, 0);
 
-    // 検索色・選択色・本文 の各最小 index を見つける。
     std::optional<size_t> first_search;
     std::optional<size_t> first_selection;
     std::optional<size_t> first_text_layout;
@@ -393,15 +391,9 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     gen_.Init(theme_, formats, NoTextLayouts());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto count_overlay_fills = [](const DrawCommandList& cmds) {
-        return std::ranges::count_if(cmds, [](const DrawCommand& c) {
-            const auto* fill = std::get_if<FillRoundedRectCmd>(&c);
-            return fill && fill->brush_id == BrushId::Overlay;
-        });
-    };
-
-    EXPECT_EQ(count_overlay_fills(GenerateMdPaneAt(gen_, pl.nodes, pl.cache, pane)), 0);
-    EXPECT_EQ(count_overlay_fills(GenerateMdPaneAt(gen_, pl.nodes, pl.cache, pane, 0.0f, idx)), 3);
+    const auto overlay = [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Overlay; };
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(GenerateMdPaneAt(gen_, pl.nodes, pl.cache, pane), overlay), 0);
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(GenerateMdPaneAt(gen_, pl.nodes, pl.cache, pane, 0.0f, idx), overlay), 3);
 }
 
 // 全行選択でも、矩形を引くのは可視範囲の前後の行だけ。スクロール先でも選択を描く。
@@ -475,7 +467,6 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     auto pl = ParseAndLayout("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(pl.nodes.empty());
 
-    // 最初の diagram ノードにエラーを設定
     const int diagram_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Diagram);
     ASSERT_GE(diagram_idx, 0);
     pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = { DiagramError::Kind::Render, L"Parse error on line 1" };

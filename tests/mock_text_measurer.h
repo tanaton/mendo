@@ -13,10 +13,8 @@
 // テキスト長とノード種別から高さを決定論的に計算する。
 class MockTextMeasurer : public ITextMeasurer {
 public:
-    float line_height = 20.0f;               // 基本行高
-    float chars_per_line = 40.0f;            // 折り返し推定用の1行あたり文字数
-    float heading_scale = 1.5f;              // 見出し高さの倍率
-    float table_row_height = 28.0f;          // テーブル1行あたりの高さ
+    // 行の高さ。テストが変えて再計測を確かめる。
+    float line_height = 20.0f;
 
     bool RecreateFormats() override
     {
@@ -38,7 +36,7 @@ public:
         }
 
         // テキスト長と利用可能な幅から行数を推定。コードブロックは実装と同じく折り返さない。
-        float effective_chars = (max_width > 0) ? (max_width / (line_height * 0.6f)) : chars_per_line;
+        float effective_chars = (max_width > 0) ? (max_width / (line_height * 0.6f)) : kCharsPerLine;
         effective_chars = std::max(effective_chars, 1.0f);
         const float lines = node.type == NodeType::CodeBlock
                                 ? static_cast<float>(node.line_count + 1)
@@ -46,13 +44,18 @@ public:
         float h = lines * line_height;
 
         if (node.type == NodeType::Heading) {
-            h *= heading_scale;
+            h *= kHeadingScale;
         }
 
         return h;
     }
 
 private:
+    // 幅が無いときの 1 行の文字数、見出しの高さの倍率、表の 1 行の高さ。
+    static constexpr float kCharsPerLine = 40.0f;
+    static constexpr float kHeadingScale = 1.5f;
+    static constexpr float kTableRowHeight = 28.0f;
+
     float MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
@@ -65,7 +68,7 @@ private:
         // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
-        tl.row_heights.assign(row_count, table_row_height);
+        tl.row_heights.assign(row_count, kTableRowHeight);
 
         // 描画・ヒットテストは累積位置を参照するので、実装と同じ関数で積む。
         tl.CommitGeometry(max_width);

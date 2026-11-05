@@ -25,21 +25,15 @@ enum class PaneTarget : uint8_t {
     Toc
 };
 
-enum class PaneHeaderButton : uint8_t {
-    None,
-    Close,
-    Refresh, // ファイルペインのみ
-    Reveal,  // ファイルペインのみ
-};
-
 // 描画とヒット判定でボタンの並びと有効かどうかを共有する。矩形はペインローカル座標。
 template <typename Fn>
 void ForEachPaneHeaderButton(float pane_width, float header_height, bool is_file_pane, bool reveal_enabled, Fn&& fn)
 {
-    fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Close), PaneHeaderButton::Close, true);
+    const auto emit = [&](PaneHeaderButton button, bool enabled) { fn(PaneHeaderButtonRect(pane_width, header_height, button), button, enabled); };
+    emit(PaneHeaderButton::Close, true);
     if (is_file_pane) {
-        fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Refresh), PaneHeaderButton::Refresh, true);
-        fn(PaneHeaderButtonRect(pane_width, header_height, PaneHeaderSlot::Reveal), PaneHeaderButton::Reveal, reveal_enabled);
+        emit(PaneHeaderButton::Refresh, true);
+        emit(PaneHeaderButton::Reveal, reveal_enabled);
     }
 }
 

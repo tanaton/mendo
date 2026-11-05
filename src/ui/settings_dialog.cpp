@@ -90,7 +90,7 @@ SettingsDialog::Hit SettingsDialog::HitTest(float x, float y) const noexcept
             return { HitKind::Language, row };
         }
     }
-    if (CanClearCache() && PointInRect(x, y, layout.clear)) {
+    if (can_clear && PointInRect(x, y, layout.clear)) {
         return { HitKind::ClearCache };
     }
     return {};
@@ -190,5 +190,5 @@ void SettingsDialog::PaintContent()
     // 枠はホバーの塗りと同じ角丸にする (ボタンのホバーが枠からはみ出さないように)。
     const D2D1_RECT_F button_border{ layout.clear.left + 0.5f, layout.clear.top + 0.5f, layout.clear.right - 0.5f, layout.clear.bottom - 0.5f };
     rt->DrawRoundedRectangle({ button_border, POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.border.Get(), 1.0f);
-    DrawLabel(ls.settings_clear_cache, fmt_text_center.Get(), layout.clear, CanClearCache() ? brushes.text.Get() : brushes.gray.Get());
+    DrawLabel(ls.settings_clear_cache, fmt_text_center.Get(), layout.clear, can_clear ? brushes.text.Get() : brushes.gray.Get());
 }

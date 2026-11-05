@@ -14,10 +14,6 @@ struct ID2D1DeviceContext5;
 
 namespace diagram_view {
 
-// 8 倍は試作で確かめた範囲。
-inline constexpr float kZoomStops[]{ 0.05f, 0.1f, 0.25f, 0.33f, 0.5f, 0.67f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f };
-inline constexpr float kPadding = 16.0f;
-
 // 全体表示の倍率。本文より拡大する窓なので、小さな図は等倍のまま置く。窓を余白より小さく潰したら最小の倍率で止める。
 float FitZoom(float view_width, float view_height, float natural_width, float natural_height) noexcept;
 // dir (+1 / -1) の向きの次の倍率。全体表示の倍率も止まる位置にし、そのすぐ隣の値は 1 回押しても見た目が変わらないので除く。
@@ -43,6 +39,10 @@ public:
     bool IsOpen() const noexcept
     {
         return hwnd_ != nullptr;
+    }
+    bool HasDrawing() const noexcept
+    {
+        return drawing_ != nullptr;
     }
     void BringToFront() const noexcept;
     // タイトル・ボタンのツールチップ・読み込み中の文言を、表示中の言語にする。

@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "app_state.h"
 #include "mouse_gesture.h"
-#include "swipe_detector.h"
 #include <vector>
 
 namespace {
@@ -29,7 +28,7 @@ TEST_F(MouseGestureTest, IdleIgnoresMoveAndRelease)
     ExpectIdle(gesture_);
     EXPECT_FALSE(gesture_.OnMouseMove(100.0f, 100.0f));
     ExpectIdle(gesture_);
-    EXPECT_EQ(gesture_.OnRButtonUp(), GestureResult::None);
+    EXPECT_EQ(gesture_.OnRButtonUp(), NavDirection::None);
 }
 
 // ─── 押して動かして離す ───
@@ -46,18 +45,17 @@ TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
         float move_y;
         GesturePhase phase;
         NavDirection direction;
-        GestureResult result;
     };
     constexpr Case kCases[] = {
-        { "NoMove", 100.0f, 100.0f, 100.0f, GesturePhase::Pressed, NavDirection::None, GestureResult::ShowContextMenu },
-        { "SmallMove", 100.0f, 105.0f, 102.0f, GesturePhase::Pressed, NavDirection::None, GestureResult::ShowContextMenu },
-        { "Right", 100.0f, 200.0f, 100.0f, GesturePhase::Tracking, NavDirection::Forward, GestureResult::Forward },
-        { "Left", 200.0f, 50.0f, 100.0f, GesturePhase::Tracking, NavDirection::Back, GestureResult::Back },
-        { "Vertical", 100.0f, 100.0f, 200.0f, GesturePhase::Tracking, NavDirection::None, GestureResult::ShowContextMenu },
+        { "NoMove",                 100.0f, 100.0f, 100.0f, GesturePhase::Pressed,  NavDirection::None    },
+        { "SmallMove",              100.0f, 105.0f, 102.0f, GesturePhase::Pressed,  NavDirection::None    },
+        { "Right",                  100.0f, 200.0f, 100.0f, GesturePhase::Tracking, NavDirection::Forward },
+        { "Left",                   200.0f, 50.0f,  100.0f, GesturePhase::Tracking, NavDirection::Back    },
+        { "Vertical",               100.0f, 100.0f, 200.0f, GesturePhase::Tracking, NavDirection::None    },
         // 右に 50、下に 20
-        { "DiagonalMoreHorizontal", 100.0f, 150.0f, 120.0f, GesturePhase::Tracking, NavDirection::Forward, GestureResult::Forward },
+        { "DiagonalMoreHorizontal", 100.0f, 150.0f, 120.0f, GesturePhase::Tracking, NavDirection::Forward },
         // 右に 20、下に 50
-        { "DiagonalMoreVertical", 100.0f, 120.0f, 150.0f, GesturePhase::Tracking, NavDirection::None, GestureResult::ShowContextMenu },
+        { "DiagonalMoreVertical",   100.0f, 120.0f, 150.0f, GesturePhase::Tracking, NavDirection::None    },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -69,7 +67,7 @@ TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
         EXPECT_EQ(gesture_.GetDirection(), c.direction);
         EXPECT_EQ(gesture_.IsOverlayVisible(), c.direction != NavDirection::None);
 
-        EXPECT_EQ(gesture_.OnRButtonUp(), c.result);
+        EXPECT_EQ(gesture_.OnRButtonUp(), c.direction);
         ExpectIdle(gesture_);
     }
 }
@@ -79,15 +77,12 @@ TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
 TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
 {
     gesture_.OnRButtonDown(100.0f, 100.0f);
-    // 右に移動 → オーバーレイ表示
     gesture_.OnMouseMove(200.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
 
-    // 垂直に移動 → オーバーレイ非表示
     gesture_.OnMouseMove(100.0f, 200.0f);
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 
-    // 左に移動 → オーバーレイ再表示
     gesture_.OnMouseMove(0.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
@@ -100,11 +95,9 @@ TEST_F(MouseGestureTest, TrailPointsAccumulate)
     gesture_.OnRButtonDown(0.0f, 0.0f);
     EXPECT_EQ(gesture_.GetTrailPoints().size(), 1u);  // 開始点
 
-    // 閾値を超えて移動しトラッキングに入る
     gesture_.OnMouseMove(40.0f, 0.0f);
     EXPECT_TRUE(gesture_.IsGestureActive());
 
-    // 移動を続ける
     gesture_.OnMouseMove(50.0f, 0.0f);
     gesture_.OnMouseMove(60.0f, 0.0f);
     gesture_.OnMouseMove(70.0f, 0.0f);

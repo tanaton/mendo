@@ -14,13 +14,6 @@ using layout::NodeTextXOffset;
 
 namespace {
 
-// ウィンドウのピクセル座標を、ペイン左端基準の X とドキュメント Y に変換する。
-constexpr DipPoint ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
-{
-    const auto dip = PixelToDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale);
-    return { dip.x - ctx.md_rect.x, dip.y - ctx.md_rect.y + ctx.scroll_y };
-}
-
 // layout 上の点 (x, y) をヒットテストし、base (ノードまたはセルの先頭) 起点の text_pos / char_pos を書く。
 void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, float x, float y,
                     std::string_view text, uint32_t base) noexcept
@@ -95,7 +88,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
         return {};
     }
 
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const auto [dip_x, dip_y] = ctx.point;
     const auto direct = FindDirectHit(ctx, dip_y);
     if (direct.node_index < 0) {
         return ClampToNearestTextNode(ctx.nodes, direct.candidate);
@@ -125,7 +118,7 @@ int hit_test::HitNode(const MdPaneHitContext& ctx) noexcept
     if (ctx.nodes.empty()) {
         return -1;
     }
-    const auto direct = FindDirectHit(ctx, ScreenToPaneDip(ctx).y);
+    const auto direct = FindDirectHit(ctx, ctx.point.y);
     return direct.node_index >= 0 ? direct.node_index : ClampToNearestTextNode(ctx.nodes, direct.candidate).node_index;
 }
 
@@ -176,23 +169,20 @@ hit_test::HitResult hit_test::HitTestTable(
 
 OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept
 {
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-    const float viewport_bottom = ctx.scroll_y + ctx.md_rect.height;
+    const auto [dip_x, dip_y] = ctx.point;
     const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.scroll_y);
     const int count = static_cast<int>(ctx.cache.size());
 
     OverlayButtonHit out;
     for (int i = first; i < count && !out.Any(); i++) {
         const float entry_text_top = ctx.cache.Top(static_cast<size_t>(i));
-        if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
+        // ボタンは上端 (コードブロックは padding だけ上) から COPY_BTN_MARGIN 下に 1 段だけ並ぶ。上端は単調に増えるので、
+        // 段がポインタより下から始まるノードより先には当たるボタンが無い。
+        if (entry_text_top - ctx.theme.code_block_padding + COPY_BTN_MARGIN > dip_y) {
             break;
         }
         const auto& node = ctx.nodes[i];
-        if (!layout::MayHaveOverlayButtons(node)) {
-            continue;
-        }
-        // ボタンは上端 (コードブロックは padding だけ上) から COPY_BTN_MARGIN 下に 1 段だけ並ぶ。
-        if (dip_y < entry_text_top - ctx.theme.code_block_padding + COPY_BTN_MARGIN || dip_y > entry_text_top + COPY_BTN_MARGIN + COPY_BTN_SIZE) {
+        if (!layout::MayHaveOverlayButtons(node) || dip_y > entry_text_top + COPY_BTN_MARGIN + COPY_BTN_SIZE) {
             continue;
         }
         const float x = NodeBlockX(node, ctx.theme);
@@ -217,7 +207,7 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     if (!layout::HasDiagramButtons(diagram)) {
         return false;
     }
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const auto [dip_x, dip_y] = ctx.point;
     const D2D1_RECT_F image = MermaidBitmapRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
                                                 NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
     return PointInRectInclusive(dip_x, dip_y, image);
@@ -240,7 +230,7 @@ bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_inde
     if (i >= ctx.cache.size()) {
         return false;
     }
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const auto [dip_x, dip_y] = ctx.point;
     const auto& node = ctx.nodes[i];
     const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadBottom(node, ctx.theme));
     const float block_x = NodeBlockX(node, ctx.theme);

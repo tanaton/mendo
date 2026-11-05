@@ -20,6 +20,8 @@ struct FillRectCmd {
     BrushId brush_id;
 };
 
+// 円 (箇条書きの記号・スピナーの点) は半径 = 半辺の角丸矩形で描く。楕円と画素まで同じになる
+// (DPI 96〜192・半径 2.5〜4.25・中心の端数で、塗りと線の 160 通りを比べた。2026-11-06)。
 struct FillRoundedRectCmd {
     D2D1_RECT_F rect;
     float radius;
@@ -70,20 +72,6 @@ struct DrawDiagramCmd {
     float width; // 記録した図の幅 (CSS px)
 };
 
-struct FillEllipseCmd {
-    D2D1_POINT_2F center;
-    float radius;
-    BrushId brush_id;
-    float opacity = 1.0f;
-};
-
-struct DrawEllipseCmd {
-    D2D1_POINT_2F center;
-    float radius;
-    float stroke_width;
-    BrushId brush_id;
-};
-
 // 一筆描きの線 (マウスジェスチャーの軌跡)。継ぎ目でアルファが重ならない。
 struct DrawGeometryCmd {
     ID2D1Geometry* geometry;       // 非所有; Renderer がそのフレームの間持つ。
@@ -111,8 +99,6 @@ using DrawCommand = std::variant<
     DrawTextLayoutCmd,
     DrawBitmapCmd,
     DrawDiagramCmd,
-    FillEllipseCmd,
-    DrawEllipseCmd,
     DrawGeometryCmd,
     PushClipCmd,
     PopClipCmd,

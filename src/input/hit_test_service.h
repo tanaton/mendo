@@ -47,10 +47,8 @@ struct MdPaneHitContext {
     const LayoutCache& cache;
     const Theme& theme;
     float scroll_y;
-    PaneRect md_rect;
-    float dpi_scale;
-    int screen_x;
-    int screen_y;
+    // 当てる点。X は本文ペインの左端から、Y は文書の先頭から (DIP)。
+    DipPoint point;
     // ボタン位置とブロック横スクロールの clamp に使う。
     float content_width = 0.0f;
     // ブロック単位の横スクロール状態。null なら全 0 扱い。

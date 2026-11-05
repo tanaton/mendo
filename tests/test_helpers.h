@@ -160,7 +160,7 @@ inline size_t CountDirty(const LayoutCache& cache) noexcept
     return n;
 }
 
-// 22000 ノード級の Mixed fixture を決定論的に生成する。配分:
+// 並列計測の stress 用の Mixed fixture を決定論的に生成する。配分:
 // Paragraph 60% / Heading 10% / HorizontalRule 5% / Table(1x2) 10% / Image 10% / 空 Paragraph 5%
 // include_code_block=true の場合は bucket==0,1 を CodeBlock(Cpp) に置換し Paragraph を 50% に減らす。
 inline Node MakeStressNode(size_t i, bool include_code_block)
@@ -258,20 +258,6 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
-// content をバイナリで書き出す。失敗はテスト失敗として報告する。
-inline void WriteTestFile(const std::filesystem::path& path, std::string_view content)
-{
-    std::ofstream f(path, std::ios::binary);
-    if (!f.is_open()) {
-        ADD_FAILURE() << "Failed to open temp file: " << path.string();
-        return;
-    }
-    f.write(content.data(), static_cast<std::streamsize>(content.size()));
-    if (!f.good()) {
-        ADD_FAILURE() << "Failed to write temp file: " << path.string();
-    }
-}
-
 // temp ディレクトリを RAII で用意・破棄する。テスト名とプロセスIDで一意な名前を生成するため、
 // 並列実行や異常終了時も衝突しない。gtest はフィクスチャ生成前に current_test_info を
 // 設定するので、フィクスチャのメンバとして保持できる。
@@ -312,11 +298,19 @@ public:
         return path_;
     }
 
-    // バイナリで配下にファイルを作成し、絶対パスを返す。
+    // バイナリで配下にファイルを作成し、絶対パスを返す。失敗はテスト失敗として報告する。
     std::filesystem::path Write(std::wstring_view name, std::string_view content = {}) const
     {
         auto path = path_ / name;
-        WriteTestFile(path, content);
+        std::ofstream f(path, std::ios::binary);
+        if (!f.is_open()) {
+            ADD_FAILURE() << "Failed to open temp file: " << path.string();
+            return path;
+        }
+        f.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!f.good()) {
+            ADD_FAILURE() << "Failed to write temp file: " << path.string();
+        }
         return path;
     }
 

@@ -33,6 +33,8 @@ constexpr ExpectedItem kMdPaneItems[] = {
     { ItemType::Text, IDM_COPY },
     { ItemType::Text, IDM_COPY_FORMATTED },
     { ItemType::Separator, 0 },
+    { ItemType::ZoomRow, 0 },
+    { ItemType::Separator, 0 },
     { ItemType::Text, IDM_TOGGLE_DARK_MODE },
     { ItemType::Separator, 0 },
     { ItemType::Text, IDM_TOGGLE_FILE_PANE },
@@ -43,6 +45,8 @@ constexpr ExpectedItem kNonMdPaneItems[] = {
     { ItemType::NavRow, 0 },
     { ItemType::Separator, 0 },
     { ItemType::Text, IDM_NEW_WINDOW },
+    { ItemType::Separator, 0 },
+    { ItemType::ZoomRow, 0 },
     { ItemType::Separator, 0 },
     { ItemType::Text, IDM_TOGGLE_DARK_MODE },
     { ItemType::Separator, 0 },
@@ -60,6 +64,7 @@ class ContextMenuTest : public ::testing::Test {
 protected:
     ContextMenu menu_;
     Theme theme_ = GetLightTheme();
+    ZoomLevel zoom_;
 
     void Build(const ContextMenuParams& params)
     {
@@ -71,6 +76,7 @@ protected:
         ContextMenuParams p;
         p.env.theme = &theme_;
         p.env.dpi_scale = 1.0f;
+        p.zoom = &zoom_;
         p.can_go_back = true;
         p.can_go_forward = true;
         p.can_edit_file = true;
@@ -168,19 +174,10 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
     }
 }
 
-// ズームの行は倍率を渡した領域でだけ出し、直後に区切りを置く。
-TEST_F(ContextMenuTest, ZoomRowOnlyWithZoomLevel)
+// ズームの行の直後には区切りを置く。
+TEST_F(ContextMenuTest, ZoomRowIsFollowedBySeparator)
 {
-    const auto has_zoom_row = [this] {
-        return std::ranges::contains(menu_.items, ItemType::ZoomRow, &ContextMenu::Item::type);
-    };
     Build(MakeParams(false));
-    EXPECT_FALSE(has_zoom_row());
-
-    ZoomLevel zoom;
-    auto p = MakeParams(false);
-    p.zoom = &zoom;
-    Build(p);
     const auto& items = menu_.items;
     const auto it = std::ranges::find(items, ItemType::ZoomRow, &ContextMenu::Item::type);
     ASSERT_NE(it, items.end());

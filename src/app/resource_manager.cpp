@@ -78,7 +78,14 @@ bool ResourceManager::ApplyCachedImagesForReload(IndexRange range)
     return !changed.empty();
 }
 
-bool ResourceManager::ApplyMermaidCacheHeightsForReload(IndexRange range)
+bool ResourceManager::ApplyCachedHeights(IndexRange range)
+{
+    const bool mermaid_applied = ApplyMermaidCacheHeights(range);
+    const bool image_applied = ApplyCachedImagesForReload(range);
+    return mermaid_applied || image_applied;
+}
+
+bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
 {
     const float content_width = MdContentWidth(state_);
     const Theme& theme = *state_.theme;

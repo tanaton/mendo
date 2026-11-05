@@ -3,7 +3,6 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "example_files.h"
-#include "parallel_for.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
@@ -409,11 +408,12 @@ constexpr const wchar_t* kCorpus[]{
 
 } // namespace
 
-// 区間の数には上限があり、上限を超えた分はフォールバックに任せる。字形はどちらでも同じ。
+// 区間の数には上限 (kMaxFallbackRanges = 1024) があり、上限を超えた分はフォールバックに任せる。字形はどちらでも同じ。
+// 漢字 1 字ずつが別の区間になるので、1100 字で上限を超える。
 TEST_F(FallbackFontMapTest, GlyphsMatchFallbackBeyondRangeLimit)
 {
     std::wstring text;
-    for (int i = 0; i < 2000; ++i) {
+    for (int i = 0; i < 1100; ++i) {
         text += static_cast<wchar_t>(0x4E00 + i);
         text += L'a';
     }
@@ -529,19 +529,30 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
     std::ranges::sort(lines);
     const auto [dup_begin, dup_end] = std::ranges::unique(lines);
     lines.erase(dup_begin, dup_end);
+    // 主フォントはアプリが実際に使う、本文の書体と等幅の候補のうち入っている最初のもの (ThemeService と同じ選び方)。
+    // 他の等幅の候補は GlyphsMatchFallbackForEveryLanguage の文例で見る。全候補だと 286ms かかる。
+    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
+    ASSERT_HRESULT_SUCCEEDED(Factory()->GetSystemFontCollection(&fonts));
+    const auto mono = std::ranges::find_if(theme_palette::kMonospaceFontCandidates, [&](const wchar_t* name) {
+        UINT32 index = 0;
+        BOOL exists = FALSE;
+        return SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists;
+    });
+    ASSERT_NE(mono, std::end(theme_palette::kMonospaceFontCandidates));
+    const std::array<const wchar_t*, 2> bases{ L"Segoe UI", *mono };
     // 対応は worker から同時に引ける。行の塊ごとに解決し直さないよう、主フォントごとに 1 つを共有する。
     std::vector<std::unique_ptr<FallbackFontMap>> maps;
-    for (const auto* base : kBases) {
+    for (const auto* base : bases) {
         maps.push_back(Map(base, L"ja-jp"));
     }
     constexpr size_t kLinesPerItem = 64;
     const size_t items_per_base = (lines.size() + kLinesPerItem - 1) / kLinesPerItem;
-    ExpectAllInParallel(std::size(kBases) * items_per_base, [&](size_t i) {
+    ExpectAllInParallel(bases.size() * items_per_base, [&](size_t i) {
         const size_t b = i / items_per_base;
-        const auto format = Format(kBases[b], L"ja-jp");
+        const auto format = Format(bases[b], L"ja-jp");
         for (const auto text : lines | std::views::drop(i % items_per_base * kLinesPerItem) | std::views::take(kLinesPerItem)) {
             if (const auto same = SameAsFallback(text, format.Get(), *maps[b]); !same) {
-                return std::vector{ std::format("base={} text={}: {}", Quote(kBases[b]), Quote(text), same.message()) };
+                return std::vector{ std::format("base={} text={}: {}", Quote(bases[b]), Quote(text), same.message()) };
             }
         }
         return std::vector<std::string>{};

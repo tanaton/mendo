@@ -21,14 +21,26 @@ using Microsoft::WRL::ComPtr;
 
 class CommandExecutorIntegrationTest : public ComApartmentTest {
 protected:
+    // ImageLoaderTest と同じく、ファクトリはスイートで共有する (テストごとに作ると 1 本あたり数 ms かかる)。
+    // COM の初期化より後に作り、CoUninitialize より前に手放す。
+    static void SetUpTestSuite()
+    {
+        ComApartmentTest::SetUpTestSuite();
+        D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
+        wic_factory_ = wic_util::CreateWicFactory("CommandExecutorIntegrationTest");
+    }
+
+    static void TearDownTestSuite()
+    {
+        wic_factory_.Reset();
+        d2d_factory_.Reset();
+        ComApartmentTest::TearDownTestSuite();
+    }
+
     void SetUp() override
     {
-        ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(
-            D2D1_FACTORY_TYPE_SINGLE_THREADED,
-            IID_PPV_ARGS(&d2d_factory_)));
-        wic_factory_ = wic_util::CreateWicFactory("CommandExecutorIntegrationTest");
+        ASSERT_NE(d2d_factory_, nullptr);
         ASSERT_NE(wic_factory_, nullptr);
-
         ASSERT_HRESULT_SUCCEEDED(CreateRenderTarget(rt_));
     }
 
@@ -172,8 +184,8 @@ protected:
 
     UINT size_ = 32;
     InlineMathDrawings no_math_;
-    ComPtr<ID2D1Factory> d2d_factory_;
-    ComPtr<IWICImagingFactory> wic_factory_;
+    static inline ComPtr<ID2D1Factory> d2d_factory_;
+    static inline ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<IWICBitmap> wic_bitmap_;
     ComPtr<ID2D1RenderTarget> rt_;
 };
@@ -261,8 +273,6 @@ TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 8, 8), BrushId::Text });
     cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(8, 0, 16, 8), 2.0f, BrushId::Text });
     cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(0, 16), D2D1::Point2F(32, 16), 1.0f, BrushId::Text });
-    cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(20, 20), 4.0f, BrushId::Text });
-    cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(28, 28), 2.0f, 1.0f, BrushId::Text });
     cmds.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(16, 0, 24, 8), 2.0f, 1.5f, BrushId::Text });
     cmds.emplace_back(PushClipCmd{ D2D1::RectF(0, 0, 32, 32) });
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
@@ -273,8 +283,8 @@ TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
-// 半透明の楕円と線のジオメトリも、描いた後にブラシへ不透明度を残さない。
-TEST_F(CommandExecutorIntegrationTest, EllipseAndGeometryOpacityIsRestored)
+// 半透明の円 (角丸矩形) と線のジオメトリも、描いた後にブラシへ不透明度を残さない。
+TEST_F(CommandExecutorIntegrationTest, CircleAndGeometryOpacityIsRestored)
 {
     const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Overlay, D2D1::ColorF(D2D1::ColorF::Black) } });
     ComPtr<ID2D1PathGeometry> path;
@@ -288,7 +298,7 @@ TEST_F(CommandExecutorIntegrationTest, EllipseAndGeometryOpacityIsRestored)
         ASSERT_HRESULT_SUCCEEDED(sink->Close());
     }
     DrawCommandList cmds;
-    cmds.emplace_back(FillEllipseCmd{ .center = D2D1::Point2F(4, 4), .radius = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
+    cmds.emplace_back(FillRoundedRectCmd{ .rect = D2D1::RectF(0, 0, 8, 8), .radius = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
     cmds.emplace_back(DrawGeometryCmd{ .geometry = path.Get(), .stroke_style = nullptr, .stroke_width = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(24, 0, 32, 8), BrushId::Overlay });
 

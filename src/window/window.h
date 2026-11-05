@@ -55,7 +55,8 @@ private:
     bool EnsureSearchEdit();
     // EDIT は見えないので、置き場所は IME の変換窓の位置にしか効かない。
     void RepositionSearchEdit();
-    void SyncSearchCaretFromEdit();
+    // EDIT の選択を描画用の状態へ写す。向き (後ろ向きか) が分からなければ reducer に推定させる。
+    void SyncSearchCaretFromEdit(std::optional<bool> backward = std::nullopt);
 
     void AwaitInitialParseBeforeDevice();
     // 起動時の、デバイスに依存しない通知を最初のフレームより前に取り込む。デバイスの作成を待つ前に呼ぶと、

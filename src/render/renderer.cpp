@@ -26,11 +26,6 @@ constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 } // namespace
 
-ID2D1RenderTarget* Renderer::GetRenderTarget() const noexcept
-{
-    return device_context_.Get();
-}
-
 bool Renderer::Init(HWND hwnd, const Theme& theme)
 {
     theme_ = &theme;

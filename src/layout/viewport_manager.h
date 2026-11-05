@@ -17,7 +17,6 @@ struct ScrollTarget {
     }
 };
 
-
 // スクロール、選択、ズームの純粋な状態管理。
 class ViewportManager {
 public:

@@ -142,7 +142,6 @@ private:
     std::unordered_map<Key, Entry, KeyHash, KeyEqual> entries_;
 };
 
-// DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
 inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x, float origin_y) noexcept
 {
     return D2D1::RectF(

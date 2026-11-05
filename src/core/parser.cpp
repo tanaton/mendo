@@ -43,15 +43,6 @@ constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
     }
 }
 
-// RunFlagOf が返すフラグのビット位置の数。span_depths はビット位置で引くので、フラグを足しても範囲外に書かない。
-constexpr int kRunFlagBits = [] {
-    int bits = 0;
-    for (int t = 0; t <= MD_SPAN_MARK; ++t) {
-        bits = std::max(bits, std::bit_width(RunFlagOf(static_cast<MD_SPANTYPE>(t))));
-    }
-    return bits;
-}();
-
 // Node の深さ系フィールドは int8_t なので、極端に深い入れ子は最大値で頭打ちにする。
 constexpr int8_t SaturateToInt8(int value) noexcept
 {
@@ -87,9 +78,10 @@ struct ParseContext : NodeStorage {
     bool source_offset_recorded = false;
 
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
-    // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
+    // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ (フラグは uint8_t なので添字は 8 未満)。
+    // md4c は強調の入れ子に上限が無いので 8bit では数えない。CommonMark で link はネスト禁止のため
     // link_url_index のみ単純フィールド (-1 = リンク外)。
-    std::array<uint8_t, kRunFlagBits> span_depths{};
+    std::array<uint32_t, 8> span_depths{};
     // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
     // 不変式: bit X が立っている <=> 対応する span_depths > 0。
@@ -169,6 +161,9 @@ struct ParseContext : NodeStorage {
             }
             if (!current_runs.empty()) {
                 current_node->SetRuns(arena.Copy(current_runs));
+                if (std::ranges::any_of(current_runs, &TextRun::math)) {
+                    indices.math_indices.push_back(CurrentNodeIndex());
+                }
             }
             if (!current_link_urls.empty()) {
                 current_node->SetLinkUrls(arena.Copy(current_link_urls));
@@ -1031,6 +1026,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* const cn = ctx->current_node;
         assert(cn && cn->has_table());
         FinalizeTableOffsets(*cn->table_data());
+        if (std::ranges::any_of(cn->table_data()->all_runs, &TextRun::math)) {
+            ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
+        }
         // 以後 concat_text は伸縮しないので、本文として直接指す。
         cn->SetText(cn->table_data()->concat_text);
         ctx->EndNode();

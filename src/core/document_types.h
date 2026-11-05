@@ -123,10 +123,14 @@ struct NodeTableData {
         return cell_text_starts[i] + static_cast<uint32_t>(CellLength(i));
     }
 
+    constexpr std::string_view CellText(size_t idx) const noexcept
+    {
+        return { concat_text.data() + cell_text_starts[idx], CellLength(idx) };
+    }
+
     constexpr std::string_view GetCellText(size_t r, size_t c) const noexcept
     {
-        const size_t idx = CellIndex(r, c);
-        return { concat_text.data() + cell_text_starts[idx], CellLength(idx) };
+        return CellText(CellIndex(r, c));
     }
 
     // セル (CellIndex) の長さ。末尾の区切り文字を含まない。
@@ -136,15 +140,19 @@ struct NodeTableData {
         return cell_text_starts[idx + 1] - cell_text_starts[idx] - (has_separator ? 1u : 0u);
     }
 
-    constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept
+    constexpr std::span<const TextRun> CellRuns(size_t idx) const noexcept
     {
         if (all_runs.empty()) {
             return {};
         }
-        const size_t idx = CellIndex(r, c);
         const auto start = cell_run_starts[idx];
         const auto end = cell_run_starts[idx + 1];
         return { all_runs.data() + start, static_cast<size_t>(end - start) };
+    }
+
+    constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept
+    {
+        return CellRuns(CellIndex(r, c));
     }
 
     // md4c は先頭の 1 行だけをヘッダにする。

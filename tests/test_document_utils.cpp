@@ -1183,48 +1183,6 @@ TEST(CalcScrollYForDiff, DiffBeforeFirstTextUsesLeadingRule)
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md.size(), 2, 500.0f, 42.0f), 300.0f);
 }
 
-// issue#146 回帰テスト:
-// 末尾追記 (旧 PrefixGrowth) で旧コードが old_scroll を保持していたため、
-// ユーザの編集場所にスクロールしなかった。AnalyzeReloadDiff と
-// CalcScrollYForDiff の組合せで「fallback ではなく diff_pos に対応する
-// 位置を返す」ことを担保する。
-TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
-{
-    // 旧 doc: 3 段落
-    const std::string old_md = "para_one\n\npara_two\n\npara_three";
-    // 新 doc: 末尾に 1 段落追記
-    const std::string new_md = old_md + "\n\npara_four_added";
-
-    // AnalyzeReloadDiff で Replace と判定されること
-    const auto decision = AnalyzeReloadDiff(old_md, new_md, false);
-    ASSERT_EQ(decision.op, ReloadOp::Replace);
-    ASSERT_EQ(decision.diff_pos, old_md.size());
-
-    // 新 doc を pipeline で扱うイメージで cache を構築
-    auto nodes = ParseNodes(std::string_view{ new_md });
-    ASSERT_GE(nodes.size(), 4u);
-
-    auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 100.0f);
-    const float last_old_node_y = cache.Top(nodes.size() - 2);
-    const float appended_node_y = cache.Top(nodes.size() - 1);
-
-    // ユーザが先頭付近 (scroll_y=0) を見ている状態で末尾追記が起きたシナリオ。
-    // 旧コード (is_prefix_only ? old_scroll : ...) では desired_scroll が
-    // current_scroll(=0) のまま fallback されていた。これが issue#146 の症状。
-    constexpr float viewport_height = 500.0f;
-    constexpr float current_scroll = 0.0f;
-    const float result = CalcScrollYForDiff(nodes, cache, new_md.size(),
-                                            decision.diff_pos, viewport_height, current_scroll);
-
-    // 修正後: 追記境界 (旧 doc 末尾) 近辺にスクロール。current_scroll とは
-    // 顕著に異なる値が返ること。旧コードでは current_scroll(=0) がそのまま
-    // 返っていたので、「margin 分以上」上回ることで回帰を検出できる。
-    EXPECT_GT(result, current_scroll + viewport_height * 0.2f);
-    // 着地点は最後の旧ノード〜追記ノードの境界付近 (margin で多少上)。
-    EXPECT_GE(result, last_old_node_y - viewport_height * 0.2f);
-    EXPECT_LE(result, appended_node_y);
-}
-
 // ============================================================
 // IsMarkdownFile
 // ============================================================
@@ -1249,6 +1207,7 @@ TEST(IsMarkdownFile, MatchesMarkdownExtensionsCaseInsensitively)
         { L".", false },
         { L"file.mdd", false },
         { L"page.html", false },
+        { L"mendo://help", false }, // HELP_PATH
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));

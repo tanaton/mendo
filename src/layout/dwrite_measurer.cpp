@@ -5,7 +5,7 @@
 #include "document_utils.h"
 #include "inline_math.h"
 #include "layout_computer.h"
-#include "parallel_for.h"
+#include "task_scheduler.h"
 #include "profiler.h"
 #include "syntax.h"
 #include "ui_constants.h"
@@ -149,7 +149,7 @@ constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
 // 2 万行 6 列の幅の変更が 1.0ms かかる (分けて 0.48ms)。直列にすると表が大きいときに遅れる。
 constexpr size_t kEstimatedRowsPerChunk = 256;
 
-// 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
+// 記号を 1 行目の中央に置くため (GenListBullet)。layout 自体は変えない。
 void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
     DWRITE_LINE_METRICS lm{};
@@ -163,7 +163,9 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
 // (描画色と下線は SetMaxWidth だけの再計測でも残る)。
 float FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme)
 {
-    CacheFirstLineHeight(entry.text_layout(), entry);
+    if (node.type == NodeType::ListItem) {
+        CacheFirstLineHeight(entry.text_layout(), entry);
+    }
     if (node.type == NodeType::CodeBlock) {
         entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace + 2.0f * layout::NodeTextXOffset(node, theme));
     }
@@ -477,14 +479,14 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
     return FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
-ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, TableLayoutData& tl, size_t r, size_t c) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, bool& pending_math, size_t r, size_t c) const
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
     const TextStyle style = TableRowStyle(ctx, tbl, r);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, style.format, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, style.fonts, &cell_layout))) {
         if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true, MathFontSize(*theme_, tbl, r), /*fit_width=*/0.0f)) {
-            std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
+            std::atomic_ref{ pending_math }.store(true, std::memory_order_relaxed);
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
         if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {
@@ -497,7 +499,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
     return cell_layout;
 }
 
-void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const
+void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl, bool& pending_math) const
 {
     MENDO_PROFILE("MeasureTableCells");
     const size_t col_count = tbl.col_count;
@@ -516,7 +518,7 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
                 if (!reps.empty() && reps[ci] != ci) {
                     continue;
                 }
-                auto cell_layout = CreateCellLayout(ctx, tbl, tl, r, c);
+                auto cell_layout = CreateCellLayout(ctx, tbl, pending_math, r, c);
                 if (!cell_layout) {
                     continue;
                 }
@@ -606,7 +608,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         for (size_t k = begin; k < end; k++) {
             const size_t r = rows[k];
             for (size_t c = 0; c < tbl.col_count; c++) {
-                tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, tbl, tl, r, c);
+                tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, tbl, entry.pending_math, r, c);
             }
             row_heights[k] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
@@ -636,21 +638,15 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     MENDO_PROFILE("MeasureTable");
     const auto* tbl = node.table_data();
 
-    // 超高速パス: 前回と max_width がほぼ一致し幾何が揃っていれば、
-    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、幾何の高さのまま確定させる。
-    // entry.height は返さない。別の幅で推定が伸ばした高さが残っていることがある (A → B → A と幅を戻したとき)。
-    // 検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
+    // 全セルを測り終えている。前回と max_width がほぼ一致し幾何が揃っていれば、セル幅・行高さ・累積位置・行オフセットは
+    // すべて変化しないため、幾何の高さのまま確定させる。entry.height は返さない。別の幅で推定が伸ばした高さが残っている
+    // ことがある (A → B → A と幅を戻したとき)。検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
-    auto* tl_existing = entry.table_layout();
-    if (tl_existing && tl_existing->GeometryValidAt(max_width)) {
-        return tl_existing->TotalHeight();
-    }
-
-    // 全セルを測り終えていれば、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。
-    // 自然幅はセルのテキストだけで決まり、evict しても残る。行の高さは FinalizeTableLayout が新しい列幅で全行測り、
-    // 見えている evict 行は次の計測パス (RestoreEvictedTableRows) が戻す。
-    if (tl_existing) {
-        return FinalizeTableLayout(*tbl, *tl_existing, max_width);
+    // 幅が変わったら、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。自然幅はセルのテキストだけで決まり、
+    // evict しても残る。行の高さは FinalizeTableLayout が新しい列幅で全行測り、見えている evict 行は次の計測パス
+    // (RestoreEvictedTableRows) が戻す。
+    if (auto* tl = entry.table_layout()) {
+        return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(*tbl, *tl, max_width);
     }
 
     // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
@@ -659,7 +655,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     });
     auto tl = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code);
     // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。行の復元は次の計測パスに任せる。
-    MeasureTableCells(*tbl, *tl);
+    MeasureTableCells(*tbl, *tl, entry.pending_math);
     const float height = FinalizeTableLayout(*tbl, *tl, max_width);
     entry.set_table_layout(std::move(tl));
     return height;

@@ -43,7 +43,6 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     EXPECT_FLOAT_EQ(first_xform->transform._31, origin_x);
     EXPECT_FLOAT_EQ(first_xform->transform._32, 0.0f);
 
-    // スクロール量は HR の Y 座標に CPU 側で直接合算される。
     const auto line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_TRUE(line.has_value());
     const float expected_y = cache_.Top(0) - scroll_y + theme_.paragraph_spacing * 0.5f;
@@ -74,7 +73,6 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
 
 TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
 {
-    // 全ノードより下にスクロール → DrawLineCmd なし
     const auto cmds = Generate("---\n\n---\n\n---", { 0.0f, 0.0f, 800.0f, 100.0f }, 10000.0f);
 
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "すべてのノードがビューポート上ならDrawLineCmdは生成されない";
@@ -123,15 +121,15 @@ TEST(OverlayCommandsTest, LoadingSpinnerDotsFadeAroundCenter)
 {
     DrawCommandList cmds;
     overlay::EmitLoadingSpinner(cmds, 0.0f, kOverlayPane);
-    const auto dots = CollectCmds<FillEllipseCmd>(cmds);
+    const auto dots = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(dots.size(), static_cast<size_t>(spinner::DOT_COUNT));
     EXPECT_EQ(cmds.size(), dots.size());
     EXPECT_FLOAT_EQ(dots[0].opacity, 1.0f);
-    EXPECT_NEAR(dots[0].center.x, 400.0f + spinner::RADIUS, 1e-3f);
-    EXPECT_NEAR(dots[0].center.y, 250.0f, 1e-3f);
+    EXPECT_NEAR((dots[0].rect.left + dots[0].rect.right) * 0.5f, 400.0f + spinner::RADIUS, 1e-3f);
+    EXPECT_NEAR((dots[0].rect.top + dots[0].rect.bottom) * 0.5f, 250.0f, 1e-3f);
     for (size_t i = 0; i < dots.size(); ++i) {
         EXPECT_EQ(dots[i].brush_id, BrushId::Text);
-        EXPECT_NEAR(std::hypot(dots[i].center.x - 400.0f, dots[i].center.y - 250.0f), spinner::RADIUS, 1e-3f);
+        EXPECT_NEAR(std::hypot((dots[i].rect.left + dots[i].rect.right) * 0.5f - 400.0f, (dots[i].rect.top + dots[i].rect.bottom) * 0.5f - 250.0f), spinner::RADIUS, 1e-3f);
         if (i > 0) {
             EXPECT_LT(dots[i].opacity, dots[i - 1].opacity);
         }
@@ -431,7 +429,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
     const std::vector<FileEntry> files;
     const std::vector<TocEntry> toc;
     const std::vector<Node> nodes;
-    const auto reveal = OffsetRectF(PaneHeaderButtonRect(kSidePane.width, theme.pane_header_height, PaneHeaderSlot::Reveal), kSidePane.x, kSidePane.y);
+    const auto reveal = OffsetRectF(PaneHeaderButtonRect(kSidePane.width, theme.pane_header_height, PaneHeaderButton::Reveal), kSidePane.x, kSidePane.y);
     for (const bool enabled : { false, true }) {
         const SidePaneState sp{
             .panes = { SidePaneInstance{ .rect = kSidePane, .show = true, .hovered_button = PaneHeaderButton::Reveal, .reveal_enabled = enabled, .item_height = kItemHeight }, {} },

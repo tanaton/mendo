@@ -23,11 +23,9 @@ protected:
         SetWindowSize(state_, 1048.0f, height);
     }
 
-    // markdown を文書にし、各ノードを node_height ずつ縦に並べる。
     void SetDocument(std::string_view md, float node_height = 100.0f)
     {
-        state_.document.doc = Document::FromMarkdown(std::string(md), L"C:\\docs\\a.md");
-        state_.document.layout_cache = MakeUniformCache(static_cast<int>(Nodes().size()), node_height);
+        ::SetDocument(state_, md, L"C:\\docs\\a.md", node_height);
     }
 
     const std::vector<Node>& Nodes() const noexcept
@@ -142,9 +140,12 @@ TEST_F(SearchBarTest, ReopenSearchesWithKeptQuery)
 // テキスト変更
 // ═══════════════════════════════════════════════
 
-TEST_F(SearchBarTest, TextChangedEmptyQuery)
+// 入力を消したら、クエリとマッチを捨てる。
+TEST_F(SearchBarTest, TextChangedToEmptyClearsMatches)
 {
     SetDocument("hello world");
+    Dispatch(SearchTextChangedAction{ L"hello" });
+    ASSERT_EQ(state_.search.search_state.GetMatchCount(), 1);
 
     Dispatch(SearchTextChangedAction{ L"" });
     EXPECT_TRUE(state_.search.query_wide.empty());
@@ -187,18 +188,11 @@ TEST_F(SearchBarTest, TextChangedStopsRunningSearch)
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 0);
 }
 
-// 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
-TEST_F(SearchBarTest, TextChangedSameTextIsNoop)
-{
-    SetDocument("text");
-
-    EXPECT_TRUE(Dispatch(SearchTextChangedAction{ L"" }).empty());
-}
-
 // ═══════════════════════════════════════════════
 // 選択・IME
 // ═══════════════════════════════════════════════
 
+// 選択が変わったら描き直し、同じ選択の通知では何もしない。
 TEST_F(SearchBarTest, Selection)
 {
     Dispatch(OpenSearchBarAction{});
@@ -207,14 +201,28 @@ TEST_F(SearchBarTest, Selection)
     EXPECT_EQ(state_.search.selection_start, 2);
     EXPECT_EQ(state_.search.caret_pos, 5);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(Dispatch(SearchSelectionAction{ 2, 5 }).empty());
 }
 
-TEST_F(SearchBarTest, SelectionNoOpWhenUnchanged)
+// EM_GETSEL は向きを失う。キー操作の後に読んだ選択は、前の基点が後ろ端に残っていれば後ろ向きとみなし、
+// キャレットを前端に描く (Shift+←)。両端とも動いたら前向き。向きが分かっている選択 (全選択など) はそのまま使う。
+TEST_F(SearchBarTest, SelectionInfersDirectionOnlyWhenUnknown)
 {
     Dispatch(OpenSearchBarAction{});
+    Dispatch(SearchSelectionAction{ 5, 5, /*ordered=*/true });
 
-    Dispatch(SearchSelectionAction{ 2, 5 });
-    EXPECT_TRUE(Dispatch(SearchSelectionAction{ 2, 5 }).empty());
+    Dispatch(SearchSelectionAction{ 3, 5, /*ordered=*/true });
+    EXPECT_EQ(state_.search.selection_start, 5);
+    EXPECT_EQ(state_.search.caret_pos, 3);
+    EXPECT_TRUE(Dispatch(SearchSelectionAction{ 3, 5, /*ordered=*/true }).empty()) << "同じ選択で描き直さない";
+
+    Dispatch(SearchSelectionAction{ 5, 7, /*ordered=*/true });
+    EXPECT_EQ(state_.search.selection_start, 5);
+    EXPECT_EQ(state_.search.caret_pos, 7);
+
+    Dispatch(SearchSelectionAction{ 0, 7 });
+    EXPECT_EQ(state_.search.selection_start, 0);
+    EXPECT_EQ(state_.search.caret_pos, 7);
 }
 
 // 閉じている間の EDIT の変化 (文書の切り替えで空にしたときなど) は描き直さない。
@@ -224,20 +232,14 @@ TEST_F(SearchBarTest, SelectionWhileHiddenDoesNotInvalidate)
     EXPECT_EQ(state_.search.caret_pos, 0);
 }
 
+// 変換中の文字列が変わったら描き、同じ文字列の通知では何もしない。
 TEST_F(SearchBarTest, ImeComposition)
 {
     Dispatch(OpenSearchBarAction{});
 
     Dispatch(ImeCompositionAction{ L"あい" });
     EXPECT_EQ(RenderState().ime_composition, L"あい");
-}
-
-TEST_F(SearchBarTest, ImeCompositionNoOpWhenUnchanged)
-{
-    Dispatch(OpenSearchBarAction{});
-
-    Dispatch(ImeCompositionAction{ L"あ" });
-    EXPECT_TRUE(Dispatch(ImeCompositionAction{ L"あ" }).empty());
+    EXPECT_TRUE(Dispatch(ImeCompositionAction{ L"あい" }).empty());
 }
 
 // ═══════════════════════════════════════════════

@@ -181,10 +181,16 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
     }
 
     // FindNodeBySourceOffset (二分探索) が「offset <= d の最後の位置を持つ最初のノード」の線形定義と一致するか。
-    // 全 byte 位置について、線形の答えを掃引で求めて比較する。
+    // 答えはノードの位置の境目でしか変わらないので、両端と各ノードの位置とその直前で、線形の答えを掃引で求めて比較する。
+    std::vector<size_t> probes{ 0, raw.size() };
+    for (const Node& node : nodes) {
+        probes.push_back(node.SourceOffset());
+        probes.push_back(node.SourceOffset() - (node.SourceOffset() > 0 ? 1 : 0));
+    }
+    std::ranges::sort(probes);
     int expected = -1;
     size_t next = 0;
-    for (size_t d = 0; d <= raw.size(); ++d) {
+    for (const size_t d : probes) {
         while (next < nodes.size() && nodes[next].SourceOffset() <= d) {
             if (expected < 0 || nodes[next].SourceOffset() != nodes[expected].SourceOffset()) {
                 expected = static_cast<int>(next);

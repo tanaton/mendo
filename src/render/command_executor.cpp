@@ -282,17 +282,6 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             dc->DrawImage(c.commands);
             dc->SetTransform(base);
         },
-        [&](const FillEllipseCmd& c) {
-            if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                const OpacityScope opacity{ b, c.opacity };
-                rt->FillEllipse(D2D1::Ellipse(c.center, c.radius, c.radius), b);
-            }
-        },
-        [&](const DrawEllipseCmd& c) {
-            if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                rt->DrawEllipse(D2D1::Ellipse(c.center, c.radius, c.radius), b, c.stroke_width);
-            }
-        },
         [&](const DrawGeometryCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };

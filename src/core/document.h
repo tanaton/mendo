@@ -94,6 +94,10 @@ public:
     {
         return Storage().indices.table_indices;
     }
+    const std::vector<size_t>& GetMathNodeIndices() const noexcept
+    {
+        return Storage().indices.math_indices;
+    }
 
 private:
     const NodeStorage& Storage() const noexcept

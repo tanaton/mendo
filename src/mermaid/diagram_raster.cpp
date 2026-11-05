@@ -9,6 +9,7 @@
 #include <dwrite_3.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -167,8 +168,7 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& fo
 
 void AppendFontKey(std::wstring& key, const DiagramFont& font)
 {
-    uint32_t bits = 0;
-    std::memcpy(&bits, &font.size, sizeof(bits));
+    const auto bits = std::bit_cast<uint32_t>(font.size);
     key.append(font.family);
     key.push_back(L'\0');
     key.push_back(static_cast<wchar_t>(bits & 0xFFFFu));
@@ -191,8 +191,6 @@ constexpr std::string_view kDarkVars =
     "--pele-surface:#2b2b2b;--pele-surface-alt:#363636;--pele-border:#7a7a7a;--pele-accent:#7c9be6;"
     "--pele-series-1:#799abe;--pele-series-2:#f8a452;--pele-series-3:#7fb978;--pele-series-4:#eb8180;"
     "--pele-series-5:#95c9c5;--pele-series-6:#f2d76c;--pele-series-7:#c59bb9;--pele-series-8:#b69886;"sv;
-constexpr uint32_t kLightBackground = 0xFFFFFF;
-constexpr uint32_t kDarkBackground = 0x1E1E1E;
 
 // 表の名前のように、どちらも実行時に決まる文字列の比較。片方が小文字のリテラルなら ascii_util::iequal。
 bool IEquals(std::string_view a, std::string_view b) noexcept
@@ -202,7 +200,7 @@ bool IEquals(std::string_view a, std::string_view b) noexcept
 
 bool IsSpace(char c) noexcept
 {
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    return kSpaces.contains(c);
 }
 
 void SkipSeparators(std::string_view& s) noexcept
@@ -341,43 +339,46 @@ constexpr LengthUnit kLengthUnits[]{
 };
 
 // 長さ。単位なしと px は CSS px。% は相手が要るので読めない扱い。pele は小さな箱の角丸に min() を使う。
-bool ParseLength(std::string_view v, float font_size, float& out)
+std::optional<float> ParseLength(std::string_view v, float font_size)
 {
     v = Trim(v);
     const bool is_min = ascii_util::istarts_with(v, "min(");
     if ((is_min || ascii_util::istarts_with(v, "max(")) && v.ends_with(')')) {
-        bool any = false;
-        return ForEachTopLevel(v.substr(4, v.size() - 5), ',', [&](std::string_view arg) {
-            float x = 0.0f;
-            if (!ParseLength(arg, font_size, x)) {
-                return false;
+        std::optional<float> out;
+        const bool ok = ForEachTopLevel(v.substr(4, v.size() - 5), ',', [&](std::string_view arg) {
+            const auto x = ParseLength(arg, font_size);
+            if (x) {
+                out = !out ? *x : is_min ? std::min(*out, *x) : std::max(*out, *x);
             }
-            out = !any ? x : is_min ? std::min(out, x) : std::max(out, x);
-            any = true;
-            return true;
+            return x.has_value();
         });
+        return ok ? out : std::nullopt;
     }
     double n = 0.0;
     if (!TakeNumber(v, n)) {
-        return false;
+        return std::nullopt;
     }
     double scale = 1.0;
     if (!v.empty()) {
         const auto unit = std::ranges::find_if(kLengthUnits, [v](const LengthUnit& u) { return IEquals(v, u.name); });
         if (unit == std::end(kLengthUnits)) {
-            return false;
+            return std::nullopt;
         }
         scale = unit->per_em ? unit->scale * font_size : unit->scale;
     }
-    out = static_cast<float>(n * scale);
-    return std::isfinite(out);
+    const auto out = static_cast<float>(n * scale);
+    return std::isfinite(out) ? std::optional{ out } : std::nullopt;
 }
 
 // 長さか、percent_base を 100% とする百分率。
-bool ParseLengthOrPercent(std::string_view v, float font_size, float percent_base, float& out)
+std::optional<float> ParseLengthOrPercent(std::string_view v, float font_size, float percent_base)
 {
     v = Trim(v);
-    return v.ends_with('%') ? ParseNumberOrPercent(v, percent_base, out) : ParseLength(v, font_size, out);
+    if (!v.ends_with('%')) {
+        return ParseLength(v, font_size);
+    }
+    float out = 0.0f;
+    return ParseNumberOrPercent(v, percent_base, out) ? std::optional{ out } : std::nullopt;
 }
 
 // SVG の matrix(a b c d e f)。点 (x, y) を (a x + c y + e, b x + d y + f) に移す。DOMMatrix と同じく double で合成する。
@@ -1511,12 +1512,7 @@ struct Vars {
 
 size_t FindVar(std::string_view s) noexcept
 {
-    for (size_t i = 0; i + 4 <= s.size(); ++i) {
-        if (ascii_util::istarts_with(s.substr(i), "var(")) {
-            return i;
-        }
-    }
-    return std::string_view::npos;
+    return ascii_util::Find(s, "var(", 0, /*fold=*/true);
 }
 
 // var() を置き換える。参照先が無く代わりの値も無ければ false (計算値の時点で無効)。
@@ -1629,7 +1625,7 @@ uint16_t RelativeWeight(std::string_view v, uint16_t parent) noexcept
 }
 
 // font-size。smaller・larger は Chromium と同じく 1.2 倍 (pele の measurer の下付き・上付きも 1.2 で割る)。
-bool ParseFontSize(std::string_view v, float parent, float& out)
+std::optional<float> ParseFontSize(std::string_view v, float parent)
 {
     constexpr std::pair<std::string_view, float> kKeywords[]{
         { "xx-small", 9.0f }, { "x-small", 10.0f }, { "small", 13.0f }, { "medium", 16.0f },
@@ -1637,28 +1633,25 @@ bool ParseFontSize(std::string_view v, float parent, float& out)
     };
     v = Trim(v);
     if (ascii_util::iequal(v, "smaller")) {
-        out = parent / 1.2f;
-        return true;
+        return parent / 1.2f;
     }
     if (ascii_util::iequal(v, "larger")) {
-        out = parent * 1.2f;
-        return true;
+        return parent * 1.2f;
     }
     for (const auto& [name, size] : kKeywords) {
         if (IEquals(v, name)) {
-            out = size;
-            return true;
+            return size;
         }
     }
-    return ParseLengthOrPercent(v, parent, parent, out) && out >= 0.0f;
+    const auto size = ParseLengthOrPercent(v, parent, parent);
+    return size && *size >= 0.0f ? size : std::nullopt;
 }
 
 // 属性の長さ。無いか読めなければ nullopt (ブラウザは読めない値を初期値の 0 にする)。
 std::optional<float> AttrLength(const XmlNode& el, std::string_view name, float font_size)
 {
-    float v = 0.0f;
     const auto attr = el.Attr(name);
-    return attr && ParseLength(*attr, font_size, v) ? std::optional{ v } : std::nullopt;
+    return attr ? ParseLength(*attr, font_size) : std::nullopt;
 }
 
 // viewBox と preserveAspectRatio による、(x, y, width, height) の枠への変換。根と入れ子の svg に使う。
@@ -1805,14 +1798,13 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         }
         return;
     }
-    float f = 0.0f;
     switch (prop) {
     case Prop::Color:
         ParseColor(value, parent.color, s.color);
         break;
     case Prop::FontSize:
-        if (ParseFontSize(value, parent.font_size, f)) {
-            s.font_size = f;
+        if (const auto f = ParseFontSize(value, parent.font_size)) {
+            s.font_size = *f;
         }
         break;
     case Prop::Fill:
@@ -1839,16 +1831,16 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         ParseColor(value, s.color, s.own.stop_color);
         break;
     case Prop::StrokeWidth:
-        if (ParseLength(value, s.font_size, f) && f >= 0.0f) {
-            s.stroke_width = f;
+        if (const auto f = ParseLength(value, s.font_size); f && *f >= 0.0f) {
+            s.stroke_width = *f;
         }
         break;
     case Prop::StrokeDashoffset:
-        ParseLength(value, s.font_size, s.dash_offset);
+        s.dash_offset = ParseLength(value, s.font_size).value_or(s.dash_offset);
         break;
     case Prop::StrokeMiterlimit:
-        if (ParseLength(value, s.font_size, f) && f >= 1.0f) {
-            s.miter_limit = f;
+        if (const auto f = ParseLength(value, s.font_size); f && *f >= 1.0f) {
+            s.miter_limit = *f;
         }
         break;
     case Prop::StrokeDasharray: {
@@ -1859,14 +1851,15 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         std::string normalized;
         bool any = false;
         for (const auto part : FunctionTokens(value)) {
-            if (!ParseLength(part, s.font_size, f) || f < 0.0f) {
+            const auto f = ParseLength(part, s.font_size);
+            if (!f || *f < 0.0f) {
                 return;
             }
-            any = any || f > 0.0f;
+            any = any || *f > 0.0f;
             if (!normalized.empty()) {
                 normalized += ' ';
             }
-            AppendNum(normalized, f);
+            AppendNum(normalized, *f);
         }
         s.dash_array = any ? Keep(std::move(normalized)) : std::string_view{};
         break;
@@ -1933,7 +1926,7 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
     case Prop::Rx:
     case Prop::Ry: {
         auto& r = prop == Prop::Rx ? s.own.rx : s.own.ry;
-        r = ascii_util::iequal(value, "auto") || !ParseLength(value, s.font_size, f) ? std::nullopt : std::optional{ f };
+        r = ascii_util::iequal(value, "auto") ? std::nullopt : ParseLength(value, s.font_size);
         break;
     }
     case Prop::MaxWidth:
@@ -1981,8 +1974,7 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
                 const size_t end = std::min(rest.find_first_of(kSpaces), rest.size());
                 const auto token = rest.substr(0, end);
                 const auto size_token = token.substr(0, token.find('/'));
-                float size = 0.0f;
-                if (ParseFontSize(size_token, parent.font_size, size)) {
+                if (ParseFontSize(size_token, parent.font_size)) {
                     set(Prop::FontSize, size_token);
                     set(Prop::FontFamily, Trim(rest.substr(end)));
                     break;
@@ -2216,8 +2208,8 @@ float PeleSvgResolver::BaselineShift(const Style& s)
         const float half = (ascent + descent) / 2.0f;
         return ascii_util::iequal(v, "sub") ? half : -half;
     }
-    float length = 0.0f;
-    return ParseLengthOrPercent(v, s.font_size, s.font_size, length) ? -length : 0.0f;
+    const auto length = ParseLengthOrPercent(v, s.font_size, s.font_size);
+    return length ? -*length : 0.0f;
 }
 
 bool PeleSvgResolver::CollectText(uint32_t index, const Style& s, float opacity, bool underline, float shift, std::vector<Piece>& pieces,
@@ -2371,7 +2363,9 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
     for (Piece& piece : pieces) {
         const Style& ps = piece.style;
         const auto color = SolidColor(ps.fill, ps);
-        if (piece.text.find_first_not_of(L' ') == std::wstring::npos || !ps.visible || piece.opacity <= 0.0f || !color) {
+        // 大きさ 0 の文字は見えない。書くとディスクキャッシュの読み戻し (ToPlacement) で弾かれ、開くたびに描き直す。
+        if (piece.text.find_first_not_of(L' ') == std::wstring::npos || !ps.visible || piece.opacity <= 0.0f || !color ||
+            !(ps.font_size > 0.0f)) {
             continue;
         }
         const float baseline = piece.top + piece.shift;
@@ -2520,7 +2514,7 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     return mermaid_util::DiagramDrawing{
         .width = std::ceil(w),
         .height = std::ceil(h),
-        .background = dark ? kDarkBackground : kLightBackground,
+        .background = dark ? kDiagramDarkBackground : kDiagramLightBackground,
         .defs = std::move(defs_),
         .layers = std::move(layers_),
     };
@@ -2623,6 +2617,12 @@ struct KOwn {
     MathDrawing::Color background, border_color; // border_color が無ければ color (currentColor)
 };
 
+// 要素の計算値。inh は子が継ぐ値、own はその要素だけの値。
+struct KStyle {
+    KInherit inh;
+    KOwn own;
+};
+
 constexpr float kKatexSizes[]{ 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.2f, 1.44f, 1.728f, 2.074f, 2.488f };
 
 struct KBox {
@@ -2721,18 +2721,14 @@ int SizeClass(std::string_view classes, std::string_view prefix) noexcept
     return found;
 }
 
-std::optional<float> ParsePx(std::string_view v, float font_size)
-{
-    float px = 0.0f;
-    return ParseLength(v, font_size, px) ? std::optional{ px } : std::nullopt;
-}
-
 // 長さか百分率。em は font_size、% は KLen::pct (0〜1)。
 std::optional<KLen> ParseKLen(std::string_view v, float font_size)
 {
     v = Trim(v);
-    float out = 0.0f;
-    return ParseLengthOrPercent(v, font_size, 1.0f, out) ? std::optional{ KLen{ out, v.ends_with('%') } } : std::nullopt;
+    if (const auto out = ParseLengthOrPercent(v, font_size, 1.0f)) {
+        return KLen{ *out, v.ends_with('%') };
+    }
+    return std::nullopt;
 }
 
 // 足す順を変えない (std::reduce は順を決めないので、字の位置が前と変わりうる)。
@@ -2891,7 +2887,7 @@ private:
     {
         return i == kNoNode ? std::string_view{} : doc_.nodes[i].Attr("class").value_or(std::string_view{});
     }
-    void Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own);
+    KStyle Compute(uint32_t i, const KInherit& parent);
     KBox Element(uint32_t i, const KInherit& parent, const KCtx& ctx, bool force_inline_block = false);
     void Flow(uint32_t i, const KInherit& inh, const KCtx& ctx, KBox& out, std::vector<uint32_t>& absolutes);
     KBox VList(uint32_t i, const KInherit& inh);
@@ -2919,9 +2915,10 @@ bool KatexLayout::IsAbsolute(uint32_t i) const noexcept
                                      "cd-label-left", "cd-label-right" });
 }
 
-void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own)
+KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
 {
-    inh = parent;
+    KStyle result{ .inh = parent };
+    auto& [inh, own] = result;
     const auto c = Classes(i);
     const uint32_t p = doc_.nodes[i].parent;
     const auto pc = Classes(p);
@@ -3111,15 +3108,14 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
     }
     own.reflect = has("reflectbox");
 
-    // style 属性。
     const auto style = doc_.nodes[i].Attr("style");
     if (!style) {
-        return;
+        return result;
     }
     ForEachDeclaration(*style, [&](std::string_view name, std::string_view value) {
         bool ok = true;
         const auto px = [&](float& out) {
-            const auto v = ParsePx(value, em);
+            const auto v = ParseLength(value, em);
             ok = v.has_value();
             out = v.value_or(out);
         };
@@ -3159,7 +3155,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
             size_t n = 0;
             ForEachTopLevel(value, ' ', [&](std::string_view part) {
                 if (!Trim(part).empty()) {
-                    const auto len = ParsePx(part, em);
+                    const auto len = ParseLength(part, em);
                     ok = ok && len.has_value();
                     if (n < v.size()) {
                         v[n] = len.value_or(0.0f);
@@ -3212,7 +3208,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
             std::array<float, 2> v{};
             size_t n = 0;
             ForEachTopLevel(value, ' ', [&](std::string_view part) {
-                if (const auto len = ParsePx(part, em)) {
+                if (const auto len = ParseLength(part, em)) {
                     v[n++] = *len;
                 }
                 return n < v.size();
@@ -3229,6 +3225,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
         }
         return true;
     });
+    return result;
 }
 
 void KatexLayout::Text(std::string_view text, const KInherit& inh, KBox& out)
@@ -3332,7 +3329,8 @@ void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float
         else if (child.name == "line") {
             // 座標の % はビューポートに対して。viewBox の無い SVG だけで使われる。
             const auto coord = [&](std::string_view attr, float full) {
-                const auto v = child.Attr(attr) ? ParseKLen(*child.Attr(attr), em) : std::optional{ KLen{} };
+                const auto a = child.Attr(attr);
+                const auto v = a ? ParseKLen(*a, em) : std::optional{ KLen{} };
                 return !v ? 0.0f : v->pct ? v->v * full : v->v;
             };
             const float x1 = coord("x1", w), y1 = coord("y1", *h), x2 = coord("x2", w), y2 = coord("y2", *h);
@@ -3371,16 +3369,12 @@ KBox KatexLayout::VList(uint32_t i, const KInherit& inh)
     std::vector<Row> placed;
     for (size_t r = 0; r < rows.size(); ++r) {
         const uint32_t row = rows[r];
-        KInherit row_inh;
-        KOwn row_own;
-        Compute(row, inh, row_inh, row_own);
+        const KInherit row_inh = Compute(row, inh).inh;
         for (const uint32_t cell : doc_.nodes[row].children) {
             if (HasClass(Classes(cell), "vlist-s")) {
                 continue;
             }
-            KInherit cell_inh;
-            KOwn cell_own;
-            Compute(cell, row_inh, cell_inh, cell_own);
+            const auto [cell_inh, cell_own] = Compute(cell, row_inh);
             const float h = cell_own.height.value_or(0.0f);
             if (r == 0) {
                 out.asc = h;
@@ -3395,15 +3389,12 @@ KBox KatexLayout::VList(uint32_t i, const KInherit& inh)
                     continue;
                 }
                 Row placed_row;
-                KOwn wrap_own;
-                Compute(wrap, cell_inh, placed_row.wrap_inh, wrap_own);
+                const auto [wrap_inh, wrap_own] = Compute(wrap, cell_inh);
+                placed_row.wrap_inh = wrap_inh;
                 float pstrut = 0.0f;
                 for (const uint32_t c : wn.children) {
                     if (HasClass(Classes(c), "pstrut")) {
-                        KInherit pi;
-                        KOwn po;
-                        Compute(c, placed_row.wrap_inh, pi, po);
-                        pstrut = po.height.value_or(0.0f);
+                        pstrut = Compute(c, placed_row.wrap_inh).own.height.value_or(0.0f);
                     }
                     else if (placed_row.content == kNoNode) {
                         placed_row.content = c;
@@ -3464,9 +3455,7 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
         Fail();
         return {};
     }
-    KInherit inh;
-    KOwn own;
-    Compute(i, parent, inh, own);
+    auto [inh, own] = Compute(i, parent);
     const auto c = Classes(i);
     // .vlist > span > span の inline-block は .katex-stretchy の block にも勝つ。
     if (force_inline_block) {
@@ -3598,9 +3587,7 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
         const auto& an = doc_.nodes[a];
         const std::optional<float> abs_cb = positioned ? std::optional{ cb_w } : ctx.pos_cb_w;
         if (an.name == "svg") {
-            KInherit si;
-            KOwn so;
-            Compute(a, inh, si, so);
+            const auto [si, so] = Compute(a, inh);
             float w = so.width && !so.width->pct ? so.width->v : abs_cb.value_or(0.0f) * (so.width ? so.width->v : 1.0f);
             if (!abs_cb && !(so.width && !so.width->pct)) {
                 out.pct = true;
@@ -3610,16 +3597,14 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
             Svg(a, si, positioned ? cb_x : edge_l, top, w, h, out);
             continue;
         }
-        KInherit ai;
-        KOwn ao;
-        Compute(a, inh, ai, ao);
+        const KOwn ao = Compute(a, inh).own;
         const auto resolve = [&](const std::optional<KLen>& v) -> std::optional<float> {
             if (!v) {
                 return std::nullopt;
             }
             return v->pct ? std::optional{ v->v * abs_cb.value_or(0.0f) } : std::optional{ v->v };
         };
-        const bool inner = HasClass(an.Attr("class").value_or(""), "katex-inner");
+        const bool inner = HasClass(Classes(a), "katex-inner");
         KCtx actx{ abs_cb, abs_cb };
         if (ao.width && ao.width->pct && !abs_cb) {
             out.pct = true;
@@ -3913,10 +3898,11 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         else if (const auto* p = std::get_if<MathDrawing::Path>(&item)) {
             const auto& shape = *p->shape;
             ComPtr<ID2D1PathGeometry> geometry = shape.geometry;
+            // 拡大表示は本体と別のファクトリで描く。記録するのは図を出すときだけなので、最後に描いたファクトリに付け替える
+            // (最初のファクトリに固定すると、拡大表示が先に描いた形を本体が毎フレーム作り直し、閉じた窓のファクトリも残る)。
             if (shape.factory != factory) {
-                // 拡大表示や保存・コピーの画像は本体と別のファクトリで描くので、そのときだけ作って捨てる。
                 geometry = BuildPathGeometry(factory.Get(), shape.d);
-                if (!shape.factory && geometry) {
+                if (geometry) {
                     shape.factory = factory;
                     shape.geometry = geometry;
                 }
@@ -3957,14 +3943,17 @@ std::vector<std::wstring> ResolveFontFamilies(IDWriteFontCollection* fonts, std:
         if (name.empty()) {
             continue;
         }
-        if (name == L"monospace"sv) {
+        // CSS の総称名は大文字小文字を区別しない。
+        if (ascii_util::iequal(name, L"monospace")) {
             const auto mono = std::ranges::find_if(theme_palette::kMonospaceFontCandidates, [&](const wchar_t* f) { return HasFamily(fonts, f); });
             if (mono != std::end(theme_palette::kMonospaceFontCandidates)) {
                 add(*mono);
             }
             continue;
         }
-        const auto generic = std::ranges::find(kGenericFamilies, name, &std::pair<std::wstring_view, std::wstring_view>::first);
+        const auto generic = std::ranges::find_if(kGenericFamilies, [name](const auto& g) {
+            return std::ranges::equal(name, g.first, {}, ascii_util::ToLowerAscii);
+        });
         if (generic != std::end(kGenericFamilies)) {
             add(generic->second);
         }
@@ -4126,7 +4115,7 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
     // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。背景はキャプチャと同じく塗る。
     dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.width, drawing.height), brush.Get());
-    DiagramTextMeasurer formats(dw, locale ? locale : L"");
+    DiagramTextMeasurer formats(dw, locale);
     // 層の図形は <svg> の中身だけなので、どの層にも同じ頭と <defs> を付けて 1 枚の SVG にする。
     std::string svg;
     AppendSvgHead(svg, drawing);

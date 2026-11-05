@@ -92,8 +92,6 @@ struct TableLayoutData {
     std::vector<float> col_cum_x;
     // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
     float last_applied_max_width = 0.0f;
-    // NodeLayoutEntry::pending_math のセル版。セルは並列に作るので std::atomic_ref で書く。
-    bool pending_math = false;
 
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
     TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
@@ -171,12 +169,6 @@ struct TableLayoutData {
         return col_cum_x.back();
     }
 
-    // 列 c の左端から次の列の左端までの幅 (列幅 + 左右パディング + 罫線)。col_cum_x の刻み幅。
-    float ColumnStep(size_t c) const noexcept
-    {
-        return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
-    }
-
     // row_heights から罫線込みの累積位置を積み直す。
     // first_row より前の row_cum_y は有効なものとして使い回す。
     void RebuildRowCumY(size_t first_row);
@@ -192,6 +184,11 @@ struct TableLayoutData {
     int RowIndexAt(float local_y) const noexcept;
 
 private:
+    // 列 c の左端から次の列の左端までの幅 (列幅 + 左右パディング + 罫線)。col_cum_x の刻み幅。
+    float ColumnStep(size_t c) const noexcept
+    {
+        return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
+    }
     void RebuildColCumX();
     // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
     void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
@@ -209,7 +206,7 @@ constexpr D2D1_POINT_2F TableCellTextOrigin(float cell_left, float row_top) noex
 }
 
 // Y の閉区間 [top, bottom]。文書座標でも、エントリ上端からのローカル座標でも使う。
-// 「全部」と「空」のどちらにもなりうるので既定値は持たせず、All() / None() で明示する。
+// 既定値は持たせず、全部は All() で明示する。
 struct YRange {
     static constexpr float kInf = std::numeric_limits<float>::infinity();
     float top;
@@ -222,11 +219,6 @@ struct YRange {
     static constexpr YRange All() noexcept
     {
         return { -kInf, kInf };
-    }
-    // どの範囲も含まない。
-    static constexpr YRange None() noexcept
-    {
-        return { kInf, -kInf };
     }
 
     constexpr YRange ToLocal(float entry_top) const noexcept
@@ -261,6 +253,7 @@ struct NodeLayoutEntry {
     }
     bool layout_dirty = true;
     // 寸法がまだ無いインライン数式を原文のまま組んだ。描画の結果が出たら組み直す (LayoutCache::InvalidatePendingMathLayouts)。
+    // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_math = false;
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
@@ -407,10 +400,6 @@ private:
 // 全ノード分並ぶので、計測・描画したノードでしか使わないフィールドは Aux に置いて増やさない。
 static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
 
-// 本文 text_layout の、view (layout ローカル Y) にかかる行とその上下 1 行のテキスト範囲 [first, second) (UTF-16)。
-// 検索・選択ハイライトが矩形を引く範囲を絞るのに使う。行の位置を覚えず毎フレーム引く (BM_SelectionFrame / BM_SearchFrame)。
-std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& entry, YRange view);
-
 // 図を描けなかった理由。言語で変わる文言は描くときに引き、言語を切り替えても前の言語の文言を残さない。
 struct DiagramError {
     enum class Kind : uint8_t {
@@ -484,15 +473,11 @@ struct DiagramEntry : DiagramResult {
         return (!HasImage() || stale) && error.empty();
     }
 
-    // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
-    // 描画命令の図は小さい (30 図で 4MB ほど) ので残し、見えたときに描き直させない。
+    // オフスクリーン evict 用。画像のビットマップだけ捨て、寸法とエラーはレイアウト維持/再試行抑止のため残す。
+    // 図はビットマップを持たない。描画命令は小さい (30 図で 4MB ほど) ので残し、見えたときに描き直させない。
     void EvictBitmap() noexcept
     {
-        if (commands) {
-            return;
-        }
         bitmap.Reset();
-        stale = false;
     }
 
     // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。

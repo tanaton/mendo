@@ -4,7 +4,7 @@
 #include "command_generator.h"
 #include "ui_constants.h"
 #include "win_handle.h"
-#include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
@@ -13,10 +13,7 @@
 #include <utility>
 #include <vector>
 
-// d3d11.h / dxgi は renderer_device.cpp だけで読み、d2d1_1.h / wincodec.h も含めて renderer.h から app.h を読む翻訳単位へ広げない。
-struct ID2D1Factory1;
-struct ID2D1Device;
-struct ID2D1DeviceContext;
+// d3d11.h / dxgi は renderer_device.cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
 struct ID3D11Device;
 struct IDXGISwapChain2;
 struct IWICImagingFactory;
@@ -48,7 +45,7 @@ public:
         Done,
         // デバイスを失ったため、このフレームは表示されていない。すぐ描き直す。
         RedrawNow,
-        // デバイスを作り直した。旧デバイスで作ったビットマップ (インライン数式の型を含む) を呼び出し側が捨ててから描き直す。
+        // デバイスを作り直した。旧デバイスで作った画像のビットマップと図のコマンドリストを呼び出し側が捨ててから描き直す。
         DeviceRecreated,
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
@@ -60,14 +57,20 @@ public:
     void TrimForMinimize() noexcept;
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
-    ID2D1RenderTarget* GetRenderTarget() const noexcept;
+    ID2D1RenderTarget* GetRenderTarget() const noexcept
+    {
+        return device_context_.Get();
+    }
     // 描画面の DIP サイズ。デバイスが無い間も Resize に追従する。
     D2D1_SIZE_F GetSize() const noexcept
     {
         const float scale = DpiScaleFrom(dpi_);
         return { PixelToDip(static_cast<float>(width_px_), scale), PixelToDip(static_cast<float>(height_px_), scale) };
     }
-    ID2D1Factory* GetD2DFactory() const noexcept;
+    ID2D1Factory* GetD2DFactory() const noexcept
+    {
+        return d2d_factory_.Get();
+    }
     IDWriteFactory* GetDWriteFactory() const noexcept
     {
         return dwrite_factory_.Get();

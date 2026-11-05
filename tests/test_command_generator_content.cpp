@@ -38,6 +38,16 @@ bool IsVertical(const DrawLineCmd& l)
     return std::abs(l.p0.x - l.p1.x) < 0.01f;
 }
 
+// ● と ○ は半径 = 半辺の角丸矩形、■ は FillRect、□ は角の無い DrawRoundedRect で描く。
+constexpr auto kDisc = [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
+constexpr auto kCircle = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
+constexpr auto kOutlinedSquare = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius == 0.0f; };
+
+float CenterY(const D2D1_RECT_F& r)
+{
+    return (r.top + r.bottom) * 0.5f;
+}
+
 } // namespace
 
 // ---- Heading 下線 ----
@@ -113,29 +123,30 @@ TEST_F(CmdGenContentTest, TransformsArePaired)
 // ---- 角丸の背景 ----
 
 // コードブロック・Alert と、ビットマップ未設定の画像・Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
+// プレースホルダーの背景はコードブロックと同じ色。
 TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 {
     struct Case {
         const char* name;
         const char* md;
-        bool background;
+        BrushId background; // None は背景なし
     };
     constexpr Case cases[] = {
-        { "CodeBlock",             "```\ncode\n```",                     true  },
-        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```",           true  },
-        { "Alert",                 "> [!WARNING]\n> Be careful",         true  },
-        { "ImageWithoutBitmap",    "![alt](image.png)",                  true  },
-        { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```", true  },
-        { "Paragraph",             "Hello world",                        false },
+        { "CodeBlock",             "```\ncode\n```",                     BrushId::CodeBg         },
+        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```",           BrushId::CodeBg         },
+        { "Alert",                 "> [!WARNING]\n> Be careful",         BrushId::AlertWarningBg },
+        { "ImageWithoutBitmap",    "![alt](image.png)",                  BrushId::CodeBg         },
+        { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```", BrushId::CodeBg         },
+        { "Paragraph",             "Hello world",                        BrushId::None           },
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
-        const auto rounded = CountCmd<FillRoundedRectCmd>(Generate(c.md));
-        if (c.background) {
-            EXPECT_GE(rounded, 1);
+        const auto cmds = Generate(c.md);
+        if (c.background == BrushId::None) {
+            EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 0);
         }
         else {
-            EXPECT_EQ(rounded, 0);
+            EXPECT_GE(CountCmd<FillRoundedRectCmd>(cmds, [&](const FillRoundedRectCmd& r) { return r.brush_id == c.background; }), 1);
         }
     }
 }
@@ -148,35 +159,24 @@ TEST_F(CmdGenContentTest, MultiLineBlockQuoteGeneratesSingleBar)
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds, IsVertical), 1) << "複数行の引用ブロックは1本の統合されたバーのみ生成するべき";
 }
 
+// Alert のバーと背景は、通常の引用とは別のブラシ (種類の色) で描く。
 TEST_F(CmdGenContentTest, MultiLineAlertGeneratesSingleBarAndBackground)
 {
     auto cmds = Generate("> [!NOTE]\n> Line 1\n>\n> Line 2");
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds, IsVertical), 1) << "複数行のAlertは1本の統合されたバーのみ生成するべき";
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 1) << "複数行のAlertは1つの統合された背景のみ生成するべき";
+    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds, [](const DrawLineCmd& l) { return IsVertical(l) && l.brush_id == BrushId::AlertNote; }), 1);
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::AlertNoteBg; }), 1);
 }
 
 // ---- 箇条書き記号を持たないリスト ----
 
-TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoEllipse)
+TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoBullet)
 {
     for (const char* md : { "1. First\n2. Second\n3. Third", "- [x] Done\n- [ ] Not done" }) {
         SCOPED_TRACE(md);
-        EXPECT_EQ(CountCmd<FillEllipseCmd>(Generate(md)), 0);
+        EXPECT_EQ(CountCmd<FillRoundedRectCmd>(Generate(md), kDisc), 0);
     }
-}
-
-// ---- GitHub Alerts ----
-
-TEST_F(CmdGenContentTest, AlertBarColorMatchesTheme)
-{
-    // Note のバーは通常の blockquote のバーとは別のブラシで描く。
-    auto cmds = Generate("> [!NOTE]\n> text");
-    const auto bar = FindFirst<DrawLineCmd>(cmds, [&](const DrawLineCmd& l) {
-        return IsVertical(l) && l.brush_id == BrushId::AlertNote;
-    });
-    EXPECT_TRUE(bar.has_value()) << "Note のバーは AlertNote ブラシで描くべき";
-    const auto bg = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::AlertNoteBg; });
-    EXPECT_TRUE(bg.has_value()) << "Note の背景は AlertNoteBg ブラシで描くべき";
 }
 
 // ---- コピーボタン ----
@@ -190,31 +190,19 @@ TEST_F(CmdGenContentTest, CodeBlockNoCopyButtonWithoutIconFont)
 
 // ---- リスト箇条書き記号の垂直位置 ----
 
-TEST_F(CmdGenContentTest, UnorderedListBulletCenteredOnFirstLine)
-{
-    const auto bullet = FindFirst<FillEllipseCmd>(Generate("- Item"));
-    ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
-    EXPECT_NEAR(bullet->center.y, ExpectedBulletY(0), 0.01f);
-}
-
 TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
 {
     auto cmds = Generate("- A\n  - B");
     const float expected_y0 = ExpectedBulletY(0);
     const float expected_y1 = ExpectedBulletY(1);
 
-    int idx = 0;
-    for (const auto& cmd : cmds) {
-        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
-            idx++;
-        }
-        else if (auto* d = std::get_if<DrawEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(d->center.y, expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
-            idx++;
-        }
-    }
-    EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
+    const auto disc = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
+    const auto circle = FindFirst<DrawRoundedRectCmd>(cmds, kCircle);
+    ASSERT_TRUE(disc.has_value());
+    ASSERT_TRUE(circle.has_value());
+    EXPECT_NEAR(CenterY(disc->rect), expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
+    EXPECT_NEAR(CenterY(circle->rect), expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, kDisc) + CountCmd<DrawRoundedRectCmd>(cmds, kCircle), 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
 // ● ○ ■ □ を段ごとに繰り返す (issue#365, #407)。
@@ -223,16 +211,16 @@ TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
     const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4\n        - 5");
     std::vector<char> shapes;
     for (const auto& cmd : cmds) {
-        if (std::holds_alternative<FillEllipseCmd>(cmd)) {
+        if (const auto* f = std::get_if<FillRoundedRectCmd>(&cmd); f && kDisc(*f)) {
             shapes.push_back('F');
         }
-        else if (std::holds_alternative<DrawEllipseCmd>(cmd)) {
+        else if (const auto* d = std::get_if<DrawRoundedRectCmd>(&cmd); d && kCircle(*d)) {
             shapes.push_back('O');
         }
         else if (const auto* r = std::get_if<FillRectCmd>(&cmd); r && r->brush_id == BrushId::Text) {
             shapes.push_back('S');
         }
-        else if (const auto* d = std::get_if<DrawRoundedRectCmd>(&cmd); d && d->brush_id == BrushId::Text) {
+        else if (d && kOutlinedSquare(*d)) {
             shapes.push_back('Q');
         }
     }
@@ -244,7 +232,7 @@ TEST_F(CmdGenContentTest, OutlinedSquareBulletMatchesFilledSquare)
 {
     const auto cmds = Generate("- a\n  - b\n    - c\n      - d");
     const auto filled = FindFirst<FillRectCmd>(cmds, [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; });
-    const auto outlined = FindFirst<DrawRoundedRectCmd>(cmds, [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    const auto outlined = FindFirst<DrawRoundedRectCmd>(cmds, kOutlinedSquare);
     ASSERT_TRUE(filled.has_value());
     ASSERT_TRUE(outlined.has_value());
     EXPECT_FLOAT_EQ(outlined->radius, 0.0f);
@@ -266,8 +254,8 @@ TEST_F(CmdGenContentTest, SquareBulletCenteredOnFirstLine)
 TEST_F(CmdGenContentTest, ListInBlockQuoteStartsWithDisc)
 {
     const auto cmds = Generate("> - a\n>   - b");
-    EXPECT_EQ(CountCmd<FillEllipseCmd>(cmds), 1);
-    EXPECT_EQ(CountCmd<DrawEllipseCmd>(cmds), 1);
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, kDisc), 1);
+    EXPECT_EQ(CountCmd<DrawRoundedRectCmd>(cmds, kCircle), 1);
 }
 
 TEST(FormatListNumberTest, StyleCyclesByDepth)
@@ -305,15 +293,7 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
     }
 }
 
-// ---- 図・画像プレースホルダー ----
-
-TEST_F(CmdGenContentTest, PlaceholderBgUsesCodeBgColor)
-{
-    auto cmds = Generate("![alt](image.png)");
-    const auto rr = FindFirst<FillRoundedRectCmd>(cmds);
-    ASSERT_TRUE(rr.has_value()) << "プレースホルダーの角丸四角形が見つからない";
-    EXPECT_EQ(rr->brush_id, BrushId::CodeBg);
-}
+// ---- 区切ったコードブロック ----
 
 // 区切ったコードブロックは間を空けずに並べ、背景は継ぎ目で丸めずにつなげる。
 TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
