@@ -1,5 +1,6 @@
 #include "file_watcher.h"
 #include "file_io.h"
+#include "win32_util.h"
 #include <cstring>
 
 bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept
@@ -44,10 +45,9 @@ FileWatcher::~FileWatcher()
 FileWatchTarget OpenWatchTarget(const std::wstring& file_path)
 {
     FileWatchTarget target{ .filename = std::wstring(path_util::FilenameView(file_path)) };
-    wchar_t short_buf[MAX_PATH];
-    const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
-    if (short_len > 0 && short_len < MAX_PATH) {
-        if (const auto short_name = path_util::FilenameView({ short_buf, short_len }); !path_util::iequal(short_name, target.filename)) {
+    const auto short_path = QueryPath([&](wchar_t* b, UINT n) { return GetShortPathNameW(file_path.c_str(), b, n); });
+    if (!short_path.empty()) {
+        if (const auto short_name = path_util::FilenameView(short_path); !path_util::iequal(short_name, target.filename)) {
             target.short_filename = short_name;
         }
     }
@@ -77,7 +77,6 @@ void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
     on_change_ = std::move(callback);
     target_ = std::move(target);
 
-    overlapped_ = {};
     overlapped_.hEvent = event_.get();
 
     BeginRead();

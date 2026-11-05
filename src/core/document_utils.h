@@ -11,11 +11,15 @@
 struct WordBoundary {
     uint32_t start = 0;
     uint32_t end = 0;
-    bool found = false;
+
+    constexpr bool found() const noexcept
+    {
+        return end > start;
+    }
 };
 
 // カテゴリ: 語 (英数+_・ラテン文字・ギリシャ文字・キリル文字・ハングル) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
-// 「その他」(空白・記号など) は {0, 0, false}。形態素解析は行わない (UAX#29 簡易版)。
+// 「その他」(空白・記号など) は {0, 0}。形態素解析は行わない (UAX#29 簡易版)。
 // pos がマルチバイト/サロゲートの途中を指した場合は code point 先頭へスナップする。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
@@ -26,7 +30,11 @@ struct NodeWordRange {
     uint32_t start = 0;
     size_t end_node = 0;
     uint32_t end = 0;
-    bool found = false;
+
+    constexpr bool found() const noexcept
+    {
+        return start_node < end_node || start < end;
+    }
 };
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept;
 

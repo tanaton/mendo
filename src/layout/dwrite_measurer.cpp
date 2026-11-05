@@ -87,12 +87,9 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
     for (size_t c = 0; c < tl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
         auto* const layout = tl.cell_layouts[ci].Get();
-        if (!layout) {
-            height = std::max(height, EvictedCellHeight(tl, ci, tl.col_widths[c]) + TABLE_CELL_PADDING * 2.0f);
-            continue;
-        }
-        height = std::max(height, ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) + TABLE_CELL_PADDING * 2.0f);
-        if (bgs) {
+        const float cell_height = layout ? ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) : EvictedCellHeight(tl, ci, tl.col_widths[c]);
+        height = std::max(height, cell_height + TABLE_CELL_PADDING * 2.0f);
+        if (layout && bgs) {
             ForEachInlineCodeBg(layout, tbl.GetCellText(r, c), tbl.GetCellRuns(r, c), [&](const InlineCodeBg& rect) {
                 bgs->push_back({ static_cast<uint32_t>(c), rect });
             });

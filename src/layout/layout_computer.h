@@ -98,20 +98,37 @@ constexpr float BitmapDisplayHeight(float width, float height, float max_width) 
     return FitBitmapSize(width, height, max_width).height;
 }
 
-// ノードの右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。
-// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図の結果 (コピー・保存の元が無ければボタンも無い)。
-template <class Fn>
-void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x, float w, float top, const Theme& theme, Fn&& fn)
+// オーバーレイボタンを置きうるノード。区切ったコードブロックは先頭にだけ置き、並び全体をコピーする。
+inline bool MayHaveOverlayButtons(const Node& node) noexcept
 {
-    // 区切ったコードブロックは先頭にだけ置き、並び全体をコピーする。
-    if (node.type == NodeType::CodeBlock && !node.continues_prev()) {
-        fn(OverlayButtonRect(x + w, top - NodeBoxPadTop(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
+    return node.type == NodeType::Diagram || (node.type == NodeType::CodeBlock && !node.continues_prev());
+}
+
+// 図のボタンを置くか。描けていて、コピー・保存の元がある図だけ。
+inline bool HasDiagramButtons(const DiagramEntry* diagram) noexcept
+{
+    return diagram && diagram->CanExport();
+}
+
+// ノード i の右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。
+// x / w はノードの左端と内容幅、top はテキスト上端。
+template <class Fn>
+void ForEachOverlayButton(const Node& node, const LayoutCache& cache, size_t i, float x, float w, float top, const Theme& theme, Fn&& fn)
+{
+    if (!MayHaveOverlayButtons(node)) {
+        return;
     }
-    else if (node.type == NodeType::Diagram && diagram && diagram->CanExport()) {
-        const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
-        for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
-            fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
-        }
+    if (node.type == NodeType::CodeBlock) {
+        fn(OverlayButtonRect(x + w, top - NodeBoxPadTop(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
+        return;
+    }
+    const DiagramEntry* diagram = cache.FindDiagram(i);
+    if (!HasDiagramButtons(diagram)) {
+        return;
+    }
+    const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
+    for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
+        fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
     }
 }
 

@@ -201,17 +201,11 @@ inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::string_vi
         return false;
     }
 
-    if (svg_utf8_mem) {
-        static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
-        CommitClipboardGlobal(cf_svg, std::move(svg_utf8_mem));
-    }
-    bool dib_committed = false;
-    if (dib) {
-        dib_committed = CommitClipboardGlobal(CF_DIB, std::move(dib));
-    }
-    if (svg_unicode) {
-        CommitClipboardGlobal(CF_UNICODETEXT, std::move(svg_unicode));
-    }
+    // CommitClipboardGlobal は空のペイロードを飛ばす。
+    static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
+    CommitClipboardGlobal(cf_svg, std::move(svg_utf8_mem));
+    const bool dib_committed = CommitClipboardGlobal(CF_DIB, std::move(dib));
+    CommitClipboardGlobal(CF_UNICODETEXT, std::move(svg_unicode));
     return dib_committed;
 }
 
@@ -229,11 +223,7 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
         return;
     }
 
-    if (html) {
-        static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
-        CommitClipboardGlobal(cf_html, std::move(html));
-    }
-    if (plain) {
-        CommitClipboardGlobal(CF_UNICODETEXT, std::move(plain));
-    }
+    static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
+    CommitClipboardGlobal(cf_html, std::move(html));
+    CommitClipboardGlobal(CF_UNICODETEXT, std::move(plain));
 }

@@ -125,7 +125,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastWordCharSelectsWord)
 
     ASSERT_EQ(r.char_pos, 4u);
     const auto wb = FindWordBoundaries(pl.nodes[0].GetText(), r.char_pos);
-    EXPECT_TRUE(wb.found);
+    EXPECT_TRUE(wb.found());
     EXPECT_EQ(wb.start, 0u);
     EXPECT_EQ(wb.end, 5u);
 }

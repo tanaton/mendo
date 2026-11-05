@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <emmintrin.h>
 #include <intrin.h>
@@ -248,6 +249,16 @@ constexpr bool iequal(std::string_view a, DocLowercaseLiteral b) noexcept
 constexpr bool istarts_with(std::string_view s, DocLowercaseLiteral prefix) noexcept
 {
     return std::ranges::starts_with(s, prefix.value, {}, ToLowerAscii);
+}
+
+// CSS の #rrggbb。
+inline void AppendHexColor(std::string& out, uint32_t rgb)
+{
+    constexpr char kHex[] = "0123456789abcdef";
+    out += '#';
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        out += kHex[(rgb >> shift) & 0xF];
+    }
 }
 
 } // namespace ascii_util

@@ -85,6 +85,10 @@ struct SearchStepAction {
 };
 // 検索の入力欄の中の全選択 (検索欄で Ctrl+A)。
 struct SearchSelectAllAction {};
+// 検索の入力欄のダブルクリック。pos (UTF-16) を含む語を選ぶ。
+struct SearchSelectWordAction {
+    int pos = 0;
+};
 
 // マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
 // 既定値はどこにもホバーしていない状態。
@@ -106,14 +110,15 @@ struct HoverHighlights {
 };
 
 // App がヒットテストで求めたホバー状態。reducer がまとめて状態へ反映する。
-struct PointerHover : HoverHighlights {
+struct PointerHoverAction : HoverHighlights {
     TooltipHover tooltip;
-};
-struct PointerHoverAction {
-    PointerHover hover;
 };
 // ウィンドウ外へ出た。ホバー状態を全て解除しツールチップを閉じる。
 struct MouseLeaveAction {};
+// 読み込みのスピナーを本文ペインの代わりに出す / 消す。
+struct LoadingShownAction {
+    bool shown = false;
+};
 // edge: 右端のスプリッタを掴んだペイン。
 struct SplitterDragStartedAction {
     PaneTarget edge;
@@ -254,8 +259,10 @@ using AppAction = std::variant<
     CloseSearchBarAction,
     SearchStepAction,
     SearchSelectAllAction,
+    SearchSelectWordAction,
     PointerHoverAction,
     MouseLeaveAction,
+    LoadingShownAction,
     SplitterDragStartedAction,
     LeftDragMovedAction,
     LeftDragEndedAction,

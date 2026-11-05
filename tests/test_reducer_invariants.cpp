@@ -309,7 +309,7 @@ public:
         }
         case 9: {
             const int node = Pick(-1, h_.NodeCount());
-            model_.Dispatch(PointerHoverAction{ PointerHover{ { .h_block = node } } });
+            model_.Dispatch(PointerHoverAction{ { .h_block = node } });
             return std::format("BlockHHover({})", node);
         }
         case 10:

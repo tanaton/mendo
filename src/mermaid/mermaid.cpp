@@ -130,13 +130,6 @@ void MermaidRenderer::DropQueuedMath()
     std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind() == RequestKind::Math; });
 }
 
-void MermaidRenderer::ApplyResult(DiagramEntry& diagram_entry, const DiagramResult& result)
-{
-    // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
-    static_cast<DiagramResult&>(diagram_entry) = result;
-    diagram_entry.stale = false;
-}
-
 bool MermaidRenderer::RequestRender(
     const Node& node,
     DiagramEntry& diagram_entry,
@@ -146,7 +139,8 @@ bool MermaidRenderer::RequestRender(
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
     if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
-        ApplyResult(diagram_entry, *cached);
+        // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
+        diagram_entry.SetResult(*cached);
         return true;
     }
     if (!inflight_.insert(hash).second) {
@@ -426,9 +420,10 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBa
     });
 }
 
-void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool dark_mode)
+void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_width, bool dark_mode)
 {
     const bool open = ViewerOpen();
+    viewer_.node = node;
     if (open) {
         viewer_.view->BringToFront();
         if (viewer_.code == code) {

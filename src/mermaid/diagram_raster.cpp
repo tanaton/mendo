@@ -314,6 +314,16 @@ bool ForEachTopLevel(std::string_view s, char separator, F&& f)
     }
 }
 
+// style 属性の宣言 (name: value) を順に f(name, value) へ渡す。コロンの無い宣言は飛ばす。
+template <class F>
+bool ForEachDeclaration(std::string_view style, F&& f)
+{
+    return ForEachTopLevel(style, ';', [&](std::string_view decl) {
+        const size_t colon = decl.find(':');
+        return colon == std::string_view::npos || f(Trim(decl.substr(0, colon)), Trim(decl.substr(colon + 1)));
+    });
+}
+
 // 長さの単位。per_em は font-size に掛ける。
 struct LengthUnit {
     std::string_view name;
@@ -560,7 +570,7 @@ bool WalkPath(std::string_view d, Visitor& visitor)
         if (d.empty()) {
             return true;
         }
-        if ((d[0] >= 'A' && d[0] <= 'Z') || (d[0] >= 'a' && d[0] <= 'z')) {
+        if (ascii_util::IsAsciiAlpha(d[0])) {
             command = d[0];
             d.remove_prefix(1);
         }
@@ -1247,16 +1257,6 @@ uint32_t ToRgb(const Rgba& c) noexcept
     return (ColorByte(c.r) << 16) | (ColorByte(c.g) << 8) | ColorByte(c.b);
 }
 
-void AppendHexColor(std::string& out, const Rgba& c)
-{
-    constexpr char kHex[] = "0123456789abcdef";
-    const uint32_t rgb = ToRgb(c);
-    out += '#';
-    for (int shift = 20; shift >= 0; shift -= 4) {
-        out += kHex[(rgb >> shift) & 0xF];
-    }
-}
-
 // 書き出す値 (小数 3 桁)。
 double RoundNum(double v) noexcept
 {
@@ -1315,7 +1315,7 @@ void AppendAttr(std::string& out, std::string_view name, std::string_view v)
 
 void AppendAttr(std::string& out, std::string_view name, const Rgba& c)
 {
-    AppendAttrWith(out, name, [&] { AppendHexColor(out, c); });
+    AppendAttrWith(out, name, [&] { ascii_util::AppendHexColor(out, ToRgb(c)); });
 }
 
 // 書き出す SVG は根の <svg> の直下に要素を平らに並べ、継承する値が無いので、SVG の初期値と同じ値は書かない。
@@ -1973,13 +1973,7 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
     }
     const auto set = [&](Prop p, std::string_view v) { specified[static_cast<size_t>(p)] = v; };
     Vars* own_vars = nullptr;
-    const auto declaration = [&](std::string_view decl) {
-        const auto colon = decl.find(':');
-        if (colon == std::string_view::npos) {
-            return true;
-        }
-        const auto name = Trim(decl.substr(0, colon));
-        const auto value = Trim(decl.substr(colon + 1));
+    const auto declaration = [&](std::string_view name, std::string_view value) {
         if (name.starts_with("--")) {
             if (!own_vars) {
                 own_vars = &vars_.emplace_back(Vars{ .parent = parent.vars });
@@ -2016,10 +2010,10 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
         return true;
     };
     if (!extra_style.empty()) {
-        ForEachTopLevel(extra_style, ';', declaration);
+        ForEachDeclaration(extra_style, declaration);
     }
     if (style) {
-        ForEachTopLevel(*style, ';', declaration);
+        ForEachDeclaration(*style, declaration);
     }
     if (own_vars) {
         s.vars = own_vars;
@@ -2722,6 +2716,11 @@ bool HasClass(std::string_view classes, std::string_view name) noexcept
     return AnyClass(classes, [name](std::string_view c) { return c == name; });
 }
 
+bool HasAnyClass(std::string_view classes, std::initializer_list<std::string_view> names) noexcept
+{
+    return AnyClass(classes, [names](std::string_view c) { return std::ranges::contains(names, c); });
+}
+
 // "reset-size6" や "size3" の番号。無ければ 0。
 int SizeClass(std::string_view classes, std::string_view prefix) noexcept
 {
@@ -2933,9 +2932,8 @@ bool KatexLayout::IsAbsolute(uint32_t i) const noexcept
     if (n.name == "svg") {
         return true;
     }
-    const auto c = Classes(i);
-    return HasClass(c, "halfarrow-left") || HasClass(c, "halfarrow-right") || HasClass(c, "brace-left") || HasClass(c, "brace-center") ||
-           HasClass(c, "brace-right") || HasClass(c, "katex-inner") || HasClass(c, "cd-label-left") || HasClass(c, "cd-label-right");
+    return HasAnyClass(Classes(i), { "halfarrow-left", "halfarrow-right", "brace-left", "brace-center", "brace-right", "katex-inner",
+                                     "cd-label-left", "cd-label-right" });
 }
 
 void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOwn& own)
@@ -2945,6 +2943,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
     const uint32_t p = doc_.nodes[i].parent;
     const auto pc = Classes(p);
     const auto has = [&](std::string_view name) { return HasClass(c, name); };
+    const auto any = [&](std::initializer_list<std::string_view> names) { return HasAnyClass(c, names); };
 
     // 文字の大きさ (.katex-sizing.reset-sizeA.sizeB)。em は親の大きさ。
     if (has("katex-sizing") || has("fontsize-ensurer")) {
@@ -3017,17 +3016,17 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
     }
 
     // text-align (継承する)。
-    if (has("msupsub") || has("svg-align") || has("cd-label-left")) {
+    if (any({ "msupsub", "svg-align", "cd-label-left" })) {
         inh.align = KAlign::Left;
     }
-    if (has("x-arrow") || has("mover") || has("munder")) {
+    if (any({ "x-arrow", "mover", "munder" })) {
         inh.align = KAlign::Center;
     }
     if (has("cd-label-right")) {
         inh.align = KAlign::Right;
     }
     if (has("vlist-t")) {
-        if (HasClass(pc, "op-limits") || HasClass(pc, "katex-accent") || HasClass(pc, "col-align-c")) {
+        if (HasAnyClass(pc, { "op-limits", "katex-accent", "col-align-c" })) {
             inh.align = KAlign::Center;
         }
         else if (HasClass(pc, "col-align-l")) {
@@ -3043,17 +3042,16 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
 
     const float em = inh.font_size;
     own = {};
-    if (has("katex-base") || has("katex-strut") || has("mspace") || has("frac-line") || has("nulldelimiter") || has("katex-rule") ||
-        has("overline-line") || has("underline-line") || has("katex-hline") || has("katex-hdashline") || has("vertical-separator") ||
-        has("arraycolsep") || has("katex-fix") || has("reflectbox") || has("cd-vert-arrow") || has("katex-vbox") || has("katex-thinbox") ||
-        has("llap") || has("rlap") || has("clap")) {
+    if (any({ "katex-base", "katex-strut", "mspace", "frac-line", "nulldelimiter", "katex-rule", "overline-line", "underline-line",
+              "katex-hline", "katex-hdashline", "vertical-separator", "arraycolsep", "katex-fix", "reflectbox", "cd-vert-arrow", "katex-vbox",
+              "katex-thinbox", "llap", "rlap", "clap" })) {
         own.display = KDisplay::InlineBlock;
     }
-    if (has("katex-overlay") || has("katex-stretchy") || has("katex-newline")) {
+    if (any({ "katex-overlay", "katex-stretchy", "katex-newline" })) {
         own.display = KDisplay::Block;
     }
-    if (has("katex-base") || has("delimcenter") || has("op-symbol") || has("accent-body") || has("katex-rule") || has("llap") || has("rlap") ||
-        has("clap") || has("cd-vert-arrow") || has("katex-stretchy") || has("hide-tail")) {
+    if (any({ "katex-base", "delimcenter", "op-symbol", "accent-body", "katex-rule", "llap", "rlap", "clap", "cd-vert-arrow", "katex-stretchy",
+              "hide-tail" })) {
         own.position = KPosition::Relative;
     }
     if (IsAbsolute(i)) {
@@ -3067,10 +3065,10 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
     if (has("nulldelimiter")) {
         own.width = KLen{ 0.12f * em };
     }
-    if (has("katex-thinbox") || has("llap") || has("rlap") || has("clap") || (has("accent-body") && !has("accent-full"))) {
+    if (any({ "katex-thinbox", "llap", "rlap", "clap" }) || (has("accent-body") && !has("accent-full"))) {
         own.width = KLen{ 0.0f };
     }
-    if (has("frac-line") || has("overline-line") || has("underline-line") || has("katex-hline") || has("katex-hdashline")) {
+    if (any({ "frac-line", "overline-line", "underline-line", "katex-hline", "katex-hdashline" })) {
         own.width = KLen{ 1.0f, true };
         own.min_height = 1.0f;
         own.dashed[2] = has("katex-hdashline");
@@ -3135,13 +3133,7 @@ void KatexLayout::Compute(uint32_t i, const KInherit& parent, KInherit& inh, KOw
     if (!style) {
         return;
     }
-    ForEachTopLevel(*style, ';', [&](std::string_view decl) {
-        const size_t colon = decl.find(':');
-        if (colon == std::string_view::npos) {
-            return true;
-        }
-        const auto name = Trim(decl.substr(0, colon));
-        const auto value = Trim(decl.substr(colon + 1));
+    ForEachDeclaration(*style, [&](std::string_view name, std::string_view value) {
         bool ok = true;
         const auto px = [&](float& out) {
             const auto v = ParsePx(value, em);

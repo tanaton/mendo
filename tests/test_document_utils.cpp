@@ -621,7 +621,7 @@ void ExpectWordBoundaries(const WordCase<SV> (&cases)[N])
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
         const auto result = FindWordBoundaries(c.text, c.pos);
-        EXPECT_EQ(result.found, c.found);
+        EXPECT_EQ(result.found(), c.found);
         EXPECT_EQ(result.start, c.start);
         EXPECT_EQ(result.end, c.end);
     }
@@ -730,8 +730,8 @@ TEST(FindWordBoundaries, MalformedUtf8MatchesUtf16Conversion)
                 const uint32_t clamped = std::min<uint32_t>(pos, static_cast<uint32_t>(sv.size()) - 1);
                 const size_t k = static_cast<size_t>(std::ranges::upper_bound(bounds, clamped) - bounds.begin()) - 1;
                 const auto rw = FindWordBoundaries(std::wstring_view{ wide }, wide_at[k]);
-                ASSERT_EQ(r.found, rw.found) << "pos=" << pos;
-                if (!r.found) {
+                ASSERT_EQ(r.found(), rw.found()) << "pos=" << pos;
+                if (!r.found()) {
                     continue;
                 }
                 ASSERT_LE(r.start, bounds[k]) << "pos=" << pos;
@@ -1545,14 +1545,14 @@ TEST(FindNodeWordBoundaries, ExtendsAcrossChunkSeam)
 {
     const auto nodes = ChunkedTextNodes({ "hello wor", "ld again" });
     const auto from_next = FindNodeWordBoundaries(nodes, 1, 0);
-    ASSERT_TRUE(from_next.found);
+    ASSERT_TRUE(from_next.found());
     EXPECT_EQ(from_next.start_node, 0u);
     EXPECT_EQ(from_next.start, 6u);
     EXPECT_EQ(from_next.end_node, 1u);
     EXPECT_EQ(from_next.end, 2u);
 
     const auto from_prev = FindNodeWordBoundaries(nodes, 0, 7);
-    ASSERT_TRUE(from_prev.found);
+    ASSERT_TRUE(from_prev.found());
     EXPECT_EQ(from_prev.start_node, 0u);
     EXPECT_EQ(from_prev.start, 6u);
     EXPECT_EQ(from_prev.end_node, 1u);
@@ -1564,7 +1564,7 @@ TEST(FindNodeWordBoundaries, ExtendsAcrossSeveralChunkSeams)
 {
     const auto nodes = ChunkedTextNodes({ "x abc", "def", "ghi y" });
     const auto r = FindNodeWordBoundaries(nodes, 1, 1);
-    ASSERT_TRUE(r.found);
+    ASSERT_TRUE(r.found());
     EXPECT_EQ(r.start_node, 0u);
     EXPECT_EQ(r.start, 2u);
     EXPECT_EQ(r.end_node, 2u);
@@ -1593,7 +1593,7 @@ TEST(FindNodeWordBoundaries, SelectsWholeInlineMath)
     for (const uint32_t pos : { 4u, 6u, 10u }) {
         SCOPED_TRACE(pos);
         const auto r = FindNodeWordBoundaries(nodes, 0, pos);
-        ASSERT_TRUE(r.found);
+        ASSERT_TRUE(r.found());
         EXPECT_EQ(r.start, 4u);
         EXPECT_EQ(r.end, 11u);
     }
@@ -1614,7 +1614,7 @@ TEST(FindNodeWordBoundaries, SelectsWholeInlineMathInTableCell)
     for (const uint32_t offset : { 0u, 2u, 6u }) {
         SCOPED_TRACE(offset);
         const auto r = FindNodeWordBoundaries(nodes, 0, math + offset);
-        ASSERT_TRUE(r.found);
+        ASSERT_TRUE(r.found());
         EXPECT_EQ(r.start, math);
         EXPECT_EQ(r.end, math + 7u);
     }

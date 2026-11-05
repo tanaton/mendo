@@ -313,7 +313,6 @@ void RecomputeYPositions(
     if (tail_start < node_count) {
         const float new_text_top = y + GetSpacingAbove(nodes[tail_start], theme);
         const float delta = new_text_top - cache.Top(tail_start);
-        // |delta| < EPSILON なら実質変化なしなので write 自体スキップする。
         if (std::abs(delta) >= Y_POSITION_EPSILON) {
             cache.ShiftTops(tail_start, delta);
         }

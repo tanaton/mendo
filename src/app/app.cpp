@@ -251,7 +251,7 @@ void App::OnPaint()
     }
 
     const auto layout = ComputePaneLayout(state_);
-    const bool show_loading = spinner_shown_;
+    const bool show_loading = state_.view.loading_shown;
     if (!show_loading) {
         EnsureFrameLayout(layout);
         // 計測で見出しの Y が決まった後、目次ペインを組む前に決め直す。
@@ -315,7 +315,7 @@ void App::OnPaint()
     }
     // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
     // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
-    // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
+    // ロード中の本文ペインは何にも当たらず、スピナーのフレームごとに引き直しても変わらないので省く。
     if (!show_loading) {
         RefreshHoverAtCursor();
     }
@@ -333,7 +333,7 @@ void App::EnsureFrameLayout(const PaneLayout& layout)
 
 void App::PrepareFrame()
 {
-    if (!IsRenderReady() || IsIconic(hwnd_) || spinner_shown_) {
+    if (!IsRenderReady() || IsIconic(hwnd_) || state_.view.loading_shown) {
         return;
     }
     EnsureFrameLayout(ComputePaneLayout(state_));
@@ -522,7 +522,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         return;
     case LOADING_ANIM:
         // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
-        if (!spinner_shown_) {
+        if (!state_.view.loading_shown) {
             if (load_coordinator_.IsActive()) {
                 StartLoadingAnimation();
             }
@@ -595,29 +595,25 @@ void App::CancelPendingResources()
 
 void App::StartLoadingAnimation()
 {
-    spinner_shown_ = true;
     spinner_angle_ = 0.0f;
     SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
-    Invalidate();
+    Dispatch(LoadingShownAction{ true });
 }
 
 void App::ScheduleLoadingAnimation()
 {
     // 回っている最中に次の読み込みが始まったら、そのまま回し続ける。
-    if (!spinner_shown_) {
+    if (!state_.view.loading_shown) {
         SetTimer(app_timer::Id::LOADING_ANIM, app_timer::LOADING_SPINNER_DELAY_MS);
     }
 }
 
 void App::StopLoadingAnimation()
 {
-    // スピナーを消すための再描画。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
-    if (spinner_shown_) {
-        Invalidate();
-    }
     // 出す前のスピナーの遅延もここで止める。
     KillTimer(app_timer::Id::LOADING_ANIM);
-    spinner_shown_ = false;
+    // 出ていれば消すために描き直させる。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
+    Dispatch(LoadingShownAction{ false });
 }
 
 void App::ShowEmbeddedResource(std::wstring_view path)
@@ -728,7 +724,6 @@ void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
     if (error == FileLoadError::NotFound) {
         RefreshFilePane();
     }
-    file_watcher_.ResumeWatching();
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
         ShowEmbeddedResource(HELP_PATH);
@@ -758,13 +753,14 @@ void App::OnParseComplete()
         resource_manager_.ScheduleBitmapManage();
     }
 
+    // 読み直しを予約した分岐は FileWatcher を paused のまま残して return する (DeferReloadRetry)。
     switch (step) {
     case ParseCompleteStep::IgnoreStale:
-        break;
+        return;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         HandleLoadFailureFallback(outcome->error());
-        return;
+        break;
     case ParseCompleteStep::Retry:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
@@ -772,8 +768,7 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::ReloadUnchanged:
         prefix_shrink_defers_ = 0;
-        file_watcher_.ResumeWatching();
-        return;
+        break;
     case ParseCompleteStep::DeferPrefixShrink:
         // 正確な差分を取り直す。上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
         ++prefix_shrink_defers_;
@@ -790,17 +785,18 @@ void App::OnParseComplete()
             return;
         }
         ReloadDocument(std::move(result->doc), std::move(result->cache), reload.ends, reload.decision.diff_pos);
-        return;
+        break;
     }
     case ParseCompleteStep::ReplaceWithResult: {
         // 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
         // 同じ文書の開き直しはリロードになるのでここへ来ず (ReloadBaseFor)、ユーザーがペインで移動した先は保たれる。
         const bool follow_file_pane = !state_.document.doc.GetFilePath().empty();
+        // 監視は新しい文書で始め直す (StartWatching が paused を落とす) ので、下の再開は何もしない。
         OpenDocument(std::move(result->doc), std::move(result->cache), follow_file_pane, std::move(result->watch));
-        return;
+        break;
     }
     }
-    std::unreachable();
+    file_watcher_.ResumeWatching();
 }
 
 void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch)
@@ -907,29 +903,29 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     Dispatch(ReloadSettledAction{});
 
-    if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), viewer_node_, NodeType::Diagram)) {
+    if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), mermaid_renderer_.ViewerNode(), NodeType::Diagram)) {
         mermaid_renderer_.UpdateViewerCode(node->GetText());
     }
-    file_watcher_.ResumeWatching();
 }
 
 void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
 {
     const std::optional<std::string_view> shown = mermaid_renderer_.ViewerCode();
     if (!shown) {
-        viewer_node_ = -1;
         return;
     }
-    if (viewer_node_ >= 0) {
-        viewer_node_ = MapDiagramAcrossReload(state_.document.doc.GetNodes(), next.GetNodes(), ends, static_cast<size_t>(viewer_node_));
+    int node = mermaid_renderer_.ViewerNode();
+    if (node >= 0) {
+        node = MapDiagramAcrossReload(state_.document.doc.GetNodes(), next.GetNodes(), ends, static_cast<size_t>(node));
     }
     // 図を見失っている間は最後の絵を残す。フェンスを壊した保存や切り取りの後で、同じコードの図が戻れば追い直す。
-    if (viewer_node_ < 0) {
+    if (node < 0) {
         const auto& nodes = next.GetNodes();
         const auto& diagrams = next.GetDiagramNodeIndices();
         const auto it = std::ranges::find(diagrams, *shown, [&](size_t i) { return std::string_view{ nodes[i].GetText() }; });
-        viewer_node_ = it != diagrams.end() ? static_cast<int>(*it) : -1;
+        node = it != diagrams.end() ? static_cast<int>(*it) : -1;
     }
+    mermaid_renderer_.SetViewerNode(node);
 }
 
 bool App::ApplyCachedHeights(IndexRange nodes)
@@ -1127,15 +1123,12 @@ void App::ApplyZoom()
 void App::ToggleDarkMode()
 {
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
-    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ図の描画命令のみ古い扱いにする。
-    state_.document.layout_cache.InvalidateDiagramBitmaps(state_.document.doc.GetDiagramNodeIndices());
+    // 色だけ差し替わるので再適用不要。テーマ色を焼き込んだ図は、RelayoutViewport の図の要求がテーマの変化を見て描き直させる。
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     mermaid_renderer_.SetViewerDarkMode(dark);
-    // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
-    mermaid_renderer_.DropQueued();
     RelayoutViewport();
     session::SaveDarkMode(config_, dark);
 }
@@ -1325,7 +1318,7 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
     switch (zone) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            window_.FocusSearchEdit(0, -1);
+            Dispatch(SearchSelectAllAction{});
         }
         return;
     case SearchBarHitZone::Up:
@@ -1345,15 +1338,11 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
         return;
     case SearchBarHitZone::Input: {
         const int pos = SearchInputPosAt(dip_x);
-        if (!is_double_click) {
-            Dispatch(SearchInputDragStartedAction{ pos });
-            return;
+        if (is_double_click) {
+            Dispatch(SearchSelectWordAction{ pos });
         }
-        // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
-        // 自前で単語境界を計算して EM_SETSEL を発行する。
-        const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.query_wide }, static_cast<uint32_t>(pos));
-        if (wb.found) {
-            window_.FocusSearchEdit(static_cast<int>(wb.start), static_cast<int>(wb.end));
+        else {
+            Dispatch(SearchInputDragStartedAction{ pos });
         }
         return;
     }
@@ -1370,8 +1359,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramView:
         if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), hit.node, NodeType::Diagram)) {
-            viewer_node_ = hit.node;
-            mermaid_renderer_.OpenViewer(node->GetText(), MdContentWidth(state_), dark);
+            mermaid_renderer_.OpenViewer(node->GetText(), hit.node, MdContentWidth(state_), dark);
         }
         return;
     case OverlayButton::DiagramCopy:
@@ -1423,6 +1411,8 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_do
         return;
     case Kind::Scrollbar:
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
+        return;
+    case Kind::None:
         return;
     case Kind::Content: {
         // テキスト選択より優先する。
@@ -1543,7 +1533,7 @@ void App::OnMouseHover(int px, int py)
 {
     auto [hover, cursor] = app_controller::ResolvePointerHover(state_, ComputePaneLayout(state_), px, py, IsZoomed(hwnd_));
     SetCursor(cursors_.Get(cursor));
-    Dispatch(PointerHoverAction{ std::move(hover) });
+    Dispatch(std::move(hover));
 }
 
 void App::OnContextMenu(int screen_x, int screen_y)

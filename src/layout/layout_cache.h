@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "pane_layout.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <cmath>
@@ -466,6 +467,11 @@ struct DiagramEntry : DiagramResult {
     {
         return bitmap || commands;
     }
+    void SetResult(const DiagramResult& r) noexcept
+    {
+        static_cast<DiagramResult&>(*this) = r;
+        stale = false;
+    }
     // 保存・コピーの元があるか (ボタンを出すか)。
     bool CanExport() const noexcept
     {
@@ -493,8 +499,7 @@ struct DiagramEntry : DiagramResult {
     // 寸法はレイアウト維持のため残す。
     void EvictForRetry() noexcept
     {
-        static_cast<DiagramResult&>(*this) = DiagramResult{ .width = width, .height = height };
-        stale = false;
+        SetResult({ .width = width, .height = height });
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
@@ -502,8 +507,7 @@ struct DiagramEntry : DiagramResult {
     void MarkStale() noexcept
     {
         if (!HasImage()) {
-            static_cast<DiagramResult&>(*this) = {};
-            stale = false;
+            SetResult({});
             return;
         }
         stale = true;
@@ -588,10 +592,6 @@ public:
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramBitmaps() noexcept;
-
-    // 図のビットマップを再描画待ちに戻す。ダークモード切替時に text_layout を
-    // 保持したまま図だけ再描画したい場合に使う。
-    void InvalidateDiagramBitmaps(std::span<const size_t> diagram_indices) noexcept;
 
     // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
     void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
@@ -690,6 +690,17 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, float margin
         return 0.0f;
     }
     return cache.Bottom(cache.size() - 1) + margin_bottom;
+}
+
+// 本文ペインの縦スクロールバー。描画 (つまみ) とヒット判定 (バーの上か) で同じものを使う。
+struct MdScrollbar {
+    PaneScrollInfo info;
+    // 計測待ちのノードがあり、内容が伸びうる (ShowsVScrollbar)。
+    bool may_grow = false;
+};
+inline MdScrollbar MdPaneScrollbar(const LayoutCache& cache, const PaneRect& md_rect, float margin_bottom) noexcept
+{
+    return { ComputeScrollInfo(md_rect, 0.0f, ComputeTotalContentHeight(cache, margin_bottom)), cache.HasDirtyNodes() };
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。

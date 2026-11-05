@@ -289,7 +289,8 @@ TEST_F(PointerHitTest, OverlayButtonWinsOverScrollbarHitPadding)
     const auto& theme = h_.theme;
     const float top = h_.state.document.layout_cache.Top(static_cast<size_t>(code));
     D2D1_RECT_F button{};
-    layout::ForEachOverlayButton(node, nullptr, layout::NodeBlockX(node, theme), layout::NodeContentWidth(node, theme, theme.ContentWidth(layout_.md_rect.width)), top, theme,
+    layout::ForEachOverlayButton(node, h_.state.document.layout_cache, static_cast<size_t>(code), layout::NodeBlockX(node, theme),
+                                 layout::NodeContentWidth(node, theme, theme.ContentWidth(layout_.md_rect.width)), top, theme,
                                  [&](const D2D1_RECT_F& r, OverlayButton) { button = r; });
     const float md_right = layout_.md_rect.x + layout_.md_rect.width;
     // ボタンの中で、スクロールバーのヒット余白にも入る x。
@@ -335,7 +336,7 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
     const float w = layout::NodeContentWidth(node, theme, theme.ContentWidth(layout.md_rect.width));
     const float top = cache.Top(static_cast<size_t>(index));
     D2D1_RECT_F button{};
-    layout::ForEachOverlayButton(node, &diagram, x, w, top, theme, [&](const D2D1_RECT_F& r, OverlayButton kind) {
+    layout::ForEachOverlayButton(node, cache, static_cast<size_t>(index), x, w, top, theme, [&](const D2D1_RECT_F& r, OverlayButton kind) {
         if (kind == OverlayButton::DiagramView) {
             button = r;
         }
@@ -350,13 +351,36 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
 
 TEST_F(PointerHitTest, NavButtonsComeBeforeContent)
 {
-    const auto back = NavBackButtonRect(layout_.md_rect);
-    const float x = (back.left + back.right) / 2.0f;
-    const float y = (back.top + back.bottom) / 2.0f;
+    h_.state.view.nav_history.Push({ .file_path = L"prev.md" });
+    const auto [x, y] = RectCenter(NavBackButtonRect(layout_.md_rect));
     EXPECT_EQ(ResolveMd(x, y).kind, app_controller::MdPaneHit::Kind::NavButton);
     const auto hover = Hover(x, y);
     EXPECT_EQ(hover.hover.nav, NavDirection::Back);
     EXPECT_EQ(hover.cursor, app_controller::PointerCursor::Hand);
+}
+
+// 履歴が空ならナビボタンは描かないので、その位置は本文として扱う。
+TEST_F(PointerHitTest, NavButtonsIgnoredWithoutHistory)
+{
+    const auto [x, y] = RectCenter(NavBackButtonRect(layout_.md_rect));
+    EXPECT_EQ(ResolveMd(x, y).kind, app_controller::MdPaneHit::Kind::Content);
+    EXPECT_EQ(Hover(x, y).hover.nav, NavDirection::None);
+}
+
+// スピナーを出している間の本文ペインは何も描かないので、リンク・ボタン・スクロールバーのどれにも当たらない。
+TEST_F(PointerHitTest, LoadingMdPaneHitsNothing)
+{
+    h_.state.view.nav_history.Push({ .file_path = L"prev.md" });
+    h_.state.view.loading_shown = true;
+    const auto [nav_x, nav_y] = RectCenter(NavBackButtonRect(layout_.md_rect));
+    EXPECT_EQ(ResolveMd(nav_x, nav_y).kind, app_controller::MdPaneHit::Kind::None);
+    const auto hover = Hover(nav_x, nav_y);
+    EXPECT_EQ(hover.hover, HoverHighlights{});
+    EXPECT_TRUE(hover.hover.tooltip.target.IsEmpty());
+    EXPECT_EQ(hover.cursor, app_controller::PointerCursor::Arrow);
+
+    const float right_edge = layout_.md_rect.x + layout_.md_rect.width - 2.0f;
+    EXPECT_FALSE(app_controller::IsOverMdScrollbar(h_.state, layout_, right_edge, layout_.md_rect.y + 10.0f));
 }
 
 // ---- TooltipTarget ----

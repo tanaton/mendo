@@ -79,11 +79,7 @@ std::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
     const std::filesystem::path dir_base{ dir };
     // ルートでは ".." を出さない
     if (auto parent = dir_base.parent_path(); parent != dir_base) {
-        FileEntry pe;
-        pe.full_path.assign(parent.native());
-        pe.is_directory = true;
-        pe.is_parent = true;
-        entries.emplace_back(std::move(pe));
+        entries.push_back({ .full_path = parent.native(), .is_directory = true, .is_parent = true });
     }
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
     const size_t sort_begin = entries.size();
@@ -100,10 +96,7 @@ std::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
 
     for (;;) {
         if (ShouldListEntry(fd)) {
-            FileEntry entry;
-            entry.full_path.assign((dir_base / fd.cFileName).native());
-            entry.is_directory = IsDirectory(fd);
-            entries.emplace_back(std::move(entry));
+            entries.push_back({ .full_path = (dir_base / fd.cFileName).native(), .is_directory = IsDirectory(fd) });
         }
         if (entries.size() - sort_begin >= MAX_ENTRIES) {
             break;

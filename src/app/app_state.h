@@ -62,6 +62,9 @@ struct ViewState {
     HoverHighlights hover;
     // SyncActiveTocIndex が描画のたびに決め直す。
     int active_toc_index = -1;
+    // 読み込みのスピナーを本文ペインの代わりに出している。その間は本文・ナビボタン・検索バー・スクロールバーを描かないので、
+    // ポインタもそれらに当てない。
+    bool loading_shown = false;
     // 目次クリック直後の同期 1 回だけ、目次ペインを追従スクロールさせない (issue#259)。
     // クリックした項目がペイン内で動いて見失うのを防ぐ。
     bool keep_toc_pane_once = false;
@@ -118,12 +121,12 @@ struct WindowState {
     // 移動だけのサイズ変更ループでは終了時のレイアウト処理を省くため。
     bool size_changed_in_sizing = false;
     bool window_active = true;
-    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
-    bool dpi_changed = false;
     float cached_dpi_scale = 1.0f;
     // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
     uint32_t client_width = 0;
     uint32_t client_height = 0;
+    // client_width / client_height を処理したときの DPI スケール。DPI が変わると同じピクセル寸法でも DIP 寸法が変わる。
+    float client_dpi_scale = 0.0f;
 
     constexpr float WidthDip() const noexcept
     {

@@ -40,7 +40,6 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
     case StartupArgKind::File:
         plan.document_path = ctx.arg_path;
         plan.pane_directory = path_util::ParentDirectory(ctx.arg_path);
-        // 大文字小文字は区別しない。
         plan.restore_scroll = path_util::iequal(ctx.arg_path, ctx.last_file);
         plan.restore_scroll_if_same_file = !plan.restore_scroll && !ctx.last_file.empty() && MaybeSameFile(ctx.arg_path, ctx.last_file);
         return plan;

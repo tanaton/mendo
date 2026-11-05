@@ -20,14 +20,15 @@
 
 namespace {
 
-// 範囲外の node index を飛ばしながら選択範囲内のノードを走査する。
+// 範囲外の node index を飛ばしながら選択範囲内のノードを走査し、fn(i, node, start, end) にノード内の選択範囲を渡す。
 template <class Fn>
 void ForEachSelectedNode(const std::vector<Node>& nodes, const TextSelection& selection, Fn&& fn)
 {
     const int first = std::max(selection.start_node, 0);
     const int last = std::min(selection.end_node, static_cast<int>(nodes.size()) - 1);
     for (int i = first; i <= last; ++i) {
-        fn(i, nodes[i]);
+        const auto [start, end] = selection.ClampedRange(i, nodes[i].GetText().size());
+        fn(i, nodes[i], start, end);
     }
 }
 
@@ -233,15 +234,6 @@ void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, ui
     AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
 }
 
-void AppendHexColor(std::string& out, uint32_t rgb)
-{
-    constexpr char kDigits[] = "0123456789abcdef";
-    out.push_back('#');
-    for (int shift = 20; shift >= 0; shift -= 4) {
-        out.push_back(kDigits[(rgb >> shift) & 0xF]);
-    }
-}
-
 constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const theme_palette::SharedColors& palette) noexcept
 {
     switch (type) {
@@ -279,7 +271,7 @@ void AppendSyntaxHighlightedSpan(
         return;
     }
     out.append("<span style=\"color:");
-    AppendHexColor(out, *color);
+    ascii_util::AppendHexColor(out, *color);
     out.append("\">");
     AppendHtmlEscaped(out, chunk);
     out.append("</span>");
@@ -349,11 +341,11 @@ void AppendCodeBlockOpen(std::string& out, bool dark_mode)
 {
     const auto& palette = PaletteFor(dark_mode);
     out.append("<pre style=\"background-color:");
-    AppendHexColor(out, palette.code_bg);
+    ascii_util::AppendHexColor(out, palette.code_bg);
     // ダーク時のみテキスト色を明示する（ライトは呼び出し側の親要素の色を継承）。
     if (dark_mode) {
         out.append(";color:");
-        AppendHexColor(out, palette.code_text);
+        ascii_util::AppendHexColor(out, palette.code_text);
     }
     out.append(kCodeBlockStyleTail);
 }
@@ -361,7 +353,7 @@ void AppendCodeBlockOpen(std::string& out, bool dark_mode)
 void AppendTableCellStyle(std::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
-    AppendHexColor(out, PaletteFor(dark_mode).rule);
+    ascii_util::AppendHexColor(out, PaletteFor(dark_mode).rule);
     out.append(";padding:6px 13px");
     switch (align) {
     case TableAlign::Center:
@@ -612,8 +604,7 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
     // ノード内の改行 (コード行・BR・表の行区切り) も CRLF にする。本文は読み込み時に LF へ正規化済み。
     static constexpr std::string_view kCrlf = "\r\n";
     const auto for_each_selected = [&](auto&& fn) {
-        ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-            const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
+        ForEachSelectedNode(nodes, selection, [&](int i, const Node& node, uint32_t start, uint32_t end) {
             if (start < end) {
                 ForEachCopiedSlice(node, start, end, fn);
             }
@@ -657,8 +648,7 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
     std::string out;
     size_t estimated = 0;
     // ノード全体ではなく選択範囲で見積もる (巨大な表の数セルだけのコピーでノード全体分を確保しない)。
-    ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-        const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
+    ForEachSelectedNode(nodes, selection, [&](int, const Node&, uint32_t start, uint32_t end) {
         if (start < end) {
             estimated += end - start;
         }
@@ -668,8 +658,7 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
     out.reserve(estimated * 2 + 128);
 
     HtmlListStack lists(out);
-    ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-        const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
+    ForEachSelectedNode(nodes, selection, [&](int i, const Node& node, uint32_t start, uint32_t end) {
         lists.Enter(node);
         // 区切ったテキストの並びは 1 つの要素にまとめ、間に元の改行を戻す。
         const bool opens = !node.continues_prev() || i == selection.start_node;

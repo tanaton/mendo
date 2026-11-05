@@ -409,7 +409,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadDoesNotCarryChangeRange)
 
 // 量子化幅が変わると旧幅の描画待ちを捨て、エラーもクリアして再試行する (issue #271)。
 // メモリキャッシュは幅込みのキーなので残す。
-TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
+TEST_F(ResourceManagerTest, DiagramWidthChangeClearsError)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
@@ -430,7 +430,7 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
 }
 
 // 幅の変化で描き直す図は、新しい結果が届くまで旧幅の結果を仮表示として残す (プレースホルダに戻して跳ねさせない)。
-TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
+TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
@@ -450,6 +450,32 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
     EXPECT_TRUE(diagram.stale);
     EXPECT_TRUE(diagram.NeedsRender());
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
+}
+
+// テーマが変わると、幅に収まって幅の変化では残す図も含めて全部を仮表示にし、旧テーマの描画待ちを捨てる。
+TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
+    mock_mermaid_.sync_apply_bitmap = true;
+    rm_.RequestMermaidRenders();
+    auto& diagram = *cache_.FindDiagram(diagram_index);
+    ASSERT_TRUE(diagram.bitmap);
+    diagram.width = 100.0f;
+    const int initial_drop = mock_mermaid_.drop_queued_count;
+
+    // 同じ条件なら描き直さない。
+    rm_.RequestMermaidRenders();
+    EXPECT_FALSE(diagram.stale);
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, initial_drop);
+
+    mock_mermaid_.sync_apply_bitmap = false;
+    theme_.dark = true;
+    rm_.RequestMermaidRenders();
+    EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
+    EXPECT_TRUE(diagram.stale);
+    EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
+    EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)

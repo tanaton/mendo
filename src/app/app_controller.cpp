@@ -357,6 +357,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
         result.cursor = PointerCursor::Hand;
         return;
     case MdPaneHit::Kind::Scrollbar:
+    case MdPaneHit::Kind::None:
         result.cursor = PointerCursor::Arrow;
         return;
     case MdPaneHit::Kind::OverlayButton:
@@ -377,7 +378,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
     if (hover.overlay_button.Any()) {
         const auto kind = hover.overlay_button.kind;
         // 小さな図ではボタンが画像の外へはみ出す。ボタンの上でも図のボタンを出したままにする。
-        if (kind != OverlayButton::CodeCopy) {
+        if (IsDiagramButton(kind)) {
             hover.diagram = hover.overlay_button.node;
         }
         hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::OverlayButton, std::to_underlying(kind), OverlayButtonTooltipText(kind));
@@ -423,22 +424,30 @@ std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResul
 bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept
 {
     const PaneRect& md = layout.md_rect;
-    if (dip_y < md.y || dip_y > md.y + md.height) {
+    if (state.view.loading_shown || dip_y < md.y || dip_y > md.y + md.height) {
         return false;
     }
-    return IsOverPaneScrollbar(dip_x, md, MdScrollInfo(state, layout), state.document.layout_cache.HasDirtyNodes());
+    const auto bar = MdPaneScrollbar(state.document.layout_cache, md, state.theme->margin_bottom);
+    return IsOverPaneScrollbar(dip_x, md, bar.info, bar.may_grow);
 }
 
 MdPaneHit ResolveMdPaneHit(const AppState& state, const MdPaneHitContext& hit_ctx, const PaneLayout& layout, float dip_x, float dip_y) noexcept
 {
     using Kind = MdPaneHit::Kind;
+    if (state.view.loading_shown) {
+        return { .kind = Kind::None };
+    }
     if (state.search.search_state.IsVisible()) {
         if (const auto sbl = SearchBarLayoutFor(state, layout.md_rect); dip_y >= sbl.bar_rect.top) {
             return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(sbl, dip_x, dip_y) };
         }
     }
-    if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, layout.md_rect); nav != NavDirection::None) {
-        return { .kind = Kind::NavButton, .nav = nav };
+    // ナビボタンはどちらかへ移れるときだけ描く。
+    const auto& history = state.view.nav_history;
+    if (history.CanGoBack() || history.CanGoForward()) {
+        if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, layout.md_rect); nav != NavDirection::None) {
+            return { .kind = Kind::NavButton, .nav = nav };
+        }
     }
     // 縮小表示で余白が狭いとボタンがスクロールバーのヒット余白に掛かるので、ボタンを優先する。
     if (const auto button = hit_test::OverlayButtonHitTest(hit_ctx); button.Any()) {
