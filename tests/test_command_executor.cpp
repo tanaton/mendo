@@ -350,6 +350,27 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsDrawingInTextColor)
     EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100) << "1 つ目の数式の 10x10 だけを文字の色で塗る";
 }
 
+// \color などで色を指定した部分は、文字の色ではなく指定の色で塗る。
+TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsSpecifiedColors)
+{
+    const auto layout = CreateTextLayout(L"\uFFFC", L"Segoe UI", L"en-us", 100.0f, 32.0f);
+    ASSERT_TRUE(layout);
+    ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(1, { 20.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ 0, 1 }));
+    auto drawing = std::make_shared<MathDrawing>(MathDrawing{ .width = 20.0f, .height = 8.0f, .depth = 2.0f });
+    drawing->items.emplace_back(MathDrawing::Rect{ .x = 0.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Fill });
+    drawing->items.emplace_back(
+        MathDrawing::Rect{ .x = 10.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Fill, .color = 0x0000FFFFu });
+    InlineMathDrawings math;
+    *math.drawings.TryEmplace(1).first = std::move(drawing);
+    DrawCommandList cmds;
+    cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
+    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, math));
+    const auto pixels = ReadAllPixels();
+    EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100);
+    EXPECT_EQ(std::ranges::count(pixels, 0xFF0000FFu), 100);
+}
+
 // 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた
 // DrawTextLayout と同じ画素になること (フォールバックで別ランになる和文・ランの途中の境界・行またぎ・
 // 右から左のラン (ヘブライ語) の途中の境界を含む)。

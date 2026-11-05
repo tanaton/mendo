@@ -106,24 +106,29 @@ inline constexpr std::wstring_view kKatexFontFiles[]{
     L"KaTeX_Size1-Regular",     L"KaTeX_Size2-Regular",    L"KaTeX_Size3-Regular",       L"KaTeX_Size4-Regular",    L"KaTeX_Typewriter-Regular",
 };
 
-// 数式の描画命令。座標は CSS px で、原点は箱の左端のベースライン (y は下向き)。色は持たず、すべて描くときの色 (本文の色) で塗る。
+// 数式の描画命令。座標は CSS px で、原点は箱の左端のベースライン (y は下向き)。
 struct MathDrawing {
+    // \color などで指定した色 (0xRRGGBBAA)。指定が無ければ描くときの色 (本文の色) で塗るので、ダークモードやリンクの色で
+    // 描き直さずに済む。指定した色はダークモードでも変えない (GitHub と同じ。#412 でユーザーが決めた)。
+    using Color = std::optional<uint32_t>;
     struct Glyphs {
         Microsoft::WRL::ComPtr<IDWriteFontFace> face;
         float size = 0.0f;
         float x = 0.0f;
         float y = 0.0f;
         bool mirror = false; // \reflectbox。字形の並びの中央で左右を反転する
+        Color color;
         std::vector<uint16_t> glyphs;
         std::vector<float> advances;
     };
-    // 塗りの矩形 (分数の線・\rule・枠)。外側の端を装置の画素に合わせ、太さは CSS px に切り捨てる。細くても 1px は残す
-    // (Chrome の border と同じ)。
+    // 塗りの矩形 (分数の線・\rule・枠・\colorbox の背景)。外側の端を装置の画素に合わせ、枠の太さは CSS px に切り捨てる。
+    // 細くても 1px は残す (Chrome の border と同じ)。Fill は太さを持たない背景。
     struct Rect {
-        enum class Side : uint8_t { Top, Right, Bottom, Left };
+        enum class Side : uint8_t { Top, Right, Bottom, Left, Fill };
         float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
         Side side = Side::Bottom;
         bool dashed = false;
+        Color color;
     };
     // SVG の path の形。ジオメトリは UI スレッドで描くときに、描く先のファクトリで作る。同じ形は数式をまたいで共有する
     // (\sqrt や矢印は同じ path を何度も使う)。
@@ -138,6 +143,7 @@ struct MathDrawing {
         std::array<float, 6> transform{ 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f };
         std::array<float, 4> clip{}; // left, top, right, bottom
         float stroke = 0.0f;         // 0 なら塗る
+        Color color;
     };
     using Item = std::variant<Glyphs, Rect, Path>;
 
@@ -176,6 +182,7 @@ private:
 // KaTeX の renderToString (output: 'html'、displayMode) の結果を配置する。font_size は数式を置く場所の文字の大きさ (CSS px) で、
 // KaTeX の CSS と同じく 1.21 倍して組む。align などの自動の式番号は数式ごとに (1) から振る。解釈できない要素があれば nullopt。
 std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_size, KatexAssets& assets);
-// (x, y) を数式のベースラインの左端として、brush で描く。罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から
+// (x, y) を数式のベースラインの左端として、色の指定の無い部分を brush で描く。指定した色には brush の不透明度を掛ける。
+// 罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から
 // 装置の画素に合わせる (変換は拡大と平行移動だけとみなす)。
 void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush);

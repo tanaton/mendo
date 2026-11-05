@@ -60,6 +60,17 @@ protected:
     {
         return std::ranges::count_if(math.items, [](const MathDrawing::Item& item) { return std::holds_alternative<T>(item); });
     }
+    template <class T>
+    static std::vector<MathDrawing::Color> ColorsOf(const MathDrawing& math)
+    {
+        std::vector<MathDrawing::Color> out;
+        for (const auto& item : math.items) {
+            if (const auto* it = std::get_if<T>(&item)) {
+                out.push_back(it->color);
+            }
+        }
+        return out;
+    }
 
     static inline std::string pele_;
     static inline std::string katex_;
@@ -166,16 +177,65 @@ TEST_F(PeleEngineTest, NumbersEquationsPerFormula)
     EXPECT_EQ(numbered->width, again->width) << "前の数式の番号を引き継がない";
 }
 
-// 数式は本文の色で描くので、\color は効かず、\colorbox の背景も描かない (本文の色で塗ると中の文字が隠れる)。
-TEST_F(PeleEngineTest, IgnoresColorsInMath)
+// \color で指定した色は字・分数の線・SVG に付き、内側の指定が勝つ。指定の無い部分は色を持たない (描くときの本文の色)。
+TEST_F(PeleEngineTest, AppliesTextColors)
 {
-    const auto colored = Math("\\colorbox{red}{x}");
-    ASSERT_NE(colored, nullptr);
-    EXPECT_EQ(CountItems<MathDrawing::Rect>(*colored), 0u);
+    constexpr uint32_t kRed = 0xFF0000FF, kBlue = 0x0000FFFF, kGreen = 0x00FF00FF;
     const auto red = Math("\\color{red} x");
     const auto plain = Math("x");
     ASSERT_TRUE(red && plain);
     EXPECT_EQ(red->width, plain->width);
+    EXPECT_EQ(ColorsOf<MathDrawing::Glyphs>(*red), (std::vector<MathDrawing::Color>{ kRed }));
+    EXPECT_EQ(ColorsOf<MathDrawing::Glyphs>(*plain), (std::vector<MathDrawing::Color>{ std::nullopt }));
+
+    const auto nested = Math("a \\textcolor{red}{b \\textcolor{blue}{c}}");
+    ASSERT_NE(nested, nullptr);
+    EXPECT_EQ(ColorsOf<MathDrawing::Glyphs>(*nested), (std::vector<MathDrawing::Color>{ std::nullopt, kRed, kBlue }));
+
+    const auto frac = Math("\\textcolor{#0f0}{\\frac{1}{2}}");
+    ASSERT_NE(frac, nullptr);
+    EXPECT_EQ(ColorsOf<MathDrawing::Rect>(*frac), (std::vector<MathDrawing::Color>{ kGreen }));
+
+    const auto sqrt = Math("\\color{blue}\\sqrt{x}");
+    ASSERT_NE(sqrt, nullptr);
+    const auto paths = ColorsOf<MathDrawing::Path>(*sqrt);
+    ASSERT_FALSE(paths.empty());
+    EXPECT_TRUE(std::ranges::all_of(paths, [&](const MathDrawing::Color& c) { return c == kBlue; }));
+}
+
+// \colorbox と \fcolorbox の背景は指定の色で、中の文字より先に描く (ダークモードでも指定どおり。#412)。枠は枠の色。
+TEST_F(PeleEngineTest, DrawsColorBoxBackgrounds)
+{
+    constexpr uint32_t kRed = 0xFF0000FF, kYellow = 0xFFFF00FF;
+    const auto first_index = [](const MathDrawing& math, auto&& pred) {
+        const auto it = std::ranges::find_if(math.items, pred);
+        return static_cast<size_t>(it - math.items.begin());
+    };
+    const auto is_fill = [](const MathDrawing::Item& item) {
+        const auto* r = std::get_if<MathDrawing::Rect>(&item);
+        return r && r->side == MathDrawing::Rect::Side::Fill;
+    };
+    const auto is_glyphs = [](const MathDrawing::Item& item) { return std::holds_alternative<MathDrawing::Glyphs>(item); };
+
+    const auto box = Math("\\colorbox{yellow}{x}");
+    ASSERT_NE(box, nullptr);
+    ASSERT_EQ(CountItems<MathDrawing::Rect>(*box), 1u);
+    const auto& fill = std::get<MathDrawing::Rect>(box->items[first_index(*box, is_fill)]);
+    EXPECT_EQ(fill.color, kYellow);
+    EXPECT_GT(fill.w, 0.0f);
+    EXPECT_GT(fill.h, 0.0f);
+    EXPECT_LT(first_index(*box, is_fill), first_index(*box, is_glyphs));
+
+    const auto framed = Math("\\fcolorbox{red}{yellow}{x}");
+    ASSERT_NE(framed, nullptr);
+    size_t borders = 0;
+    for (const auto& item : framed->items) {
+        if (const auto* r = std::get_if<MathDrawing::Rect>(&item)) {
+            EXPECT_EQ(r->color, r->side == MathDrawing::Rect::Side::Fill ? kYellow : kRed);
+            borders += r->side != MathDrawing::Rect::Side::Fill;
+        }
+    }
+    EXPECT_EQ(borders, 4u);
 }
 
 // KaTeX の書体に無い文字 (\text{} の日本語) は、システムのフォールバックの書体で描く。

@@ -124,8 +124,8 @@ using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>,
 
 struct MathDrawing;
 
-// インライン数式の描画命令。キーは InlineMathKey。数式は色を持たず、描くときに周りの文字の色で塗る
-// (ダークモードやリンクの色で描き直さずに済む。数式の中の \color は効かない)。
+// インライン数式の描画命令。キーは InlineMathKey。\color などで色を指定した部分のほかは、描くときに周りの文字の色で塗る
+// (ダークモードやリンクの色で描き直さずに済む)。
 struct InlineMathDrawings {
     FlatHashMap<std::shared_ptr<const MathDrawing>> drawings;
 
