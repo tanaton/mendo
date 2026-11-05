@@ -1339,7 +1339,6 @@ void BM_TableScroll(benchmark::State& state, bool time_evict)
     if (l.SkipIfFailed(state)) {
         return;
     }
-    // 表を開いて最初の画面を組む。
     LayoutCache cache(nodes.size());
     l.engine.Reestimate(nodes, cache, kTableViewWidth);
     l.engine.EnsureVisibleLayout(nodes, cache, kTableViewWidth, 0.0f, kTableViewHeight);

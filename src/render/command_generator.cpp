@@ -70,10 +70,9 @@ std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& ent
     return { begin, end };
 }
 
-// 円を描く角丸矩形の外形 (FillRoundedRectCmd)。
-constexpr D2D1_RECT_F CircleRect(float cx, float cy, float r) noexcept
+constexpr D2D1_RECT_F SquareAround(float cx, float cy, float half) noexcept
 {
-    return D2D1::RectF(cx - r, cy - r, cx + r, cy + r);
+    return D2D1::RectF(cx - half, cy - half, cx + half, cy + half);
 }
 
 // DIP。
@@ -349,7 +348,7 @@ void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pa
     for (int i = 0; i < spinner::DOT_COUNT; i++) {
         const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
         out.push_back(FillRoundedRectCmd{
-            .rect = CircleRect(cx + spinner::RADIUS * std::cos(a), cy + spinner::RADIUS * std::sin(a), SPINNER_DOT_RADIUS),
+            .rect = SquareAround(cx + spinner::RADIUS * std::cos(a), cy + spinner::RADIUS * std::sin(a), SPINNER_DOT_RADIUS),
             .radius = SPINNER_DOT_RADIUS,
             .brush_id = BrushId::Text,
             .opacity = kAlphas[i],
@@ -398,7 +397,7 @@ void EmitToast(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect
         return;
     }
     constexpr float h = TOAST_OVERLAY_HEIGHT;
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float cx = RectCenter(ToD2DRect(md_pane_rect)).x;
     const float bottom_y = NavBackButtonRect(md_pane_rect).top - TOAST_OVERLAY_BOTTOM_OFFSET;
     EmitPanel(w, fmt, D2D1::RectF(cx - TOAST_OVERLAY_WIDTH / 2, bottom_y - h, cx + TOAST_OVERLAY_WIDTH / 2, bottom_y),
               D2D1::SizeF(TOAST_OVERLAY_WIDTH, h), TOAST_OVERLAY_CORNER, dark ? 0.85f : 0.7f, message);
@@ -1009,19 +1008,19 @@ struct MdPaneEmitter : CmdWriter {
         const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, dpi_scale);
         switch (ListStyleIndex(node.list_depth(), kListBulletStyles)) {
         case 0:
-            out.emplace_back(FillRoundedRectCmd{ CircleRect(bullet_x, bullet_y, r), r, BrushId::Text });
+            out.emplace_back(FillRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, BrushId::Text });
             break;
         case 1:
-            out.emplace_back(DrawRoundedRectCmd{ CircleRect(bullet_x, bullet_y, r), r, 1.0f, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, 1.0f, BrushId::Text });
             break;
         case 2:
-            out.emplace_back(FillRectCmd{ D2D1::RectF(bullet_x - h, bullet_y - h, bullet_x + h, bullet_y + h), BrushId::Text });
+            out.emplace_back(FillRectCmd{ SquareAround(bullet_x, bullet_y, h), BrushId::Text });
             break;
         default: {
             // 線は辺を中心に引かれるので、太さを物理ピクセルの整数にして半分だけ内側に引き、■ と同じ外形で画素に揃える。
             const float stroke = std::max(1.0f, std::round(dpi_scale)) / dpi_scale;
             const float e = h - stroke * 0.5f;
-            out.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(bullet_x - e, bullet_y - e, bullet_x + e, bullet_y + e), 0.0f, stroke, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, e), 0.0f, stroke, BrushId::Text });
             break;
         }
         }

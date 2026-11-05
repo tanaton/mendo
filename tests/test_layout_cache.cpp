@@ -318,15 +318,16 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateUnlessMeasuredAtSameWidth)
         const char* label;
         Node node;
         float height;
-        float cached_width; // 0 は未計測
+        float cached_width;
         float node_width;
         std::optional<float> expected; // 無ければ推定 (EstimateNodeHeight)
     };
+    constexpr float kUnmeasured = NodeLayoutEntry::kUnmeasuredWidth;
     const Case kCases[] = {
-        { "DiagramLanguageSkipped", MakeCodeBlockNode(SyntaxLanguage::Mermaid), 5.0f, 0.0f, 200.0f, 5.0f },
-        { "DoesNotShrinkBelowExisting", MakeParagraphNode(/*line_count=*/0), 9999.0f, 0.0f, 400.0f, 9999.0f },
-        { "GrowsToEstimateWhenSmaller", MakeParagraphNode(/*line_count=*/3), 1.0f, 0.0f, 400.0f, std::nullopt },
-        { "NonDiagramCodeBlockGrows", MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4), 0.0f, 0.0f, 400.0f, std::nullopt },
+        { "DiagramLanguageSkipped", MakeCodeBlockNode(SyntaxLanguage::Mermaid), 5.0f, kUnmeasured, 200.0f, 5.0f },
+        { "DoesNotShrinkBelowExisting", MakeParagraphNode(/*line_count=*/0), 9999.0f, kUnmeasured, 400.0f, 9999.0f },
+        { "GrowsToEstimateWhenSmaller", MakeParagraphNode(/*line_count=*/3), 1.0f, kUnmeasured, 400.0f, std::nullopt },
+        { "NonDiagramCodeBlockGrows", MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4), 0.0f, kUnmeasured, 400.0f, std::nullopt },
         { "KeepsMeasuredHeightWhenWidthMatches", MakeParagraphNode(/*line_count=*/20), 1.0f, 200.0f, 200.0f, 1.0f },
         { "FallsBackToEstimateWhenWidthDiffers", MakeParagraphNode(/*line_count=*/2), 1.0f, 200.0f, 800.0f, std::nullopt },
     };
@@ -334,9 +335,7 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateUnlessMeasuredAtSameWidth)
         SCOPED_TRACE(c.label);
         NodeLayoutEntry entry;
         entry.height = c.height;
-        if (c.cached_width > 0.0f) {
-            entry.cached_width = c.cached_width;
-        }
+        entry.cached_width = c.cached_width;
         EstimateInvisibleNodeHeight(c.node, entry, theme, c.node_width);
         EXPECT_FLOAT_EQ(entry.height, c.expected.value_or(EstimateNodeHeight(c.node, theme, 0.0f)));
     }

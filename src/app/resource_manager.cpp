@@ -66,7 +66,7 @@ void ResourceManager::ApplyCachedImages(IndexRange& changed)
     ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, changed);
 }
 
-bool ResourceManager::ApplyCachedImagesForReload(IndexRange range)
+bool ResourceManager::ApplyImageCacheHeights(IndexRange range)
 {
     // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
     if (image_loader_.CacheSize() == 0) {
@@ -81,7 +81,7 @@ bool ResourceManager::ApplyCachedImagesForReload(IndexRange range)
 bool ResourceManager::ApplyCachedHeights(IndexRange range)
 {
     const bool mermaid_applied = ApplyMermaidCacheHeights(range);
-    const bool image_applied = ApplyCachedImagesForReload(range);
+    const bool image_applied = ApplyImageCacheHeights(range);
     return mermaid_applied || image_applied;
 }
 

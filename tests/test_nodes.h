@@ -54,19 +54,6 @@ template <class S>
              std::same_as<std::remove_cv_t<S>, std::string>)
 std::vector<Node> ParseNodes(S&& markdown_text) = delete;
 
-// ParseNodes の結果と、インライン数式を持つノードの番号 (InlineMathPlan::Build に渡す)。
-struct NodesWithMath {
-    std::vector<Node> nodes;
-    std::vector<size_t> math_indices;
-};
-inline NodesWithMath ParseNodesWithMath(std::string_view markdown_text)
-{
-    auto storage = ParseMarkdown(markdown_text);
-    NodesWithMath r{ std::move(storage.nodes), std::move(storage.indices.math_indices) };
-    test_nodes_detail::KeepAlive(std::move(storage));
-    return r;
-}
-
 // ノードのテキストが raw (パース入力) を直接指しているか。false なら arena にコピーされている。
 inline bool TextPointsIntoRaw(const Node& n, std::string_view raw) noexcept
 {

@@ -46,11 +46,12 @@ void MermaidRenderer::Shutdown()
     CloseViewer();
 }
 
-void MermaidRenderer::Init(HWND hwnd, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
+void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
                            std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
 {
     hwnd_ = hwnd;
     file_cache_ = &file_cache;
+    d2d_factory_ = d2d;
     wic_factory_ = wic;
     dw_factory_ = dw;
     bg_scheduler_ = &bg_scheduler;
@@ -206,16 +207,12 @@ Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const me
 
 Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing)
 {
-    Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
-    if (render_target_) {
-        render_target_->GetFactory(&d2d);
-    }
     // 大きな図はビットマップの最大辺と画素数の上限に収まるまで縮める。
     const float w = drawing.width;
     const float h = drawing.height;
     const float dpr = std::min({ DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_))), static_cast<float>(MaxBitmapDim(render_target_)) / std::max(w, h),
                                  static_cast<float>(std::sqrt(MAX_EXPORT_PIXELS / (static_cast<double>(w) * h))) });
-    return RasterizeDiagram(d2d.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
+    return RasterizeDiagram(d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
 }
 
 void MermaidRenderer::ApplyMathResult(Job& r)
@@ -427,7 +424,7 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = DiagramView::Open(hwnd_, dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
+    else if (viewer_.view = DiagramView::Open(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
         FailViewer();
         return;
     }

@@ -1,5 +1,4 @@
 #pragma once
-#include "utility.h"
 #include "worker_latch.h"
 #include <cstdint>
 #include <mutex>

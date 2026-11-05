@@ -16,6 +16,9 @@
 
 namespace {
 
+// 全言語を回すテストの上限。言語を足したら直す。
+constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
+
 // 描画と HTML 化はトークンを start 昇順・非重複として隙間を Plain で埋める。Plain 自体は出力しない。
 testing::AssertionResult TokensWellFormed(const std::vector<SyntaxToken>& tokens, size_t text_length)
 {
@@ -774,7 +777,6 @@ testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, std::s
 TEST(Syntax, FuzzTokensAlignToCodePointBoundaries)
 {
     // 字句解析を持たない言語 (None など) は空を返すだけなので、全部回して新しい言語も漏らさない。
-    constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
     for (const uint32_t seed : utf8_fuzz::kFuzzSeeds) {
         std::mt19937 rng{ seed };
         for (int iter = 0; iter < 300; ++iter) {
@@ -1013,7 +1015,6 @@ TEST(TokensCrossing, MatchesFullTokenizeOnRandomCode)
         "foo", "int", "return", "class", "x_1", "日本語", "(", ")", ";", ",", "=", "-", "+", "*", "/", ".", ":", "<", ">", "[", "]",
         "123", "1'000", "0x1F", "1.5e+3", ".5", "1.", "1e", "0b1'0",
     };
-    constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
     // 100 seed で足りる。語を飛ばすときに区切りを無視する・空白まで戻らない改変は、300 seed で 291 件・1179 件落ち、
     // そのうち 95 件・372 件が最初の 100 seed に入る (2026-11-06)。
     for (int l = 0; l <= kLastLanguage; ++l) {

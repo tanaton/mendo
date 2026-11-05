@@ -28,7 +28,8 @@ class DiagramView {
 public:
     // owner の中央に、owner の 9 割の大きさで「読み込み中」として開く。on_close は ×・Esc で呼ぶ (呼ばれた側がこれを壊す)。
     // 開けなければ null。
-    static std::unique_ptr<DiagramView> Open(HWND owner, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+    // d2d は本体と同じファクトリ。数式の形 (MathDrawing::Shape) はファクトリごとに作るので、分けると本体と交互に作り直す。
+    static std::unique_ptr<DiagramView> Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
                                              std::move_only_function<void()> on_close);
     // 窓も壊す。
     ~DiagramView();
@@ -58,7 +59,7 @@ private:
     // 並びは右上のバーの左から。
     enum class Button : uint8_t { None, ZoomOut, ZoomIn, Fit };
 
-    DiagramView(IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close);
+    DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
     // 扱ったメッセージは true を返し、result に戻り値を入れる。
     bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
@@ -99,7 +100,7 @@ private:
     std::move_only_function<void()> on_close_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
-    Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_;
+    Microsoft::WRL::ComPtr<ID2D1Factory> d2d_;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> rt_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;
     // 図を記録する DeviceContext と記録したもの。描画先と同じデバイスから作り、描画先を作り直したら捨てる。

@@ -230,7 +230,7 @@ void ContextMenu::DrawZoomRow(const Item& item)
 
 void ContextMenu::DrawSeparator(const Item& item)
 {
-    const float cy = (item.rect.top + item.rect.bottom) / 2.0f;
+    const float cy = RectCenter(item.rect).y;
     rt->DrawLine(
         { item.rect.left + SEPARATOR_MARGIN_X, cy },
         { item.rect.right - SEPARATOR_MARGIN_X, cy },

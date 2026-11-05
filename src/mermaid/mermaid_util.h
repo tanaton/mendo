@@ -35,6 +35,10 @@ int QuantizeWidth(float max_width) noexcept;
 // 切り詰める。切り詰め時は末尾に U+2026 を付ける。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
+// 図の文字と数式のラベルの大きさ (CSS px) の上限 (IsStorable)。文字の大きさは CSS の計算値をここへ丸める。
+// 数式のラベルは、pele が style や fontSize の指定によらず決まった大きさで組ませるので外れない。
+inline constexpr float kMaxFontSize = 1000.0f;
+
 // 図の文字と数式のラベルを置く位置と色。(x, y) はベースラインの左端。
 struct DrawingPlacement {
     // SVG の matrix(a b c d e f)。要素の座標から、図の左上を原点とする CSS px へ。
@@ -48,6 +52,10 @@ struct DrawingPlacement {
 
     bool operator==(const DrawingPlacement&) const = default;
 };
+// ディスクキャッシュに書ける置き方か。変換と位置が有限で、大きさが 0 より大きく kMaxFontSize 以下、色が 24 ビット、
+// 不透明度が 0〜1。図を作る側は満たさない文字と数式を描かず、読む側は満たさないものを壊れた値として読まない。
+// 両側の値域をここでそろえる (外れたものを書くと読み戻せず、開くたびに描き直す)。
+bool IsStorable(const DrawingPlacement& p) noexcept;
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
 struct DrawingText {
     DrawingPlacement at;
@@ -97,7 +105,8 @@ struct DiagramDrawing {
 // 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
 // 並びは "<置き方>,<太さ>,<斜体 0/1>,<下線 0/1>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値があれば nullopt。
+// 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値 (IsStorable を満たさない置き方など)
+// があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 // ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);

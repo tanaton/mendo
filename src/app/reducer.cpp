@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <iterator>
 #include <utility>
 
 namespace {
@@ -130,15 +131,13 @@ struct ReduceContext {
     // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
     // 直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
+    // 描き直しは Reduce の最後に 1 件だけ積む。
     bool invalidated = false;
 };
 
-// 描き直させる。1 回の Reduce で何度呼んでも、最初に呼んだ位置に 1 件だけ積む (モーダルの副作用より前の位置を保つ)。
 void Invalidate(ReduceContext& c)
 {
-    if (!std::exchange(c.invalidated, true)) {
-        PushEffect(c.effects, effect::InvalidateWindow{});
-    }
+    c.invalidated = true;
 }
 
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
@@ -654,7 +653,6 @@ void On(ReduceContext& c, const RightClickGestureCompletedAction& a)
     if (gesture.GetPhase() == GesturePhase::Idle) {
         return;
     }
-    // 軌跡を消す描き直しは、モーダルのメニューより前に積む (後ろに積むとメニューを閉じるまで軌跡が残る)。
     Invalidate(c);
     if (const NavDirection dir = gesture.OnRButtonUp(); dir != NavDirection::None) {
         On(c, NavigateHistoryAction{ .forward = dir == NavDirection::Forward });
@@ -1172,7 +1170,11 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     if (c.emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
         EmitScrollChangedSideEffects(c);
     }
-    // メニューのモーダルループより先に済ませるよう先頭に積む。
+    // 描き直しとキャプチャの変更は、モーダルの副作用 (メニュー・ファイルを開くダイアログ) より先に済ませるよう先頭に積む。
+    // 描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った。
+    if (c.invalidated) {
+        effects.insert(effects.begin(), effect::InvalidateWindow{});
+    }
     const bool needs_capture = CaptureRequired(state);
     if (needs_capture != had_capture) {
         effects.insert(effects.begin(), needs_capture ? SideEffect{ effect::SetCapture{} } : SideEffect{ effect::ReleaseCapture{} });

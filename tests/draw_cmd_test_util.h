@@ -11,6 +11,12 @@
 #include <variant>
 #include <vector>
 
+// ● と ○ は半径 = 半辺の角丸矩形、■ は FillRect、□ は角の無い DrawRoundedRect で描く。
+inline constexpr auto kDisc = [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
+inline constexpr auto kCircle = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
+inline constexpr auto kFilledSquare = [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; };
+inline constexpr auto kOutlinedSquare = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius == 0.0f; };
+
 template <typename T>
 std::optional<T> FindFirst(const DrawCommandList& cmds)
 {

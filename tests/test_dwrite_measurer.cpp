@@ -339,7 +339,7 @@ TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
     auto [nodes, cache] = ParseAndLayout(kMd);
     const auto requests = table_.TakeRequests();
     InlineMathPlan plan;
-    plan.Build(nodes, ParseNodesWithMath(kMd).math_indices, theme_);
+    plan.Build(nodes, ParseMarkdown(kMd).indices.math_indices, theme_);
     size_t planned = 0;
     for (const auto& c : plan.Chunks()) {
         planned += c.items.size();
@@ -389,9 +389,9 @@ std::vector<uint64_t> ChunkKeys(const InlineMathPlan& plan)
 TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 {
     const Theme theme = GetLightTheme();
-    const auto [nodes, math] = ParseNodesWithMath("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
+    const auto parsed = ParseMarkdown("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
     InlineMathPlan plan;
-    plan.Build(nodes, math, theme);
+    plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
     std::vector<std::pair<std::string, float>> items;
     for (const auto& c : plan.Chunks()) {
         for (const auto& item : c.items) {
@@ -408,7 +408,7 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
 
     InlineMathPlan again;
-    again.Build(nodes, math, theme);
+    again.Build(parsed.nodes, parsed.indices.math_indices, theme);
     EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
 }
 
@@ -416,8 +416,8 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
 {
     InlineMathPlan plan;
-    const auto parsed = ParseNodesWithMath("$a$ $b$\n");
-    plan.Build(parsed.nodes, parsed.math_indices, GetLightTheme());
+    const auto parsed = ParseMarkdown("$a$ $b$\n");
+    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
     ASSERT_EQ(plan.Chunks().size(), 1u);
     const uint64_t key = plan.Chunks()[0].key;
     EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
@@ -430,8 +430,8 @@ TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
 TEST(InlineMathPlan, StaleChunksDoNotFinish)
 {
     InlineMathPlan plan;
-    const auto [nodes, math] = ParseNodesWithMath("$a$\n");
-    plan.Build(nodes, math, GetLightTheme());
+    const auto parsed = ParseMarkdown("$a$\n");
+    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
     const uint64_t key = plan.Chunks()[0].key;
     ASSERT_NE(plan.TakeChunk(0), nullptr);
     plan.FinishChunk(0, key + 1);
@@ -451,8 +451,8 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
         text += std::format("${}x$ ", i);
     }
     InlineMathPlan plan;
-    const auto parsed = ParseNodesWithMath(text);
-    plan.Build(parsed.nodes, parsed.math_indices, theme);
+    const auto parsed = ParseMarkdown(text);
+    plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
     const auto chunks = plan.Chunks();
     ASSERT_EQ(chunks.size(), 3u);
     EXPECT_EQ(chunks[0].items.size(), kInlineMathPerChunk);

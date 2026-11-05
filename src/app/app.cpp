@@ -79,7 +79,7 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -383,7 +383,6 @@ bool App::RequestInlineMathChunk(uint64_t key)
 
 void App::RebuildInlineMathPlan()
 {
-    // 数式の無い文書でも省かない。test.md x8 (6922 ノード) で 66µs、数式 12000 個で 2.6ms (BM_InlineMathPlanBuild)。
     inline_math_plan_.Build(state_.document.doc.GetNodes(), state_.document.doc.GetMathNodeIndices(), theme_service_.GetTheme());
 }
 

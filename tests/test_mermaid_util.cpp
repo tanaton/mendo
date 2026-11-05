@@ -105,6 +105,19 @@ TEST(ParseDrawing, SerializedMathsParseBack)
     EXPECT_EQ(*back, drawing);
 }
 
+// 書体と TeX は長くても読み戻せる (図を作る側に長さの上限は無い)。
+TEST(ParseDrawing, LongFamilyAndTexParseBack)
+{
+    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f };
+    drawing.layers.push_back({
+        .texts = { { .at = { .font_size = 16.0f }, .family = std::wstring(2000, L'a'), .text = L"x" } },
+        .maths = { { .at = { .font_size = 16.0f }, .tex = std::string(70000, 'x') } },
+    });
+    const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(drawing)));
+    ASSERT_TRUE(back);
+    EXPECT_EQ(*back, drawing);
+}
+
 // ファイルは壊れていることがあるので、欠け・余り・ありえない値は全体を捨てる。
 TEST(ParseDrawing, RejectsMalformedPayloads)
 {
@@ -117,6 +130,7 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         L"",
         L"10:x",                          // 高さが無い
         L"nan:20:0:0:1:0:0:0:",             // 幅が数でない
+        L"inf:20:0:0:1:0:0:0:",           // 幅が有限でない
         L"0:20:0:0:1:0:0:0:",             // 幅が 0
         L"10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
         L"10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
@@ -129,10 +143,14 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         with_math(L""),                                  // 数式が足りない
         with_math(L"1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
         with_math(L"1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
+        with_math(L"inf,0,0,1,0,0,0,0,16,0,1:1:x"),       // 数式の変換が有限でない
         with_math(L"1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
         with_math(L"1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
         with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
         with_run(L"1,0,0,1,0,0,0,0,0,0,1,400,0,0:0:1:a"),       // 大きさが 0
+        with_run(L"1,0,0,1,0,0,0,0,1001,0,1,400,0,0:0:1:a"),    // 大きさが上限を超える
+        with_run(L"1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
+        with_run(L"1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
         with_run(L"1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
@@ -143,10 +161,6 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         SCOPED_TRACE(::testing::PrintToString(payload));
         EXPECT_FALSE(mermaid_util::ParseDrawing(payload).has_value());
     }
-    // 不透明度は 0〜1 に収める
-    const auto clamped = mermaid_util::ParseDrawing(with_run(L"1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"));
-    ASSERT_TRUE(clamped.has_value());
-    EXPECT_EQ(clamped->layers[0].texts[0].at.alpha, 1.0f);
 }
 
 // ============================================================

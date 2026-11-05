@@ -98,13 +98,11 @@ std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir)
     return it == used.begin() ? std::nullopt : std::optional{ *std::prev(it) };
 }
 
-DiagramView::DiagramView(IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
-    : on_close_(std::move(on_close)), dw_(dw), wic_(wic)
-{
-    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf());
-}
+DiagramView::DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
+    : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d2d_(d2d)
+{}
 
-std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
                                                std::move_only_function<void()> on_close)
 {
     static const bool registered = RegisterWindowClass(
@@ -113,7 +111,7 @@ std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, IDWriteFactory* dw, I
     if (!registered || !GetWindowRect(owner, &owner_rect)) {
         return nullptr;
     }
-    std::unique_ptr<DiagramView> view(new DiagramView(dw, wic, std::move(on_close)));
+    std::unique_ptr<DiagramView> view(new DiagramView(d2d, dw, wic, std::move(on_close)));
     const int owner_w = owner_rect.right - owner_rect.left;
     const int owner_h = owner_rect.bottom - owner_rect.top;
     const int w = MulDiv(owner_w, kSizePercent, 100);
@@ -280,9 +278,9 @@ bool DiagramView::EnsureTarget()
     GetClientRect(hwnd_, &rc);
     const float dpi = Scale() * DEFAULT_DPI;
     // D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった (2 回に 1 回)。
-    if (!d2d_ || FAILED(d2d_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
-                                                     D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right, rc.bottom)),
-                                                     &rt_)) ||
+    if (FAILED(d2d_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
+                                            D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right, rc.bottom)),
+                                            &rt_)) ||
         FAILED(rt_->CreateSolidColorBrush(D2D1::ColorF(0), &brush_))) {
         rt_.Reset();
         return false;

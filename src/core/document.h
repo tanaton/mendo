@@ -2,6 +2,7 @@
 #include "anchor.h"
 #include "document_types.h"
 #include "parser.h"
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <stop_token>
@@ -33,6 +34,11 @@ inline constexpr std::wstring_view LICENSES_PATH = L"mendo://licenses";
 inline constexpr bool IsEmbeddedPath(std::wstring_view path) noexcept
 {
     return path == HELP_PATH || path == LICENSES_PATH;
+}
+// リンクの URL (UTF-8) 用。仮想パスは ASCII なので変換せずに比べる (非 ASCII のバイトは負の char になり一致しない)。
+inline constexpr bool IsEmbeddedPath(std::string_view path) noexcept
+{
+    return std::ranges::equal(path, HELP_PATH) || std::ranges::equal(path, LICENSES_PATH);
 }
 
 class Document {

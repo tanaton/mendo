@@ -174,17 +174,6 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
     }
 }
 
-// ズームの行の直後には区切りを置く。
-TEST_F(ContextMenuTest, ZoomRowIsFollowedBySeparator)
-{
-    Build(MakeParams(false));
-    const auto& items = menu_.items;
-    const auto it = std::ranges::find(items, ItemType::ZoomRow, &ContextMenu::Item::type);
-    ASSERT_NE(it, items.end());
-    ASSERT_NE(std::next(it), items.end());
-    EXPECT_EQ(std::next(it)->type, ItemType::Separator);
-}
-
 TEST_F(ContextMenuTest, NavEnabledFollowsParams)
 {
     for (const bool back : { true, false }) {

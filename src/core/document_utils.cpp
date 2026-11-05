@@ -433,8 +433,7 @@ LinkClickResult ClassifyLinkClick(std::string_view url)
         result.target = PercentDecode(url.substr(1));
         return result;
     }
-    // 仮想パスは ASCII なので変換せずに比べる (非 ASCII のバイトは負の char になり一致しない)。
-    if (std::ranges::equal(url, HELP_PATH) || std::ranges::equal(url, LICENSES_PATH)) {
+    if (IsEmbeddedPath(url)) {
         result.type = LinkClickResult::Type::Embedded;
         result.target = url;
         return result;

@@ -229,7 +229,8 @@ TEST_F(PointerHitTest, TocPaneHeaderButtonAndItem)
     const auto toc = std::to_underlying(PaneTarget::Toc);
     const float header_h = h_.theme.pane_header_height;
     const auto close = PaneHeaderButtonRect(layout_.toc_rect.width, header_h, PaneHeaderButton::Close);
-    const auto on_close = Hover(layout_.toc_rect.x + (close.left + close.right) / 2.0f, kTop + (close.top + close.bottom) / 2.0f);
+    const auto [close_cx, close_cy] = RectCenter(close);
+    const auto on_close = Hover(layout_.toc_rect.x + close_cx, kTop + close_cy);
     EXPECT_EQ(on_close.hover.side_button[toc], PaneHeaderButton::Close);
     EXPECT_EQ(on_close.cursor, app_controller::PointerCursor::Hand);
     EXPECT_EQ(on_close.hover.tooltip.target.zone, TooltipTarget::Zone::TocPaneButton);
@@ -314,7 +315,7 @@ TEST_F(PointerHitTest, OverlayButtonWinsOverScrollbarHitPadding)
         }
     }
     ASSERT_TRUE(x.has_value()) << "ボタンがヒット余白に掛からない配置になっている";
-    const float button_y = layout_.md_rect.y + (button.top + button.bottom) / 2.0f;
+    const float button_y = layout_.md_rect.y + RectCenter(button).y;
 
     EXPECT_EQ(ResolveMd(*x, button_y).kind, app_controller::MdPaneHit::Kind::OverlayButton);
     const auto hover = Hover(*x, button_y);

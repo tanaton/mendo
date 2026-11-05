@@ -764,9 +764,9 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     InitWithoutText(gen, theme_);
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
-    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; });
+    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
     ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
-    EXPECT_NEAR((bullet->rect.top + bullet->rect.bottom) * 0.5f, expected_y, 0.01f)
+    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 0.01f)
         << "箇条書き記号は1行目の中央に配置されるべき";
 }
 
@@ -857,9 +857,9 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
-    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; });
+    const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
     ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
-    EXPECT_NEAR((bullet->rect.top + bullet->rect.bottom) * 0.5f, expected_y, 3.0f);
+    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 3.0f);
 }
 
 // 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem

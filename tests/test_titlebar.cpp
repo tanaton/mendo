@@ -116,7 +116,7 @@ TEST_F(TitleBarTest, HitTestCaptionArea)
 {
     // タイトルテキスト領域の中央 — どのボタンにも属さない
     auto& rect = tb_.GetTitleTextRect();
-    float cx = (rect.left + rect.right) / 2.0f;
+    float cx = RectCenter(rect).x;
     float cy = TitleBar::BASE_HEIGHT / 2.0f;
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Caption);
 }

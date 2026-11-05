@@ -48,9 +48,9 @@ public:
         : state_(state), image_loader_(image_loader), mermaid_(mermaid), mermaid_file_cache_(mermaid_file_cache), host_(host)
     {}
 
-    // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。高さを変えたら true。
+    // range のノードの画像の推定高さを、読み込み済みのキャッシュにある寸法で上書きする。未キャッシュは無視。高さを変えたら true。
     // 読み込みは後続の RelayoutViewport (FlushPendingResources) が起動する。
-    bool ApplyCachedImagesForReload(IndexRange range);
+    bool ApplyImageCacheHeights(IndexRange range);
     // 開くときとリロードのスクロール位置の計算用に、range のノードの推定高さを図と画像のキャッシュにある実測の寸法で
     // 上書きする。変えたら true (Y は組み直さない)。呼び出し前にノード高さの初期化 (EstimateNodeHeights) は済ませておく。
     bool ApplyCachedHeights(IndexRange range);

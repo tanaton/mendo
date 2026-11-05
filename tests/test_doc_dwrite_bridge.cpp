@@ -7,6 +7,7 @@
 #include "test_helpers.h"
 #include "theme.h"
 #include "theme_palette.h"
+#include "theme_service.h"
 #include "ui_constants.h"
 #include <wrl/client.h>
 #include <algorithm>
@@ -529,17 +530,11 @@ TEST_F(FallbackFontMapTest, GlyphsMatchFallbackForRealDocument)
     std::ranges::sort(lines);
     const auto [dup_begin, dup_end] = std::ranges::unique(lines);
     lines.erase(dup_begin, dup_end);
-    // 主フォントはアプリが実際に使う、本文の書体と等幅の候補のうち入っている最初のもの (ThemeService と同じ選び方)。
+    // 主フォントはアプリが実際に使う、本文の書体と ThemeService が選んだ等幅。
     // 他の等幅の候補は GlyphsMatchFallbackForEveryLanguage の文例で見る。全候補だと 286ms かかる。
-    Microsoft::WRL::ComPtr<IDWriteFontCollection> fonts;
-    ASSERT_HRESULT_SUCCEEDED(Factory()->GetSystemFontCollection(&fonts));
-    const auto mono = std::ranges::find_if(theme_palette::kMonospaceFontCandidates, [&](const wchar_t* name) {
-        UINT32 index = 0;
-        BOOL exists = FALSE;
-        return SUCCEEDED(fonts->FindFamilyName(name, &index, &exists)) && exists;
-    });
-    ASSERT_NE(mono, std::end(theme_palette::kMonospaceFontCandidates));
-    const std::array<const wchar_t*, 2> bases{ L"Segoe UI", *mono };
+    ThemeService themes;
+    themes.Init(false, {});
+    const std::array<const wchar_t*, 2> bases{ L"Segoe UI", themes.GetTheme().monospace_font.c_str() };
     // 対応は worker から同時に引ける。行の塊ごとに解決し直さないよう、主フォントごとに 1 つを共有する。
     std::vector<std::unique_ptr<FallbackFontMap>> maps;
     for (const auto* base : bases) {

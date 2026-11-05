@@ -125,11 +125,12 @@ TEST(OverlayCommandsTest, LoadingSpinnerDotsFadeAroundCenter)
     ASSERT_EQ(dots.size(), static_cast<size_t>(spinner::DOT_COUNT));
     EXPECT_EQ(cmds.size(), dots.size());
     EXPECT_FLOAT_EQ(dots[0].opacity, 1.0f);
-    EXPECT_NEAR((dots[0].rect.left + dots[0].rect.right) * 0.5f, 400.0f + spinner::RADIUS, 1e-3f);
-    EXPECT_NEAR((dots[0].rect.top + dots[0].rect.bottom) * 0.5f, 250.0f, 1e-3f);
+    EXPECT_NEAR(RectCenter(dots[0].rect).x, 400.0f + spinner::RADIUS, 1e-3f);
+    EXPECT_NEAR(RectCenter(dots[0].rect).y, 250.0f, 1e-3f);
     for (size_t i = 0; i < dots.size(); ++i) {
         EXPECT_EQ(dots[i].brush_id, BrushId::Text);
-        EXPECT_NEAR(std::hypot((dots[i].rect.left + dots[i].rect.right) * 0.5f - 400.0f, (dots[i].rect.top + dots[i].rect.bottom) * 0.5f - 250.0f), spinner::RADIUS, 1e-3f);
+        const auto [x, y] = RectCenter(dots[i].rect);
+        EXPECT_NEAR(std::hypot(x - 400.0f, y - 250.0f), spinner::RADIUS, 1e-3f);
         if (i > 0) {
             EXPECT_LT(dots[i].opacity, dots[i - 1].opacity);
         }
@@ -172,7 +173,7 @@ TEST(OverlayCommandsTest, GestureOverlayPanelFollowsTheme)
     ASSERT_EQ(panels.size(), 1u);
     EXPECT_EQ(panels[0].brush_id, BrushId::OverlayGestureBg);
     EXPECT_FLOAT_EQ(panels[0].opacity, 0.6f);
-    EXPECT_FLOAT_EQ((panels[0].rect.left + panels[0].rect.right) * 0.5f, 400.0f);
+    EXPECT_FLOAT_EQ(RectCenter(panels[0].rect).x, 400.0f);
     EXPECT_FLOAT_EQ(panels[0].rect.right - panels[0].rect.left, GESTURE_OVERLAY_WIDTH);
 
     cmds.clear();

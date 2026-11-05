@@ -38,16 +38,6 @@ bool IsVertical(const DrawLineCmd& l)
     return std::abs(l.p0.x - l.p1.x) < 0.01f;
 }
 
-// ● と ○ は半径 = 半辺の角丸矩形、■ は FillRect、□ は角の無い DrawRoundedRect で描く。
-constexpr auto kDisc = [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
-constexpr auto kCircle = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius > 0.0f; };
-constexpr auto kOutlinedSquare = [](const DrawRoundedRectCmd& r) static { return r.brush_id == BrushId::Text && r.radius == 0.0f; };
-
-float CenterY(const D2D1_RECT_F& r)
-{
-    return (r.top + r.bottom) * 0.5f;
-}
-
 } // namespace
 
 // ---- Heading 下線 ----
@@ -200,8 +190,8 @@ TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
     const auto circle = FindFirst<DrawRoundedRectCmd>(cmds, kCircle);
     ASSERT_TRUE(disc.has_value());
     ASSERT_TRUE(circle.has_value());
-    EXPECT_NEAR(CenterY(disc->rect), expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
-    EXPECT_NEAR(CenterY(circle->rect), expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
+    EXPECT_NEAR(RectCenter(disc->rect).y, expected_y0, 0.01f) << "親リスト項目の箇条書き記号";
+    EXPECT_NEAR(RectCenter(circle->rect).y, expected_y1, 0.01f) << "子リスト項目の箇条書き記号";
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, kDisc) + CountCmd<DrawRoundedRectCmd>(cmds, kCircle), 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
@@ -217,7 +207,7 @@ TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
         else if (const auto* d = std::get_if<DrawRoundedRectCmd>(&cmd); d && kCircle(*d)) {
             shapes.push_back('O');
         }
-        else if (const auto* r = std::get_if<FillRectCmd>(&cmd); r && r->brush_id == BrushId::Text) {
+        else if (const auto* r = std::get_if<FillRectCmd>(&cmd); r && kFilledSquare(*r)) {
             shapes.push_back('S');
         }
         else if (d && kOutlinedSquare(*d)) {
@@ -231,21 +221,21 @@ TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
 TEST_F(CmdGenContentTest, OutlinedSquareBulletMatchesFilledSquare)
 {
     const auto cmds = Generate("- a\n  - b\n    - c\n      - d");
-    const auto filled = FindFirst<FillRectCmd>(cmds, [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    const auto filled = FindFirst<FillRectCmd>(cmds, kFilledSquare);
     const auto outlined = FindFirst<DrawRoundedRectCmd>(cmds, kOutlinedSquare);
     ASSERT_TRUE(filled.has_value());
     ASSERT_TRUE(outlined.has_value());
     EXPECT_FLOAT_EQ(outlined->radius, 0.0f);
     EXPECT_NEAR(outlined->rect.right - outlined->rect.left + outlined->stroke_width, filled->rect.right - filled->rect.left, 0.01f);
-    EXPECT_NEAR((outlined->rect.top + outlined->rect.bottom) * 0.5f, ExpectedBulletY(3), 0.01f);
+    EXPECT_NEAR(RectCenter(outlined->rect).y, ExpectedBulletY(3), 0.01f);
 }
 
 // 四角は円と同じ中心に置き、円より大きくしない。
 TEST_F(CmdGenContentTest, SquareBulletCenteredOnFirstLine)
 {
-    const auto square = FindFirst<FillRectCmd>(Generate("- a\n  - b\n    - c"), [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    const auto square = FindFirst<FillRectCmd>(Generate("- a\n  - b\n    - c"), kFilledSquare);
     ASSERT_TRUE(square.has_value());
-    EXPECT_NEAR((square->rect.top + square->rect.bottom) * 0.5f, ExpectedBulletY(2), 0.01f);
+    EXPECT_NEAR(RectCenter(square->rect).y, ExpectedBulletY(2), 0.01f);
     EXPECT_NEAR(square->rect.right - square->rect.left, square->rect.bottom - square->rect.top, 0.01f);
     EXPECT_LE(square->rect.bottom - square->rect.top, theme_.list_bullet_radius * 2.0f);
 }

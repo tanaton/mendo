@@ -235,7 +235,11 @@ bool ParseNumberOrPercent(std::string_view t, float percent_scale, float& out) n
     else if (!t.empty()) {
         return false;
     }
-    out = static_cast<float>(v);
+    const auto f = static_cast<float>(v);
+    if (!std::isfinite(f)) {
+        return false;
+    }
+    out = f;
     return true;
 }
 
@@ -1803,8 +1807,9 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         ParseColor(value, parent.color, s.color);
         break;
     case Prop::FontSize:
+        // 計算値で丸めるので、文字の幅も描く大きさで測り、子の em も丸めた値から求める。
         if (const auto f = ParseFontSize(value, parent.font_size)) {
-            s.font_size = *f;
+            s.font_size = std::min(*f, mermaid_util::kMaxFontSize);
         }
         break;
     case Prop::Fill:
@@ -2360,29 +2365,32 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
     }
     finish_chunk(pieces.size());
 
+    const auto transform = ToArray(ctm);
     for (Piece& piece : pieces) {
         const Style& ps = piece.style;
         const auto color = SolidColor(ps.fill, ps);
-        // 大きさ 0 の文字は見えない。書くとディスクキャッシュの読み戻し (ToPlacement) で弾かれ、開くたびに描き直す。
-        if (piece.text.find_first_not_of(L' ') == std::wstring::npos || !ps.visible || piece.opacity <= 0.0f || !color ||
-            !(ps.font_size > 0.0f)) {
+        if (piece.text.find_first_not_of(L' ') == std::wstring::npos || !ps.visible || piece.opacity <= 0.0f || !color) {
             continue;
         }
-        const float baseline = piece.top + piece.shift;
+        const mermaid_util::DrawingPlacement at{
+            .transform = transform,
+            .x = piece.left,
+            .y = piece.top + piece.shift,
+            .font_size = ps.font_size,
+            .rgb = ToRgb(*color),
+            .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
+        };
+        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとディスクキャッシュから読み戻せず、開くたびに描き直す。
+        if (!mermaid_util::IsStorable(at)) {
+            continue;
+        }
         const auto [ascent, descent] = measurer_.Extent(ps.Font());
         Bounds box;
-        box.Add(piece.left, baseline - ascent);
-        box.Add(piece.left + piece.width, baseline + descent);
+        box.Add(at.x, at.y - ascent);
+        box.Add(at.x + piece.width, at.y + descent);
         text_bounds_.push_back(box.Transformed(ctm));
         layers_.back().texts.push_back({
-            .at = {
-                .transform = ToArray(ctm),
-                .x = piece.left,
-                .y = baseline,
-                .font_size = ps.font_size,
-                .rgb = ToRgb(*color),
-                .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
-            },
+            .at = at,
             .weight = ps.weight,
             .italic = ps.italic,
             .underline = piece.underline,
@@ -2414,19 +2422,24 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
     const MathDrawing& math = *label.drawing;
     const float x = AttrLength(el, "x", s.font_size).value_or(0.0f);
     const float top = AttrLength(el, "y", s.font_size).value_or(0.0f);
+    const mermaid_util::DrawingPlacement at{
+        .transform = ToArray(ctm),
+        .x = x,
+        .y = top + math.height,
+        .font_size = label.font_size,
+        .rgb = ToRgb(s.color),
+        .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
+    };
+    // 文字と同じく、ディスクキャッシュに書けない数式は描かない。
+    if (!mermaid_util::IsStorable(at)) {
+        return true;
+    }
     Bounds box;
     box.Add(x, top);
     box.Add(x + math.width, top + math.height + math.depth);
     text_bounds_.push_back(box.Transformed(ctm));
     layers_.back().maths.push_back({
-        .at = {
-            .transform = ToArray(ctm),
-            .x = x,
-            .y = top + math.height,
-            .font_size = label.font_size,
-            .rgb = ToRgb(s.color),
-            .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
-        },
+        .at = at,
         .tex = label.tex,
         .drawing = label.drawing,
     });
@@ -2873,7 +2886,7 @@ public:
         // 置き直すことがあるので、配置の途中で数えずに先に決めておく。
         uint32_t eqn = 0;
         for (uint32_t i = 0; i < doc.nodes.size(); ++i) {
-            if (HasClass(doc.nodes[i].Attr("class").value_or(""), "eqn-num")) {
+            if (HasClass(Classes(i), "eqn-num")) {
                 eqn_number_[i] = ++eqn;
             }
         }
@@ -3898,8 +3911,8 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         else if (const auto* p = std::get_if<MathDrawing::Path>(&item)) {
             const auto& shape = *p->shape;
             ComPtr<ID2D1PathGeometry> geometry = shape.geometry;
-            // 拡大表示は本体と別のファクトリで描く。記録するのは図を出すときだけなので、最後に描いたファクトリに付け替える
-            // (最初のファクトリに固定すると、拡大表示が先に描いた形を本体が毎フレーム作り直し、閉じた窓のファクトリも残る)。
+            // 形は作ったファクトリの描画先でしか描けない。本番は本体のファクトリ 1 つで描くので作り直さないが、形は数式を
+            // またいで共有するので、別のファクトリで描かれたら付け替える (最初のファクトリに固定すると、後のファクトリが毎フレーム作り直す)。
             if (shape.factory != factory) {
                 geometry = BuildPathGeometry(factory.Get(), shape.d);
                 if (geometry) {

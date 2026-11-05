@@ -118,7 +118,7 @@ TEST(PaneHeaderButtonRectTest, SquareCenteredInHeaderAndRightAligned)
         EXPECT_GE(r.left, 0.0f);
         EXPECT_LE(r.right, pane_width);
         EXPECT_FLOAT_EQ(r.right - r.left, r.bottom - r.top);
-        EXPECT_NEAR((r.top + r.bottom) / 2.0f, header_height / 2.0f, 0.01f);
+        EXPECT_NEAR(RectCenter(r).y, header_height / 2.0f, 0.01f);
 
         const auto taller = PaneHeaderButtonRect(pane_width, 64.0f, button);
         EXPECT_GT(taller.right - taller.left, r.right - r.left);
