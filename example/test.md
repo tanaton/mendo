@@ -3145,7 +3145,7 @@ graph TD
     ROOT --> TEST[mendo_tests<br>単一テストバイナリ]
 
     CORE --> MD4C[md4c<br>third_party]
-    CORE -.->|MENDO_USE_TRACY=ON| TRACY[Tracy v0.14.1<br>FetchContent]
+    CORE -.->|MENDO_USE_TRACY=ON| TRACY[Tracy v0.15.0<br>FetchContent]
     EXE --> CORE
     EXE --> RC[mendo.rc<br>リソース]
     TEST --> CORE
@@ -3178,7 +3178,7 @@ cmake --build build --config Release
 **Tracy プロファイラ有効化（既定 OFF）:**
 
 ```bash
-cmake -B build -DMENDO_USE_TRACY=ON   # Tracy v0.14.1 を FetchContent で取得
+cmake -B build -DMENDO_USE_TRACY=ON   # Tracy v0.15.0 を FetchContent で取得
 ```
 
 **テスト実行:**
@@ -3571,7 +3571,7 @@ src/
 | Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
 | pele | 1.13.0 | ダイアグラム描画 | MIT |
 | KaTeX | 0.19.1 | 数式描画（20 書体の woff2 を同梱） | MIT（書体は SIL OFL 1.1） |
-| Tracy | 0.14.1 | プロファイラ（`MENDO_USE_TRACY=ON` 時のみ） | BSD-3-Clause |
+| Tracy | 0.15.0 | プロファイラ（`MENDO_USE_TRACY=ON` 時のみ） | BSD-3-Clause |
 
 ### 付録C: Markdown表示サンプル
 

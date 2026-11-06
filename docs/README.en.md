@@ -142,7 +142,7 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 
 ### Build with Tracy Profiler
 
-Embeds [Tracy](https://github.com/wolfpld/tracy) v0.14.1 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
+Embeds [Tracy](https://github.com/wolfpld/tracy) v0.15.0 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
 
 ```
 cmake -B build_tracy -DMENDO_USE_TRACY=ON

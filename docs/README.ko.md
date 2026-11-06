@@ -142,7 +142,7 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 
 ### Tracy 프로파일러를 켠 빌드
 
-[Tracy](https://github.com/wolfpld/tracy) v0.14.1을 포함하여 프레임 시간, 구간 측정, 카운터 시계열 그래프를 얻을 수 있습니다. Tracy는 `TRACY_ON_DEMAND` 모드로 포함되므로 Tracy GUI가 연결되기 전까지 측정 코드는 아무것도 하지 않습니다.
+[Tracy](https://github.com/wolfpld/tracy) v0.15.0을 포함하여 프레임 시간, 구간 측정, 카운터 시계열 그래프를 얻을 수 있습니다. Tracy는 `TRACY_ON_DEMAND` 모드로 포함되므로 Tracy GUI가 연결되기 전까지 측정 코드는 아무것도 하지 않습니다.
 
 ```
 cmake -B build_tracy -DMENDO_USE_TRACY=ON

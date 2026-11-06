@@ -142,7 +142,7 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 
 ### Tracyプロファイラ有効ビルド
 
-[Tracy](https://github.com/wolfpld/tracy) v0.14.1 を組み込み、フレーム時間・ゾーン計測・カウンタ時系列プロットを取得できます。Tracy GUI 接続前は計測コードが no-op になる `TRACY_ON_DEMAND` モードで組み込まれます。
+[Tracy](https://github.com/wolfpld/tracy) v0.15.0 を組み込み、フレーム時間・ゾーン計測・カウンタ時系列プロットを取得できます。Tracy GUI 接続前は計測コードが no-op になる `TRACY_ON_DEMAND` モードで組み込まれます。
 
 ```
 cmake -B build_tracy -DMENDO_USE_TRACY=ON

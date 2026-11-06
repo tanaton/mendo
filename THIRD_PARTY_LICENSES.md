@@ -264,7 +264,7 @@ THE SOFTWARE.
 - **Description**: Frame profiler for games and other real-time applications
 - **Website**: https://github.com/wolfpld/tracy
 - **License**: BSD 3-Clause
-- **Obtained via**: CMake FetchContent (v0.14.1)
+- **Obtained via**: CMake FetchContent (v0.15.0)
 - **Usage**: Optional, opt-in via `-DMENDO_USE_TRACY=ON` (not included in default release binary)
 
 ```
