@@ -740,14 +740,16 @@ void Win32Window::SaveWindowPlacement()
         return;
     }
     const auto& rc = wp.rcNormalPosition;
-    session::SaveWindowPlacement(config_, {
-        .x = rc.left,
-        .y = rc.top,
-        .width = rc.right - rc.left,
-        .height = rc.bottom - rc.top,
-        // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
-        .maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED)),
-    });
+    session::SaveWindowPlacement(
+        config_,
+        {
+            .x = rc.left,
+            .y = rc.top,
+            .width = rc.right - rc.left,
+            .height = rc.bottom - rc.top,
+            // 最小化中に閉じた場合も、元が最大化だったかを正しく保存する
+            .maximized = (wp.showCmd == SW_SHOWMAXIMIZED) || ((wp.showCmd == SW_SHOWMINIMIZED) && (wp.flags & WPF_RESTORETOMAXIMIZED)),
+        });
 }
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)

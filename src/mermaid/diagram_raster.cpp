@@ -39,9 +39,9 @@ static_assert(std::ranges::equal(kDefaultFamily, kDefaultFamilyUtf8));
 
 // 総称は本文 (Theme) と同じ書体に読み替える。等幅は Theme と同じく候補から入っているものを選ぶ。
 constexpr std::pair<std::wstring_view, std::wstring_view> kGenericFamilies[]{
-    { L"sans-serif"sv, kDefaultFamily },
-    { L"system-ui"sv, kDefaultFamily },
-    { L"serif"sv, L"Times New Roman"sv },
+    { L"sans-serif"sv, kDefaultFamily       },
+    { L"system-ui"sv,  kDefaultFamily       },
+    { L"serif"sv,      L"Times New Roman"sv },
 };
 
 bool HasFamily(IDWriteFontCollection* fonts, const wchar_t* name) noexcept
@@ -213,14 +213,14 @@ constexpr std::string_view kMermaidCluster = "--_a:#ffffbd;--_b:#aaaa33;--_m:#33
 constexpr std::string_view kMermaidNote = "--_a:#fff5ad;--_b:#aaaa33;"sv;
 constexpr ScopedVars kLightScopedVars[]{
     // 枠を黄色にするのは flowchart と block だけ (mermaid でも class の namespace や state の入れ子は黄色でない)。
-    { "pele-flowchart"sv, "pele-cluster"sv, kMermaidCluster },
-    { "pele-block"sv, "pele-cluster"sv, kMermaidCluster },
+    { "pele-flowchart"sv, "pele-cluster"sv,     kMermaidCluster                            },
+    { "pele-block"sv,     "pele-cluster"sv,     kMermaidCluster                            },
     // sequence の pele-note は pele-notes の中にあるが、class と state の pele-note は外にある。
-    { {}, "pele-note"sv, kMermaidNote },
-    { {}, "pele-notes"sv, kMermaidNote },
-    { {}, "pele-edge-label"sv, "--_bg:rgba(232,232,232,0.8);--_m:#333;"sv },
-    { {}, "pele-edge-labels"sv, "--_m:#333;"sv },
-    { {}, "pele-activations"sv, "--_s:#f4f4f4;--_b:#666;"sv },
+    { {},                 "pele-note"sv,        kMermaidNote                               },
+    { {},                 "pele-notes"sv,       kMermaidNote                               },
+    { {},                 "pele-edge-label"sv,  "--_bg:rgba(232,232,232,0.8);--_m:#333;"sv },
+    { {},                 "pele-edge-labels"sv, "--_m:#333;"sv                             },
+    { {},                 "pele-activations"sv, "--_s:#f4f4f4;--_b:#666;"sv                },
 };
 
 // class 属性の語を順に f に渡す。f が true を返したらやめて true を返す。
@@ -429,7 +429,8 @@ std::optional<float> ParseLength(std::string_view v, float font_size)
         const bool ok = ForEachTopLevel(v.substr(4, v.size() - 5), ',', [&](std::string_view arg) {
             const auto x = ParseLength(arg, font_size);
             if (x) {
-                out = !out ? *x : is_min ? std::min(*out, *x) : std::max(*out, *x);
+                out = !out ? *x : is_min ? std::min(*out, *x)
+                                         : std::max(*out, *x);
             }
             return x.has_value();
         });
@@ -478,8 +479,14 @@ struct Mat {
 
 std::array<float, 6> ToArray(const Mat& m) noexcept
 {
-    return { static_cast<float>(m.a), static_cast<float>(m.b), static_cast<float>(m.c), static_cast<float>(m.d), static_cast<float>(m.e),
-             static_cast<float>(m.f) };
+    return {
+        static_cast<float>(m.a),
+        static_cast<float>(m.b),
+        static_cast<float>(m.c),
+        static_cast<float>(m.d),
+        static_cast<float>(m.e),
+        static_cast<float>(m.f),
+    };
 }
 
 // m の後に n を先に当てる (m ∘ n)。子の変換は Compose(親, 子)。
@@ -700,8 +707,10 @@ bool WalkPath(std::string_view d, Visitor& visitor)
                 return false;
             }
             const bool reflect = last == 'C' || last == 'S';
-            const double c1x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x : x;
-            const double c1y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y : y;
+            const double c1x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x
+                                                             : x;
+            const double c1y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y
+                                                             : y;
             ctrl_x = ox + v[n - 4];
             ctrl_y = oy + v[n - 3];
             x = ox + v[n - 2];
@@ -717,8 +726,10 @@ bool WalkPath(std::string_view d, Visitor& visitor)
                 return false;
             }
             const bool reflect = last == 'Q' || last == 'T';
-            ctrl_x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x : x;
-            ctrl_y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y : y;
+            ctrl_x = !smooth ? ox + v[0] : reflect ? 2 * x - ctrl_x
+                                                   : x;
+            ctrl_y = !smooth ? oy + v[1] : reflect ? 2 * y - ctrl_y
+                                                   : y;
             x = ox + v[n - 2];
             y = oy + v[n - 1];
             visitor.Quad(ctrl_x, ctrl_y, x, y);
@@ -749,8 +760,14 @@ Bounds PathBounds(std::string_view d)
 {
     struct Visitor {
         Bounds out;
-        void Move(double x, double y) { out.Add(x, y); }
-        void Line(double x, double y) { out.Add(x, y); }
+        void Move(double x, double y)
+        {
+            out.Add(x, y);
+        }
+        void Line(double x, double y)
+        {
+            out.Add(x, y);
+        }
         void Cubic(double x1, double y1, double x2, double y2, double x, double y)
         {
             out.Add(x1, y1);
@@ -766,7 +783,8 @@ Bounds PathBounds(std::string_view d)
         {
             AddArcBounds(out, x1, y1, rx, ry, rotation, large, sweep, x2, y2);
         }
-        void Close() {}
+        void Close()
+        {}
     } visitor;
     WalkPath(d, visitor);
     return visitor.out;
@@ -1044,38 +1062,154 @@ struct NamedColor {
 
 // CSS Color 4 の色名。二分探索するので名前の順に並べる。
 constexpr NamedColor kNamedColors[]{
-    { "aliceblue", 0xf0f8ff }, { "antiquewhite", 0xfaebd7 }, { "aqua", 0x00ffff }, { "aquamarine", 0x7fffd4 }, { "azure", 0xf0ffff },
-    { "beige", 0xf5f5dc }, { "bisque", 0xffe4c4 }, { "black", 0x000000 }, { "blanchedalmond", 0xffebcd }, { "blue", 0x0000ff },
-    { "blueviolet", 0x8a2be2 }, { "brown", 0xa52a2a }, { "burlywood", 0xdeb887 }, { "cadetblue", 0x5f9ea0 }, { "chartreuse", 0x7fff00 },
-    { "chocolate", 0xd2691e }, { "coral", 0xff7f50 }, { "cornflowerblue", 0x6495ed }, { "cornsilk", 0xfff8dc }, { "crimson", 0xdc143c },
-    { "cyan", 0x00ffff }, { "darkblue", 0x00008b }, { "darkcyan", 0x008b8b }, { "darkgoldenrod", 0xb8860b }, { "darkgray", 0xa9a9a9 },
-    { "darkgreen", 0x006400 }, { "darkgrey", 0xa9a9a9 }, { "darkkhaki", 0xbdb76b }, { "darkmagenta", 0x8b008b },
-    { "darkolivegreen", 0x556b2f }, { "darkorange", 0xff8c00 }, { "darkorchid", 0x9932cc }, { "darkred", 0x8b0000 },
-    { "darksalmon", 0xe9967a }, { "darkseagreen", 0x8fbc8f }, { "darkslateblue", 0x483d8b }, { "darkslategray", 0x2f4f4f },
-    { "darkslategrey", 0x2f4f4f }, { "darkturquoise", 0x00ced1 }, { "darkviolet", 0x9400d3 }, { "deeppink", 0xff1493 },
-    { "deepskyblue", 0x00bfff }, { "dimgray", 0x696969 }, { "dimgrey", 0x696969 }, { "dodgerblue", 0x1e90ff }, { "firebrick", 0xb22222 },
-    { "floralwhite", 0xfffaf0 }, { "forestgreen", 0x228b22 }, { "fuchsia", 0xff00ff }, { "gainsboro", 0xdcdcdc }, { "ghostwhite", 0xf8f8ff },
-    { "gold", 0xffd700 }, { "goldenrod", 0xdaa520 }, { "gray", 0x808080 }, { "green", 0x008000 }, { "greenyellow", 0xadff2f },
-    { "grey", 0x808080 }, { "honeydew", 0xf0fff0 }, { "hotpink", 0xff69b4 }, { "indianred", 0xcd5c5c }, { "indigo", 0x4b0082 },
-    { "ivory", 0xfffff0 }, { "khaki", 0xf0e68c }, { "lavender", 0xe6e6fa }, { "lavenderblush", 0xfff0f5 }, { "lawngreen", 0x7cfc00 },
-    { "lemonchiffon", 0xfffacd }, { "lightblue", 0xadd8e6 }, { "lightcoral", 0xf08080 }, { "lightcyan", 0xe0ffff },
-    { "lightgoldenrodyellow", 0xfafad2 }, { "lightgray", 0xd3d3d3 }, { "lightgreen", 0x90ee90 }, { "lightgrey", 0xd3d3d3 },
-    { "lightpink", 0xffb6c1 }, { "lightsalmon", 0xffa07a }, { "lightseagreen", 0x20b2aa }, { "lightskyblue", 0x87cefa },
-    { "lightslategray", 0x778899 }, { "lightslategrey", 0x778899 }, { "lightsteelblue", 0xb0c4de }, { "lightyellow", 0xffffe0 },
-    { "lime", 0x00ff00 }, { "limegreen", 0x32cd32 }, { "linen", 0xfaf0e6 }, { "magenta", 0xff00ff }, { "maroon", 0x800000 },
-    { "mediumaquamarine", 0x66cdaa }, { "mediumblue", 0x0000cd }, { "mediumorchid", 0xba55d3 }, { "mediumpurple", 0x9370db },
-    { "mediumseagreen", 0x3cb371 }, { "mediumslateblue", 0x7b68ee }, { "mediumspringgreen", 0x00fa9a }, { "mediumturquoise", 0x48d1cc },
-    { "mediumvioletred", 0xc71585 }, { "midnightblue", 0x191970 }, { "mintcream", 0xf5fffa }, { "mistyrose", 0xffe4e1 },
-    { "moccasin", 0xffe4b5 }, { "navajowhite", 0xffdead }, { "navy", 0x000080 }, { "oldlace", 0xfdf5e6 }, { "olive", 0x808000 },
-    { "olivedrab", 0x6b8e23 }, { "orange", 0xffa500 }, { "orangered", 0xff4500 }, { "orchid", 0xda70d6 }, { "palegoldenrod", 0xeee8aa },
-    { "palegreen", 0x98fb98 }, { "paleturquoise", 0xafeeee }, { "palevioletred", 0xdb7093 }, { "papayawhip", 0xffefd5 },
-    { "peachpuff", 0xffdab9 }, { "peru", 0xcd853f }, { "pink", 0xffc0cb }, { "plum", 0xdda0dd }, { "powderblue", 0xb0e0e6 },
-    { "purple", 0x800080 }, { "rebeccapurple", 0x663399 }, { "red", 0xff0000 }, { "rosybrown", 0xbc8f8f }, { "royalblue", 0x4169e1 },
-    { "saddlebrown", 0x8b4513 }, { "salmon", 0xfa8072 }, { "sandybrown", 0xf4a460 }, { "seagreen", 0x2e8b57 }, { "seashell", 0xfff5ee },
-    { "sienna", 0xa0522d }, { "silver", 0xc0c0c0 }, { "skyblue", 0x87ceeb }, { "slateblue", 0x6a5acd }, { "slategray", 0x708090 },
-    { "slategrey", 0x708090 }, { "snow", 0xfffafa }, { "springgreen", 0x00ff7f }, { "steelblue", 0x4682b4 }, { "tan", 0xd2b48c },
-    { "teal", 0x008080 }, { "thistle", 0xd8bfd8 }, { "tomato", 0xff6347 }, { "turquoise", 0x40e0d0 }, { "violet", 0xee82ee },
-    { "wheat", 0xf5deb3 }, { "white", 0xffffff }, { "whitesmoke", 0xf5f5f5 }, { "yellow", 0xffff00 }, { "yellowgreen", 0x9acd32 },
+    { "aliceblue",            0xf0f8ff },
+    { "antiquewhite",         0xfaebd7 },
+    { "aqua",                 0x00ffff },
+    { "aquamarine",           0x7fffd4 },
+    { "azure",                0xf0ffff },
+    { "beige",                0xf5f5dc },
+    { "bisque",               0xffe4c4 },
+    { "black",                0x000000 },
+    { "blanchedalmond",       0xffebcd },
+    { "blue",                 0x0000ff },
+    { "blueviolet",           0x8a2be2 },
+    { "brown",                0xa52a2a },
+    { "burlywood",            0xdeb887 },
+    { "cadetblue",            0x5f9ea0 },
+    { "chartreuse",           0x7fff00 },
+    { "chocolate",            0xd2691e },
+    { "coral",                0xff7f50 },
+    { "cornflowerblue",       0x6495ed },
+    { "cornsilk",             0xfff8dc },
+    { "crimson",              0xdc143c },
+    { "cyan",                 0x00ffff },
+    { "darkblue",             0x00008b },
+    { "darkcyan",             0x008b8b },
+    { "darkgoldenrod",        0xb8860b },
+    { "darkgray",             0xa9a9a9 },
+    { "darkgreen",            0x006400 },
+    { "darkgrey",             0xa9a9a9 },
+    { "darkkhaki",            0xbdb76b },
+    { "darkmagenta",          0x8b008b },
+    { "darkolivegreen",       0x556b2f },
+    { "darkorange",           0xff8c00 },
+    { "darkorchid",           0x9932cc },
+    { "darkred",              0x8b0000 },
+    { "darksalmon",           0xe9967a },
+    { "darkseagreen",         0x8fbc8f },
+    { "darkslateblue",        0x483d8b },
+    { "darkslategray",        0x2f4f4f },
+    { "darkslategrey",        0x2f4f4f },
+    { "darkturquoise",        0x00ced1 },
+    { "darkviolet",           0x9400d3 },
+    { "deeppink",             0xff1493 },
+    { "deepskyblue",          0x00bfff },
+    { "dimgray",              0x696969 },
+    { "dimgrey",              0x696969 },
+    { "dodgerblue",           0x1e90ff },
+    { "firebrick",            0xb22222 },
+    { "floralwhite",          0xfffaf0 },
+    { "forestgreen",          0x228b22 },
+    { "fuchsia",              0xff00ff },
+    { "gainsboro",            0xdcdcdc },
+    { "ghostwhite",           0xf8f8ff },
+    { "gold",                 0xffd700 },
+    { "goldenrod",            0xdaa520 },
+    { "gray",                 0x808080 },
+    { "green",                0x008000 },
+    { "greenyellow",          0xadff2f },
+    { "grey",                 0x808080 },
+    { "honeydew",             0xf0fff0 },
+    { "hotpink",              0xff69b4 },
+    { "indianred",            0xcd5c5c },
+    { "indigo",               0x4b0082 },
+    { "ivory",                0xfffff0 },
+    { "khaki",                0xf0e68c },
+    { "lavender",             0xe6e6fa },
+    { "lavenderblush",        0xfff0f5 },
+    { "lawngreen",            0x7cfc00 },
+    { "lemonchiffon",         0xfffacd },
+    { "lightblue",            0xadd8e6 },
+    { "lightcoral",           0xf08080 },
+    { "lightcyan",            0xe0ffff },
+    { "lightgoldenrodyellow", 0xfafad2 },
+    { "lightgray",            0xd3d3d3 },
+    { "lightgreen",           0x90ee90 },
+    { "lightgrey",            0xd3d3d3 },
+    { "lightpink",            0xffb6c1 },
+    { "lightsalmon",          0xffa07a },
+    { "lightseagreen",        0x20b2aa },
+    { "lightskyblue",         0x87cefa },
+    { "lightslategray",       0x778899 },
+    { "lightslategrey",       0x778899 },
+    { "lightsteelblue",       0xb0c4de },
+    { "lightyellow",          0xffffe0 },
+    { "lime",                 0x00ff00 },
+    { "limegreen",            0x32cd32 },
+    { "linen",                0xfaf0e6 },
+    { "magenta",              0xff00ff },
+    { "maroon",               0x800000 },
+    { "mediumaquamarine",     0x66cdaa },
+    { "mediumblue",           0x0000cd },
+    { "mediumorchid",         0xba55d3 },
+    { "mediumpurple",         0x9370db },
+    { "mediumseagreen",       0x3cb371 },
+    { "mediumslateblue",      0x7b68ee },
+    { "mediumspringgreen",    0x00fa9a },
+    { "mediumturquoise",      0x48d1cc },
+    { "mediumvioletred",      0xc71585 },
+    { "midnightblue",         0x191970 },
+    { "mintcream",            0xf5fffa },
+    { "mistyrose",            0xffe4e1 },
+    { "moccasin",             0xffe4b5 },
+    { "navajowhite",          0xffdead },
+    { "navy",                 0x000080 },
+    { "oldlace",              0xfdf5e6 },
+    { "olive",                0x808000 },
+    { "olivedrab",            0x6b8e23 },
+    { "orange",               0xffa500 },
+    { "orangered",            0xff4500 },
+    { "orchid",               0xda70d6 },
+    { "palegoldenrod",        0xeee8aa },
+    { "palegreen",            0x98fb98 },
+    { "paleturquoise",        0xafeeee },
+    { "palevioletred",        0xdb7093 },
+    { "papayawhip",           0xffefd5 },
+    { "peachpuff",            0xffdab9 },
+    { "peru",                 0xcd853f },
+    { "pink",                 0xffc0cb },
+    { "plum",                 0xdda0dd },
+    { "powderblue",           0xb0e0e6 },
+    { "purple",               0x800080 },
+    { "rebeccapurple",        0x663399 },
+    { "red",                  0xff0000 },
+    { "rosybrown",            0xbc8f8f },
+    { "royalblue",            0x4169e1 },
+    { "saddlebrown",          0x8b4513 },
+    { "salmon",               0xfa8072 },
+    { "sandybrown",           0xf4a460 },
+    { "seagreen",             0x2e8b57 },
+    { "seashell",             0xfff5ee },
+    { "sienna",               0xa0522d },
+    { "silver",               0xc0c0c0 },
+    { "skyblue",              0x87ceeb },
+    { "slateblue",            0x6a5acd },
+    { "slategray",            0x708090 },
+    { "slategrey",            0x708090 },
+    { "snow",                 0xfffafa },
+    { "springgreen",          0x00ff7f },
+    { "steelblue",            0x4682b4 },
+    { "tan",                  0xd2b48c },
+    { "teal",                 0x008080 },
+    { "thistle",              0xd8bfd8 },
+    { "tomato",               0xff6347 },
+    { "turquoise",            0x40e0d0 },
+    { "violet",               0xee82ee },
+    { "wheat",                0xf5deb3 },
+    { "white",                0xffffff },
+    { "whitesmoke",           0xf5f5f5 },
+    { "yellow",               0xffff00 },
+    { "yellowgreen",          0x9acd32 },
 };
 static_assert(std::ranges::is_sorted(kNamedColors, {}, &NamedColor::name));
 
@@ -1444,7 +1578,12 @@ void AppendSvgHead(std::string& out, const mermaid_util::DiagramDrawing& drawing
 // ---- スタイル ----
 
 struct Paint {
-    enum class Kind : uint8_t { None, Color, CurrentColor, Url };
+    enum class Kind : uint8_t {
+        None,
+        Color,
+        CurrentColor,
+        Url
+    };
     Kind kind = Kind::None;
     Rgba color{};
     std::string_view url;      // Url のときの id
@@ -1533,34 +1672,34 @@ enum class Prop : uint8_t {
 constexpr size_t kPropCount = static_cast<size_t>(Prop::Count);
 
 constexpr std::pair<std::string_view, Prop> kPropNames[]{
-    { "color", Prop::Color },
-    { "font-size", Prop::FontSize },
-    { "fill", Prop::Fill },
-    { "stroke", Prop::Stroke },
-    { "fill-opacity", Prop::FillOpacity },
-    { "stroke-opacity", Prop::StrokeOpacity },
-    { "stroke-width", Prop::StrokeWidth },
-    { "stroke-dasharray", Prop::StrokeDasharray },
-    { "stroke-dashoffset", Prop::StrokeDashoffset },
-    { "stroke-linecap", Prop::StrokeLinecap },
-    { "stroke-linejoin", Prop::StrokeLinejoin },
-    { "stroke-miterlimit", Prop::StrokeMiterlimit },
-    { "fill-rule", Prop::FillRule },
-    { "opacity", Prop::Opacity },
-    { "display", Prop::Display },
-    { "visibility", Prop::Visibility },
-    { "font-family", Prop::FontFamily },
-    { "font-weight", Prop::FontWeight },
-    { "font-style", Prop::FontStyle },
-    { "text-anchor", Prop::TextAnchor },
-    { "text-decoration", Prop::TextDecoration },
-    { "text-decoration-line", Prop::TextDecoration },
-    { "baseline-shift", Prop::BaselineShift },
-    { "rx", Prop::Rx },
-    { "ry", Prop::Ry },
-    { "stop-color", Prop::StopColor },
-    { "stop-opacity", Prop::StopOpacity },
-    { "max-width", Prop::MaxWidth },
+    { "color",                Prop::Color            },
+    { "font-size",            Prop::FontSize         },
+    { "fill",                 Prop::Fill             },
+    { "stroke",               Prop::Stroke           },
+    { "fill-opacity",         Prop::FillOpacity      },
+    { "stroke-opacity",       Prop::StrokeOpacity    },
+    { "stroke-width",         Prop::StrokeWidth      },
+    { "stroke-dasharray",     Prop::StrokeDasharray  },
+    { "stroke-dashoffset",    Prop::StrokeDashoffset },
+    { "stroke-linecap",       Prop::StrokeLinecap    },
+    { "stroke-linejoin",      Prop::StrokeLinejoin   },
+    { "stroke-miterlimit",    Prop::StrokeMiterlimit },
+    { "fill-rule",            Prop::FillRule         },
+    { "opacity",              Prop::Opacity          },
+    { "display",              Prop::Display          },
+    { "visibility",           Prop::Visibility       },
+    { "font-family",          Prop::FontFamily       },
+    { "font-weight",          Prop::FontWeight       },
+    { "font-style",           Prop::FontStyle        },
+    { "text-anchor",          Prop::TextAnchor       },
+    { "text-decoration",      Prop::TextDecoration   },
+    { "text-decoration-line", Prop::TextDecoration   },
+    { "baseline-shift",       Prop::BaselineShift    },
+    { "rx",                   Prop::Rx               },
+    { "ry",                   Prop::Ry               },
+    { "stop-color",           Prop::StopColor        },
+    { "stop-opacity",         Prop::StopOpacity      },
+    { "max-width",            Prop::MaxWidth         },
 };
 
 std::optional<Prop> PropOf(std::string_view name) noexcept
@@ -1612,7 +1751,8 @@ bool SubstituteVars(std::string_view in, const Vars* vars, std::string& out, int
         int level = 0;
         size_t close = std::string_view::npos;
         for (size_t i = pos + 3; i < in.size(); ++i) {
-            level += in[i] == '(' ? 1 : in[i] == ')' ? -1 : 0;
+            level += in[i] == '(' ? 1 : in[i] == ')' ? -1
+                                                     : 0;
             if (level == 0) {
                 close = i;
                 break;
@@ -1697,10 +1837,12 @@ std::optional<Rgba> SolidColor(const Paint& paint, const Style& s) noexcept
 uint16_t RelativeWeight(std::string_view v, uint16_t parent) noexcept
 {
     if (ascii_util::iequal(v, "bolder")) {
-        return parent < 350 ? 400 : parent < 550 ? 700 : 900;
+        return parent < 350 ? 400 : parent < 550 ? 700
+                                                 : 900;
     }
     if (ascii_util::iequal(v, "lighter")) {
-        return parent < 550 ? 100 : parent < 750 ? 400 : 700;
+        return parent < 550 ? 100 : parent < 750 ? 400
+                                                 : 700;
     }
     return 0;
 }
@@ -1709,8 +1851,13 @@ uint16_t RelativeWeight(std::string_view v, uint16_t parent) noexcept
 std::optional<float> ParseFontSize(std::string_view v, float parent)
 {
     constexpr std::pair<std::string_view, float> kKeywords[]{
-        { "xx-small", 9.0f }, { "x-small", 10.0f }, { "small", 13.0f }, { "medium", 16.0f },
-        { "large", 18.0f },   { "x-large", 24.0f }, { "xx-large", 32.0f },
+        { "xx-small", 9.0f  },
+        { "x-small",  10.0f },
+        { "small",    13.0f },
+        { "medium",   16.0f },
+        { "large",    18.0f },
+        { "x-large",  24.0f },
+        { "xx-large", 32.0f },
     };
     v = Trim(v);
     if (ascii_util::iequal(v, "smaller")) {
@@ -1761,8 +1908,10 @@ bool ViewportTransform(const XmlNode& el, double x, double y, double width, doub
     double ty = 0.0;
     if (align != "none") {
         sx = sy = slice ? std::max(sx, sy) : std::min(sx, sy);
-        const double fx = align.contains("xMid") ? 0.5 : align.contains("xMax") ? 1.0 : 0.0;
-        const double fy = align.contains("YMid") ? 0.5 : align.contains("YMax") ? 1.0 : 0.0;
+        const double fx = align.contains("xMid") ? 0.5 : align.contains("xMax") ? 1.0
+                                                                                : 0.0;
+        const double fy = align.contains("YMid") ? 0.5 : align.contains("YMax") ? 1.0
+                                                                                : 0.0;
         tx = (width - vb[2] * sx) * fx;
         ty = (height - vb[3] * sy) * fy;
     }
@@ -1785,7 +1934,7 @@ private:
         Style style;
         float opacity = 1.0f;
         uint8_t decoration = 0; // 祖先の text-decoration の線も重ねる (CSS の装飾の伝播)
-        float shift = 0.0f; // baseline-shift の合計 (下が正)
+        float shift = 0.0f;     // baseline-shift の合計 (下が正)
         std::optional<float> x;
         std::optional<float> y;
         std::wstring text; // 空白を畳んだ後
@@ -1839,9 +1988,9 @@ private:
     std::deque<std::string> strings_;
     std::deque<std::wstring> wide_strings_;
     std::deque<Vars> vars_;
-    std::string resolved_; // var() を解いた値。Apply が持ち続けるものは Retain で写す
+    std::string resolved_;                                    // var() を解いた値。Apply が持ち続けるものは Retain で写す
     std::vector<std::pair<Prop, std::string_view>> declared_; // Compute の宣言の並び。要素ごとに確保しないよう使い回す
-    std::unordered_map<std::string_view, uint32_t> ids_; // GradientRef が初めて引くときに作る
+    std::unordered_map<std::string_view, uint32_t> ids_;      // GradientRef が初めて引くときに作る
     bool ids_ready_ = false;
     std::vector<std::pair<std::string, std::string>> gradients_; // (id|alpha, 名前。空は塗れない参照)
     std::string defs_;
@@ -2047,7 +2196,8 @@ bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         if (k.empty()) {
             return false;
         }
-        s.anchor = k == "middle" ? 1 : k == "end" ? 2 : 0;
+        s.anchor = k == "middle" ? 1 : k == "end" ? 2
+                                                  : 0;
         return true;
     }
     case Prop::TextDecoration:
@@ -2277,7 +2427,9 @@ bool PeleSvgResolver::Shape(const XmlNode& el, const Style& s, const Mat& ctm, f
         if (!(w > 0.0f && h > 0.0f)) {
             return true;
         }
-        numbers = { { { "x", x }, { "y", y }, { "width", w }, { "height", h } } };
+        numbers = {
+            { { "x", x }, { "y", y }, { "width", w }, { "height", h } }
+        };
         count = 4;
         local.Add(x, y);
         local.Add(x + w, y + h);
@@ -2287,7 +2439,9 @@ bool PeleSvgResolver::Shape(const XmlNode& el, const Style& s, const Mat& ctm, f
         if (!(r > 0.0f)) {
             return true;
         }
-        numbers = { { { "cx", cx }, { "cy", cy }, { "r", r } } };
+        numbers = {
+            { { "cx", cx }, { "cy", cy }, { "r", r } }
+        };
         count = 3;
         local.Add(cx - r, cy - r);
         local.Add(cx + r, cy + r);
@@ -2297,13 +2451,17 @@ bool PeleSvgResolver::Shape(const XmlNode& el, const Style& s, const Mat& ctm, f
         if (!(rx.value_or(0.0f) > 0.0f && ry.value_or(0.0f) > 0.0f)) {
             return true;
         }
-        numbers = { { { "cx", cx }, { "cy", cy }, { "rx", *rx }, { "ry", *ry } } };
+        numbers = {
+            { { "cx", cx }, { "cy", cy }, { "rx", *rx }, { "ry", *ry } }
+        };
         count = 4;
         local.Add(cx - *rx, cy - *ry);
         local.Add(cx + *rx, cy + *ry);
     }
     else if (el.name == "line") {
-        numbers = { { { "x1", length("x1") }, { "y1", length("y1") }, { "x2", length("x2") }, { "y2", length("y2") } } };
+        numbers = {
+            { { "x1", length("x1") }, { "y1", length("y1") }, { "x2", length("x2") }, { "y2", length("y2") } }
+        };
         count = 4;
         local.Add(numbers[0].second, numbers[1].second);
         local.Add(numbers[2].second, numbers[3].second);
@@ -2313,7 +2471,8 @@ bool PeleSvgResolver::Shape(const XmlNode& el, const Style& s, const Mat& ctm, f
     }
 
     std::string& out = ShapesFor([&] {
-        const Bounds b = !raw ? local : path ? PathBounds(*raw) : PointsBounds(*raw);
+        const Bounds b = !raw ? local : path ? PathBounds(*raw)
+                                             : PointsBounds(*raw);
         return b.Transformed(ctm).Padded(s.stroke_width);
     });
     out += '<';
@@ -2497,7 +2656,8 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             return;
         }
         const uint8_t anchor = pieces[chunk_start].style.anchor;
-        const double dx = anchor == 1 ? -(x - chunk_left) / 2.0 : anchor == 2 ? -(x - chunk_left) : 0.0;
+        const double dx = anchor == 1 ? -(x - chunk_left) / 2.0 : anchor == 2 ? -(x - chunk_left)
+                                                                              : 0.0;
         for (size_t k = chunk_start; k < end; ++k) {
             pieces[k].left = static_cast<float>(pieces[k].left + dx);
         }
@@ -2700,7 +2860,20 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
 // KaTeX は縦の位置 (vlist の top と pstrut) と高さを自分で決めて em で書くので、ブラウザに頼るのは横の並びと字幅だけ。
 // KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は hmtx の送り幅の和になる (Chrome の HarfBuzz と同じ)。
 
-enum class KFamily : uint8_t { Main, Math, AMS, Caligraphic, Fraktur, SansSerif, Script, Size1, Size2, Size3, Size4, Typewriter };
+enum class KFamily : uint8_t {
+    Main,
+    Math,
+    AMS,
+    Caligraphic,
+    Fraktur,
+    SansSerif,
+    Script,
+    Size1,
+    Size2,
+    Size3,
+    Size4,
+    Typewriter
+};
 
 struct KFaceEntry {
     KFamily family;
@@ -2709,13 +2882,26 @@ struct KFaceEntry {
 };
 // kKatexFontFiles と同じ順。
 constexpr KFaceEntry kKatexFaces[]{
-    { KFamily::AMS, false, false },        { KFamily::Caligraphic, true, false }, { KFamily::Caligraphic, false, false },
-    { KFamily::Fraktur, true, false },     { KFamily::Fraktur, false, false },    { KFamily::Main, true, false },
-    { KFamily::Main, true, true },         { KFamily::Main, false, true },        { KFamily::Main, false, false },
-    { KFamily::Math, true, true },         { KFamily::Math, false, true },        { KFamily::SansSerif, true, false },
-    { KFamily::SansSerif, false, true },   { KFamily::SansSerif, false, false },  { KFamily::Script, false, false },
-    { KFamily::Size1, false, false },      { KFamily::Size2, false, false },      { KFamily::Size3, false, false },
-    { KFamily::Size4, false, false },      { KFamily::Typewriter, false, false },
+    { KFamily::AMS,         false, false },
+    { KFamily::Caligraphic, true,  false },
+    { KFamily::Caligraphic, false, false },
+    { KFamily::Fraktur,     true,  false },
+    { KFamily::Fraktur,     false, false },
+    { KFamily::Main,        true,  false },
+    { KFamily::Main,        true,  true  },
+    { KFamily::Main,        false, true  },
+    { KFamily::Main,        false, false },
+    { KFamily::Math,        true,  true  },
+    { KFamily::Math,        false, true  },
+    { KFamily::SansSerif,   true,  false },
+    { KFamily::SansSerif,   false, true  },
+    { KFamily::SansSerif,   false, false },
+    { KFamily::Script,      false, false },
+    { KFamily::Size1,       false, false },
+    { KFamily::Size2,       false, false },
+    { KFamily::Size3,       false, false },
+    { KFamily::Size4,       false, false },
+    { KFamily::Typewriter,  false, false },
 };
 static_assert(std::size(kKatexFaces) == std::size(kKatexFontFiles));
 
@@ -2754,7 +2940,11 @@ std::pair<size_t, uint32_t> MatchKatexFace(const KFont& font) noexcept
     return { best, sim };
 }
 
-enum class KAlign : uint8_t { Left, Center, Right };
+enum class KAlign : uint8_t {
+    Left,
+    Center,
+    Right
+};
 
 // 継承する値。
 struct KInherit {
@@ -2770,8 +2960,16 @@ struct KLen {
     bool pct = false; // v は 0〜1
 };
 
-enum class KDisplay : uint8_t { Inline, InlineBlock, Block };
-enum class KPosition : uint8_t { Static, Relative, Absolute };
+enum class KDisplay : uint8_t {
+    Inline,
+    InlineBlock,
+    Block
+};
+enum class KPosition : uint8_t {
+    Static,
+    Relative,
+    Absolute
+};
 
 // 継承しない値。長さは CSS px に直してある (% を除く)。
 struct KOwn {
@@ -2823,20 +3021,20 @@ void TranslateItems(std::vector<MathDrawing::Item>& items, float dx, float dy)
     for (auto& item : items) {
         std::visit(
             [&](auto& it) {
-                using T = std::decay_t<decltype(it)>;
-                if constexpr (std::is_same_v<T, MathDrawing::Path>) {
-                    it.transform[4] += dx;
-                    it.transform[5] += dy;
-                    it.clip[0] += dx;
-                    it.clip[1] += dy;
-                    it.clip[2] += dx;
-                    it.clip[3] += dy;
-                }
-                else {
-                    it.x += dx;
-                    it.y += dy;
-                }
-            },
+            using T = std::decay_t<decltype(it)>;
+            if constexpr (std::is_same_v<T, MathDrawing::Path>) {
+                it.transform[4] += dx;
+                it.transform[5] += dy;
+                it.clip[0] += dx;
+                it.clip[1] += dy;
+                it.clip[2] += dx;
+                it.clip[3] += dy;
+            }
+            else {
+                it.x += dx;
+                it.y += dy;
+            }
+        },
             item);
     }
 }
@@ -2892,7 +3090,9 @@ float RunWidth(const MathDrawing::Glyphs& g) noexcept
 
 float AlignOffset(KAlign align, float slack) noexcept
 {
-    return slack <= 0.0f ? 0.0f : align == KAlign::Center ? slack / 2 : align == KAlign::Right ? slack : 0.0f;
+    return slack <= 0.0f ? 0.0f : align == KAlign::Center ? slack / 2
+                              : align == KAlign::Right    ? slack
+                                                          : 0.0f;
 }
 
 // 箱を行の右に gap 空けて足す。
@@ -2960,7 +3160,10 @@ ComPtr<ID2D1PathGeometry> BuildPathGeometry(ID2D1Factory* d2d, std::string_view 
         D2D1_POINT_2F at{};
         bool open = false;
 
-        static D2D1_POINT_2F Pt(double x, double y) { return D2D1::Point2F(static_cast<float>(x), static_cast<float>(y)); }
+        static D2D1_POINT_2F Pt(double x, double y)
+        {
+            return D2D1::Point2F(static_cast<float>(x), static_cast<float>(y));
+        }
         void Begin()
         {
             if (!open) {
@@ -3002,7 +3205,10 @@ ComPtr<ID2D1PathGeometry> BuildPathGeometry(ID2D1Factory* d2d, std::string_view 
                                           static_cast<float>(rotation), sweep ? D2D1_SWEEP_DIRECTION_CLOCKWISE : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
                                           large ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
         }
-        void Close() { End(D2D1_FIGURE_END_CLOSED); }
+        void Close()
+        {
+            End(D2D1_FIGURE_END_CLOSED);
+        }
     } visitor{ sink.Get() };
     const bool ok = WalkPath(d, visitor);
     visitor.End(D2D1_FIGURE_END_OPEN);
@@ -3030,7 +3236,6 @@ public:
     std::optional<MathDrawing> Run(float font_size);
 
 private:
-
     std::string_view Classes(uint32_t i) const noexcept
     {
         return i == kNoNode ? std::string_view{} : doc_.nodes[i].Attr("class").value_or(std::string_view{});
@@ -3059,8 +3264,18 @@ bool KatexLayout::IsAbsolute(uint32_t i) const noexcept
     if (n.name == "svg") {
         return true;
     }
-    return HasAnyClass(Classes(i), { "halfarrow-left", "halfarrow-right", "brace-left", "brace-center", "brace-right", "katex-inner",
-                                     "cd-label-left", "cd-label-right" });
+    return HasAnyClass(
+        Classes(i),
+        {
+            "halfarrow-left",
+            "halfarrow-right",
+            "brace-left",
+            "brace-center",
+            "brace-right",
+            "katex-inner",
+            "cd-label-left",
+            "cd-label-right",
+        });
 }
 
 KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
@@ -3089,34 +3304,34 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
         std::optional<bool> italic;
     };
     static constexpr FontRule kFontRules[]{
-        { "textbf", {}, true, {} },
-        { "textit", {}, {}, true },
-        { "textrm", KFamily::Main, {}, {} },
-        { "textsf", KFamily::SansSerif, {}, {} },
-        { "texttt", KFamily::Typewriter, {}, {} },
-        { "mathnormal", KFamily::Math, {}, true },
-        { "mathit", KFamily::Main, {}, true },
-        { "mathrm", {}, {}, false },
-        { "mathbf", KFamily::Main, true, {} },
-        { "boldsymbol", KFamily::Math, true, true },
-        { "amsrm", KFamily::AMS, {}, {} },
-        { "mathbb", KFamily::AMS, {}, {} },
-        { "textbb", KFamily::AMS, {}, {} },
-        { "mathcal", KFamily::Caligraphic, {}, {} },
-        { "mathfrak", KFamily::Fraktur, {}, {} },
-        { "textfrak", KFamily::Fraktur, {}, {} },
-        { "mathboldfrak", KFamily::Fraktur, true, {} },
-        { "textboldfrak", KFamily::Fraktur, true, {} },
-        { "mathtt", KFamily::Typewriter, {}, {} },
-        { "mathscr", KFamily::Script, {}, {} },
-        { "textscr", KFamily::Script, {}, {} },
-        { "mathsf", KFamily::SansSerif, {}, {} },
-        { "mathboldsf", KFamily::SansSerif, true, {} },
-        { "textboldsf", KFamily::SansSerif, true, {} },
-        { "mathsfit", KFamily::SansSerif, {}, true },
-        { "mathitsf", KFamily::SansSerif, {}, true },
-        { "textitsf", KFamily::SansSerif, {}, true },
-        { "mainrm", KFamily::Main, {}, false },
+        { "textbf",       {},                   true, {}    },
+        { "textit",       {},                   {},   true  },
+        { "textrm",       KFamily::Main,        {},   {}    },
+        { "textsf",       KFamily::SansSerif,   {},   {}    },
+        { "texttt",       KFamily::Typewriter,  {},   {}    },
+        { "mathnormal",   KFamily::Math,        {},   true  },
+        { "mathit",       KFamily::Main,        {},   true  },
+        { "mathrm",       {},                   {},   false },
+        { "mathbf",       KFamily::Main,        true, {}    },
+        { "boldsymbol",   KFamily::Math,        true, true  },
+        { "amsrm",        KFamily::AMS,         {},   {}    },
+        { "mathbb",       KFamily::AMS,         {},   {}    },
+        { "textbb",       KFamily::AMS,         {},   {}    },
+        { "mathcal",      KFamily::Caligraphic, {},   {}    },
+        { "mathfrak",     KFamily::Fraktur,     {},   {}    },
+        { "textfrak",     KFamily::Fraktur,     {},   {}    },
+        { "mathboldfrak", KFamily::Fraktur,     true, {}    },
+        { "textboldfrak", KFamily::Fraktur,     true, {}    },
+        { "mathtt",       KFamily::Typewriter,  {},   {}    },
+        { "mathscr",      KFamily::Script,      {},   {}    },
+        { "textscr",      KFamily::Script,      {},   {}    },
+        { "mathsf",       KFamily::SansSerif,   {},   {}    },
+        { "mathboldsf",   KFamily::SansSerif,   true, {}    },
+        { "textboldsf",   KFamily::SansSerif,   true, {}    },
+        { "mathsfit",     KFamily::SansSerif,   {},   true  },
+        { "mathitsf",     KFamily::SansSerif,   {},   true  },
+        { "textitsf",     KFamily::SansSerif,   {},   true  },
+        { "mainrm",       KFamily::Main,        {},   false },
     };
     for (const auto& r : kFontRules) {
         if (has(r.cls)) {
@@ -3290,7 +3505,9 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
         else if (name == "top" || name == "left" || name == "right" || name == "bottom") {
             const auto v = ParseKLen(value, em);
             ok = v.has_value();
-            (name == "top" ? own.top : name == "left" ? own.left : name == "right" ? own.right : own.bottom) = v;
+            (name == "top" ? own.top : name == "left" ? own.left
+                                   : name == "right"  ? own.right
+                                                      : own.bottom) = v;
         }
         else if (name == "margin-left") {
             px(own.margin_l);
@@ -3341,7 +3558,8 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
             own.dashed.fill(value == "dashed");
         }
         else if (name == "position") {
-            own.position = value == "absolute" ? KPosition::Absolute : value == "relative" ? KPosition::Relative : KPosition::Static;
+            own.position = value == "absolute" ? KPosition::Absolute : value == "relative" ? KPosition::Relative
+                                                                                           : KPosition::Static;
         }
         else if (name == "color" || name == "background-color" || name == "border-color") {
             // 2026-11-04 に本文の色だけで描く (\color を読み捨て、\colorbox の背景も描かない) と決めたが、#412 で指定の色を
@@ -3349,7 +3567,8 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
             // 読めない色はブラウザと同じく無視する (数式ごと描けなくはしない)。
             if (Rgba rgba; ParseColor(value, Rgba{}, rgba)) {
                 const uint32_t packed = ToRgb(rgba) << 8 | ColorByte(rgba.a);
-                (name == "color" ? inh.color : name == "background-color" ? own.background : own.border_color) = packed;
+                (name == "color" ? inh.color : name == "background-color" ? own.background
+                                                                          : own.border_color) = packed;
             }
         }
         else if (name == "text-shadow") {
@@ -3479,7 +3698,8 @@ void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float
             const auto coord = [&](std::string_view attr, float full) {
                 const auto a = child.Attr(attr);
                 const auto v = a ? ParseKLen(*a, em) : std::optional{ KLen{} };
-                return !v ? 0.0f : v->pct ? v->v * full : v->v;
+                return !v ? 0.0f : v->pct ? v->v * full
+                                          : v->v;
             };
             const float x1 = coord("x1", w), y1 = coord("y1", *h), x2 = coord("x2", w), y2 = coord("y2", *h);
             const float stroke = AttrLength(child, "stroke-width", em).value_or(1.0f);
@@ -3492,7 +3712,10 @@ void KatexLayout::Svg(uint32_t i, const KInherit& inh, float x0, float y0, float
             d += ' ';
             AppendNum(d, y2);
             out.items.emplace_back(
-                MathDrawing::Path{ .shape = assets_.Shape(d), .transform = { 1.0f, 0.0f, 0.0f, 1.0f, x0, y0 }, .clip = clip, .stroke = stroke, .color = inh.color });
+                MathDrawing::Path{
+                    .shape = assets_.Shape(d), .transform = { 1.0f, 0.0f, 0.0f, 1.0f, x0, y0 },
+                         .clip = clip, .stroke = stroke, .color = inh.color
+            });
         }
         else {
             Fail();
@@ -3913,8 +4136,13 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
     const std::lock_guard lock(m.mutex);
     auto& face = m.faces[file][simulations];
     if (!face) {
-        m.dw->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, m.files[file].GetAddressOf(), 0, static_cast<DWRITE_FONT_SIMULATIONS>(simulations),
-                             &face);
+        m.dw->CreateFontFace(
+            DWRITE_FONT_FACE_TYPE_TRUETYPE,
+            1,
+            m.files[file].GetAddressOf(),
+            0,
+            static_cast<DWRITE_FONT_SIMULATIONS>(simulations),
+            &face);
     }
     return face.Get();
 }
@@ -4112,7 +4340,8 @@ std::vector<std::wstring> ResolveFontFamilies(IDWriteFontCollection* fonts, std:
     return out;
 }
 
-DiagramTextMeasurer::DiagramTextMeasurer(IDWriteFactory* dw, std::wstring locale) : dw_(dw), locale_(std::move(locale)) {}
+DiagramTextMeasurer::DiagramTextMeasurer(IDWriteFactory* dw, std::wstring locale) : dw_(dw), locale_(std::move(locale))
+{}
 
 DiagramTextMeasurer::~DiagramTextMeasurer() = default;
 
@@ -4224,8 +4453,9 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
     return out;
 }
 
-std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
-                                                               std::span<const PeleMathLabel> maths)
+std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(
+    std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
+    std::span<const PeleMathLabel> maths)
 {
     XmlDoc doc;
     if (!ParseXml(svg, doc)) {
@@ -4253,8 +4483,9 @@ namespace {
 
 // dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。
 // wic は図形の SVG を読むストリームに使う。描けなければ false (描きかけのまま)。
-bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
-                 const wchar_t* locale)
+bool DrawDiagram(
+    ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
+    const wchar_t* locale)
 {
     ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(drawing.background), &brush))) {
@@ -4303,8 +4534,9 @@ bool DrawDiagram(ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory
 
 } // namespace
 
-ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                       const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale)
+ComPtr<ID2D1CommandList> RecordDiagram(
+    ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
+    const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale)
 {
     ComPtr<ID2D1CommandList> commands;
     if (!record_dc || !dw || FAILED(record_dc->CreateCommandList(&commands))) {
@@ -4322,8 +4554,9 @@ ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFa
     return commands;
 }
 
-Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                                    const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale)
+Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
+    ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
+    const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale)
 {
     const auto width = static_cast<UINT>(std::ceil(drawing.width * dpr));
     const auto height = static_cast<UINT>(std::ceil(drawing.height * dpr));

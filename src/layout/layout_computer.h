@@ -91,7 +91,8 @@ inline float EmptyListItemHeight(const Theme& theme) noexcept
 // (paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する issue#237)。
 inline float EmptyTextNodeHeight(const Node& node, const Theme& theme) noexcept
 {
-    return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme) : theme.paragraph_spacing;
+    return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme)
+                                                                    : theme.paragraph_spacing;
 }
 
 inline float HorizontalRuleHeight(const Theme& theme) noexcept

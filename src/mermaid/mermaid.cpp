@@ -483,16 +483,16 @@ void MermaidRenderer::RequestViewerDrawing()
         .dark_mode = viewer_.dark_mode,
         .target = ViewCallback{
             [this, render](std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) {
-                if (render != viewer_render_ || !ViewerOpen()) {
-                    return;
-                }
-                if (drawing) {
-                    viewer_.view->SetDrawing(std::move(drawing));
-                }
-                // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
-                else if (!viewer_.view->HasDrawing()) {
-                    FailViewer();
-                }
-            } },
+        if (render != viewer_render_ || !ViewerOpen()) {
+            return;
+        }
+        if (drawing) {
+            viewer_.view->SetDrawing(std::move(drawing));
+        }
+        // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+        else if (!viewer_.view->HasDrawing()) {
+            FailViewer();
+        }
+    } },
     });
 }

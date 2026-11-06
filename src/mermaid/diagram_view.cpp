@@ -217,11 +217,11 @@ void DiagramView::ApplyLanguage()
     // 倍率と読み込み中は 13px、ボタンの記号は 16px。
     const auto make = [&](float size) {
         return CreateTextFormat(dw_.Get(), { .family = L"Segoe UI",
-                                                       .size = size,
-                                                       .locale = i18n::S().lang_locale,
-                                                       .text_align = DWRITE_TEXT_ALIGNMENT_CENTER,
-                                                       .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-                                                       .no_wrap = true });
+                                             .size = size,
+                                             .locale = i18n::S().lang_locale,
+                                             .text_align = DWRITE_TEXT_ALIGNMENT_CENTER,
+                                             .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                                             .no_wrap = true });
     };
     fmt_label_ = make(13.0f);
     fmt_symbol_ = make(16.0f);
@@ -418,10 +418,10 @@ void DiagramView::PaintBar()
             const float ox = c.x - 8.0f;
             const float oy = c.y - 8.0f;
             constexpr float kCorners[4][6]{
-                { 1.5f, 5.5f, 1.5f, 1.5f, 5.5f, 1.5f },
-                { 10.5f, 1.5f, 14.5f, 1.5f, 14.5f, 5.5f },
+                { 1.5f,  5.5f,  1.5f,  1.5f,  5.5f,  1.5f  },
+                { 10.5f, 1.5f,  14.5f, 1.5f,  14.5f, 5.5f  },
                 { 14.5f, 10.5f, 14.5f, 14.5f, 10.5f, 14.5f },
-                { 5.5f, 14.5f, 1.5f, 14.5f, 1.5f, 10.5f },
+                { 5.5f,  14.5f, 1.5f,  14.5f, 1.5f,  10.5f },
             };
             for (const auto& k : kCorners) {
                 rt_->DrawLine(D2D1::Point2F(ox + k[0], oy + k[1]), D2D1::Point2F(ox + k[2], oy + k[3]), brush, 1.5f);

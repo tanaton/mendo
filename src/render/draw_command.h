@@ -74,7 +74,7 @@ struct DrawDiagramCmd {
 
 // 一筆描きの線 (マウスジェスチャーの軌跡)。継ぎ目でアルファが重ならない。
 struct DrawGeometryCmd {
-    ID2D1Geometry* geometry;       // 非所有; Renderer がそのフレームの間持つ。
+    ID2D1Geometry* geometry;        // 非所有; Renderer がそのフレームの間持つ。
     ID2D1StrokeStyle* stroke_style; // 非所有; null なら既定。
     float stroke_width;
     BrushId brush_id;

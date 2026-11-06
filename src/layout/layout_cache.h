@@ -75,7 +75,7 @@ struct IndexRange {
 // 幅が変わっても次に組み直すまでは前の幅の幾何のまま残る (見えている表は描く前に組み直す)。
 struct TableLayoutData {
     const size_t row_count;
-    const size_t col_count;                                               // cell_layouts のストライド
+    const size_t col_count;                                              // cell_layouts のストライド
     std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
     // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
     std::vector<std::vector<CellInlineCodeBg>> row_code_bgs;
@@ -382,12 +382,12 @@ private:
     }
 
     template <class T>
-    constexpr T GetAux(T Aux::*field) const noexcept
+    constexpr T GetAux(T Aux::* field) const noexcept
     {
         return aux_ ? (*aux_).*field : T{};
     }
     template <class T>
-    constexpr void SetAux(T Aux::*field, T value)
+    constexpr void SetAux(T Aux::* field, T value)
     {
         if (aux_ || value != T{}) {
             ensure_aux().*field = value;

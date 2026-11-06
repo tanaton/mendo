@@ -2723,25 +2723,44 @@ template <class Tokens>
 bool TokenizeByLexerConfig(std::string_view text, SyntaxLanguage language, Tokens& tokens)
 {
     switch (language) {
-    case SyntaxLanguage::Cpp: return Lex<CPP_LEXER_CONFIG>(text, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
-    case SyntaxLanguage::Python: return Lex<PYTHON_LEXER_CONFIG>(text, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
-    case SyntaxLanguage::JavaScript: return Lex<JS_LEXER_CONFIG>(text, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
-    case SyntaxLanguage::Go: return Lex<GO_LEXER_CONFIG>(text, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
-    case SyntaxLanguage::Rust: return Lex<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
-    case SyntaxLanguage::TypeScript: return Lex<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
-    case SyntaxLanguage::Bash: return Lex<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
-    case SyntaxLanguage::PowerShell: return Lex<PWSH_LEXER_CONFIG>(text, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
-    case SyntaxLanguage::Cmd: return Lex<CMD_LEXER_CONFIG>(text, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
-    case SyntaxLanguage::Json: return Lex<JSON_LEXER_CONFIG>(text, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
-    case SyntaxLanguage::Java: return Lex<JAVA_LEXER_CONFIG>(text, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
-    case SyntaxLanguage::CSharp: return Lex<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
-    case SyntaxLanguage::Kotlin: return Lex<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
-    case SyntaxLanguage::Swift: return Lex<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
-    case SyntaxLanguage::Php: return Lex<PHP_LEXER_CONFIG>(text, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
-    case SyntaxLanguage::Ruby: return Lex<RUBY_LEXER_CONFIG>(text, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
-    case SyntaxLanguage::Sql: return Lex<SQL_LEXER_CONFIG>(text, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
-    case SyntaxLanguage::Zig: return Lex<ZIG_LEXER_CONFIG>(text, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
-    case SyntaxLanguage::Lua: return Lex<LUA_LEXER_CONFIG>(text, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
+    case SyntaxLanguage::Cpp:
+        return Lex<CPP_LEXER_CONFIG>(text, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+    case SyntaxLanguage::Python:
+        return Lex<PYTHON_LEXER_CONFIG>(text, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+    case SyntaxLanguage::JavaScript:
+        return Lex<JS_LEXER_CONFIG>(text, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+    case SyntaxLanguage::Go:
+        return Lex<GO_LEXER_CONFIG>(text, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+    case SyntaxLanguage::Rust:
+        return Lex<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+    case SyntaxLanguage::TypeScript:
+        return Lex<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+    case SyntaxLanguage::Bash:
+        return Lex<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+    case SyntaxLanguage::PowerShell:
+        return Lex<PWSH_LEXER_CONFIG>(text, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+    case SyntaxLanguage::Cmd:
+        return Lex<CMD_LEXER_CONFIG>(text, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+    case SyntaxLanguage::Json:
+        return Lex<JSON_LEXER_CONFIG>(text, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+    case SyntaxLanguage::Java:
+        return Lex<JAVA_LEXER_CONFIG>(text, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+    case SyntaxLanguage::CSharp:
+        return Lex<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+    case SyntaxLanguage::Kotlin:
+        return Lex<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+    case SyntaxLanguage::Swift:
+        return Lex<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+    case SyntaxLanguage::Php:
+        return Lex<PHP_LEXER_CONFIG>(text, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+    case SyntaxLanguage::Ruby:
+        return Lex<RUBY_LEXER_CONFIG>(text, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+    case SyntaxLanguage::Sql:
+        return Lex<SQL_LEXER_CONFIG>(text, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+    case SyntaxLanguage::Zig:
+        return Lex<ZIG_LEXER_CONFIG>(text, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
+    case SyntaxLanguage::Lua:
+        return Lex<LUA_LEXER_CONFIG>(text, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
     default:
         return false;
     }

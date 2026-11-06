@@ -408,7 +408,8 @@ private:
         constexpr float half = POPUP_FRAME_WIDTH * 0.5f;
         const D2D1_ROUNDED_RECT frame{
             { half, half, width - half, height - half },
-            POPUP_CORNER, POPUP_CORNER
+            POPUP_CORNER,
+            POPUP_CORNER
         };
         rt->DrawRoundedRectangle(frame, brushes.frame.Get(), POPUP_FRAME_WIDTH);
         derived().PaintContent();

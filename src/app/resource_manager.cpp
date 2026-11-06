@@ -64,8 +64,8 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
         const uint64_t code_hash = diagram ? mermaid_util::EnsureDiagramCodeHash(diagram->code_hash, nodes[i])
                                            : mermaid_util::DiagramCodeHash(nodes[i]);
         if (const auto hit = mermaid_file_cache_.Find(mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode),
-                                                            mermaid_util::DiagramRequestHash(code_hash, content_width, dark_mode),
-                                                            content_width, /*touch=*/false)) {
+                                                      mermaid_util::DiagramRequestHash(code_hash, content_width, dark_mode),
+                                                      content_width, /*touch=*/false)) {
             const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
             // 引き継いだ図は高さが変わらないので、Y の再計算を呼ばせない。
             const float height = layout::BitmapDisplayHeight(hit->entry.css_width, hit->entry.css_height, node_width);
@@ -254,7 +254,9 @@ void ResourceManager::MarkImageUnavailable(size_t i, float node_width, IndexRang
     // Image ノードの本文は段落の文字 (alt を含む)。alt が空なら src を出し、何の画像かを分かるようにする。
     const Node& node = state_.document.doc.GetNodes()[i];
     const std::string_view text = node.HasText() ? std::string_view{ node.GetText() } : node.image_src();
-    d.SetResult({ .error = { DiagramError::Kind::ImageUnavailable, string_convert::Utf8ToWide(text) } });
+    d.SetResult({
+        .error = { DiagramError::Kind::ImageUnavailable, string_convert::Utf8ToWide(text) }
+    });
     ApplyBitmapHeight(i, d, node_width, changed);
 }
 

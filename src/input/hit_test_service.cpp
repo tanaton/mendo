@@ -206,7 +206,7 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     }
     const auto [dip_x, dip_y] = ctx.point;
     const D2D1_RECT_F image = DiagramRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
-                                                NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
+                                          NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
     return PointInRectInclusive(dip_x, dip_y, image);
 }
 

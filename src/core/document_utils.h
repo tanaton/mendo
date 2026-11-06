@@ -121,7 +121,7 @@ struct LinkClickResult {
         None,
         Anchor,
         ExternalUrl,
-        Embedded, // 埋め込みの文書 (mendo://help・mendo://licenses)
+        Embedded,  // 埋め込みの文書 (mendo://help・mendo://licenses)
         LocalFile, // 文書からの相対パスなどで指したローカルの Markdown ファイル
     };
     Type type = Type::None;

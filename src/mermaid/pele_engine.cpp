@@ -147,7 +147,11 @@ JSValue MathLabel(JSContext* ctx, JSValueConst, int, JSValueConst* argv)
             JS_SetPropertyStr(ctx, out, "svg", JS_NewStringLen(ctx, svg.data(), svg.size()));
             JS_SetPropertyStr(ctx, out, "width", JS_NewFloat64(ctx, math->width));
             JS_SetPropertyStr(ctx, out, "height", JS_NewFloat64(ctx, math->height + math->depth));
-            context->labels.push_back({ .tex = std::string{ tex, tex_length }, .font_size = static_cast<float>(size), .drawing = std::move(math) });
+            context->labels.push_back({
+                .tex = std::string{ tex, tex_length },
+                .font_size = static_cast<float>(size),
+                .drawing = std::move(math)
+            });
         }
     }
     JS_FreeCString(ctx, html);
@@ -501,7 +505,10 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            out = std::make_shared<const PeleSvg>(PeleSvg{ .svg = std::string{ s, length }, .labels = std::move(context.labels) });
+            out = std::make_shared<const PeleSvg>(PeleSvg{
+                .svg = std::string{ s, length },
+                .labels = std::move(context.labels)
+            });
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);

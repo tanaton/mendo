@@ -362,8 +362,10 @@ void EmitNavButtons(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane
 {
     // 色を差し替えず、白黒の固定ブラシに不透明度を掛ける。
     const auto emit_button = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, std::wstring_view arrow) {
-        const float bg_alpha = !enabled ? (dark ? 0.08f : 0.05f) : is_hovered ? (dark ? 0.35f : 0.25f) : (dark ? 0.15f : 0.10f);
-        const float text_alpha = !enabled ? (dark ? 0.2f : 0.15f) : is_hovered ? 1.0f : (dark ? 0.6f : 0.5f);
+        const float bg_alpha = !enabled ? (dark ? 0.08f : 0.05f) : is_hovered ? (dark ? 0.35f : 0.25f)
+                                                                              : (dark ? 0.15f : 0.10f);
+        const float text_alpha = !enabled ? (dark ? 0.2f : 0.15f) : is_hovered ? 1.0f
+                                                                               : (dark ? 0.6f : 0.5f);
         w.Button(fmt, rect, arrow, { BrushId::Overlay, NAV_BTN_CORNER, bg_alpha }, BrushId::Overlay, text_alpha);
     };
     // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
@@ -457,7 +459,8 @@ void EmitSearchBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* 
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
-        const BrushId bg = checked ? BrushId::TitleBarButtonActive : hovered ? BrushId::TitleBarButtonHover : BrushId::None;
+        const BrushId bg = checked ? BrushId::TitleBarButtonActive : hovered ? BrushId::TitleBarButtonHover
+                                                                             : BrushId::None;
         w.Button(fmt, r, label, { bg, SEARCH_BAR_CORNER }, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
@@ -504,7 +507,8 @@ void EmitTitleBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* t
         gen_button(
             bar.GetButton(zone),
             icon,
-            active ? BrushId::TitleBarButtonActive : is_hovered(zone) ? BrushId::TitleBarButtonHover : BrushId::None,
+            active ? BrushId::TitleBarButtonActive : is_hovered(zone) ? BrushId::TitleBarButtonHover
+                                                                      : BrushId::None,
             BrushId::TitleBarText,
             text_alpha);
     };
@@ -976,7 +980,8 @@ struct MdPaneEmitter : CmdWriter {
         }
         layout::ForEachOverlayButton(node, p.cache, static_cast<size_t>(node_index), x, cw, entry_text_top, theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
             // 保存は Download、拡大表示は FullScreen、コピーは Copy (Segoe Fluent Icons)。
-            const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : kind == OverlayButton::DiagramView ? L'\uE740' : L'\uE8C8';
+            const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : kind == OverlayButton::DiagramView ? L'\uE740'
+                                                                                                                     : L'\uE8C8';
             GenOverlayButton(btn, icon, p.hovered == OverlayButtonHit{ node_index, kind });
         });
     }
@@ -1193,7 +1198,7 @@ struct MdPaneEmitter : CmdWriter {
 
     // 表は横スクロールの clip [offset_x, offset_x + clip_width] の中に描くので、列はその幅で間引く。
     void GenTable(const Node& node, const NodeLayoutEntry& entry,
-        int node_index, float offset_x, float clip_width, float entry_text_top, float h_scroll_x)
+                  int node_index, float offset_x, float clip_width, float entry_text_top, float h_scroll_x)
     {
         const auto* tbl = node.table_data();
         const auto* tl_ptr = entry.table_layout();
@@ -1226,7 +1231,7 @@ struct MdPaneEmitter : CmdWriter {
             const bool is_header_row = tbl->IsHeaderRow(r);
             if (is_header_row || r % 2 == 0) {
                 out.emplace_back(FillRectCmd{ D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border),
-                                                is_header_row ? BrushId::CodeBg : BrushId::TableStripe });
+                                              is_header_row ? BrushId::CodeBg : BrushId::TableStripe });
             }
 
             out.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
@@ -1346,7 +1351,7 @@ struct MdPaneEmitter : CmdWriter {
             return m.start_w < e;
         });
         EmitSearchMatches(nm, entry.text_layout(),
-            static_cast<size_t>(first - nm.matches.begin()), static_cast<size_t>(last - nm.matches.begin()), origin_x, origin_y);
+                          static_cast<size_t>(first - nm.matches.begin()), static_cast<size_t>(last - nm.matches.begin()), origin_x, origin_y);
     }
 
     void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y)
@@ -1359,7 +1364,7 @@ struct MdPaneEmitter : CmdWriter {
             nm.matches, std::pair{ static_cast<int>(row), static_cast<int>(col) }, {},
             [](const SearchMatch& m) static noexcept { return std::pair{ m.table_row, m.table_col }; });
         EmitSearchMatches(nm, layout,
-            static_cast<size_t>(cell.begin() - nm.matches.begin()), static_cast<size_t>(cell.end() - nm.matches.begin()), origin_x, origin_y);
+                          static_cast<size_t>(cell.begin() - nm.matches.begin()), static_cast<size_t>(cell.end() - nm.matches.begin()), origin_x, origin_y);
     }
 };
 
@@ -1390,8 +1395,17 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
     out.emplace_back(SetTransformCmd{ pane_transform });
 
     MdPaneEmitter e{
-        { out, *text_layouts_ }, p, *theme_, *formats_, hit_test_buffer_,
-        theme_->ContentWidth(md_pane_rect.width), dpi_scale, snapped_y, { 0.0f, md_pane_rect.height }, pane_transform, MaxNodeOverhang(*theme_),
+        { out,  *text_layouts_      },
+        p,
+        *theme_,
+        *formats_,
+        hit_test_buffer_,
+        theme_->ContentWidth(md_pane_rect.width),
+        dpi_scale,
+        snapped_y,
+        { 0.0f, md_pane_rect.height },
+        pane_transform,
+        MaxNodeOverhang(*theme_),
     };
 
     const int node_count = static_cast<int>(nodes.size());

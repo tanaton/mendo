@@ -105,10 +105,26 @@ struct ID2D1PathGeometry;
 
 // KaTeX の dist/fonts の 20 書体。KatexAssets に渡す順 (埋め込みリソースも scripts/update_js_libs.ps1 もこの順)。
 inline constexpr std::wstring_view kKatexFontFiles[]{
-    L"KaTeX_AMS-Regular",       L"KaTeX_Caligraphic-Bold", L"KaTeX_Caligraphic-Regular", L"KaTeX_Fraktur-Bold",     L"KaTeX_Fraktur-Regular",
-    L"KaTeX_Main-Bold",         L"KaTeX_Main-BoldItalic",  L"KaTeX_Main-Italic",         L"KaTeX_Main-Regular",     L"KaTeX_Math-BoldItalic",
-    L"KaTeX_Math-Italic",       L"KaTeX_SansSerif-Bold",   L"KaTeX_SansSerif-Italic",    L"KaTeX_SansSerif-Regular", L"KaTeX_Script-Regular",
-    L"KaTeX_Size1-Regular",     L"KaTeX_Size2-Regular",    L"KaTeX_Size3-Regular",       L"KaTeX_Size4-Regular",    L"KaTeX_Typewriter-Regular",
+    L"KaTeX_AMS-Regular",
+    L"KaTeX_Caligraphic-Bold",
+    L"KaTeX_Caligraphic-Regular",
+    L"KaTeX_Fraktur-Bold",
+    L"KaTeX_Fraktur-Regular",
+    L"KaTeX_Main-Bold",
+    L"KaTeX_Main-BoldItalic",
+    L"KaTeX_Main-Italic",
+    L"KaTeX_Main-Regular",
+    L"KaTeX_Math-BoldItalic",
+    L"KaTeX_Math-Italic",
+    L"KaTeX_SansSerif-Bold",
+    L"KaTeX_SansSerif-Italic",
+    L"KaTeX_SansSerif-Regular",
+    L"KaTeX_Script-Regular",
+    L"KaTeX_Size1-Regular",
+    L"KaTeX_Size2-Regular",
+    L"KaTeX_Size3-Regular",
+    L"KaTeX_Size4-Regular",
+    L"KaTeX_Typewriter-Regular",
 };
 
 // 数式の描画命令。座標は CSS px で、原点は箱の左端のベースライン (y は下向き)。
@@ -129,7 +145,13 @@ struct MathDrawing {
     // 塗りの矩形 (分数の線・\rule・枠・\colorbox の背景)。外側の端を装置の画素に合わせ、枠の太さは CSS px に切り捨てる。
     // 細くても 1px は残す (Chrome の border と同じ)。Fill は太さを持たない背景。
     struct Rect {
-        enum class Side : uint8_t { Top, Right, Bottom, Left, Fill };
+        enum class Side : uint8_t {
+            Top,
+            Right,
+            Bottom,
+            Left,
+            Fill
+        };
         float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
         Side side = Side::Bottom;
         bool dashed = false;
