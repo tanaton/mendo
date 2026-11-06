@@ -69,13 +69,15 @@ struct NodeRunHit {
 };
 NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept;
 
-// CRLF / 旧式 CR を LF に正規化する (in-place)。
+// パースの前の原文の正規化 (in-place)。CRLF / 旧式 CR を LF に、NUL を U+FFFD にする。
 // 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、
 // 大半の code block が DocumentData::raw をそのまま指せる (arena へのコピーが要らない)。
 // 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
+// NUL は CommonMark (§2.3) と GitHub と同じく入力の段で置き換える。md4c は NUL を行内・コードブロック・コードスパン・
+// 数式で別々の形で渡す (コードスパンと数式では置き換えない) ので、パーサで受けると経路ごとの継ぎ当てになる。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
-// LF-only ファイルでは memchr 1 回で素通し。
-void NormalizeNewlines(std::string& s);
+// CR も NUL も無いファイルは find_first_of 1 回で素通し (memchr 1 回と比べて 64MB で +0.6ms、2 回だと +3.7ms)。
+void NormalizeSource(std::string& s);
 
 // リロードで新旧のノード列の先頭 head 個と末尾 tail 個が、表示に効く中身で一致した範囲 (両者は重ならない)。
 // ソース位置と引用グループ番号は比べない。

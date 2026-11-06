@@ -264,6 +264,13 @@ constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
     return i < text.size() && text[i] == '(';
 }
 
+// 行頭の判定を崩さない文字。cmd の @ (エコーの抑止) の後の rem と :: もコメントになる。
+template <bool AtSuppressesEcho>
+constexpr bool KeepsLineStart(char c) noexcept
+{
+    return IsBlank(c) || (AtSuppressesEcho && c == '@');
+}
+
 // [begin, end) の末尾のスペース・タブを除いた終端。
 constexpr size_t TrimEnd(std::string_view text, size_t begin, size_t end) noexcept
 {
@@ -526,7 +533,7 @@ void TokenizeRange(
             if (c == '\n') {
                 at_line_start = true;
             }
-            else if (!IsBlank(c)) {
+            else if (!KeepsLineStart<Cfg.rem_comment>(c)) {
                 at_line_start = false;
             }
         }
@@ -540,7 +547,10 @@ void TokenizeRange(
             if (const size_t skipped = tokens.template SkipWords<Cfg>(text, i); skipped != i) {
                 i = skipped;
                 if constexpr (kNeedAtLineStart) {
-                    const size_t line = TrimEnd(text, 0, i);
+                    size_t line = i;
+                    while (line > 0 && KeepsLineStart<Cfg.rem_comment>(text[line - 1])) {
+                        --line;
+                    }
                     at_line_start = line == 0 || text[line - 1] == '\n';
                 }
             }
@@ -710,9 +720,9 @@ void TokenizeRange(
             }
 
             if constexpr (Cfg.raw_string) {
-                // R"..." の R はプレフィックスとして String トークンに含める。
-                // word == "R" なら直前が非識別子文字であることも保証される。
-                if (word == "R" && i < text.size() && text[i] == '"') {
+                // R"..." の接頭辞は String トークンに含める。word は識別子全体なので、RENDER" の R では生文字列にしない。
+                constexpr std::string_view kRawPrefixes[]{ "R", "LR", "uR", "UR", "u8R" };
+                if (i < text.size() && text[i] == '"' && std::ranges::contains(kRawPrefixes, word)) {
                     const size_t paren = FindRawStringParen(text, i);
                     if (paren != npos) {
                         i = ScanCppRawString(text, i, paren);

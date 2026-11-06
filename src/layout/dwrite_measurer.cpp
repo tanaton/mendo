@@ -145,6 +145,14 @@ constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
     return std::max<size_t>(kCellsPerChunk / std::max<size_t>(col_count, 1), 1);
 }
 
+// value が大きければ上げる (C++26 の fetch_max の代わり)。
+void RaiseTo(std::atomic<float>& a, float value) noexcept
+{
+    float cur = a.load(std::memory_order_relaxed);
+    while (value > cur && !a.compare_exchange_weak(cur, value, std::memory_order_relaxed)) {
+    }
+}
+
 // セル layout の無い行は高さを見積もるだけで、chunk の取得のほうが重いので粗く分ける。行チャンクのままだと
 // 2 万行 6 列の幅の変更が 1.0ms かかる (分けて 0.48ms)。直列にすると表が大きいときに遅れる。
 constexpr size_t kEstimatedRowsPerChunk = 256;
@@ -182,14 +190,14 @@ std::optional<float> MeasureWithoutTextLayout(const Node& node, const Theme& the
     if (node.type == NodeType::HorizontalRule) {
         return layout::HorizontalRuleHeight(theme);
     }
-    if (node.GetText().empty()) {
+    if (!node.HasText()) {
         return layout::EmptyTextNodeHeight(node, theme);
     }
     return std::nullopt;
 }
 
-// 既存の text_layout を SetMaxWidth で再計測する。text_layout は内容変更時に呼び出し側
-// (LayoutCache::InvalidateAllLayouts / EvictTextLayouts) で必ず Reset される契約のため、
+// 既存の text_layout を SetMaxWidth で再計測する。中身が変わる経路 (ズームの InvalidateAllLayouts、数式の
+// InvalidatePendingMathLayouts、読み直しの新しいキャッシュ) は text_layout を捨てるので、
 // 現存していればテキスト/runs/フォント幾何は一致している。SetMaxWidth の後の GetMetrics は解析からやり直すので
 // 作り直しより 1〜16% 速いだけだが、装飾の付け直しは要らない。
 float RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
@@ -430,7 +438,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
         // GetMetrics は前回の結果を返すだけ。
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        // 同じ幅で組んだ text_layout が残っていれば、高さも行もハイライト矩形も変わらない。
+        // 同じ幅で組んだ text_layout が残っていれば、高さも行もインラインコードの背景も変わらない。
         if (entry.cached_width == layout_width) {
             return metrics.height;
         }
@@ -510,6 +518,10 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要。残さない layout は worker 上で解放する。
+    // 列の最小幅 (最も長い単語) はセルごとには持たず (1 セル 4 byte)、列ごとの最大だけを chunk をまたいで重ねる。chunk は
+    // 8 セルと細かいので、chunk ごとの確保とロックは 20 万行の表で計測より重い。自然幅が今の最大以下のセルは最小幅も
+    // 効かないので DetermineMinWidth を呼ばない。代表と同じ中身のセルは最小幅も同じ。
+    std::vector<std::atomic<float>> min_widths(col_count);
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         const auto& ctx = Context();
         for (size_t r = row_begin; r < row_end; r++) {
@@ -526,12 +538,18 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
                 cell_layout->GetMetrics(&metrics);
                 tl.cell_natural_widths[ci] = metrics.width;
                 tl.cell_nowrap_heights[ci] = metrics.height;
+                if (auto& col_min = min_widths[c]; metrics.width > col_min.load(std::memory_order_relaxed)) {
+                    if (FLOAT w = 0.0f; SUCCEEDED(cell_layout->DetermineMinWidth(&w))) {
+                        RaiseTo(col_min, std::min(w, metrics.width));
+                    }
+                }
                 if (keep_layouts) {
                     tl.cell_layouts[ci] = std::move(cell_layout);
                 }
             }
         }
     });
+    std::ranges::transform(min_widths, tl.min_col_widths.begin(), [](const std::atomic<float>& w) noexcept { return w.load(std::memory_order_relaxed); });
     // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。書き込み先は行ごとに重ならない。
     if (!reps.empty()) {
         ParallelFor(scheduler_, tbl.row_count, kEstimatedRowsPerChunk, [&](size_t row_begin, size_t row_end) {
@@ -559,7 +577,7 @@ float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLay
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * TABLE_BORDER_WIDTH;
     const float paddings_width = static_cast<float>(col_count) * TABLE_CELL_PADDING * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width);
+    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は layout のあるセル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
@@ -638,9 +656,9 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     MENDO_PROFILE("MeasureTable");
     const auto* tbl = node.table_data();
 
-    // 全セルを測り終えている。前回と max_width がほぼ一致し幾何が揃っていれば、セル幅・行高さ・累積位置・行オフセットは
+    // 全セルを測り終えている。前回と max_width がほぼ一致し幾何が揃っていれば、セル幅・行高さ・行の位置は
     // すべて変化しないため、幾何の高さのまま確定させる。entry.height は返さない。別の幅で推定が伸ばした高さが残っている
-    // ことがある (A → B → A と幅を戻したとき)。検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
+    // ことがある (A → B → A と幅を戻したとき)。行ごとの inline_code_bgs も幅で決まるので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
     // 幅が変わったら、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。自然幅はセルのテキストだけで決まり、
     // evict しても残る。行の高さは FinalizeTableLayout が新しい列幅で全行測り、見えている evict 行は次の計測パス

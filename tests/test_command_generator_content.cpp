@@ -26,10 +26,10 @@ protected:
         return l.stroke_width == theme_.blockquote_bar_width && l.brush_id == BrushId::BlockquoteBar;
     }
 
-    // text_layout が null なので 1 行目の高さはフォールバック値。bullet 中心は物理ピクセルへスナップされる。
+    // text_layout が null なので 1 行目の高さは本文の行送り。bullet 中心は物理ピクセルへスナップされる。
     float ExpectedBulletY(int node) const
     {
-        return SnapToPhysicalPixel(cache_.Top(node) + theme_.font_size_body * FALLBACK_LINE_HEIGHT_FACTOR * 0.5f, 1.0f);
+        return SnapToPhysicalPixel(cache_.Top(node) + theme_.font_size_body * BODY_LINE_HEIGHT_FACTOR * 0.5f, 1.0f);
     }
 };
 

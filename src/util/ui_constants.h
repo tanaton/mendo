@@ -87,7 +87,6 @@ inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x, float visible_width, fl
 }
 
 // ナビゲーションオーバーレイボタンの定数（DIP単位）。
-// レンダラー（描画）とhit_test_service（クリック検出）の間で共有される。
 inline constexpr float NAV_BTN_SIZE = 32.0f;
 inline constexpr float NAV_BTN_MARGIN = 16.0f;
 inline constexpr float NAV_BTN_GAP = 2.0f;
@@ -108,8 +107,7 @@ inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
     return D2D1::RectF(x, back.top, x + NAV_BTN_SIZE, back.bottom);
 }
 
-// コードブロック コピーボタンの定数（DIP単位）。
-// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
+// コードブロック・図の右上のボタン (OverlayButtonRect) の定数（DIP単位）。描画とヒット判定で共有する。
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_GAP = 4.0f;
@@ -120,9 +118,6 @@ inline constexpr float BODY_LINE_HEIGHT_FACTOR = 1.5f;
 
 inline constexpr float TASK_CHECKBOX_HEIGHT_FACTOR = 1.5f;
 inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
-
-// DirectWriteメトリクス取得失敗時の代替値
-inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
 
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
@@ -249,7 +244,6 @@ inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_
     const float center_y = bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
     const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
 
-    // 左から順に幅 w の要素を詰めて置く。
     float x = bar_left + SEARCH_BAR_PADDING;
     const auto place = [&x](float w, float top, float bottom) noexcept {
         const D2D1_RECT_F r = D2D1::RectF(x, top, x + w, bottom);
@@ -313,10 +307,8 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
 // PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
-// ジェスチャーオーバーレイの幅（DIP）
 inline constexpr float GESTURE_OVERLAY_WIDTH = 280.0f;
 
-// トーストオーバーレイの高さ（DIP）
 inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
@@ -340,9 +332,8 @@ constexpr D2D1_SIZE_F FitBitmapSize(float width, float height, float max_width) 
     return { width, height };
 }
 
-// Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
-// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
-inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
+// 図を描く矩形 (内容幅を超えるときだけ縮め、中央に寄せる)。描画・図のボタンの位置・ヒット判定で共有する。
+inline D2D1_RECT_F DiagramRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
 {
     const auto draw = FitBitmapSize(diagram_w, diagram_h, cw);
     const float dx = x + (cw - draw.width) * 0.5f;

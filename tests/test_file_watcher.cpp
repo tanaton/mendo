@@ -182,6 +182,34 @@ TEST_F(FileWatcherTest, ResumeWatchingReenablesDetection)
 
 // ---- GetEventHandle テスト ----
 
+// 監視の対象を作った時点で最初の読み取りを発行しているので、UI が監視を引き継ぐ前の保存も通知で届く
+// (読み込みの worker は、ファイルを読む前に対象を作る)。
+TEST_F(FileWatcherTest, ReportsChangeMadeBeforeWatching)
+{
+    const auto path = WriteTempFile(L"early.md", "original");
+    auto target = OpenWatchTarget(path.native());
+    ASSERT_TRUE(target.read);
+    WriteTempFile(L"early.md", "modified");
+
+    FileWatcher watcher;
+    int changes = 0;
+    watcher.StartWatching(std::move(target), [&] { ++changes; });
+    EXPECT_TRUE(WaitForEvent(watcher));
+    EXPECT_EQ(changes, 1);
+}
+
+// 引き継がれずに捨てられた対象は、発行した読み取りを取り消してから解放する。
+TEST_F(FileWatcherTest, DiscardedTargetCancelsPendingRead)
+{
+    const auto path = WriteTempFile(L"discard.md", "original");
+    for (int i = 0; i < 8; ++i) {
+        auto target = OpenWatchTarget(path.native());
+        ASSERT_TRUE(target.read);
+        EXPECT_TRUE(target.read->pending);
+    }
+    WriteTempFile(L"discard.md", "modified");
+}
+
 // 監視中だけイベントハンドルを持つ。
 TEST_F(FileWatcherTest, GetEventHandleOnlyWhileWatching)
 {
@@ -203,7 +231,7 @@ TEST_F(FileWatcherTest, StartWatchingWithoutFolderStopsWatching)
 
     const std::wstring missing_path(L"C:\\__mendo_no_such_dir__\\a.md");
     auto missing = OpenWatchTarget(missing_path);
-    EXPECT_FALSE(missing.dir);
+    EXPECT_FALSE(missing.read);
     EXPECT_EQ(missing.filename, L"a.md");
     watcher.StartWatching(std::move(missing), []() static {});
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);

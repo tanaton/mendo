@@ -133,7 +133,7 @@ void RunParse(benchmark::State& state, const std::string& src)
         std::string copy = src;
         std::optional<Document> doc;
         state.SetIterationTime(SecondsOf([&] {
-            NormalizeNewlines(copy);
+            NormalizeSource(copy);
             doc.emplace(Document::FromNormalizedMarkdown(std::move(copy), L"bench.md"));
         }));
     }
@@ -283,16 +283,16 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, html, "html", kHtmlSnippet)->UseManualTime(
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, yaml, "yaml", kYamlSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
 
-void BM_NormalizeNewlines(benchmark::State& state)
+void BM_NormalizeSource(benchmark::State& state)
 {
     const std::string src = RepeatTo("The quick brown fox jumps over the lazy dog 1234\r\n", kLargeBytes);
     for (auto _ : state) {
         std::string s = src;
-        state.SetIterationTime(SecondsOf([&] { NormalizeNewlines(s); }));
+        state.SetIterationTime(SecondsOf([&] { NormalizeSource(s); }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
 }
-BENCHMARK(BM_NormalizeNewlines)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_NormalizeSource)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
 void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)

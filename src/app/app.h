@@ -276,7 +276,7 @@ private:
     void ShowEmbeddedResource(std::wstring_view path);
     void LoadMarkdownFile(std::wstring_view path);
     void CancelOtherFileLoad();
-    // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (worker が MakeEstimatedLayoutCache で作ったもの)。
+    // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (読み込みの worker か ShowEmbeddedResource が MakeEstimatedLayoutCache で作ったもの)。
     // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
     // watch は next の変更の監視 (worker が OpenWatchTarget で作ったもの)。ヘルプは空で、監視をやめる。
     void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch);

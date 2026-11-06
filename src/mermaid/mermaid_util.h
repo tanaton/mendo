@@ -1,5 +1,4 @@
 #pragma once
-#include "utility.h"
 #include <array>
 #include <memory>
 #include <optional>
@@ -56,12 +55,16 @@ struct DrawingPlacement {
 // 不透明度が 0〜1。図を作る側は満たさない文字と数式を描かず、読む側は満たさないものを壊れた値として読まない。
 // 両側の値域をここでそろえる (外れたものを書くと読み戻せず、開くたびに描き直す)。
 bool IsStorable(const DrawingPlacement& p) noexcept;
+// 図の文字の線 (CSS の text-decoration) のビット。overline は DirectWrite に無いので描かない。
+inline constexpr uint8_t kTextUnderline = 1;
+inline constexpr uint8_t kTextLineThrough = 2;
+inline constexpr uint8_t kTextDecorationBits = kTextUnderline | kTextLineThrough;
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
 struct DrawingText {
     DrawingPlacement at;
     uint16_t weight = 400;
     bool italic = false;
-    bool underline = false;
+    uint8_t decoration = 0; // kTextUnderline・kTextLineThrough
     std::wstring family; // CSS の font-family (候補の並び)
     std::wstring text;
 

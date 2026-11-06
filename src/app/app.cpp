@@ -149,11 +149,10 @@ void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
     // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。ApplyCachedImages は
-    // ビットマップの残るノードを飛ばすため、LoadImages の前に破棄する必要がある。
+    // ビットマップの残るノードを飛ばすため、FlushPendingResources の前に破棄する必要がある。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
-    // 再試行の間に届いて受け箱に残したデコードの結果を入れてから、足りない画像を頼む。
-    image_loader_.ProcessCompletedDecodes();
-    resource_manager_.LoadImages();
+    // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
+    resource_manager_.FlushPendingResources();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
     mermaid_renderer_.ProcessJobResults();
 }
@@ -1053,8 +1052,7 @@ void App::OnDestroy()
     SaveSession();
 
     mermaid_renderer_.Shutdown();
-    // 走行中タスクの参照が解放されないよう、
-    // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
+    // 計測ワーカーが measurer_ を参照したまま走らないよう、参照を外してから join する。
     measurer_.SetScheduler(nullptr);
     layout_scheduler_.Shutdown();
     // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
@@ -1228,7 +1226,8 @@ bool App::OnRButtonDown(int px, int py)
         return false;
     }
     const auto dip = PixelToDip(px, py);
-    if (PaneAtPoint(dip.x) != PaneZone::MdPane) {
+    // タイトルバーのボタンは HTCLIENT なので届く。WM_CONTEXTMENU と同じく、タイトルバーの上では何も出さない。
+    if (dip.y < TitleBar::BASE_HEIGHT || PaneAtPoint(dip.x) != PaneZone::MdPane) {
         return false;
     }
     Dispatch(RightClickGestureStartedAction{ dip.x, dip.y });
@@ -1546,8 +1545,8 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .screen_y = screen_y,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
-        // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
-        .can_edit_file = state_.document.doc.HasBackingFile() && IsEditableTextFile(state_.document.doc.GetFilePath()),
+        // 埋め込みの仮想パス (ヘルプ) は拡張子を持たないので、エディタで開けない。
+        .can_edit_file = IsEditableTextFile(state_.document.doc.GetFilePath()),
         .has_selection = selection.active(),
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
@@ -1630,7 +1629,8 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
     }
     renderer_.OnLanguageChanged();
     mermaid_renderer_.ApplyViewerLanguage();
-    if (IsHelpPath(state_.document.doc.GetFilePath())) {
+    // 別のファイルを読み込み中ならそれに差し替わる。読み直すとその読み込みを取り消し、仮の履歴を確定させてしまう。
+    if (IsHelpPath(state_.document.doc.GetFilePath()) && !load_coordinator_.IsActive()) {
         ShowEmbeddedResource(HELP_PATH);
     }
     Invalidate();

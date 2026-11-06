@@ -144,7 +144,11 @@ struct PopupWindow {
         if (!hwnd) {
             return;
         }
-        ApplyRegion(r.right - r.left, r.bottom - r.top);
+        // 窓は置いた先のモニタの DPI で作られ、作るときは WM_DPICHANGED が来ない。本体が DPI の違うモニタにまたがると本体と違う。
+        if (const UINT dpi = GetDpiForWindow(hwnd); dpi != 0) {
+            dpi_scale = DpiScaleFrom(static_cast<float>(dpi));
+        }
+        Place(pos);
         if (CreateDeviceResources()) {
             RefreshHover();
             // システムメニューと同じ通知にする。wParam は TrackPopupMenu かどうかで、自前描画なので FALSE。
@@ -338,7 +342,8 @@ private:
     void ApplyRegion(int pixel_w, int pixel_h) noexcept
     {
         // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
-        const int corner_px = DipToPixel(POPUP_CORNER, dpi_scale);
+        // CreateRoundRectRgn は角の楕円の幅 (半径の 2 倍) を取る。縁の外周 (POPUP_CORNER + 太さの半分) に合わせ、外の背景を見せない。
+        const int corner_px = DipToPixel(2.0f * POPUP_CORNER + POPUP_FRAME_WIDTH, dpi_scale);
         const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
         if (rgn && !SetWindowRgn(hwnd, rgn, IsWindowVisible(hwnd))) {
             DeleteObject(rgn);

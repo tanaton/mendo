@@ -182,12 +182,13 @@ struct CmdWriter {
     void Button(IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wstring_view label, ButtonBg bg, BrushId fg, float fg_opacity) const;
 };
 
-// 本文の文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) の書式。持ち主は Renderer。
+// 本文の文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ・読めない画像の alt) の書式。持ち主は Renderer。
 struct MdPaneFormats {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> checkbox;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> image_alt;
 };
 
 // ペインの縦スクロールバーのつまみ。出さないときは nullopt。

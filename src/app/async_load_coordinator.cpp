@@ -47,9 +47,9 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
         return std::unexpected(opened.error());
     }
     auto& r = *opened;
-
+    LoadedFileDoc result{ .byte_size = r.size };
     if (r.size == 0) {
-        return LoadedFileDoc{};
+        return result;
     }
 
     // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ先頭へ戻す。
@@ -66,8 +66,6 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
     }
     const size_t out_size = has_bom ? r.size - prefix_read : r.size;
 
-    LoadedFileDoc result;
-    result.byte_size = r.size;
     try {
         result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
             return ReadExact(r.handle.get(), buf, out_size) ? out_size : 0;
@@ -78,7 +76,7 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
     if (result.text.size() != out_size) {
         return std::unexpected(FileLoadError::ReadFailed);
     }
-    NormalizeNewlines(result.text);
+    NormalizeSource(result.text);
     return result;
 }
 
@@ -144,6 +142,8 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
         return;
     }
 
+    // 読む前に監視を始め、読んでから UI が監視を引き継ぐまでの保存も通知で届くようにする。リロードは今の監視を続ける。
+    FileWatchTarget watch = reload_base.data ? FileWatchTarget{} : OpenWatchTarget(path);
     auto file = load_file_(path, stop_token);
     if (!file) {
         Publish(stop_token, std::unexpected(file.error()));
@@ -189,15 +189,9 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
         return;
     }
 
-    FileWatchTarget watch;
-    if (reload) {
-        // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
-        if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            reload->decision.op = ReloadOp::StillGrowing;
-        }
-    }
-    else if (!stop_token.stop_requested()) {
-        watch = OpenWatchTarget(path);
+    // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
+    if (reload && IsFileLargerThan(path.c_str(), file->byte_size)) {
+        reload->decision.op = ReloadOp::StillGrowing;
     }
     Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), std::move(watch) });
 }

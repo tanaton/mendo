@@ -265,8 +265,8 @@ float DiagramView::Scale() const noexcept
 
 D2D1_POINT_2F DiagramView::ToDip(LPARAM lparam) const noexcept
 {
-    const float scale = Scale();
-    return { static_cast<float>(GET_X_LPARAM(lparam)) / scale, static_cast<float>(GET_Y_LPARAM(lparam)) / scale };
+    const auto [x, y] = PixelToDip(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), Scale());
+    return { x, y };
 }
 
 bool DiagramView::EnsureTarget()
@@ -453,8 +453,8 @@ void DiagramView::Layout()
         RECT rc{};
         GetClientRect(hwnd_, &rc);
         const float scale = Scale();
-        view_width_ = static_cast<float>(rc.right) / scale;
-        view_height_ = static_cast<float>(rc.bottom) / scale;
+        view_width_ = PixelToDip(static_cast<float>(rc.right), scale);
+        view_height_ = PixelToDip(static_cast<float>(rc.bottom), scale);
         if (rt_) {
             rt_->SetDpi(scale * DEFAULT_DPI, scale * DEFAULT_DPI);
             rt_->Resize(D2D1::SizeU(rc.right, rc.bottom));

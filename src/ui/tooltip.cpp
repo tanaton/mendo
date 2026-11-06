@@ -1,6 +1,5 @@
 #include "tooltip.h"
 #include "win32_util.h"
-#include <windows.h>
 #include <commctrl.h>
 
 namespace {

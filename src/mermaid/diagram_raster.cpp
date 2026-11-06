@@ -4,6 +4,7 @@
 #include "string_convert.h"
 #include "theme_palette.h"
 #include "utf8_codec.h"
+#include "utility.h"
 #include "wic_util.h"
 #include <d2d1_3.h>
 #include <dwrite_3.h>
@@ -13,7 +14,6 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -152,8 +152,12 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& fo
     if (!format || FAILED(dw->CreateTextLayout(t.text.data(), static_cast<UINT32>(t.text.size()), format, 1.0e6f, 1.0e6f, &layout))) {
         return;
     }
-    if (t.underline) {
-        layout->SetUnderline(TRUE, { 0, static_cast<UINT32>(t.text.size()) });
+    const DWRITE_TEXT_RANGE all{ 0, static_cast<UINT32>(t.text.size()) };
+    if (t.decoration & mermaid_util::kTextUnderline) {
+        layout->SetUnderline(TRUE, all);
+    }
+    if (t.decoration & mermaid_util::kTextLineThrough) {
+        layout->SetStrikethrough(TRUE, all);
     }
     // 文字の並びは 1 行ずつなので、ベースラインは最初の行のものを使う。
     DWRITE_LINE_METRICS line{};
@@ -290,7 +294,8 @@ size_t FindTopLevel(std::string_view s, char separator) noexcept
             ++depth;
         }
         else if (c == ')') {
-            --depth;
+            // 対応の無い ) は入れ子に数えない (CSS と同じく、その宣言だけが無効になる)。
+            depth = std::max(depth - 1, 0);
         }
         else if (c == separator && depth == 0) {
             return i;
@@ -342,10 +347,33 @@ constexpr LengthUnit kLengthUnits[]{
     { "mm", 96.0 / 25.4 },
 };
 
-// 長さ。単位なしと px は CSS px。% は相手が要るので読めない扱い。pele は小さな箱の角丸に min() を使う。
+// 長さ。単位なしと px は CSS px。% は相手が要るので読めない扱い。pele は小さな箱の角丸に min() を使い、
+// px 以外の線の太さの縁取りを calc(<太さ> + 4px) と書く。calc() は足し算と引き算だけを読む。
 std::optional<float> ParseLength(std::string_view v, float font_size)
 {
     v = Trim(v);
+    if (ascii_util::istarts_with(v, "calc(") && v.ends_with(')')) {
+        // 括弧の外の空白で切ると項と演算子が交互に並ぶ (CSS は + と - の前後に空白が要るので、符号や 1e-3 の - は切らない)。
+        float total = 0.0f;
+        float sign = 1.0f;
+        bool want_term = true;
+        const bool ok = ForEachTopLevel(v.substr(5, v.size() - 6), ' ', [&](std::string_view part) {
+            part = Trim(part);
+            if (part.empty()) {
+                return true;
+            }
+            if (!want_term) {
+                sign = part == "-" ? -1.0f : 1.0f;
+                want_term = true;
+                return part == "+" || part == "-";
+            }
+            const auto term = ParseLength(part, font_size);
+            total += sign * term.value_or(0.0f);
+            want_term = false;
+            return term.has_value();
+        });
+        return ok && !want_term && std::isfinite(total) ? std::optional{ total } : std::nullopt;
+    }
     const bool is_min = ascii_util::istarts_with(v, "min(");
     if ((is_min || ascii_util::istarts_with(v, "max(")) && v.ends_with(')')) {
         std::optional<float> out;
@@ -1589,7 +1617,7 @@ struct Style {
     struct Own {
         float opacity = 1.0f;
         bool display_none = false;
-        bool underline = false;
+        uint8_t decoration = 0; // mermaid_util::kTextUnderline・kTextLineThrough
         bool fit_width = false; // max-width:100%
         std::string_view baseline_shift;
         std::optional<float> rx; // nullopt は auto
@@ -1707,7 +1735,7 @@ private:
         std::string_view raw;
         Style style;
         float opacity = 1.0f;
-        bool underline = false;
+        uint8_t decoration = 0; // 祖先の text-decoration の線も重ねる (CSS の装飾の伝播)
         float shift = 0.0f; // baseline-shift の合計 (下が正)
         std::optional<float> x;
         std::optional<float> y;
@@ -1728,12 +1756,13 @@ private:
         return in_resolved ? Keep(std::string(v)) : v;
     }
     Style Compute(const Style& parent, const XmlNode& el, std::string_view extra_style = {});
-    void Apply(Style& s, const Style& parent, Prop prop, std::string_view value);
+    // CSS として読めた (正しい値だった) か。読めない値では s を書き換えない。
+    bool Apply(Style& s, const Style& parent, Prop prop, std::string_view value);
     bool Walk(uint32_t index, const Style& parent, const Mat& ctm, float opacity);
     bool Shape(const XmlNode& el, const Style& s, const Mat& ctm, float opacity);
     bool Text(uint32_t index, const Style& s, const Mat& ctm, float opacity);
     bool MathLabel(const XmlNode& el, const Style& s, const Mat& ctm, float opacity);
-    bool CollectText(uint32_t index, const Style& s, float opacity, bool underline, float shift, std::vector<Piece>& pieces,
+    bool CollectText(uint32_t index, const Style& s, float opacity, uint8_t decoration, float shift, std::vector<Piece>& pieces,
                      std::optional<float>& pending_x, std::optional<float>& pending_y);
     void AppendPaint(std::string& out, std::string_view name, const Paint& paint, const Style& s, float paint_opacity);
     std::string_view GradientRef(std::string_view id, float alpha);
@@ -1761,6 +1790,7 @@ private:
     std::deque<std::wstring> wide_strings_;
     std::deque<Vars> vars_;
     std::string resolved_; // var() を解いた値。Apply が持ち続けるものは Retain で写す
+    std::vector<std::pair<Prop, std::string_view>> declared_; // Compute の宣言の並び。要素ごとに確保しないよう使い回す
     std::unordered_map<std::string_view, uint32_t> ids_; // GradientRef が初めて引くときに作る
     bool ids_ready_ = false;
     std::vector<std::pair<std::string, std::string>> gradients_; // (id|alpha, 名前。空は塗れない参照)
@@ -1770,11 +1800,15 @@ private:
     Style root_style_;
 };
 
-void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::string_view value)
+bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::string_view value)
 {
     value = Trim(value);
-    if (const auto important = value.find('!'); important != std::string_view::npos) {
-        value = Trim(value.substr(0, important));
+    // 末尾の !important だけを切る。値の中の ! (書体名など) では切らない。
+    if (const size_t bang = value.rfind('!'); bang != std::string_view::npos && ascii_util::iequal(Trim(value.substr(bang + 1)), "important")) {
+        value = Trim(value.substr(0, bang));
+    }
+    if (value.empty()) {
+        return false;
     }
     if (ascii_util::iequal(value, "inherit")) {
         // 継承するものは既に親の値。継承しないものは親から写す。
@@ -1800,65 +1834,73 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         default:
             break;
         }
-        return;
+        return true;
     }
+    // keywords のうち value と一致したもの (大文字小文字は無視)。無ければ空。
+    const auto keyword = [value](std::initializer_list<std::string_view> keywords) {
+        const auto it = std::ranges::find_if(keywords, [value](std::string_view k) { return IEquals(value, k); });
+        return it != keywords.end() ? *it : std::string_view{};
+    };
     switch (prop) {
     case Prop::Color:
-        ParseColor(value, parent.color, s.color);
-        break;
+        return ParseColor(value, parent.color, s.color);
     case Prop::FontSize:
         // 計算値で丸めるので、文字の幅も描く大きさで測り、子の em も丸めた値から求める。
         if (const auto f = ParseFontSize(value, parent.font_size)) {
             s.font_size = std::min(*f, mermaid_util::kMaxFontSize);
+            return true;
         }
-        break;
+        return false;
     case Prop::Fill:
     case Prop::Stroke: {
         Paint& paint = prop == Prop::Fill ? s.fill : s.stroke;
-        if (ParsePaint(value, s.color, paint) && paint.kind == Paint::Kind::Url) {
+        if (!ParsePaint(value, s.color, paint)) {
+            return false;
+        }
+        if (paint.kind == Paint::Kind::Url) {
             paint.url = Retain(paint.url);
         }
-        break;
+        return true;
     }
     case Prop::FillOpacity:
-        ParseOpacityValue(value, s.fill_opacity);
-        break;
+        return ParseOpacityValue(value, s.fill_opacity);
     case Prop::StrokeOpacity:
-        ParseOpacityValue(value, s.stroke_opacity);
-        break;
+        return ParseOpacityValue(value, s.stroke_opacity);
     case Prop::Opacity:
-        ParseOpacityValue(value, s.own.opacity);
-        break;
+        return ParseOpacityValue(value, s.own.opacity);
     case Prop::StopOpacity:
-        ParseOpacityValue(value, s.own.stop_opacity);
-        break;
+        return ParseOpacityValue(value, s.own.stop_opacity);
     case Prop::StopColor:
-        ParseColor(value, s.color, s.own.stop_color);
-        break;
+        return ParseColor(value, s.color, s.own.stop_color);
     case Prop::StrokeWidth:
         if (const auto f = ParseLength(value, s.font_size); f && *f >= 0.0f) {
             s.stroke_width = *f;
+            return true;
         }
-        break;
+        return false;
     case Prop::StrokeDashoffset:
-        s.dash_offset = ParseLength(value, s.font_size).value_or(s.dash_offset);
-        break;
+        if (const auto f = ParseLength(value, s.font_size)) {
+            s.dash_offset = *f;
+            return true;
+        }
+        return false;
     case Prop::StrokeMiterlimit:
         if (const auto f = ParseLength(value, s.font_size); f && *f >= 1.0f) {
             s.miter_limit = *f;
+            return true;
         }
-        break;
+        return false;
     case Prop::StrokeDasharray: {
         if (ascii_util::iequal(value, "none")) {
             s.dash_array = {};
-            break;
+            return true;
         }
         std::string normalized;
         bool any = false;
         for (const auto part : FunctionTokens(value)) {
             const auto f = ParseLength(part, s.font_size);
             if (!f || *f < 0.0f) {
-                return;
+                return false;
             }
             any = any || *f > 0.0f;
             if (!normalized.empty()) {
@@ -1866,39 +1908,44 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
             }
             AppendNum(normalized, *f);
         }
+        if (normalized.empty()) {
+            return false;
+        }
         s.dash_array = any ? Keep(std::move(normalized)) : std::string_view{};
-        break;
+        return true;
     }
     case Prop::StrokeLinecap:
-        for (const std::string_view v : { "butt"sv, "round"sv, "square"sv }) {
-            if (IEquals(value, v)) {
-                s.line_cap = v;
-                break;
-            }
+    case Prop::StrokeLinejoin: {
+        const auto k = prop == Prop::StrokeLinecap ? keyword({ "butt", "round", "square" }) : keyword({ "miter", "round", "bevel" });
+        if (k.empty()) {
+            return false;
         }
-        break;
-    case Prop::StrokeLinejoin:
-        for (const std::string_view v : { "miter"sv, "round"sv, "bevel"sv }) {
-            if (IEquals(value, v)) {
-                s.line_join = v;
-                break;
-            }
+        (prop == Prop::StrokeLinecap ? s.line_cap : s.line_join) = k;
+        return true;
+    }
+    case Prop::FillRule: {
+        const auto k = keyword({ "nonzero", "evenodd" });
+        if (k.empty()) {
+            return false;
         }
-        break;
-    case Prop::FillRule:
-        s.even_odd = ascii_util::iequal(value, "evenodd");
-        break;
+        s.even_odd = k == "evenodd";
+        return true;
+    }
     case Prop::Display:
+        // 描き方を変えるのは none だけ。ほかの値 (inline・block など) の読み分けはしない。
         s.own.display_none = ascii_util::iequal(value, "none");
-        break;
-    case Prop::Visibility:
-        s.visible = ascii_util::iequal(value, "visible");
-        break;
-    case Prop::FontFamily:
-        if (!value.empty()) {
-            s.font_family = wide_strings_.emplace_back(string_convert::Utf8ToWide(value));
+        return true;
+    case Prop::Visibility: {
+        const auto k = keyword({ "visible", "hidden", "collapse" });
+        if (k.empty()) {
+            return false;
         }
-        break;
+        s.visible = k == "visible";
+        return true;
+    }
+    case Prop::FontFamily:
+        s.font_family = wide_strings_.emplace_back(string_convert::Utf8ToWide(value));
+        return true;
     case Prop::FontWeight: {
         std::string_view rest = value;
         double w = 0.0;
@@ -1914,32 +1961,57 @@ void PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         else if (TakeNumber(rest, w) && rest.empty() && w >= 1.0 && w <= 1000.0) {
             s.weight = static_cast<uint16_t>(w);
         }
-        break;
+        else {
+            return false;
+        }
+        return true;
     }
-    case Prop::FontStyle:
-        s.italic = ascii_util::iequal(value, "italic") || ascii_util::istarts_with(value, "oblique");
-        break;
-    case Prop::TextAnchor:
-        s.anchor = ascii_util::iequal(value, "middle") ? 1 : ascii_util::iequal(value, "end") ? 2 : 0;
-        break;
+    case Prop::FontStyle: {
+        const auto k = keyword({ "normal", "italic" });
+        if (k.empty() && !ascii_util::istarts_with(value, "oblique")) {
+            return false;
+        }
+        s.italic = k != "normal";
+        return true;
+    }
+    case Prop::TextAnchor: {
+        const auto k = keyword({ "start", "middle", "end" });
+        if (k.empty()) {
+            return false;
+        }
+        s.anchor = k == "middle" ? 1 : k == "end" ? 2 : 0;
+        return true;
+    }
     case Prop::TextDecoration:
-        s.own.underline = value.contains("underline");
-        break;
+        // 線の種類のほかに色・太さ・線の形も書けるので、読み分けはせず線の種類だけを拾う。
+        s.own.decoration = (value.contains("underline") ? mermaid_util::kTextUnderline : 0) |
+                           (value.contains("line-through") ? mermaid_util::kTextLineThrough : 0);
+        return true;
     case Prop::BaselineShift:
+        // 値は文字の大きさが決まってから BaselineShift が読む。
         s.own.baseline_shift = Retain(value);
-        break;
+        return true;
     case Prop::Rx:
     case Prop::Ry: {
         auto& r = prop == Prop::Rx ? s.own.rx : s.own.ry;
-        r = ascii_util::iequal(value, "auto") ? std::nullopt : ParseLength(value, s.font_size);
-        break;
+        if (ascii_util::iequal(value, "auto")) {
+            r = std::nullopt;
+            return true;
+        }
+        const auto f = ParseLength(value, s.font_size);
+        if (!f || *f < 0.0f) {
+            return false;
+        }
+        r = f;
+        return true;
     }
     case Prop::MaxWidth:
         s.own.fit_width = value == "100%";
-        break;
+        return true;
     case Prop::Count:
         break;
     }
+    return false;
 }
 
 Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::string_view extra_style)
@@ -1947,8 +2019,15 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
     Style s = parent;
     s.own = {};
 
-    // 表示の属性 < style 属性。style の中では後の宣言が勝つ。
-    std::array<std::optional<std::string_view>, kPropCount> specified{};
+    // 表示の属性 < style 属性。style の中では後の宣言が勝つ。読めない宣言は CSS と同じく捨て、同じ性質の前の宣言 (無ければ
+    // 表示の属性、それも無ければ継承した値か初期値) を使う。var() を含む宣言は解くまで読めるか決まらないのでそのまま勝ち、
+    // 解けないか読めなければ計算値の時点で無効 (継承するものは親の値、しないものは初期値) になる。
+    declared_.clear();
+    std::array<bool, kPropCount> has{};
+    const auto set = [&](Prop p, std::string_view v) {
+        declared_.emplace_back(p, v);
+        has[static_cast<size_t>(p)] = true;
+    };
     std::optional<std::string_view> style;
     for (const auto& attr : el.attrs) {
         if (attr.name == "xml:space") {
@@ -1958,10 +2037,9 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
             style = style ? style : attr.value;
         }
         else if (const auto p = PropOf(attr.name)) {
-            specified[static_cast<size_t>(*p)] = attr.value;
+            set(*p, attr.value);
         }
     }
-    const auto set = [&](Prop p, std::string_view v) { specified[static_cast<size_t>(p)] = v; };
     Vars* own_vars = nullptr;
     const auto declaration = [&](std::string_view name, std::string_view value) {
         if (name.starts_with("--")) {
@@ -1971,24 +2049,26 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
             own_vars->values.emplace_back(name, value);
         }
         else if (ascii_util::iequal(name, "font")) {
-            // [style] [weight] size[/line-height] family
+            // [style] [weight] size[/line-height] family。大きさが無ければ宣言ごと読めない。
             std::string_view rest = value;
-            set(Prop::FontStyle, "normal");
-            set(Prop::FontWeight, "normal");
+            std::string_view font_style = "normal";
+            std::string_view font_weight = "normal";
             while (!rest.empty()) {
                 const size_t end = std::min(rest.find_first_of(kSpaces), rest.size());
                 const auto token = rest.substr(0, end);
                 const auto size_token = token.substr(0, token.find('/'));
                 if (ParseFontSize(size_token, parent.font_size)) {
+                    set(Prop::FontStyle, font_style);
+                    set(Prop::FontWeight, font_weight);
                     set(Prop::FontSize, size_token);
                     set(Prop::FontFamily, Trim(rest.substr(end)));
                     break;
                 }
                 if (ascii_util::iequal(token, "italic") || ascii_util::iequal(token, "oblique")) {
-                    set(Prop::FontStyle, token);
+                    font_style = token;
                 }
                 else if (!ascii_util::iequal(token, "normal")) {
-                    set(Prop::FontWeight, token);
+                    font_weight = token;
                 }
                 rest = Trim(rest.substr(end));
             }
@@ -2007,21 +2087,27 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
     if (own_vars) {
         s.vars = own_vars;
     }
+    // 性質は Prop の順に当てる (color と font-size を先に)。
     for (size_t i = 0; i < kPropCount; ++i) {
-        if (!specified[i]) {
+        if (!has[i]) {
             continue;
         }
         const auto prop = static_cast<Prop>(i);
-        std::string_view value = *specified[i];
-        if (FindVar(value) != std::string_view::npos) {
-            resolved_.clear();
-            if (!SubstituteVars(value, s.vars, resolved_)) {
-                // 計算値の時点で無効。継承するものは親の値のまま、しないものは初期値のまま。
+        for (const auto& [p, value] : declared_ | std::views::reverse) {
+            if (p != prop) {
                 continue;
             }
-            value = resolved_;
+            if (FindVar(value) != std::string_view::npos) {
+                resolved_.clear();
+                if (SubstituteVars(value, s.vars, resolved_)) {
+                    Apply(s, parent, prop, resolved_);
+                }
+                break;
+            }
+            if (Apply(s, parent, prop, value)) {
+                break;
+            }
         }
-        Apply(s, parent, prop, value);
     }
     return s;
 }
@@ -2217,7 +2303,7 @@ float PeleSvgResolver::BaselineShift(const Style& s)
     return length ? -*length : 0.0f;
 }
 
-bool PeleSvgResolver::CollectText(uint32_t index, const Style& s, float opacity, bool underline, float shift, std::vector<Piece>& pieces,
+bool PeleSvgResolver::CollectText(uint32_t index, const Style& s, float opacity, uint8_t decoration, float shift, std::vector<Piece>& pieces,
                                   std::optional<float>& pending_x, std::optional<float>& pending_y)
 {
     const XmlNode& el = nodes_[index];
@@ -2258,7 +2344,7 @@ bool PeleSvgResolver::CollectText(uint32_t index, const Style& s, float opacity,
             pieces.push_back({ .raw = node.text,
                                .style = s,
                                .opacity = opacity,
-                               .underline = underline,
+                               .decoration = decoration,
                                .shift = shift,
                                .x = std::exchange(pending_x, std::nullopt),
                                .y = std::exchange(pending_y, std::nullopt) });
@@ -2274,7 +2360,7 @@ bool PeleSvgResolver::CollectText(uint32_t index, const Style& s, float opacity,
         if (ts.own.display_none) {
             continue;
         }
-        if (!CollectText(child, ts, opacity * ts.own.opacity, underline || ts.own.underline, shift + BaselineShift(ts), pieces, pending_x, pending_y)) {
+        if (!CollectText(child, ts, opacity * ts.own.opacity, decoration | ts.own.decoration, shift + BaselineShift(ts), pieces, pending_x, pending_y)) {
             return false;
         }
     }
@@ -2291,7 +2377,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
     std::vector<Piece> pieces;
     std::optional<float> pending_x;
     std::optional<float> pending_y;
-    if (!CollectText(index, s, opacity, s.own.underline, 0.0f, pieces, pending_x, pending_y)) {
+    if (!CollectText(index, s, opacity, s.own.decoration, 0.0f, pieces, pending_x, pending_y)) {
         return false;
     }
     // 空白。xml:space="preserve" は改行とタブを空白にするだけ。それ以外は CSS の white-space: normal と同じく
@@ -2393,7 +2479,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .at = at,
             .weight = ps.weight,
             .italic = ps.italic,
-            .underline = piece.underline,
+            .decoration = piece.decoration,
             .family = std::wstring{ ps.font_family },
             .text = std::move(piece.text),
         });
@@ -2769,7 +2855,7 @@ void AppendInline(KBox& row, KBox&& box, float gap = 0.0f)
 
 // 隣り合う字形の並びのうち、同じ書体・大きさ・ベースラインで左から右へ続くものを 1 本にする。KaTeX は記号を 1 つずつ
 // span に入れるので、そのままだと x^2+y^2 で 9 本になり、毎フレームの DrawGlyphRun の数とメモリが増える。
-// 間の空き (mspace など) は前の字の送り幅に足す。色は 1 色なので描く順は変わってよい。
+// 間の空き (mspace など) は前の字の送り幅に足す。色の違う並びはつながず、つなぐのは直前に残した並びとだけなので、描く順は変わらない。
 void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
 {
     size_t kept = 0;
@@ -2791,14 +2877,9 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
         }
         ++kept;
     }
+    // 詰め直し (shrink_to_fit) はしない。返るのは 1 式約 0.4KB で、927 式の文書でも約 0.4MB とアプリ全体の 1% に届かない
+    // (test.md と代表的な式 104 本で 42.5KB、2026-11-06)。
     items.erase(items.begin() + static_cast<std::ptrdiff_t>(kept), items.end());
-    for (auto& item : items) {
-        if (auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
-            g->glyphs.shrink_to_fit();
-            g->advances.shrink_to_fit();
-        }
-    }
-    items.shrink_to_fit();
 }
 
 // UTF-8 の文字の並びを 1 文字ずつ。
@@ -3300,7 +3381,7 @@ void KatexLayout::Text(std::string_view text, const KInherit& inh, KBox& out)
         x += advance;
     });
     if (inh.shadow) {
-        // \pmb は少しずらした写しで太く見せる。写しは元より先に描く (CSS の影)。
+        // \pmb は少しずらした写しで太く見せる。写しは元の後ろに足す (CSS の影は先に描くが、同じ色なので重ねる順で見た目は変わらない)。
         const auto [sx, sy] = *inh.shadow;
         for (size_t k = 0, n = out.items.size(); k < n; ++k) {
             if (const auto* g = std::get_if<MathDrawing::Glyphs>(&out.items[k]); g && g->x >= out.w) {
@@ -4067,8 +4148,10 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             if (t.italic) {
                 out += " font-style=\"italic\"";
             }
-            if (t.underline) {
-                out += " text-decoration=\"underline\"";
+            if (t.decoration != 0) {
+                constexpr std::string_view kLines[] = { "", "underline", "line-through", "underline line-through" };
+                static_assert(std::size(kLines) == mermaid_util::kTextDecorationBits + 1);
+                AppendAttr(out, "text-decoration", kLines[t.decoration & mermaid_util::kTextDecorationBits]);
             }
             fill(t.at);
             AppendEscaped(out, string_convert::WideToUtf8(t.text));

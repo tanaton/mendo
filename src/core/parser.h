@@ -44,7 +44,7 @@ struct NodeStorage {
     NodeIndices indices;
 };
 
-// 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
+// md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
 // stop_token を渡すと md4c コールバックから途中で abort できる。既定の stop_token では最後まで走る。
 NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
 

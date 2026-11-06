@@ -373,6 +373,27 @@ TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
 
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
+
+    // 読めない画像は alt の 1 行を囲む枠の高さ。
+    DiagramEntry unavailable;
+    unavailable.error = { DiagramError::Kind::ImageUnavailable, L"alt" };
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&unavailable, 600.0f, 80.0f, theme), layout::ImageAltHeight(theme));
+    EXPECT_GT(layout::ImageAltHeight(theme), theme.font_size_body * BODY_LINE_HEIGHT_FACTOR);
+}
+
+// デバイスロストで捨てるのはデバイスで決まる結果だけ。読めない画像は残し、読み直す間も alt の枠を出す。
+TEST(DiagramEntryTest, EvictForRetryKeepsUnavailableImage)
+{
+    DiagramEntry image;
+    image.error = { DiagramError::Kind::ImageUnavailable, L"alt" };
+    image.EvictForRetry();
+    EXPECT_EQ(image.error.kind, DiagramError::Kind::ImageUnavailable);
+    EXPECT_EQ(image.error.message, L"alt");
+
+    DiagramEntry diagram;
+    diagram.error = { DiagramError::Kind::Render, L"x" };
+    diagram.EvictForRetry();
+    EXPECT_TRUE(diagram.error.empty());
 }
 
 // 描けなかった図は、推定が 1 行ぶんでも文言を数行見せる高さにする。高い推定はそのまま保つ。

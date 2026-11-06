@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <array>
 #include <cstdint>
 #include <format>
 #include <functional>
@@ -179,123 +180,139 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 
 // ---- ComputeColumnWidths テスト ----
 
+namespace {
+std::vector<float> ColumnWidths(std::span<const float> natural, std::span<const float> min, float available)
+{
+    std::vector<float> out;
+    ComputeColumnWidths(out, natural, min, available);
+    return out;
+}
+} // namespace
+
+// 最小幅が 0 なら、収まらない分は自然幅に比例して縮める。
 TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide)
 {
-    // 自然幅の合計300、利用可能幅150のみ -> 比例配分
-    std::vector<float> natural = { 100.0f, 100.0f, 100.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 150.0f);
-    ASSERT_EQ(widths.size(), 3u);
-    // 自然幅が等しいため、すべての列が均等な幅を得ること
-    EXPECT_NEAR(widths[0], widths[1], 0.01f);
-    EXPECT_NEAR(widths[1], widths[2], 0.01f);
-    // 合計は利用可能幅に近似すること
-    float total = widths[0] + widths[1] + widths[2];
-    EXPECT_NEAR(total, 150.0f, 1.0f);
+    const auto equal = ColumnWidths(std::array{ 100.0f, 100.0f, 100.0f }, std::array{ 0.0f, 0.0f, 0.0f }, 150.0f);
+    for (const float w : equal) {
+        EXPECT_NEAR(w, 50.0f, 0.01f);
+    }
+    const auto unequal = ColumnWidths(std::array{ 300.0f, 100.0f }, std::array{ 0.0f, 0.0f }, 200.0f);
+    EXPECT_NEAR(unequal[0], 150.0f, 0.01f);
+    EXPECT_NEAR(unequal[1], 50.0f, 0.01f);
 }
 
-TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
+// GitHub (Chrome の自動の表組み) と同じく、最小幅 (最も長い単語) までは縮め、余りを (自然幅 - 最小幅) に比例して配る。
+// 番号のような狭い列は自然幅のまま残り、長い文の列だけが折り返す。
+TEST(ComputeColumnWidthsTest, ShrinksTowardMinWidthLikeGitHub)
 {
-    // 自然幅の合計30、利用可能幅300 -> 均等配分
-    std::vector<float> natural = { 10.0f, 10.0f, 10.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 300.0f);
-    ASSERT_EQ(widths.size(), 3u);
-    // 均等配分: 各列は少なくとも100であること
-    float even = 300.0f / 3.0f;
-    for (auto w : widths) {
-        EXPECT_GE(w, even - 0.01f);
+    const auto narrow_kept = ColumnWidths(std::array{ 10.0f, 2000.0f }, std::array{ 10.0f, 80.0f }, 800.0f);
+    EXPECT_NEAR(narrow_kept[0], 10.0f, 0.01f);
+    EXPECT_NEAR(narrow_kept[1], 790.0f, 0.01f);
+
+    const auto two_long = ColumnWidths(std::array{ 2000.0f, 600.0f }, std::array{ 60.0f, 60.0f }, 800.0f);
+    const float ratio = (800.0f - 120.0f) / (2600.0f - 120.0f);
+    EXPECT_NEAR(two_long[0], 60.0f + 1940.0f * ratio, 0.01f);
+    EXPECT_NEAR(two_long[1], 60.0f + 540.0f * ratio, 0.01f);
+}
+
+// 最小幅の合計も収まらなければ、最小幅で並べて横スクロールに任せる (単語の途中では折り返さない)。
+TEST(ComputeColumnWidthsTest, MinWidthsOverflowForScroll)
+{
+    const auto out = ColumnWidths(std::array{ 500.0f, 500.0f }, std::array{ 300.0f, 250.0f }, 400.0f);
+    EXPECT_FLOAT_EQ(out[0], 300.0f);
+    EXPECT_FLOAT_EQ(out[1], 250.0f);
+}
+
+// 収まる表は GitHub と同じく広げず、自然幅で並べる (空の列は幅 0 で、セルの余白だけになる)。
+TEST(ComputeColumnWidthsTest, KeepsNaturalWidthsWhenFits)
+{
+    EXPECT_EQ(ColumnWidths(std::array{ 10.0f, 25.0f, 10.0f }, std::array{ 10.0f, 5.0f, 10.0f }, 300.0f), (std::vector{ 10.0f, 25.0f, 10.0f }));
+    EXPECT_EQ(ColumnWidths(std::array{ 0.0f, 0.0f }, std::array{ 0.0f, 0.0f }, 200.0f), (std::vector{ 0.0f, 0.0f }));
+}
+
+// 狭いペインでも列の幅に下限は置かない (GitHub と同じ)。最小幅が 0 の列は使える幅を比例で分ける。
+TEST(ComputeColumnWidthsTest, NoPerColumnFloorInNarrowPane)
+{
+    for (const float w : ColumnWidths(std::array{ 200.0f, 200.0f }, std::array{ 0.0f, 0.0f }, 40.0f)) {
+        EXPECT_NEAR(w, 20.0f, 0.01f);
     }
 }
 
-// 使える幅が列数 x 最小幅 (30) より狭いときは、列数 x 最小幅まで広げて比例で分ける。
-// 「30 以上」だけでは、最小幅を無視して自然幅のまま横スクロールに回しても通ってしまう。
-TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
+// 自然幅が収まるなら自然幅のまま。収まらないなら、最小幅も収まらないときだけ最小幅のまま横スクロールに任せ、それ以外は
+// 合計が使える幅ちょうどで、どの列も最小幅と自然幅の間。
+TEST(ComputeColumnWidthsTest, NaturalWhenFitsOtherwiseShrinksBetweenMinAndNatural)
 {
-    std::vector<float> natural = { 200.0f, 200.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 40.0f);
-    ASSERT_EQ(widths.size(), 2u);
-    for (auto w : widths) {
-        EXPECT_NEAR(w, 30.0f, 0.01f);
-    }
-}
-
-TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
-{
-    // 列Aは列Bよりはるかに広い
-    std::vector<float> natural = { 300.0f, 100.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 200.0f);
-    ASSERT_EQ(widths.size(), 2u);
-    // 列Aは列Bよりも大きな割合を得ること
-    EXPECT_GT(widths[0], widths[1]);
-}
-
-TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
-{
-    std::vector<float> natural = { 0.0f, 0.0f };
-    std::vector<float> widths;
-    ComputeColumnWidths(widths, natural, 200.0f);
-    ASSERT_EQ(widths.size(), 2u);
-    // それでも有効な幅を生成すること
-    for (auto w : widths) {
-        EXPECT_GT(w, 0.0f);
-    }
-}
-
-// 合計が使える幅を超えてよいのは「自然幅のまま横スクロールに任せる」分岐だけ。
-// それ以外で超えると、自然幅なら収まる表まで横スクロールになる。
-// 自然幅が収まる場合は、どの列も自然幅を割らず、合計は使える幅ちょうどになること。
-TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
-{
-    constexpr float kMinColumnWidth = 30.0f;
     constexpr float kEps = 0.05f;
     for (const uint32_t seed : { 1u, 2u, 3u, 4u, 5u }) {
         std::mt19937 rng(seed);
         std::uniform_int_distribution<size_t> col_dist(1, 8);
         std::uniform_real_distribution<float> narrow_dist(0.0f, 60.0f);
         std::uniform_real_distribution<float> wide_dist(0.0f, 1000.0f);
-        std::uniform_real_distribution<float> avail_dist(0.0f, 2000.0f);
+        std::uniform_real_distribution<float> avail_dist(-50.0f, 2000.0f);
+        std::uniform_real_distribution<float> min_ratio_dist(0.0f, 1.0f);
         std::bernoulli_distribution pick_narrow(0.5);
         for (int step = 0; step < 2000; ++step) {
             const size_t n = col_dist(rng);
             std::vector<float> natural(n);
-            for (auto& w : natural) {
+            std::vector<float> min(n);
+            for (auto [w, m] : std::views::zip(natural, min)) {
                 w = pick_narrow(rng) ? narrow_dist(rng) : wide_dist(rng);
+                m = w * min_ratio_dist(rng);
             }
             const float available = avail_dist(rng);
-            std::vector<float> out;
-            ComputeColumnWidths(out, natural, available);
+            const auto out = ColumnWidths(natural, min, available);
 
             // 失敗時だけ評価されるメッセージで使い、成功ケースで文字列を組み立てない。
             const auto input = [&] {
-                std::string s = "seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " available=" + std::to_string(available) + " natural=";
-                for (const float w : natural) {
-                    s += std::to_string(w) + ",";
+                std::string s = "seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " available=" + std::to_string(available) + " natural/min=";
+                for (const auto [w, m] : std::views::zip(natural, min)) {
+                    s += std::to_string(w) + "/" + std::to_string(m) + ",";
                 }
                 return s;
             };
             ASSERT_EQ(out.size(), n) << input();
 
-            const float effective = std::max(available, static_cast<float>(n) * kMinColumnWidth);
             const float natural_total = std::ranges::fold_left(natural, 0.0f, std::plus{});
+            const float min_total = std::ranges::fold_left(min, 0.0f, std::plus{});
             const float out_total = std::ranges::fold_left(out, 0.0f, std::plus{});
-            if (natural_total > effective && std::ranges::equal(out, natural)) {
+            if (natural_total <= available) {
+                ASSERT_EQ(out, natural) << input();
                 continue;
             }
-            ASSERT_LE(out_total, effective + kEps) << input();
-            if (natural_total <= effective) {
-                ASSERT_NEAR(out_total, effective, kEps) << input();
-                for (size_t c = 0; c < n; ++c) {
-                    ASSERT_GE(out[c], natural[c] - kEps) << "c=" << c << " " << input();
-                }
+            if (min_total >= available) {
+                ASSERT_EQ(out, min) << input();
+                continue;
+            }
+            ASSERT_NEAR(out_total, available, kEps) << input();
+            for (size_t c = 0; c < n; ++c) {
+                ASSERT_GE(out[c], min[c] - kEps) << "c=" << c << " " << input();
+                ASSERT_LE(out[c], natural[c] + kEps) << "c=" << c << " " << input();
             }
         }
     }
 }
 
-// DWrite 実測で、横スクロールは描画した表の右端までちょうど届き、表の外の空白へは動かない。
+// DWrite 実測で、番号の列は自然幅のまま残り、長い文の列が折り返して表がペインに収まる (GitHub と同じ)。
+TEST_F(LayoutTest, NarrowColumnKeepsNaturalWidthWhileLongTextWraps)
+{
+    std::string sentence;
+    for (int i = 0; i < 60; ++i) {
+        sentence += "lorem ipsum ";
+    }
+    auto [nodes, cache] = ParseAndLayout("| # | text |\n|---|---|\n| 1 | " + sentence + "|\n", 800.0f);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto* tl = cache[0].table_layout();
+    ASSERT_NE(tl, nullptr);
+    EXPECT_NEAR(tl->col_widths[0], tl->natural_col_widths[0], 0.01f);
+    EXPECT_LT(tl->col_widths[1], tl->natural_col_widths[1]);
+    EXPECT_GE(tl->col_widths[1], tl->min_col_widths[1]);
+    EXPECT_GT(tl->min_col_widths[1], 0.0f);
+    EXPECT_LT(tl->min_col_widths[1], tl->natural_col_widths[1] / 10.0f) << "最小幅は最も長い単語の幅";
+    const auto geom = GetBlockHScrollGeometry(nodes, cache, 0, theme_, 800.0f);
+    EXPECT_FALSE(geom.can_scroll());
+}
+
+// DWrite 実測で、横スクロールは描画した表の右端までちょうど届き、表の外の空白へは動かない。ペインより狭い表は動かない。
 TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
 {
     const auto table = [](size_t col_count, std::string_view cell) {
@@ -308,14 +325,15 @@ TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
         return header + "\n" + sep + "\n" + header + "\n";
     };
     const std::string mds[] = {
-        // 短い列と長い列 (均等幅を超えるが合計は収まる)
+        // 短い列と長い列 (合計は収まるので自然幅のまま)
         "| a | " + std::string(40, 'w') + " |\n|---|---|\n| b | c |\n",
-        // 長いセルを比例圧縮して収める
-        table(2, std::string(80, 'w')),
-        // 列数 x 最小列幅がペインを超え、最小幅のぶん表がはみ出す
+        // 長い文のセルを折り返して収める
+        table(2, "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore"),
+        // 列が多く、最小幅でもペインを超えて表がはみ出す
         table(15, "a"),
         table(30, "a"),
-        // 自然幅のまま出して横スクロールに任せる
+        // 長い単語は最小幅でも収まらず、横スクロールに任せる
+        table(2, std::string(80, 'w')),
         "| a | " + std::string(300, 'w') + " |\n|---|---|\n| b | c |\n",
     };
     for (const auto& md : mds) {
@@ -327,7 +345,7 @@ TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
             const float table_width = cache[0].table_layout()->TableWidth();
             const auto geom = GetBlockHScrollGeometry(nodes, cache, 0, theme_, viewport_w);
             EXPECT_LE(table_width, geom.visible_width + geom.scroll_max() + BLOCK_H_SCROLL_SLACK);
-            EXPECT_LE(geom.visible_width + geom.scroll_max(), table_width + 0.05f);
+            EXPECT_LE(geom.visible_width + geom.scroll_max(), std::max(table_width, geom.visible_width) + 0.05f);
         }
     }
 }
@@ -833,8 +851,7 @@ TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
 }
 
 // loose list の LI (空) と直下の段落の text_top は一致する (issue#237)。記号は段落の 1 行目の中央に置く。
-// 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので
-// 実 line metrics と完全一致しない → epsilon 3px で許容。
+// 空 LI の first_line_height は本文の行送りで、段落の 1 行目と同じ。差は物理ピクセルへのスナップの分だけ。
 TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
 {
     auto [nodes, cache] = ParseAndLayout("- a\n\n- b");
@@ -859,7 +876,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
     const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
     ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
-    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 3.0f);
+    EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 0.5f);
 }
 
 // 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem

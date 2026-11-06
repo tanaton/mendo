@@ -235,7 +235,7 @@ struct ParseContext : NodeStorage {
         case NodeType::Paragraph:
             return true;
         case NodeType::CodeBlock:
-            return current_node->code_language != SyntaxLanguage::Mermaid && current_node->code_language != SyntaxLanguage::LatexMath;
+            return !IsDiagramLanguage(current_node->code_language) && current_node->code_language != SyntaxLanguage::LatexMath;
         default:
             return false;
         }

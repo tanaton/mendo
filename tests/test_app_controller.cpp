@@ -354,7 +354,7 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
             button = r;
         }
     });
-    ASSERT_LT(button.left, MermaidBitmapRect(diagram.width, diagram.height, x, w, top).left);
+    ASSERT_LT(button.left, DiagramRect(diagram.width, diagram.height, x, w, top).left);
 
     const auto hover = app_controller::ResolvePointerHover(h.state, layout, static_cast<int>(layout.md_rect.x + button.left + 1.0f),
                                                            static_cast<int>(layout.md_rect.y + button.top + 1.0f), false);

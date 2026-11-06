@@ -775,6 +775,23 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     EXPECT_EQ(loader_.CacheSize(), 0u);
 }
 
+// デバイスの作り直しで旧 rt から新 rt へ直に差し替えても、受け箱の結果を捨てずに新しい rt に載せる。
+TEST_F(ImageLoaderAsyncTest, RenderTargetSwapKeepsCompletedDecodes)
+{
+    ASSERT_TRUE(CreateTestImage(L"swap.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"swap.png");
+    loader_.RequestLoadAsync(path, 0.0f);
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+
+    const auto rt = CreateRenderTarget();
+    ASSERT_TRUE(rt);
+    loader_.SetRenderTarget(rt.Get());
+    EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
+    DiagramEntry entry;
+    EXPECT_TRUE(GetCachedImage(loader_, path, entry));
+    loader_.SetRenderTarget(render_target_.Get());
+}
+
 // ---- スレッドプールテスト ----
 
 TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)

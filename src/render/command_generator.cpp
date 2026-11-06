@@ -158,11 +158,11 @@ static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(Bru
               "AlertBrushIdFromIndex must cover every AlertType");
 
 // MeasureNode 時に確定済みの first_line_height を優先利用する。
-// 0（未確定）なら DirectWrite に問い合わせず font_size ベースのフォールバックで済ませ、
+// 0 (text_layout の無いゆるいリストと空の項目) は、続く段落の 1 行目と同じ本文の行送りにする。
 // 描画ホットパスから COM 越境呼び出しを排除する。
 float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
 {
-    return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
+    return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * BODY_LINE_HEIGHT_FACTOR;
 }
 
 // 失敗していなければ空。
@@ -175,6 +175,8 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
         return error.message.empty() ? i18n::S().diagram_error : std::wstring_view{ error.message };
     case DiagramError::Kind::Unsupported:
         return i18n::S().diagram_unsupported;
+    case DiagramError::Kind::ImageUnavailable:
+        return error.message;
     }
     return {};
 }
@@ -806,6 +808,9 @@ struct MdPaneEmitter : CmdWriter {
                 const float draw_w = (diagram->height > 0) ? diagram->width * (draw_h / diagram->height) : diagram->width;
                 out.emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), D2D1::RectF(x, entry_text_top, x + draw_w, entry_text_top + draw_h) });
             }
+            else if (diagram && diagram->error.kind == DiagramError::Kind::ImageUnavailable) {
+                GenImageAlt(x, entry_text_top, cw, entry.height, diagram->error.message);
+            }
             else {
                 GenDiagramPlaceholder(x, entry_text_top, cw, entry.height);
             }
@@ -820,7 +825,7 @@ struct MdPaneEmitter : CmdWriter {
 
         case NodeType::Diagram:
             if (diagram && diagram->commands) {
-                const auto dest = MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top);
+                const auto dest = DiagramRect(diagram->width, diagram->height, x, cw, entry_text_top);
                 out.emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
                 GenOverlayButtons(node, x, cw, entry_text_top, node_index);
             }
@@ -846,8 +851,6 @@ struct MdPaneEmitter : CmdWriter {
             break;
 
         case NodeType::TaskListItem:
-            // GenNodeTextDecorations は text_layout=nullptr (loose で空 TaskListItem) で early return
-            // するため、checkbox は case 側で emit する。
             GenTaskListCheckbox(node, x, entry_text_top);
             break;
 
@@ -1135,6 +1138,24 @@ struct MdPaneEmitter : CmdWriter {
         }
     }
 
+    // 読めない画像は alt を枠で囲んで出す。ブラウザの壊れた画像と同じく枠は文字に合わせ、内容幅に収まらない分は省略記号で切る。
+    void GenImageAlt(float x, float y, float cw, float h, std::wstring_view alt)
+    {
+        const float pad = layout::ImageAltPadding(theme);
+        auto* const layout = text_layouts.Get(formats.image_alt.Get(), alt, D2D1::SizeF(std::max(cw - 2.0f * pad, 0.0f), h));
+        DWRITE_TEXT_METRICS m{};
+        if (layout) {
+            layout->GetMetrics(&m);
+        }
+        const float w = std::min(m.width + 2.0f * pad, cw);
+        constexpr float kStroke = 1.0f;
+        constexpr float kHalf = kStroke * 0.5f;
+        out.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(x + kHalf, y + kHalf, x + w - kHalf, y + h - kHalf), CODE_BLOCK_CORNER, kStroke, BrushId::Hr });
+        if (layout) {
+            out.push_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(x + pad - m.left, y), .layout = layout, .brush_id = BrushId::BlockquoteText });
+        }
+    }
+
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
     void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error = {})
     {
@@ -1158,7 +1179,7 @@ struct MdPaneEmitter : CmdWriter {
         if (ov_end <= ov_start) {
             return;
         }
-        // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
+        // ov_start/ov_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
         Utf16OffsetCursor cursor{ cell_text };
         auto range = cursor.WideRange(ov_start - cell_start, ov_end - ov_start);
         // セルの選択は毎フレーム引くので、広げる (HitTestTextPosition 2 回) のは数式のあるセルだけにする。
@@ -1374,7 +1395,7 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
     };
 
     const int node_count = static_cast<int>(nodes.size());
-    // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
+    // 二分探索キーは未スナップのドキュメント Y (cache.Top(i) と同じ系)。
     // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
     // はみ出しの上限だけ手前から始める。
     const int first_visible = FindFirstVisibleNodeIndex(cache, scroll_y - e.overhang.below);

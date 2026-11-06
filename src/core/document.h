@@ -61,7 +61,7 @@ public:
     {
         return file_path_;
     }
-    // ディスク上の実ファイルに対応するか。空パスとヘルプの仮想パスは false。
+    // ディスク上の実ファイルに対応するか。空パスと埋め込みの仮想パス (ヘルプ・ライセンス) は false。
     bool HasBackingFile() const noexcept;
     const std::vector<TocEntry>& GetToc() const noexcept
     {
@@ -86,7 +86,7 @@ public:
         return cached_directory_;
     }
 
-    // anchor (大文字小文字は ASCII のみ無視) を付けた見出し、または脚注の定義 / 参照のノード番号。無ければ -1。
+    // anchor (ToLowerAnchorCopy の規則で大文字小文字を無視) を付けた見出し、または脚注の定義 / 参照のノード番号。無ければ -1。
     int FindAnchorIndex(std::string_view anchor);
     const std::vector<size_t>& GetImageNodeIndices() const noexcept
     {
@@ -112,7 +112,7 @@ private:
         return data_ ? data_->parsed : kEmpty;
     }
 
-    // 設定するのは FromMarkdown だけ。
+    // 設定するのは FromNormalizedMarkdown だけ。
     std::shared_ptr<const DocumentData> data_;
     std::wstring file_path_;
     std::wstring cached_directory_;

@@ -869,7 +869,10 @@ void Win32Window::FocusSearchEdit(int anchor, int caret)
 
 void Win32Window::UnfocusSearch(bool clear_text)
 {
-    SetFocus(hwnd_);
+    // 入力欄の外のフォーカス (開いているポップアップ) は動かさない。SetFocus は本体を活性化し、ポップアップを閉じる。
+    if (search_edit_ && GetFocus() == search_edit_) {
+        SetFocus(hwnd_);
+    }
     // 呼び出し側が先に検索を空にしているので、EN_CHANGE の SearchTextChangedAction は何もせず終わる。
     if (clear_text && search_edit_) {
         SetWindowTextW(search_edit_, L"");

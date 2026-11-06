@@ -132,7 +132,8 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
     ParseFloatList(*numbers, L',', v);
     const auto at = ToPlacement(v);
     const float weight = v[11];
-    if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || (v[13] != 0.0f && v[13] != 1.0f)) {
+    if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
+        v[13] != std::floor(v[13])) {
         return std::nullopt;
     }
     const auto family = TakeText(s);
@@ -144,7 +145,7 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
         .at = *at,
         .weight = static_cast<uint16_t>(weight),
         .italic = v[12] != 0.0f,
-        .underline = v[13] != 0.0f,
+        .decoration = static_cast<uint8_t>(v[13]),
         .family = std::wstring{ *family },
         .text = std::wstring{ *text },
     };
@@ -196,7 +197,7 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
         std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes), layer.shapes, layer.texts.size());
         for (const auto& t : layer.texts) {
             AppendPlacement(out_it, t.at);
-            std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.underline ? 1 : 0);
+            std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.decoration);
             std::format_to(out_it, "{}:{}{}:{}", t.family.size(), string_convert::WideToUtf8(t.family), t.text.size(), string_convert::WideToUtf8(t.text));
         }
         std::format_to(out_it, "{}:", layer.maths.size());

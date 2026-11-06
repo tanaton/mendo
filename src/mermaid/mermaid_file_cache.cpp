@@ -2,7 +2,6 @@
 #include "mermaid_util.h"
 #include "task_scheduler.h"
 #include "file_io.h"
-#include "utility.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -241,7 +240,7 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
         return;
     }
     // StoreAsync 直後でバックグラウンド書き込みが in-flight なら「未着地＝stale」と
-    // 早合点せず entry を保持する（次回 Lookup で着地する）。
+    // 早合点せず entry を保持する（次回 Find で着地する）。
     {
         const std::lock_guard lock(pending_mutex_);
         if (pending_writes_.contains(key)) {

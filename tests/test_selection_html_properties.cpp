@@ -167,7 +167,7 @@ void CheckSelectionRoundTrip(const std::vector<Node>& nodes, const TextSelection
         expected_full += html.text;
         // プレーンテキストの改行は CRLF、HTML (タグ除去後) は LF なので LF にそろえて比べる。
         auto plain = ExtractSelectedText(nodes, one);
-        NormalizeNewlines(plain);
+        NormalizeSource(plain);
         if (nodes[i].type == NodeType::Table && nodes[i].table_data() && nodes[i].table_data()->row_count > 0) {
             // HTML はセルを要素で区切るので、プレーンテキストのタブ・改行区切りを除いて本文を比べる。
             const auto [start, end] = one.ClampedRange(i, nodes[i].GetText().size());

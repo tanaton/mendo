@@ -10,6 +10,7 @@
 namespace utf8_codec {
 
 inline constexpr uint32_t kReplacement = 0xFFFD;
+inline constexpr std::string_view kReplacementUtf8 = "\xEF\xBF\xBD";
 inline constexpr std::string_view kBom = "\xEF\xBB\xBF";
 
 // 関数内の constexpr 配列だと MSVC が呼び出しごとにスタック上へ再構築するため名前空間スコープに置く。

@@ -154,7 +154,8 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
     }
 }
 
-// 別のファイルを開くときは監視の準備 (短縮名と親フォルダ) も worker で済ませる。リロードは今の監視を続けるので作らない。
+// 別のファイルを開くときは監視の準備 (短縮名・親フォルダ・最初の読み取り) も worker で済ませる。リロードは今の監視を続けるので
+// 作らない。
 TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
 {
     const auto tmp = WriteTempFile(L"aload_watch", "# Title\n\nbody\n");
@@ -163,12 +164,12 @@ TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
     const auto outcome = WaitForOutcome(scheduler_, c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
-    EXPECT_TRUE((*outcome)->watch.dir);
+    EXPECT_TRUE((*outcome)->watch.read);
     EXPECT_EQ((*outcome)->watch.filename, path_util::FilenameView(tmp.native()));
 
     auto reload = RunReload(scheduler_, tmp, "# Title\n\nold\n");
     ASSERT_TRUE(reload.has_value());
-    EXPECT_FALSE(reload->watch.dir);
+    EXPECT_FALSE(reload->watch.read);
 }
 
 // 旧文書のノードを渡すと、変わらなかったノードを worker で数えて返す。UI が旧文書を手放していれば数えない。

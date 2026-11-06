@@ -379,8 +379,8 @@ TEST(Parser, BlockquoteDepthAndGroup)
 
 // ---- 文字参照 ----
 
-// 文字参照は UTF-8 に解いて前後の文字とつなぐ。解けないもの (U+10FFFF 超など) は原文のまま残す。
-// 参照ごとの解き方は HtmlEntity のテストで見る。
+// 文字参照は UTF-8 に解いて前後の文字とつなぐ。文字にならない数 (U+10FFFF 超など) は、CommonMark と GitHub と同じく
+// U+FFFD にする。参照ごとの解き方は HtmlEntity のテストで見る。原文の NUL はパースの前に置き換える (NormalizeSource)。
 TEST(Parser, CharacterReferencesAreDecoded)
 {
     struct Case {
@@ -390,7 +390,8 @@ TEST(Parser, CharacterReferencesAreDecoded)
     constexpr Case kCases[] = {
         { "&#x1F600;", "\xF0\x9F\x98\x80" }, // 追加面 (bug #11)
         { "&#128169;", "\xF0\x9F\x92\xA9" }, // 追加面の 10 進表記
-        { "&#x110000;", "&#x110000;" },
+        { "&#x110000;", "\xEF\xBF\xBD" },
+        { "a&#0;b", "a\xEF\xBF\xBD" "b" },
         { "a&lt;b&gt;c", "a<b>c" },
         { "&quot;hello&quot;", "\"hello\"" },
         { "a&nbsp;b", "a\xC2\xA0" "b" },
@@ -401,6 +402,14 @@ TEST(Parser, CharacterReferencesAreDecoded)
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].GetText(), c.text);
     }
+}
+
+// 画像の src の文字にならない数値参照も U+FFFD にする (リンク先には NUL を書けない)。
+TEST(Parser, NonCharacterReferenceInImageSrcBecomesReplacement)
+{
+    const auto nodes = ParseNodes("![a](x&#0;y.png)");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].image_src(), "x\xEF\xBF\xBDy.png");
 }
 
 // ---- リスト ----

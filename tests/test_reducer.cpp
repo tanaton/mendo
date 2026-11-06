@@ -204,6 +204,17 @@ TEST_F(ReducerTest, CtrlWheel_DropsRemainderOnReverse)
     EXPECT_EQ(state.view.viewport.Zoom().Index(), before - 1);
 }
 
+// 段を進めた後もノッチに満たない端数は持ち越す。捨てると delta の刻みでズームの速さが変わる。
+TEST_F(ReducerTest, CtrlWheel_CarriesRemainderAfterStep)
+{
+    const int before = state.view.viewport.Zoom().Index();
+    for (int i = 0; i < 6; ++i) {
+        Reduce(state, MouseWheelAction{ .delta = 100, .ctrl = true });
+    }
+    EXPECT_EQ(state.view.viewport.Zoom().Index(), before + 5);
+    EXPECT_EQ(state.interaction.zoom_wheel_accum, 0);
+}
+
 // ---- SelectAllAction テスト ----
 
 TEST_F(ReducerTest, SelectAll_WithNodes)
@@ -1738,6 +1749,18 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
     EXPECT_FALSE(state.view.pending_restore.IsValid());
     EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+}
+
+// 起動時の読み込み中 (文書が無い) に別のファイルを開いたら、起動時の復元位置をそのファイルに当てない。
+TEST_F(ReducerTest, OpenWhileStartupLoading_DoesNotCarryRestoreOver)
+{
+    state.view.pending_restore = { 2, 30.0f };
+
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
+    CompleteLoad(state, L"C:\\other.md");
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_FALSE(state.view.pending_restore.IsValid());
 }
 
 // ヘルプ表示中の F1 はヘルプに留まり、ロード中の別ファイルを取り消すだけなので確定も失敗も来ない。
