@@ -1,7 +1,6 @@
 #pragma once
 #include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
-#include "utility.h"
 #include "win_handle.h"
 #include <windows.h>
 #include <wincodec.h>

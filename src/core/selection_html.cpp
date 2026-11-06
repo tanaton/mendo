@@ -558,7 +558,7 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
     }
 }
 
-// src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
+// src は外部へのアクセスにならないものだけ記述値のまま出す (相対パスは貼付先で解決できないが仕様上の限界)。
 // alt は選択範囲内のノード線形化テキスト。[start, end) は呼び出し側でテキスト長にクランプ済み。
 void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
 {

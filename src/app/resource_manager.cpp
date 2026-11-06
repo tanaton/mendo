@@ -216,40 +216,37 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         }
 
         const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
-        if (!abs_path) {
-            continue;
-        }
-
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        const auto request = [&] {
-            if (start_loads) {
-                image_loader_.RequestLoadAsync(*abs_path, max_width);
-            }
-        };
         const auto* d = state_.document.layout_cache.FindDiagram(i);
-        const auto* cached = image_loader_.FindCachedImage(*abs_path);
+        const auto* cached = abs_path ? image_loader_.FindCachedImage(*abs_path) : nullptr;
         if (!cached) {
             // キャッシュから落ちても表示中のビットマップはそのまま使う。
-            if (!d || !d->bitmap) {
-                request();
+            if (d && d->bitmap) {
+                continue;
+            }
+            // 読み直しで失敗の記録が消えても、読めるまで alt の枠のまま読み直す (読み込み中との行き来でちらつかせない)。
+            if (!abs_path || image_loader_.HasGivenUp(*abs_path)) {
+                if (!d || d->error.kind != DiagramError::Kind::ImageUnavailable) {
+                    MarkImageUnavailable(i, max_width, changed);
+                }
+            }
+            else if (start_loads) {
+                image_loader_.RequestLoadAsync(*abs_path, max_width);
             }
             continue;
         }
 
-        // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
+        // DiagramEntry はキャッシュに当たった画像と読めない画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
         // DPI が変わると同じビットマップでも DIP の寸法が変わるので、寸法も比べる。
         const auto size = image_loader_.DipSize(*cached);
         if (!d || !d->bitmap || d->bitmap != cached->bitmap || d->width != size.width || d->height != size.height) {
             auto& diagram = state_.document.layout_cache.EnsureDiagram(i);
-            diagram.bitmap = cached->bitmap;
-            diagram.width = size.width;
-            diagram.height = size.height;
-
+            diagram.SetResult({ .bitmap = cached->bitmap, .width = size.width, .height = size.height });
             ApplyBitmapHeight(i, diagram, max_width, changed);
         }
         // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-        if (image_loader_.NeedsSharperDecode(*cached, max_width)) {
-            request();
+        if (start_loads && image_loader_.NeedsSharperDecode(*cached, max_width)) {
+            image_loader_.RequestLoadAsync(*abs_path, max_width);
         }
     }
 }
@@ -283,6 +280,16 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
     }
     // 失敗 (エラー確定) でも、プレースホルダーの文言と、文言を見せる高さが変わる。
     ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, *state_.theme, content_width), changed);
+}
+
+void ResourceManager::MarkImageUnavailable(size_t i, float node_width, IndexRange& changed)
+{
+    auto& d = state_.document.layout_cache.EnsureDiagram(i);
+    // Image ノードの本文は段落の文字 (alt を含む)。alt が空なら src を出し、何の画像かを分かるようにする。
+    const Node& node = state_.document.doc.GetNodes()[i];
+    const std::string_view text = node.HasText() ? std::string_view{ node.GetText() } : node.image_src();
+    d.SetResult({ .error = { DiagramError::Kind::ImageUnavailable, string_convert::Utf8ToWide(text) } });
+    ApplyBitmapHeight(i, d, node_width, changed);
 }
 
 void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, IndexRange& changed)

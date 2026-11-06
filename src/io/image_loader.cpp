@@ -26,7 +26,6 @@ void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskSche
 void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
 {
     if (render_target_) {
-        CancelPending();
         ClearCache();
     }
     render_target_ = rt;
@@ -82,7 +81,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, float max_width
         return;
     }
 
-    if (auto it = failed_paths_.find(abs_path); it != failed_paths_.end() && it->second >= kMaxImageRetries) {
+    if (HasGivenUp(abs_path)) {
         return;
     }
     if (const auto [it, inserted] = pending_paths_.try_emplace(abs_path, false); !inserted) {

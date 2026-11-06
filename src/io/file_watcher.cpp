@@ -37,6 +37,26 @@ bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_vi
     }
 }
 
+DirectoryChangeRead::~DirectoryChangeRead()
+{
+    if (pending) {
+        // CancelIo はキャンセル要求のみで IO の終了を保証しない。CancelIoEx + GetOverlappedResult(..., TRUE)
+        // でカーネルの completion routine が buf / overlapped への書き込みを終えるまで待つ。
+        // 待たずに解放すると、解放した領域にカーネルが書き込みヒープ破壊を招く。
+        CancelIoEx(dir.get(), &overlapped);
+        DWORD bytes_returned = 0;
+        GetOverlappedResult(dir.get(), &overlapped, &bytes_returned, TRUE);
+    }
+}
+
+bool DirectoryChangeRead::Begin() noexcept
+{
+    ResetEvent(overlapped.hEvent);
+    pending = ReadDirectoryChangesW(dir.get(), buf, sizeof(buf), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME, nullptr,
+                                    &overlapped, nullptr);
+    return pending;
+}
+
 FileWatcher::~FileWatcher()
 {
     StopWatching();
@@ -51,15 +71,23 @@ FileWatchTarget OpenWatchTarget(const std::wstring& file_path)
             target.short_filename = short_name;
         }
     }
-    if (const auto dir = path_util::ParentDirectory(file_path); !dir.empty()) {
-        target.dir.reset(CreateFileW(
-            dir.c_str(),
-            FILE_LIST_DIRECTORY,
-            path_util::kFileShareRWDelete,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
-            nullptr));
+    const auto dir = path_util::ParentDirectory(file_path);
+    if (dir.empty()) {
+        return target;
+    }
+    auto read = std::make_unique<DirectoryChangeRead>();
+    read->dir.reset(CreateFileW(
+        dir.c_str(),
+        FILE_LIST_DIRECTORY,
+        path_util::kFileShareRWDelete,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+        nullptr));
+    read->event.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    read->overlapped.hEvent = read->event.get();
+    if (read->dir && read->event && read->Begin()) {
+        target.read = std::move(read);
     }
     return target;
 }
@@ -67,54 +95,16 @@ FileWatchTarget OpenWatchTarget(const std::wstring& file_path)
 void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
 {
     StopWatching();
-    if (!target.dir) {
-        return;
-    }
-    event_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
-    if (!event_) {
+    if (!target.read) {
         return;
     }
     on_change_ = std::move(callback);
     target_ = std::move(target);
-
-    overlapped_.hEvent = event_.get();
-
-    BeginRead();
-}
-
-void FileWatcher::BeginRead()
-{
-    ResetEvent(overlapped_.hEvent);
-    read_pending_ = ReadDirectoryChangesW(
-        target_.dir.get(),
-        change_buf_,
-        sizeof(change_buf_),
-        FALSE,
-        FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME,
-        nullptr,
-        &overlapped_,
-        nullptr);
-
-    if (!read_pending_) {
-        StopWatching();
-    }
 }
 
 void FileWatcher::StopWatching() noexcept
 {
-    if (read_pending_) {
-        // CancelIo はキャンセル要求のみで IO の終了を保証しない。CancelIoEx + GetOverlappedResult(..., TRUE)
-        // でカーネルの completion routine が change_buf_ / overlapped_ への書き込みを終えるまで待つ。
-        // 待たずに event_.reset() / overlapped_={} すると次回 StartWatching の change_buf_ 再利用と race し
-        // ヒープ破壊や謎のシグナルを招く。
-        CancelIoEx(target_.dir.get(), &overlapped_);
-        DWORD bytes_returned = 0;
-        GetOverlappedResult(target_.dir.get(), &overlapped_, &bytes_returned, TRUE);
-        read_pending_ = false;
-    }
-    event_.reset();
-    overlapped_ = {};
-    target_.dir.reset();
+    target_.read.reset();
     paused_ = false;
     pending_change_ = false;
     on_change_ = nullptr;
@@ -122,23 +112,24 @@ void FileWatcher::StopWatching() noexcept
 
 void FileWatcher::CheckForChanges()
 {
-    if (!read_pending_) {
+    auto* const read = target_.read.get();
+    if (!read || !read->pending) {
         return;
     }
 
     DWORD bytes_returned = 0;
-    if (!GetOverlappedResult(target_.dir.get(), &overlapped_, &bytes_returned, FALSE)) {
+    if (!GetOverlappedResult(read->dir.get(), &read->overlapped, &bytes_returned, FALSE)) {
         if (GetLastError() != ERROR_IO_INCOMPLETE) {
-            read_pending_ = false;
+            read->pending = false;
             StopWatching();
         }
         return;
     }
 
-    read_pending_ = false;
+    read->pending = false;
 
     const bool target_changed = NotifyBufferHasTargetChange(
-        std::as_bytes(std::span{ change_buf_, bytes_returned }), target_.filename, target_.short_filename);
+        std::as_bytes(std::span{ read->buf, bytes_returned }), target_.filename, target_.short_filename);
     if (target_changed) {
         if (paused_) {
             pending_change_ = true;
@@ -147,7 +138,10 @@ void FileWatcher::CheckForChanges()
             FireChange();
         }
     }
-    BeginRead();
+    // 通知を受けた側が監視をやめていることがあるので、引き直す。
+    if (target_.read && !target_.read->Begin()) {
+        StopWatching();
+    }
 }
 
 void FileWatcher::FireChange()

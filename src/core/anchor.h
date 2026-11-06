@@ -21,7 +21,7 @@ public:
     // 次の見出しを登録し、割り当てたアンカーを返す。返り値は索引を破棄するまで有効。
     std::string_view Add(std::string_view heading_text, int node_index);
 
-    // anchor (ASCII 小文字) を付けた見出しのノード番号。登録済みの見出しに無ければ -1。
+    // anchor (ToLowerAnchorCopy で小文字にしたもの) を付けた見出しのノード番号。登録済みの見出しに無ければ -1。
     int Find(std::string_view anchor) const;
 
     // 登録済みの見出し数 (見出し 1 つにつきスラグを 1 つ登録する)。続きから登録するときの開始位置になる。
@@ -58,6 +58,6 @@ struct FootnoteRef {
 std::string FootnoteDefUrl(uint32_t id);
 std::string FootnoteRefUrl(uint32_t id, uint32_t ref_id);
 
-// anchor (ASCII 小文字) が指す脚注定義 / 参照のノード番号。脚注のアンカーでないか、該当が無ければ -1。
+// anchor (ToLowerAnchorCopy で小文字にしたもの) が指す脚注定義 / 参照のノード番号。脚注のアンカーでないか、該当が無ければ -1。
 // def_nodes[id - 1] が脚注 id の定義ノード。
 int FindFootnoteAnchor(std::string_view anchor, std::span<const int32_t> def_nodes, std::span<const FootnoteRef> refs) noexcept;

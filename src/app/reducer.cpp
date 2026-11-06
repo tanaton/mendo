@@ -7,7 +7,6 @@
 #include "selection_html.h"
 #include "string_convert.h"
 #include "ui_constants.h"
-#include "utility.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -41,20 +40,18 @@ void DiscardPendingLoad(AppState& state)
 // load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
 void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {})
 {
+    // 新しいロードはロード中の別ファイルを取り消す。文書が無い起動時の読み込み中も、起動時の復元位置を持ち越さない。
+    if (!load_path.empty()) {
+        DiscardPendingLoad(state);
+    }
     const auto& current_path = state.document.doc.GetFilePath();
     // doc 未ロード (パス空) の状態は戻り先にならないため積まない
     if (current_path.empty()) {
         return;
     }
     NavEntry entry = CurrentNavEntry(state);
-    if (load_path.empty()) {
-        state.view.nav_history.Push(std::move(entry));
-        return;
-    }
-    // 新しいロードはロード中の別ファイルを取り消す。
-    DiscardPendingLoad(state);
     // 同じファイルの開き直しはリロードとして終わり、確定 (DocumentOpenedAction) が来ない。
-    if (path_util::iequal(load_path, current_path)) {
+    if (load_path.empty() || path_util::iequal(load_path, current_path)) {
         state.view.nav_history.Push(std::move(entry));
     }
     else {
@@ -965,7 +962,7 @@ void ReduceWheelZoom(ReduceContext& c, const MouseWheelAction& a)
     if (steps == 0) {
         return;
     }
-    accum = 0;
+    accum %= WHEEL_DELTA;
     On(c, ZoomAction{ a.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(a.zone) });
 }
 

@@ -511,6 +511,8 @@ TEST(Syntax, FirstTokenText)
         // 識別子の末尾の R では生文字列にしない (バグ #16)。
         { "CppRawStringNotAfterIdentifierEndingR", "RENDER\"hello\"", Cpp, String, "\"hello\"" },
         { "CppRawStringNotAfterLongerIdentifier", "xR\"(a)\"", Cpp, String, "\"(a)\"" },
+        { "CppRawStringWidePrefix", "p = LR\"(a\"b)\";", Cpp, String, "LR\"(a\"b)\"" },
+        { "CppRawStringU8Prefix", "u8R\"x(a)x\"", Cpp, String, "u8R\"x(a)x\"" },
         { "PythonFString", "f\"hello {name}\"", Python, String, "\"hello {name}\"" },
         { "PythonUnterminatedTripleQuote", "s = \"\"\"never closed", Python, String, "\"\"\"never closed" },
         { "TsTemplateLiteral", "`hello ${name}`", TypeScript, String, "`hello ${name}`" },
@@ -519,6 +521,8 @@ TEST(Syntax, FirstTokenText)
         { "PwshHashComment", "$x = 1  # comment\n$y = 2", PowerShell, Comment, "# comment" },
         { "PwshString", "\"hello world\"", PowerShell, String, "\"hello world\"" },
         { "CmdRemCommentCaseInsensitive", "rem comment here", Cmd, Comment, "rem comment here" },
+        { "CmdAtRemComment", "@rem build script", Cmd, Comment, "rem build script" },
+        { "CmdAtDoubleColonComment", "@:: note", Cmd, Comment, ":: note" },
         { "CmdString", "echo \"hello world\"", Cmd, String, "\"hello world\"" },
         { "TerminatedBlockCommentStillWorks", "/* ok */ x", Cpp, Comment, "/* ok */" },
         { "CppStringDouble", "x = \"hello world\"", Cpp, String, "\"hello world\"" },
@@ -1011,7 +1015,7 @@ TEST(TokensCrossing, MatchesFullTokenizeOnRandomCode)
     constexpr std::string_view kPieces[] = {
         "\"", "'", "`", "'''", "\"\"\"", "\"\"\"\"", "/*", "*/", "//", "#", "#[", "\n", "\n", "\n", " ", " ", "\t",
         "R\"(", ")\"", "R\"x(", ")x\"", "r\"", "@\"", "$\"", "<#", "#>", "--", "--[[", "]]", "[[", "[==[", "]==]",
-        "\n=begin\n", "\n=end\n", "=begin", "::", "\nrem ", "REM ", "\\\\", "\\", "${", "}", "$x", "$class", "@import",
+        "\n=begin\n", "\n=end\n", "=begin", "::", "\nrem ", "REM ", "\n@rem ", "@", "LR\"(", "\\\\", "\\", "${", "}", "$x", "$class", "@import",
         "foo", "int", "return", "class", "x_1", "日本語", "(", ")", ";", ",", "=", "-", "+", "*", "/", ".", ":", "<", ">", "[", "]",
         "123", "1'000", "0x1F", "1.5e+3", ".5", "1.", "1e", "0b1'0",
     };

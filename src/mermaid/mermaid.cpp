@@ -256,10 +256,10 @@ bool MermaidRenderer::ApplyJobResult(Job& r)
     case RequestKind::Display:
         break;
     }
-    // 表示に要るなら要求し直される。
+    // 取り消してから戻るまでに来た同じ要求は inflight_ で断っているので、要求し直させる。
     if (r.dropped) {
         inflight_.erase(r.req.request_hash);
-        return false;
+        return true;
     }
     if (r.parsed) {
         DiagramResult result{ .commands = RecordDrawing(*r.parsed), .width = r.parsed->width, .height = r.parsed->height };

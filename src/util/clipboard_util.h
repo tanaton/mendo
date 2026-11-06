@@ -181,19 +181,19 @@ inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
 // CF_DIB:          画像。Paint / チャット / Office などへの貼り付け用。基本形式。
 // CF_UNICODETEXT:  SVG マークアップ原文のテキストフォールバック。
 // 並び順 = 優先度。ベクタを優先する貼り付け先のため SVG を先頭に積む。
-// 戻り値: 画像 (CF_DIB) が載れば true。画像は必ず載せる基本形式なので、
-//         成功判定はこれで行う (svg/テキストはベストエフォートの付加形式)。
+// 戻り値: 画像 (CF_DIB) が載れば true。画像は必ず載せる基本形式なので、画像が無ければクリップボードに触れずに false を返す
+//         (SVG だけ載せて失敗と知らせない)。svg/テキストはベストエフォートの付加形式。
 inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::string_view svg_utf8) noexcept
 {
+    if (!dib) {
+        return false;
+    }
     // EmptyClipboard より前に各バッファを確保する (HTML/SVG 経路と同じ「揃ってから開く」方針)。
     UniqueGlobalMem svg_unicode;
     UniqueGlobalMem svg_utf8_mem;
     if (!svg_utf8.empty()) {
         svg_unicode = BuildGlobalWideFromUtf8(svg_utf8);
         svg_utf8_mem = BuildGlobalZeroTerminated(svg_utf8);
-    }
-    if (!dib && !svg_unicode && !svg_utf8_mem) {
-        return false;
     }
 
     ClipboardSession session(hwnd);

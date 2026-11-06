@@ -69,10 +69,22 @@ inline float ErrorPlaceholderHeight(const Theme& theme) noexcept
     return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR * 3.0f;
 }
 
+// 読めない画像の alt を囲む枠の余白 (上下左右)。
+inline float ImageAltPadding(const Theme& theme) noexcept
+{
+    return theme.font_size_body * 0.5f;
+}
+
+// 読めない画像の alt の枠の高さ。alt は 1 行に収め、収まらない分は省略記号で切る。
+inline float ImageAltHeight(const Theme& theme) noexcept
+{
+    return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR + 2.0f * ImageAltPadding(theme);
+}
+
 // 子ブロックも無い空 LI は bullet / checkbox だけの 1 行。
 inline float EmptyListItemHeight(const Theme& theme) noexcept
 {
-    return theme.font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
+    return theme.font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, BODY_LINE_HEIGHT_FACTOR);
 }
 
 // テキストが空のノードの高さ。中身を子ブロックに持つ LI は 0 にする
@@ -126,16 +138,19 @@ void ForEachOverlayButton(const Node& node, const LayoutCache& cache, size_t i, 
     if (!HasDiagramButtons(diagram)) {
         return;
     }
-    const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
+    const auto bmp = DiagramRect(diagram->width, diagram->height, x, w, top);
     for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
         fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
     }
 }
 
 // ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
-// 描けなかった図は ErrorPlaceholderHeight 以上にする。
+// 描けなかった図は ErrorPlaceholderHeight 以上にし、読めない画像は alt の枠の高さにする。
 inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
 {
+    if (bitmap && bitmap->error.kind == DiagramError::Kind::ImageUnavailable) {
+        return ImageAltHeight(theme);
+    }
     if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
         return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
     }
@@ -148,7 +163,8 @@ inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, floa
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
-void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, float available_width);
+// min_widths は列ごとの最小幅 (最も長い単語)。自然幅以下であること。
+void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;

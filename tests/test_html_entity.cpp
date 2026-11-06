@@ -70,6 +70,22 @@ TEST(HtmlEntity, RejectsInvalidReferences)
         "&am;",
         "&AAA;",
         "&zzzz;",
+        "&unknown;",
+        // 数字でない・空の数値参照は参照ではない
+        "&#xZZ;",
+        "&#65x;",
+        "&#;",
+        "",
+    };
+    for (const std::string_view entity : kCases) {
+        EXPECT_EQ(Resolve(entity), std::nullopt) << entity;
+    }
+}
+
+// 文字にならない数値参照は、CommonMark と GitHub と同じく U+FFFD にする。
+TEST(HtmlEntity, ReplacesNonCharacterNumbers)
+{
+    constexpr std::string_view kCases[] = {
         // サロゲート (U+D800-U+DFFF) は単独では文字にならない
         "&#xD800;",
         "&#xDBFF;",
@@ -79,18 +95,14 @@ TEST(HtmlEntity, RejectsInvalidReferences)
         "&#x0;",
         "&#x110000;",
         "&#x7FFFFFFF;",
-        // 32 bit 整数に収まらない数は wrap (例: 4294967297 → 1) せずに弾く。
+        // 32 bit 整数に収まらない数は wrap (例: 4294967297 → 1) させない。
         "&#4294967296;", // 2^32 (10 桁、wrap で 0)
         "&#4294967297;", // 2^32 + 1 (10 桁、wrap で 1)
         "&#x100000000;", // 2^32 (9 桁 hex、wrap で 0)
         "&#x100000001;", // 2^32 + 1 (9 桁 hex、wrap で 1)
-        "&unknown;",
-        "&#xZZ;",
-        "&#;",
-        "",
     };
     for (const std::string_view entity : kCases) {
-        EXPECT_EQ(Resolve(entity), std::nullopt) << entity;
+        EXPECT_EQ(Resolve(entity), "\xEF\xBF\xBD") << entity;
     }
 }
 

@@ -16,8 +16,7 @@ class TaskScheduler;
 // 書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
 // インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
 // 書く直前に読み直して、他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
-// すべてのパブリックメソッドはUIスレッドから呼び出す必要がある
-// （StoreAsyncのタスク投入のみスレッドセーフ）。
+// すべてのパブリックメソッドはUIスレッドから呼び出す必要がある (worker で動くのはファイルの書き込みと削除だけ)。
 class MermaidFileCache {
 public:
     // index.bin の先頭。
@@ -31,7 +30,7 @@ public:
     // 6: ファイルの拡張子を .png から .drawing にした。
     // 7: 層の図形を <svg> の中身だけにして <defs> を図に 1 つ持ち、図形の SVG に初期値の属性を書かなくなった。
     // 8: 文字と数式のラベルの数の並びを、置き方 (変換・x・y・大きさ・色・不透明度) を先頭にそろえた。
-    static constexpr uint32_t VERSION = 8;
+    static constexpr uint32_t VERSION = 9;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();
@@ -96,7 +95,7 @@ private:
         using Map = std::unordered_map<uint64_t, IndexEntry>;
         Map entries;
         uint64_t total_size = 0;
-        // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して順序が付かない。
+        // last_used に積む単調増加シーケンス。ms 時刻だと連続 Find で衝突して順序が付かない。
         int64_t lru_seq = 0;
         // 読み込んだか書いた時点の lru_seq。last_used がこれより大きいエントリは、その後に足したか使ったもの。
         int64_t saved_seq = 0;

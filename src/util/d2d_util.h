@@ -8,7 +8,7 @@
 #include <windows.h>
 #include <cstddef>
 
-// テキスト書式の作り方。描画とコンテキストメニューで共有する。
+// テキスト書式の作り方。描画・計測・ポップアップで共有する。
 struct TextFormatSpec {
     const wchar_t* family = nullptr;
     DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;

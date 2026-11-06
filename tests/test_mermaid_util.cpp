@@ -48,7 +48,7 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
         L"400:300.5:2039583:8:<g>い</g>2:"
         L"12:<svg>あ</svg>2:"
         L"1,0,0,1,10.5,20,3,4.25,16,16711680,0.5,700,1,0:10:Segoe UI,x5:a:b,c"
-        L"0,1,-1,0,0,0,0,0,12,0,1,400,0,1:0:0:"
+        L"0,1,-1,0,0,0,0,0,12,0,1,400,0,3:0:0:"
         L"1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
         L"0:0:0:"sv);
     ASSERT_TRUE(d.has_value());
@@ -69,12 +69,12 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
     EXPECT_EQ(t.at.font_size, 16.0f);
     EXPECT_EQ(t.weight, 700);
     EXPECT_TRUE(t.italic);
-    EXPECT_FALSE(t.underline);
+    EXPECT_EQ(t.decoration, 0);
     EXPECT_EQ(t.at.rgb, 0xFF0000u);
     EXPECT_EQ(t.at.alpha, 0.5f);
     EXPECT_EQ(t.family, L"Segoe UI,x"sv);
     EXPECT_EQ(t.text, L"a:b,c"sv);
-    EXPECT_TRUE(texts[1].underline);
+    EXPECT_EQ(texts[1].decoration, mermaid_util::kTextUnderline | mermaid_util::kTextLineThrough);
     EXPECT_TRUE(texts[1].family.empty());
     EXPECT_TRUE(texts[1].text.empty());
     ASSERT_EQ(d->layers[0].maths.size(), 1u);
@@ -153,6 +153,8 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         with_run(L"1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
+        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない
         with_run(L"1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:2:a"),      // 文字の長さが足りない
         with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:-1:1:a"),     // 長さが数字でない

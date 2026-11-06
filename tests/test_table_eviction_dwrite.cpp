@@ -344,6 +344,7 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
     const auto& p = *parallel.cache[idx].table_layout();
     EXPECT_EQ(CountNonNullCells(p), p.cell_layouts.size());
     EXPECT_EQ(s.natural_col_widths, p.natural_col_widths);
+    EXPECT_EQ(s.min_col_widths, p.min_col_widths);
     EXPECT_EQ(s.col_widths, p.col_widths);
     EXPECT_FLOAT_EQ(serial.cache[idx].height, parallel.cache[idx].height);
 }

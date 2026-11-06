@@ -72,7 +72,7 @@ struct PeleContext {
     PeleEngine* engine = nullptr;
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
-    // pele を読んだら (code, maxWidth, fontFamily, fontFamilyMono, withMath) → SVG
+    // pele を読んだら (code, maxWidth, fontFamily, fontFamilyMono, katexHtml) → SVG
     JSValue render = JS_UNDEFINED;
     // KaTeX を読んだら (tex) → HTML
     JSValue katex = JS_UNDEFINED;

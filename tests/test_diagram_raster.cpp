@@ -267,6 +267,70 @@ TEST_F(PeleSvgTest, ResolvesVariablesAndColorMix)
     EXPECT_NE(dark->layers[0].shapes.find(R"svg(fill="#2b2b2b")svg"), std::string::npos);
 }
 
+// text-decoration の取り消し線も下線と同じく描く。祖先の線は子孫の文字にも重なる (CSS の装飾の伝播)。
+TEST_F(PeleSvgTest, TextDecorationLinesPropagate)
+{
+    const auto drawing = Resolve(R"svg(<text x="0" y="20" style="text-decoration:line-through">a</text>)svg"
+                                 R"svg(<text x="0" y="40" style="text-decoration:underline">b<tspan style="text-decoration:line-through">c</tspan></text>)svg"
+                                 R"svg(<text x="0" y="60" style="text-decoration:none">d</text>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    const auto& texts = drawing->layers[0].texts;
+    ASSERT_EQ(texts.size(), 4u);
+    EXPECT_EQ(texts[0].decoration, mermaid_util::kTextLineThrough);
+    EXPECT_EQ(texts[1].decoration, mermaid_util::kTextUnderline);
+    EXPECT_EQ(texts[2].decoration, mermaid_util::kTextUnderline | mermaid_util::kTextLineThrough);
+    EXPECT_EQ(texts[3].decoration, 0);
+    const auto svg = DrawingToSvg(*drawing);
+    EXPECT_NE(svg.find(R"svg(text-decoration="line-through")svg"), std::string::npos) << svg;
+    EXPECT_NE(svg.find(R"svg(text-decoration="underline line-through")svg"), std::string::npos) << svg;
+}
+
+// pele は px 以外の線の太さの縁取りを calc(<太さ> + 4px) と書く。足し算と引き算を読み、読めない項があれば宣言ごと無効にする。
+TEST_F(PeleSvgTest, ReadsCalcSumsOfLengths)
+{
+    const auto drawing = Resolve(R"svg(<path d="M0 0L10 0" stroke="#000" style="stroke-width:calc(3pt + 4px)"/>)svg"
+                                 R"svg(<path d="M0 0L10 0" stroke="#000" style="stroke-width:calc(1em - 6px + min(2px, 3px))"/>)svg"
+                                 R"svg(<g style="stroke-width:3"><path d="M0 0L10 0" stroke="#000" style="stroke-width:calc(50% + 1px)"/></g>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    const auto& shapes = drawing->layers[0].shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke-width="8")svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke-width="12")svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke-width="3")svg"), std::string::npos) << shapes;
+}
+
+// 読めない宣言は CSS と同じく捨て、同じ性質の前の宣言か表示の属性を使う。var() の宣言は解けなければ、前の宣言ではなく
+// 親の値になる (計算値の時点で無効)。大きさの無い font の一括指定は宣言ごと捨てる。
+TEST_F(PeleSvgTest, InvalidDeclarationFallsBackToEarlierOne)
+{
+    const auto drawing = Resolve(R"svg(<path d="M0 0L10 0" stroke="#000" style="stroke-width:3;stroke-width:calc(50% + 1px)"/>)svg"
+                                 R"svg(<path d="M0 0L10 0" stroke="#000" stroke-width="5" style="stroke-width:foo;fill:#f00;fill:notacolor"/>)svg"
+                                 R"svg(<g style="stroke-width:7"><path d="M0 0L10 0" stroke="#000" style="stroke-width:2;stroke-width:var(--missing)"/></g>)svg"
+                                 R"svg(<text x="0" y="20" style="font-weight:bold;font:italic">a</text>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    const auto& shapes = drawing->layers[0].shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke="#000000" stroke-width="3")svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(fill="#ff0000" stroke="#000000" stroke-width="5")svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke="#000000" stroke-width="7")svg"), std::string::npos) << shapes;
+    EXPECT_EQ(shapes.find(R"svg(stroke-width="2")svg"), std::string::npos) << shapes;
+    ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
+    EXPECT_EQ(drawing->layers[0].texts[0].weight, 700);
+    EXPECT_FALSE(drawing->layers[0].texts[0].italic);
+}
+
+// 対応の無い ) はその宣言だけを無効にし、後ろの宣言は効かせる (Chrome と同じ)。
+TEST_F(PeleSvgTest, UnmatchedParenInvalidatesOnlyItsDeclaration)
+{
+    const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="10" style="fill:#fcc);stroke:#00f;stroke-width:4px"/>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    const auto& shapes = drawing->layers[0].shapes;
+    EXPECT_NE(shapes.find(R"svg(fill="#1f1f1f")svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(stroke="#0000ff" stroke-width="4")svg"), std::string::npos) << shapes;
+}
+
 // 文字は text-anchor の分だけ塊の幅で戻す。tspan は前の文字の後ろに続き、下付きは小さくして下げる。
 TEST_F(PeleSvgTest, PlacesTextChunksByAnchor)
 {

@@ -17,10 +17,13 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ (DIP)。
+// 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ (DIP)。図とコードブロックのボタン
+// (COPY_BTN_SIZE) とジェスチャーのパネルもズームしないので、中の文字も固定にする。
 constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
 // タイトルバーと検索バーのアイコン。
 constexpr float UI_ICON_FONT_SIZE = 14.0f;
+constexpr float OVERLAY_BUTTON_ICON_FONT_SIZE = 16.0f;
+constexpr float GESTURE_OVERLAY_FONT_SIZE = 32.0f;
 constexpr float SEARCH_COUNT_FONT_SIZE = SEARCH_INPUT_FONT_SIZE * 0.9f;
 constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
@@ -286,15 +289,16 @@ void Renderer::CreateTextFormats(bool zoomed_only)
     // clang-format off
     const FormatSpec specs[] = {
         { fmt_.md.checkbox,          Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR }, true },
-        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, true  }, true },
+        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       OVERLAY_BUTTON_ICON_FONT_SIZE, nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, true,  BODY_LINE_HEIGHT_FACTOR }, true },
         { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false, 0.0f, true }, true },
+        { fmt_.md.image_alt,         Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_CTR, true,  0.0f, true }, true },
         { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true, 0.0f, true } },
         { fmt_.ui_icon,              Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,             nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_icon,            Loc::En,   { icon_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_header,          Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
         { fmt_.nav_button,           Loc::Doc,  { body_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.gesture_overlay,      Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_->zoom,          nullptr, TA_CTR,  PA_CTR, false }, true },
+        { fmt_.gesture_overlay,      Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, GESTURE_OVERLAY_FONT_SIZE,     nullptr, TA_CTR,  PA_CTR, false } },
         { fmt_.toast_text,           Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.search_input,         Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,        nullptr, TA_LEAD, PA_CTR, true  } },
         { fmt_.search_count,         Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,        nullptr, TA_CTR,  PA_CTR, true  } },

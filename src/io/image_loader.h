@@ -24,8 +24,8 @@ public:
     // デコード結果が届いたら hwnd へ msg_id を投げる (hwnd が null なら投げない)。
     void Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
-    // デバイスロストでの差し替えでは、旧 rt のビットマップと始まっていないデコードを捨てる。
-    // 始まったデコードは WIC ビットマップで rt に依らないので、新しい rt で使う。
+    // デバイスロストでの差し替えでは、旧 rt のビットマップを捨てる。デコードは WIC ビットマップを作るので rt に依らず
+    // (縮める上限 max_bitmap_dim_ は始めるときに読む)、待ちのものも受け箱の結果も新しい rt に載せる。
     void SetRenderTarget(ID2D1RenderTarget* rt);
 
     struct CachedImage {
@@ -42,6 +42,12 @@ public:
     D2D1_SIZE_F DipSize(const CachedImage& image) const noexcept;
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
     void RequestLoadAsync(const std::wstring& abs_path, float max_width_dip);
+    // 読み込みに kMaxImageRetries 回失敗し、もう読まない (ResetFailedPaths まで)。
+    bool HasGivenUp(const std::wstring& abs_path) const noexcept
+    {
+        const auto it = failed_paths_.find(abs_path);
+        return it != failed_paths_.end() && it->second >= kMaxImageRetries;
+    }
     // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
     bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept
     {

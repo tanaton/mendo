@@ -9,7 +9,7 @@
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {
     MENDO_PROFILE("Document::FromMarkdown");
-    assert(std::memchr(text.data(), '\r', text.size()) == nullptr);
+    assert(std::string_view{ text }.find_first_of(std::string_view{ "\r\0", 2 }) == std::string_view::npos);
     Document doc;
     doc.file_path_ = path;
     doc.cached_directory_ = path_util::ParentDirectory(path);
@@ -22,7 +22,7 @@ Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view pa
 Document Document::FromMarkdown(std::string utf8, std::wstring_view path)
 {
     // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されている。
-    NormalizeNewlines(utf8);
+    NormalizeSource(utf8);
     return FromNormalizedMarkdown(std::move(utf8), path);
 }
 

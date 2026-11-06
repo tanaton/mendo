@@ -12,15 +12,7 @@
 namespace layout {
 
 namespace {
-// 列幅計算の下限。半角 2-3 文字相当（本文 16 DIP 基準）。
-// 短いセルが極端に潰れないようにするための実用下限で、フォントサイズを変えても
-// 視覚的に違和感が出にくい固定値として採用している。
-constexpr float MIN_COLUMN_WIDTH = 30.0f;
-// 列幅計算で実測幅に上乗せする余白。テーブル罫線とパディングを合わせた境界 (DIP)。
-// TABLE_CELL_PADDING (8.0f) より小さいのは、列幅は左右の合計ではなく片側相当で扱うため。
-constexpr float COLUMN_WIDTH_PADDING = 4.0f;
-// Y座標の早期終了判定用許容誤差（DIP単位）。物理ピクセル境界 0.01 DIP は 96 DPI 換算で
-// 約 1/100 px 未満で、視覚差を生まない閾値。これ未満の差分は再計算不要として break する。
+// この差 (DIP) 未満では後ろのノードをずらさない (ShiftTops を省く)。0.01 DIP は 96 DPI で 1/100 px 未満で、見た目に差が出ない。
 constexpr float Y_POSITION_EPSILON = 0.01f;
 
 // nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
@@ -111,67 +103,25 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, float available_width)
+void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width)
 {
-    const size_t col_count = natural_widths.size();
-    out.resize(col_count);
-    if (col_count == 0) {
+    out.resize(natural_widths.size());
+    // GitHub (Chrome の自動の表組み、width: max-content; max-width: 100%) と同じく、収まる表は広げずに自然幅で並べる。
+    const float total_natural = std::ranges::fold_left(natural_widths, 0.0f, std::plus{});
+    if (total_natural <= available_width) {
+        std::ranges::copy(natural_widths, out.begin());
         return;
     }
-    const float effective_available = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
-
-    const float total_natural = std::ranges::fold_left(natural_widths, 0.0f, std::plus{});
-
-    if (total_natural > effective_available) {
-        // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
-        // 自然幅で出して横スクロールに任せる方が読みやすい。
-        const float smallest = *std::ranges::min_element(natural_widths);
-        if (smallest * effective_available < MIN_COLUMN_WIDTH * total_natural) {
-            std::ranges::copy(natural_widths, out.begin());
-            return;
-        }
-        for (auto [w, nw] : std::views::zip(out, natural_widths)) {
-            w = effective_available * nw / total_natural;
-        }
+    // 収まらなければ各列を最小幅 (最も長い単語) までは縮め、余りを (自然幅 - 最小幅) に比例して配る。番号のような狭い列は
+    // 自然幅のまま残り、長い文の列が折り返す。最小幅でも収まらなければ最小幅で横スクロールに任せる。
+    const float total_min = std::ranges::fold_left(min_widths, 0.0f, std::plus{});
+    if (total_min >= available_width) {
+        std::ranges::copy(min_widths, out.begin());
+        return;
     }
-    else {
-        // 一律 max(nw + pad, even) だと幅広列の超過分だけ合計が available を超え、
-        // 自然幅なら収まる表まで横スクロールになる。
-        // 幅広列に nw + pad を確保し、残りを他列で均等に分けて合計を available に揃える。
-        const auto columns = std::views::zip(out, natural_widths);
-        const float n = static_cast<float>(col_count);
-        const float demand_total = total_natural + n * COLUMN_WIDTH_PADDING;
-        if (demand_total > effective_available) {
-            // 余白込みでは収まらないが自然幅は収まる。余りを均等に足し、列が自然幅を割らないようにする。
-            const float extra = (effective_available - total_natural) / n;
-            for (auto [w, nw] : columns) {
-                w = nw + extra;
-            }
-            return;
-        }
-        // level を下げるたびに nw + pad > level の列が増えるだけなので、列数回以内で収束する。
-        float level = effective_available / n;
-        size_t flex = col_count;
-        for (;;) {
-            float fixed_total = 0.0f;
-            size_t next_flex = 0;
-            for (const float nw : natural_widths) {
-                if (nw + COLUMN_WIDTH_PADDING > level) {
-                    fixed_total += nw + COLUMN_WIDTH_PADDING;
-                }
-                else {
-                    ++next_flex;
-                }
-            }
-            if (next_flex == flex || next_flex == 0) {
-                break;
-            }
-            flex = next_flex;
-            level = (effective_available - fixed_total) / static_cast<float>(flex);
-        }
-        for (auto [w, nw] : columns) {
-            w = std::max(nw + COLUMN_WIDTH_PADDING, level);
-        }
+    const float ratio = (available_width - total_min) / (total_natural - total_min);
+    for (auto [w, nw, mw] : std::views::zip(out, natural_widths, min_widths)) {
+        w = mw + (nw - mw) * ratio;
     }
 }
 
@@ -351,7 +301,7 @@ float CalcScrollYForDiff(
 
 int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept
 {
-    // cache[entries[i].node_index].text_top <= scroll_y + margin を満たす最大の i を求める。
+    // cache.Top(entries[i].node_index) <= scroll_y + margin を満たす最大の i を求める。
     const float threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries, [&](const TocEntry& e) noexcept {
         return cache.Top(static_cast<size_t>(e.node_index)) <= threshold;

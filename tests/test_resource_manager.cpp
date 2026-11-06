@@ -248,6 +248,8 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         std::vector<Entry> entries;
         // 1 枚目の画像に入る高さ。nullopt なら何も適用しない。
         std::optional<float> height;
+        // src を解決しない。キャッシュにあっても引かず、alt の枠を出す。
+        bool unresolved = false;
     };
     const Case kCases[] = {
         // content_width=800 より小さい画像はスケール無し。
@@ -260,16 +262,16 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         // UNC の画像はキャッシュにあっても引かない。判定はデコード後のパスにかける。
         // Markdown の \\ は \ 1 個になるので、UNC の \\ は \\\\ と書く。
         { "Unc", "![a](\\\\\\\\attacker\\share\\a.png)\n\n![c](%5C%5Cattacker%5Cshare%5Cc.png)\n", kTestDocPath, 2,
-          { { L"\\\\attacker\\share\\a.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f } }, std::nullopt },
+          { { L"\\\\attacker\\share\\a.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f } }, std::nullopt, true },
         // 先頭 2 文字がスラッシュなら向きを問わず UNC。デコード後に "//" になる記述も同じ。
         { "SlashUnc", "![b](//attacker/share/b.png)\n\n![c](%2F%2Fattacker%2Fshare%2Fc.png)\n\n![d](/%5Cattacker/share/d.png)\n", kTestDocPath, 3,
-          { { L"\\\\attacker\\share\\b.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f }, { L"\\\\attacker\\share\\d.png", 300.0f } }, std::nullopt },
+          { { L"\\\\attacker\\share\\b.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f }, { L"\\\\attacker\\share\\d.png", 300.0f } }, std::nullopt, true },
         // デコードは 1 回だけ。二重エンコードの %255C は文書フォルダ内の "%5C" という名前のファイルになる。
         { "PercentOnlyOnce", "![e](%255C%255Cattacker%255Cshare%255Ce.png)\n", kTestDocPath, 1,
           { { L"\\\\attacker\\share\\e.png", 100.0f }, { L"C:\\dir\\%5C%5Cattacker%5Cshare%5Ce.png", 300.0f } }, 300.0f },
         // "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果がキャッシュにあっても引かない。
         { "Scheme", "![alt](https://example.com/foo.png)\n", kTestDocPath, 1,
-          { { joined(L"C:\\dir", L"https://example.com/foo.png"), 300.0f } }, std::nullopt },
+          { { joined(L"C:\\dir", L"https://example.com/foo.png"), 300.0f } }, std::nullopt, true },
         // 文書を \\?\ 付きのパスで開いていても、相対パスの .. で \\?\UNC\host へ抜けさせない。
         { "DevicePrefixEscape", "![a](../../UNC/attacker/share/a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { escaped, 300.0f } }, std::nullopt },
         // \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
@@ -286,9 +288,50 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         for (const auto& e : c.entries) {
             image_loader_.InsertCacheEntryForTest(e.key, 400.0f, e.height);
         }
-        EXPECT_EQ(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }), c.height.has_value());
+        const bool applied = rm_.ApplyImageCacheHeights({ 0, SIZE_MAX });
+        const auto* d = cache_.FindDiagram(image_indices[0]);
+        if (c.unresolved) {
+            EXPECT_TRUE(applied);
+            ASSERT_NE(d, nullptr);
+            EXPECT_EQ(d->error.kind, DiagramError::Kind::ImageUnavailable);
+            EXPECT_EQ(d->bitmap, nullptr);
+            continue;
+        }
+        EXPECT_EQ(applied, c.height.has_value());
         EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, c.height.value_or(100.0f));
+        EXPECT_TRUE(!d || d->error.empty());
     }
+}
+
+// 読めない画像の枠に出すのは段落の文字 (alt)。alt が空なら src を出す。
+TEST_F(ResourceManagerTest, UnavailableImageShowsAltOrSrc)
+{
+    LoadMarkdown("![logo badge](https://example.com/a.png)\n\n![](https://example.com/b.png)\n");
+    const auto& image_indices = doc_.GetImageNodeIndices();
+    ASSERT_EQ(image_indices.size(), 2u);
+    rm_.LoadImages();
+    const auto* with_alt = cache_.FindDiagram(image_indices[0]);
+    const auto* without_alt = cache_.FindDiagram(image_indices[1]);
+    ASSERT_NE(with_alt, nullptr);
+    ASSERT_NE(without_alt, nullptr);
+    EXPECT_EQ(with_alt->error.message, L"logo badge");
+    EXPECT_EQ(without_alt->error.message, L"https://example.com/b.png");
+}
+
+// 読み直しで失敗の記録が消えても、読めるまでは alt の枠のまま (読み込み中と行き来させない)。読めたら画像にする。
+TEST_F(ResourceManagerTest, UnavailableImageStaysUntilLoaded)
+{
+    LoadMarkdown("![alt](a.png)\n");
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    cache_.EnsureDiagram(img_idx).error = { DiagramError::Kind::ImageUnavailable, L"alt" };
+
+    rm_.LoadImages();
+    EXPECT_EQ(cache_.FindDiagram(img_idx)->error.kind, DiagramError::Kind::ImageUnavailable);
+
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
+    rm_.LoadImages();
+    EXPECT_TRUE(cache_.FindDiagram(img_idx)->error.empty());
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
 }
 
 TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesBeyondVisibleRange)

@@ -339,20 +339,41 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     }
 }
 
+namespace {
+
+void ReplaceNulls(std::string& s)
+{
+    const auto nuls = static_cast<size_t>(std::ranges::count(s, '\0'));
+    if (nuls == 0) {
+        return;
+    }
+    // U+FFFD は 3 byte なので、伸ばしてから後ろから詰める。
+    constexpr std::string_view kFffd = utf8_codec::kReplacementUtf8;
+    size_t src = s.size();
+    s.resize(src + nuls * (kFffd.size() - 1));
+    char* const data = s.data();
+    for (size_t dst = s.size(); src > 0;) {
+        const char c = data[--src];
+        if (c != '\0') {
+            data[--dst] = c;
+            continue;
+        }
+        dst -= kFffd.size();
+        std::memcpy(data + dst, kFffd.data(), kFffd.size());
+    }
+}
+
 void NormalizeNewlines(std::string& s)
 {
-    MENDO_PROFILE("NormalizeNewlines");
     const size_t n = s.size();
     char* const data = s.data();
     char* const end = data + n;
 
-    // CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは衝突しない。
     const auto find_cr = [end](char* p) noexcept {
         return static_cast<char*>(std::memchr(p, '\r', static_cast<size_t>(end - p)));
     };
     char* src = find_cr(data);
     if (!src) {
-        MENDO_STATF("NormalizeNewlines: in={} out={} shrunk=0 (fast LF-only)", n, n);
         return;
     }
 
@@ -372,7 +393,19 @@ void NormalizeNewlines(std::string& s)
     }
 
     s.resize(static_cast<size_t>(dst - data));
-    MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
+}
+
+} // namespace
+
+void NormalizeSource(std::string& s)
+{
+    MENDO_PROFILE("NormalizeSource");
+    // CR と NUL は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは衝突しない。
+    if (std::string_view{ s }.find_first_of(std::string_view{ "\r\0", 2 }) == std::string_view::npos) {
+        return;
+    }
+    NormalizeNewlines(s);
+    ReplaceNulls(s);
 }
 
 // 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。

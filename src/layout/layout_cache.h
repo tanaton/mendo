@@ -2,7 +2,6 @@
 #include "document_types.h"
 #include "pane_layout.h"
 #include "ui_constants.h"
-#include "utility.h"
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -83,6 +82,7 @@ struct TableLayoutData {
     std::vector<float> col_widths;
     std::vector<float> row_heights;
     std::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
+    std::vector<float> min_col_widths;      // 列ごとの最小幅 (最も長い単語、DetermineMinWidth)。リサイズ高速パス用
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     // ヒットテスト高速化用の累積オフセット。
@@ -96,7 +96,7 @@ struct TableLayoutData {
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
     TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
         : row_count(rows), col_count(cols), cell_layouts(rows * cols), row_code_bgs(has_inline_code ? rows : 0),
-          col_widths(cols), row_heights(rows), natural_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
+          col_widths(cols), row_heights(rows), natural_col_widths(cols), min_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
           row_cum_y(rows + 1), col_cum_x(cols + 1), row_evicted_(rows), live_rows_{ 0, rows }
     {
     }
@@ -127,7 +127,7 @@ struct TableLayoutData {
             row_evicted_[r] = 0;
             --evicted_row_count_;
         }
-        live_rows_.Add(r, r + 1);
+        live_rows_.Add(r);
     }
     // 生存範囲のうち [keep_begin, keep_end) の外の行のセル layout を released へ移し、生存範囲を keep との重なりに縮める。
     // evict 済みの行はなめ直さない。行・列の幾何は残す。
@@ -408,6 +408,8 @@ struct DiagramError {
         Render,
         // 描画命令にできない要素がある。
         Unsupported,
+        // 画像を読めない (リモート・UNC・見つからない・壊れている)。message は代わりに枠で囲んで出す alt (空なら src)。
+        ImageUnavailable,
     };
     Kind kind = Kind::None;
     // pele が返した文言 (表示用に整形済み)。pele の文言は訳さないのでそのまま持つ。
@@ -456,9 +458,9 @@ struct DiagramEntry : DiagramResult {
     {
         return bitmap || commands;
     }
-    void SetResult(const DiagramResult& r) noexcept
+    void SetResult(DiagramResult r) noexcept
     {
-        static_cast<DiagramResult&>(*this) = r;
+        static_cast<DiagramResult&>(*this) = std::move(r);
         stale = false;
     }
     // 保存・コピーの元があるか (ボタンを出すか)。
@@ -481,10 +483,12 @@ struct DiagramEntry : DiagramResult {
     }
 
     // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
-    // 寸法はレイアウト維持のため残す。
+    // 寸法はレイアウト維持のため残す。読めない画像はデバイスに依らないので残し、読み直す間も alt の枠のまま出す。
     void EvictForRetry() noexcept
     {
-        SetResult({ .width = width, .height = height });
+        SetResult({ .width = width,
+                    .height = height,
+                    .error = error.kind == DiagramError::Kind::ImageUnavailable ? std::move(error) : DiagramError{} });
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
@@ -598,14 +602,14 @@ public:
         live_nodes_.Add(first, last_plus_1);
     }
 
-    // keep (文書座標) の外にあるテーブル行の cell_layouts を Reset する。
+    // keep (文書座標) の外にあるテーブル行の cell_layouts を released へ移し、ワーカーで解放させる。
     // 再表示時は LayoutEngine::MeasurePass の行復元で CreateTextLayout を再発行する。
     // table_indices は表のノード番号。全エントリ走査だと 100MB 級文書でスクロール休止のたびに ~100万エントリを読むため、
     // index リストで絞る。keep の外の表は全行を捨てる。
     void EvictInvisibleTableRows(std::span<const size_t> table_indices, YRange keep) noexcept;
 
-    // src のノード [from, from + count) の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード
-    // [to, to + count) へ移す。ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
+    // src のノード [from, from + count) の計測結果 (高さ・テキストレイアウト・表の幾何) と図を、中身が同じノード
+    // [to, to + count) へ移す。Y 位置は呼び出し側が組み直す。
     void TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count);
     // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
     // 描いた結果が無ければ何もせず false を返す。

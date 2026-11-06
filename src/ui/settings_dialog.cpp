@@ -13,12 +13,13 @@ std::wstring FormatByteSize(uint64_t bytes)
     constexpr const wchar_t* kUnits[] = { L"KB", L"MB", L"GB", L"TB" };
     double value = static_cast<double>(bytes) / 1024.0;
     size_t unit = 0;
-    while (value >= 1024.0 && unit + 1 < std::size(kUnits)) {
+    // 単位と桁は丸めた後の値で決める (1023.96 KB を「1024 KB」、99.96 KB を「100.0 KB」にしない)。
+    while (value >= 1023.5 && unit + 1 < std::size(kUnits)) {
         value /= 1024.0;
         ++unit;
     }
     // 桁が少ないときだけ小数を出す (「12.3 MB」「512 KB」)。
-    return value < 100.0 ? std::format(L"{:.1f} {}", value, kUnits[unit]) : std::format(L"{:.0f} {}", value, kUnits[unit]);
+    return value < 99.95 ? std::format(L"{:.1f} {}", value, kUnits[unit]) : std::format(L"{:.0f} {}", value, kUnits[unit]);
 }
 
 void SettingsDialog::CreateTextFormats()

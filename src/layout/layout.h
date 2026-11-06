@@ -99,7 +99,7 @@ inline constexpr LayoutDeadline kNoLayoutDeadline = LayoutDeadline::max();
 namespace layout {
 
 // indices (昇順) のノードを backend の scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
-// 戻り値は dirty のまま残したノード数 (例外で計測できなかったか、期限を過ぎて手を付けなかった)。
+// 戻り値は期限を過ぎて手を付けず dirty のまま残したノード数。例外で測れなかったノードは再試行しない。
 int MeasureIndicesParallel(
     const std::vector<Node>& nodes,
     LayoutCache& cache,
@@ -138,7 +138,7 @@ public:
 private:
     struct PassResult {
         bool updated = false;
-        // 期限か計測失敗で、範囲内の dirty を計測しきれなかった。
+        // 期限で、範囲内の dirty を計測しきれなかった。
         bool remaining = false;
     };
     // 範囲内の dirty を deadline まで計測し、退避したテーブル行を戻して Y を組み直す。

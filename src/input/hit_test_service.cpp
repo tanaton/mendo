@@ -2,10 +2,7 @@
 #include "block_h_scroll.h"
 #include "doc_dwrite_bridge.h"
 #include "layout_computer.h"
-#include "ui_constants.h"
-#include <algorithm>
 #include <ranges>
-#include <utility>
 
 using layout::NodeBlockX;
 using layout::NodeBoxPadBottom;
@@ -208,7 +205,7 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
         return false;
     }
     const auto [dip_x, dip_y] = ctx.point;
-    const D2D1_RECT_F image = MermaidBitmapRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
+    const D2D1_RECT_F image = DiagramRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
                                                 NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
     return PointInRectInclusive(dip_x, dip_y, image);
 }

@@ -442,6 +442,10 @@ protected:
         };
         formats_.placeholder_text = CreateTextFormat(dwrite_factory_.Get(), spec);
         ASSERT_NE(formats_.placeholder_text, nullptr);
+        // Renderer::CreateTextFormats の image_alt と同じ設定。
+        formats_.image_alt = CreateTextFormat(dwrite_factory_.Get(), { .family = theme_.font_family.c_str(), .size = theme_.font_size_body,
+                                                                       .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true, .ellipsis = true });
+        ASSERT_NE(formats_.image_alt, nullptr);
         text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.Init(theme_, formats_, text_layouts_);
     }
@@ -478,6 +482,36 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     ASSERT_TRUE(error_cmd.has_value());
     EXPECT_EQ(text_layouts_.TextOf(error_cmd->layout), L"Parse error on line 1");
     EXPECT_EQ(error_cmd->brush_id, BrushId::AlertCaution);
+}
+
+// 読めない画像は「読み込み中」ではなく alt を枠で囲んで出す。枠は文字に合わせ、長い alt は内容幅で切る。
+TEST_F(DiagramPlaceholderTest, UnavailableImageShowsAltInFrame)
+{
+    auto pl = ParseAndLayout("![badge](https://example.com/a.png)\n");
+    const int img_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Image);
+    ASSERT_GE(img_idx, 0);
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+
+    for (const std::wstring& alt : { std::wstring(L"badge"), std::wstring(400, L'x') }) {
+        SCOPED_TRACE(alt.size());
+        pl.cache.EnsureDiagram(static_cast<size_t>(img_idx)).error = { DiagramError::Kind::ImageUnavailable, alt };
+        const auto cmds = GenerateMdPaneAt(gen_, pl.nodes, pl.cache, pane);
+        const auto text = FindFirst<DrawTextLayoutCmd>(cmds);
+        ASSERT_TRUE(text.has_value());
+        EXPECT_EQ(text_layouts_.TextOf(text->layout), alt);
+        const auto frame = FindFirst<DrawRoundedRectCmd>(cmds);
+        ASSERT_TRUE(frame.has_value());
+        EXPECT_EQ(frame->brush_id, BrushId::Hr);
+        // 見えている文字は枠の内側に収まる。
+        DWRITE_TEXT_METRICS m{};
+        ASSERT_TRUE(SUCCEEDED(text->layout->GetMetrics(&m)));
+        EXPECT_GE(text->origin.x + m.left, frame->rect.left);
+        EXPECT_LE(text->origin.x + m.left + m.width, frame->rect.right);
+        EXPECT_LE(frame->rect.right, pane.width);
+        if (alt.size() < 10) {
+            EXPECT_LT(frame->rect.right - frame->rect.left, 200.0f) << "短い alt は枠を文字に合わせる";
+        }
+    }
 }
 
 // 言語で変わる文言は描くときに引くので、失敗した図も切り替えた言語の文言で出る。

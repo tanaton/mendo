@@ -2,13 +2,15 @@
 #include "document.h"
 #include "document_test_helpers.h"
 #include "document_utils.h"
+#include "test_nodes.h"
 #include <string>
 #include <string_view>
 #include <utility>
 
 // リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
-TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
+// NUL は CommonMark と GitHub と同じく U+FFFD (3 byte) にする。
+TEST(NormalizeSource, NewlinesBecomeLfAndNulsBecomeReplacement)
 {
     struct Case {
         std::string_view in;
@@ -20,12 +22,43 @@ TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
         { "a\nb\nc\n", "a\nb\nc\n" },
         { "", "" },
         { "a\r\nb\nc\r", "a\nb\nc\n" },
+        { std::string_view{ "a\0b", 3 }, "a\xEF\xBF\xBD" "b" },
+        { std::string_view{ "\0\r\n\0", 4 }, "\xEF\xBF\xBD\n\xEF\xBF\xBD" },
+        { std::string_view{ "\0", 1 }, "\xEF\xBF\xBD" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.in));
         std::string s{ c.in };
-        NormalizeNewlines(s);
+        NormalizeSource(s);
         EXPECT_EQ(s, c.expected);
+    }
+}
+
+// NUL はパースの前に U+FFFD になるので、md4c が NUL を渡す形の違う行内・コードブロック・コードスパン・数式のどこでも
+// 同じく出る。HTML ブロックの中身は描かないので出ない。
+TEST(DocumentTest, NulsBecomeReplacementEverywhere)
+{
+    struct Case {
+        std::string_view md;
+        std::string_view text;
+    };
+    constexpr Case kCases[] = {
+        { std::string_view{ "a\0b", 3 }, "a\xEF\xBF\xBD" "b" },
+        { std::string_view{ "```\n\0\0x\n```\n", 12 }, "\xEF\xBF\xBD\xEF\xBF\xBD" "x" },
+        { std::string_view{ "`a\0b`", 5 }, "a\xEF\xBF\xBD" "b" },
+        { std::string_view{ "$a\0b$", 5 }, "$a\xEF\xBF\xBD" "b$" },
+        { std::string_view{ "- \0", 3 }, "\xEF\xBF\xBD" },
+        { std::string_view{ "<div>\0</div>\n\npara", 18 }, "para" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.md));
+        const auto doc = Document::FromMarkdown(std::string{ c.md }, L"t.md");
+        const auto& nodes = doc.GetNodes();
+        ASSERT_FALSE(nodes.empty());
+        EXPECT_EQ(nodes.back().GetText(), c.text);
+        const auto replacements = std::ranges::count_if(nodes, [](const Node& n) { return n.GetText().contains("\xEF\xBF\xBD"); });
+        EXPECT_EQ(replacements, c.text.contains("\xEF\xBF\xBD") ? 1 : 0);
+        EXPECT_FALSE(nodes.back().GetText().contains('\0'));
     }
 }
 
@@ -88,18 +121,16 @@ TEST(DocumentTest, GetRawTextKeepsInput)
 
 TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
 {
-    // 埋め込み NUL は md4c が外部リテラルポインタで OnText に渡すため、
-    // 範囲ガードが無いと source_offset に巨大値が入り raw のサイズを超えるリグレッションを検知する。
+    // 埋め込み NUL は md4c が外部リテラルポインタで OnText に渡すため、範囲ガードが無いと source_offset に巨大値が入り
+    // raw のサイズを超えるリグレッションを検知する。Document は NUL を先に置き換えるので、パーサに直に渡す。
     std::string md;
     md.append("```\n", 4);
     md.push_back('\0');
     md.append("body\n```\n", 9);
-    auto doc = Document::FromMarkdown(md, L"test.md");
-    const auto& nodes = doc.GetNodes();
-    const std::string_view raw = doc.GetRawText();
+    const auto nodes = ParseNodes(md);
     ASSERT_FALSE(nodes.empty());
     for (const auto& n : nodes) {
-        EXPECT_LT(n.SourceOffset(), raw.size()) << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
+        EXPECT_LT(n.SourceOffset(), md.size()) << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
     }
 }
 

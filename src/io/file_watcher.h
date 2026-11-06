@@ -2,6 +2,7 @@
 #include "win_handle.h"
 #include <functional>
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -12,15 +13,37 @@
 // 切り詰め・破損したエントリに当たったらそこで打ち切り、buf の外は読まない。
 [[nodiscard]] bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept;
 
-// 監視を始めるのに要るファイルシステムへの問い合わせ (短縮名と親フォルダを開くこと) の結果。
-// ネットワーク上のファイルではパスの要素ごとに往復が入る (ループバックの SMB でもローカルの約 5 倍、約 1ms) ので、
-// 読み込みの worker で作り (OpenWatchTarget)、UI スレッドの StartWatching に渡す。
+// 親フォルダと、その上で発行した ReadDirectoryChangesW の読み取り。カーネルが overlapped と buf に書くので動かさず、
+// ヒープに置いて持ち回る。読み取りを発行したまま壊すと、取り消して書き終わるのを待つ。
+struct DirectoryChangeRead {
+    DirectoryChangeRead() = default;
+    ~DirectoryChangeRead();
+    DirectoryChangeRead(const DirectoryChangeRead&) = delete;
+    DirectoryChangeRead& operator=(const DirectoryChangeRead&) = delete;
+
+    // 次の読み取りを発行する。発行できなければ false。
+    bool Begin() noexcept;
+
+    UniqueHandle dir;
+    UniqueEventHandle event;
+    OVERLAPPED overlapped{};
+    // 溢れると貯まった通知が捨てられ (0 バイトで返り、変更として扱う)、無関係な変更の多いフォルダで読み直しが増える。
+    // ネットワーク越しで許される上限の 64KB にする。
+    static constexpr size_t BUF_SIZE = 64 * 1024;
+    alignas(DWORD) char buf[BUF_SIZE]{};
+    bool pending = false;
+};
+
+// 監視の対象。ReadDirectoryChangesW は最初に呼んだ後の変更を貯めるので、読み込みの worker がファイルを読む前に作り
+// (OpenWatchTarget)、UI スレッドの StartWatching に渡す。読んでから監視を始めるまでの保存も、ほかの変更と同じく通知で届く。
+// 短縮名の問い合わせと親フォルダを開くことは、ネットワーク上のファイルではパスの要素ごとに往復が入る
+// (ループバックの SMB でもローカルの約 5 倍、約 1ms) ので、これも worker で済ませる。
 struct FileWatchTarget {
     std::wstring filename;
     // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ持つ。
     std::wstring short_filename;
-    // 親フォルダ。開けなければ無効で、監視しない。
-    UniqueHandle dir;
+    // 親フォルダを開けないか読み取りを発行できなければ null で、監視しない。
+    std::unique_ptr<DirectoryChangeRead> read;
 };
 [[nodiscard]] FileWatchTarget OpenWatchTarget(const std::wstring& file_path);
 
@@ -33,7 +56,7 @@ public:
     FileWatcher& operator=(const FileWatcher&) = delete;
 
     using ChangeCallback = std::move_only_function<void()>;
-    // 今の監視をやめ、target を監視する。target.dir が無効なら監視しない。
+    // 今の監視をやめ、target を監視する。target.read が無ければ監視しない。
     void StartWatching(FileWatchTarget target, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
@@ -51,26 +74,17 @@ public:
             pending_change_ = true;
         }
     }
-    constexpr HANDLE GetEventHandle() const noexcept
+    HANDLE GetEventHandle() const noexcept
     {
-        return read_pending_ ? overlapped_.hEvent : nullptr;
+        return target_.read && target_.read->pending ? target_.read->event.get() : nullptr;
     }
 
 private:
-    void BeginRead();
     // 通知後は ResumeWatching まで paused_ で後続通知を pending_change_ に溜める。
     void FireChange();
 
     FileWatchTarget target_;
     ChangeCallback on_change_;
-
-    UniqueEventHandle event_;
-    OVERLAPPED overlapped_{};
-    // ReadDirectoryChangesW はバッファ溢れで以降の通知を失うため余裕を持って 64KB 確保。
-    static constexpr size_t CHANGE_BUF_SIZE = 64 * 1024;
-    alignas(DWORD) char change_buf_[CHANGE_BUF_SIZE]{};
-    // true なら target_.dir も有効。
-    bool read_pending_ = false;
     bool paused_ = false;
     bool pending_change_ = false;
 };

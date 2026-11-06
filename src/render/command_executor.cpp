@@ -1,5 +1,4 @@
 #include "draw_command.h"
-#include "d2d_util.h"
 #include "diagram_raster.h"
 #include "inline_math.h"
 #include "profiler.h"

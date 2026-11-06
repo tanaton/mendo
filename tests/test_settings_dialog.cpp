@@ -20,6 +20,9 @@ TEST(FormatByteSizeTest, PicksUnitAndDigits)
     EXPECT_EQ(FormatByteSize(512ULL * 1024), L"512 KB");
     EXPECT_EQ(FormatByteSize(12ULL * 1024 * 1024 + 300 * 1024), L"12.3 MB");
     EXPECT_EQ(FormatByteSize(1024ULL * 1024 * 1024), L"1.0 GB");
+    // 単位と桁の境目は丸めた後の値で決める。
+    EXPECT_EQ(FormatByteSize(1024ULL * 1024 - 1), L"1.0 MB");
+    EXPECT_EQ(FormatByteSize(102399), L"100 KB");
 }
 
 TEST(SettingsDialogRowsTest, FirstRowFollowsOsThenAllLanguages)
