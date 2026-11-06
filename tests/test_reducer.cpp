@@ -525,22 +525,26 @@ TEST_F(ReducerTest, NewWindowAction_ChoosesPathToOpen)
         std::wstring_view doc_path;
         std::wstring_view action_path;
         std::wstring_view expected;
+        std::string_view anchor = {};
     };
     constexpr Case kCases[] = {
         { "ExplicitPath", L"C:\\docs\\a.md", L"C:\\docs\\b.md", L"C:\\docs\\b.md" },
         { "CurrentFile", L"C:\\docs\\a.md", L"", L"C:\\docs\\a.md" },
         { "HelpUsesPaneDirectory", HELP_PATH, L"", L"C:\\pane" },
         { "NoFileUsesPaneDirectory", L"", L"", L"C:\\pane" },
+        // リンクを新しいウィンドウで開くときは、見出しも渡す。
+        { "Anchor", L"C:\\docs\\a.md", L"C:\\docs\\b.md", L"C:\\docs\\b.md", "usage" },
     };
     state.file_explorer.SetDirectory(L"C:\\pane");
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         SetDocument(state, "Hello", c.doc_path);
-        auto effects = Reduce(state, NewWindowAction{ std::wstring{ c.action_path } });
+        auto effects = Reduce(state, NewWindowAction{ std::wstring{ c.action_path }, std::string{ c.anchor } });
         EXPECT_EQ(effects.size(), 1u);
         const auto* launch = FindEffect<effect::LaunchNewWindow>(effects);
         ASSERT_NE(launch, nullptr);
         EXPECT_EQ(launch->path, c.expected);
+        EXPECT_EQ(launch->anchor, c.anchor);
     }
 }
 
@@ -679,7 +683,7 @@ TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
     auto forward = Reduce(state, NavigateHistoryAction{ .forward = true });
     EXPECT_FALSE(HasEffect<effect::LoadFile>(forward));
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(forward));
-    EXPECT_FALSE(state.view.pending_restore.IsValid());
+    EXPECT_FALSE(state.view.HasPendingScroll());
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
 }
@@ -1583,22 +1587,23 @@ TEST_F(ReducerTest, PaneLayoutFollowsClientSizeAndDpi)
     EXPECT_FALSE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
 }
 
-// ---- DocumentOpenedAction のスクロール復元: 2 分岐 ----
+// ---- DocumentOpenedAction のスクロール復元 ----
 // 仕様 (reducer.cpp の RestoreScrollAfterLoad):
-//   1. pending_restore 有効 -> SetScrollTarget(node, offset)
-//   2. (else) -> SetScrollY(0)
+//   1. pending_scroll が位置 -> SetScrollTarget(node, offset)
+//   2. pending_scroll が見出し -> 見出しの位置へ。見出しが無ければ先頭 (OpenWithAnchor_ScrollsToHeadingAfterLoad)
+//   3. (else) -> SetScrollY(0)
 
 TEST_F(ReducerTest, DocumentOpened_HasPendingRestore_SetsScrollTarget)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
-    state.view.pending_restore = { 1, 7.0f };
+    state.view.pending_scroll = ScrollTarget{ 1, 7.0f };
 
     Reduce(state, DocumentOpenedAction{});
 
     // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
     // ScrollY 側で検証する (cache.Top(1) + offset)。
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
-    EXPECT_FALSE(state.view.pending_restore.IsValid());
+    EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
 TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
@@ -1619,7 +1624,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 2, 30.0f });
     auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     ASSERT_TRUE(HasEffect<effect::LoadFile>(effects));
-    ASSERT_TRUE(state.view.pending_restore.IsValid());
+    ASSERT_TRUE(state.view.HasPendingScroll());
 
     Reduce(state, LoadFailedAction{});
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
@@ -1740,13 +1745,13 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
     ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateHistoryAction{ .forward = false })));
-    ASSERT_TRUE(state.view.pending_restore.IsValid());
+    ASSERT_TRUE(state.view.HasPendingScroll());
 
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_FALSE(state.view.pending_restore.IsValid());
+    EXPECT_FALSE(state.view.HasPendingScroll());
     EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
 }
@@ -1754,13 +1759,36 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
 // 起動時の読み込み中 (文書が無い) に別のファイルを開いたら、起動時の復元位置をそのファイルに当てない。
 TEST_F(ReducerTest, OpenWhileStartupLoading_DoesNotCarryRestoreOver)
 {
-    state.view.pending_restore = { 2, 30.0f };
+    state.view.pending_scroll = ScrollTarget{ 2, 30.0f };
 
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_FALSE(state.view.pending_restore.IsValid());
+    EXPECT_FALSE(state.view.HasPendingScroll());
+}
+
+// リンクの # 以降は、開き終えた文書で見出しを探して飛ぶ。ScrollToHeading と同じく見出しの上の余白ごと見せる。
+// 見出しが無ければ先頭を開く。
+TEST_F(ReducerTest, OpenWithAnchor_ScrollsToHeadingAfterLoad)
+{
+    ResetToDocument(state, L"C:\\current.md");
+    Reduce(state, OpenPathAction{ L"C:\\other.md", "C" });
+    CompleteLoad(state, L"C:\\other.md");
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) - state.theme->heading_spacing_above);
+    EXPECT_FALSE(state.view.HasPendingScroll());
+
+    Reduce(state, OpenPathAction{ L"C:\\third.md", "typo" });
+    CompleteLoad(state, L"C:\\third.md");
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+}
+
+// 同じファイルはリロードとして終わり、開き終えた文書の扱いを通らないので、見出しを残さない。
+TEST_F(ReducerTest, OpenSameFileWithAnchor_DoesNotKeepAnchor)
+{
+    ResetToDocument(state, L"C:\\docs\\a.md");
+    Reduce(state, OpenPathAction{ L"c:\\docs\\A.md", "c" });
+    EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
 // ヘルプ表示中の F1 はヘルプに留まり、ロード中の別ファイルを取り消すだけなので確定も失敗も来ない。
@@ -1777,7 +1805,7 @@ TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
-    EXPECT_FALSE(state.view.pending_restore.IsValid());
+    EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
 // 別ファイルのロード中に今のファイルを開き直すと、ロード中の分は取り消される。
@@ -1830,7 +1858,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
             Reduce(state, LoadFailedAction{});
             EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
             EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
-            EXPECT_FALSE(state.view.pending_restore.IsValid());
+            EXPECT_FALSE(state.view.HasPendingScroll());
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");

@@ -76,6 +76,8 @@ public:
     // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
     // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
     void RestoreScrollPosition();
+    // RestoreScrollPosition と同じく LoadInitialDocument より前に呼ぶ。起動時の文書を開いたら見出し (--anchor) へ飛ぶ。
+    void SetInitialAnchor(std::wstring_view anchor);
 
     // 状態を変えるだけの Win32 メッセージは、Win32Window がアクションにしてここへ直接渡す。
     void Dispatch(const AppAction& action);
@@ -219,12 +221,15 @@ private:
     HitResult HitTest(int px, int py);
 
     PaneZone PaneAtPoint(float dip_x);
+    // タイトルバーより下の MD ペインの上か。
+    bool IsOverMdPane(DipPoint dip);
 
     // 検索の入力欄で dip_x にあるキャレット位置。
     int SearchInputPosAt(float dip_x);
 
     // ---- クリック (判定は app_controller::Resolve*Hit) ----
-    void HandleLinkClick(std::string_view url);
+    // new_window: Ctrl+クリック・中クリック。ローカルの文書を新しいウィンドウで開く。
+    void HandleLinkClick(std::string_view url, bool new_window);
     bool HandleTitleBarClick(float dip_x, float dip_y);
     void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_double_click);

@@ -4,7 +4,7 @@ Direct2D/DirectWriteで直接描画するMarkdownビュアーです。高速か�
 
 **日本語** | [English](docs/README.en.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md)
 
-![mendoのようす](./example/image/mendo_light.png)
+![mendoのようす](example/image/mendo_light.png)
 
 ## インストール
 
@@ -14,8 +14,31 @@ Direct2D/DirectWriteで直接描画するMarkdownビュアーです。高速か�
 winget install tanaton.mendo
 ```
 
-### おすすめの起動方法
+## 使い方
+
+```
+mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
+```
+
+| 引数 | 表示するファイル | ファイルペインのフォルダ |
+|---|---|---|
+| なし | 前回のファイル | カレントフォルダ |
+| ファイル | 指定したファイル | そのファイルのフォルダ |
+| フォルダ | 前回のファイル | 指定したフォルダ |
+
+カレントフォルダがシステムフォルダや mendo.exe のフォルダのとき（スタートメニューから起動した場合など）は、前回のファイルのフォルダを表示します。
+
+ファイルパスの後ろに `--anchor 見出し` を付けると、開いたファイルのその見出しへ移動します。見出しはリンクの `#` より後ろと同じ書き方です（例: `mendo.exe README.md --anchor 使い方`）。
+
+`Ctrl+O` またはドラッグ&ドロップでファイルを開けます。
+
+### おすすめの使い方
+
 エクスプローラーのアドレス欄に `mendo` と入力してEnterキーを押します。
+
+### 操作方法
+
+[mendo 操作ガイド](res/help_ja.md)
 
 ## 特徴
 
@@ -48,69 +71,33 @@ winget install tanaton.mendo
 | LaTeX数式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 本文の色で描画 (`\color` は無効)。すべてディスプレイ形式で描画し、`$$...$$` のみの段落と ` ```math ` はブロック数式にする |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 文書末尾に番号順で表示、参照と定義を相互にリンク |
-| リンク (外部 / ページ内アンカー) | ✅ |
+| リンク (外部 / ページ内アンカー / ローカルの Markdown) | ✅ |
 | 順序付きリスト / 箇条書き | ✅ ネスト対応 |
 | タスクリスト | ✅ |
 | 引用 (Blockquote) | ✅ |
 | テーブル | ✅ アライメント対応 |
 | 水平線 | ✅ |
 
-## キーボードショートカット
-
-| キー | 操作 |
-|---|---|
-| `Ctrl+O` | ファイルを開く |
-| `Ctrl+C` | 選択テキストをコピー |
-| `Ctrl+Shift+C` | 選択テキストを書式付き（HTML）でコピー |
-| `Ctrl+A` | 全選択 |
-| `Ctrl+1` | ファイルエクスプローラーの表示/非表示 |
-| `Ctrl+2` | 目次の表示/非表示 |
-| `Ctrl+F` | 検索バーを開く（検索バー内では閉じる） |
-| `F3` / `Ctrl+G` | 次の一致へ移動（検索バー内では `Enter` も可） |
-| `Shift+F3` / `Ctrl+Shift+G` | 前の一致へ移動（検索バー内では `Shift+Enter` も可） |
-| `Ctrl++` / `Ctrl+-` | ズームイン / ズームアウト |
-| `Ctrl+0` | ズームをリセット (100%) |
-| `Ctrl+マウスホイール` | ポインタの下の領域 (本文・ファイルペイン・目次ペイン) をズームイン / ズームアウト |
-| `Alt+←` | 戻る |
-| `Alt+→` | 進む |
-| `F1` | 操作ガイドを表示 |
-| `F5` | 再読み込み |
-| `↑` `↓` | スクロール |
-| `Page Up` `Page Down` | ページスクロール |
-| `Home` `End` | 先頭/末尾へ移動 |
-| `Esc` | 検索バーを閉じる / 選択解除 |
-
-## マウス操作
-
-| 操作 | 動作 |
-|---|---|
-| ドラッグ | テキスト範囲選択 |
-| ダブルクリック | 単語選択 |
-| 右クリック+左右ドラッグ | マウスジェスチャーで戻る/進む |
-| タッチパッド水平スワイプ | 戻る / 進む |
-| サイドボタン | 戻る / 進む |
-| スプリッタードラッグ | ペイン幅の調整 |
-| リンクをクリック | 外部リンクをブラウザで開く / ページ内アンカーにジャンプ |
-| コードブロックのコピーボタン | コードブロックの内容を書式付きでコピー |
-| Mermaid図のボタン | PNG画像として保存 / クリップボードにコピー / 別ウィンドウで拡大表示 |
-
-## 右クリックメニュー
-
-| 項目 | 操作 |
-|---|---|
-| ← → ボタン | 戻る / 進む |
-| エディタで開く | 現在のファイルを既定のエディタで開く |
-| コピー | 選択テキストをコピー（テキスト選択時のみ） |
-| 書式付きコピー | 選択テキストをHTMLリッチテキストでコピー。WordやOutlook等に貼ると書式を保持（テキスト選択時のみ） |
-| ダークモード | ライト/ダークテーマの切り替え |
-| ファイルペイン | ファイルエクスプローラーの表示/非表示 |
-| 目次ペイン | 目次の表示/非表示 |
-
 ## スクリーンショット
 
-![mendoでmermaid](./example/image/mendo_light_mermaid.png)
+![mendoでmermaid](example/image/mendo_light_mermaid.png)
 
-![mendoのダークモード](./example/image/mendo_dark_test.png)
+![mendoのダークモード](example/image/mendo_dark_test.png)
+
+## 技術スタック
+
+| レイヤー | 技術 |
+|---|---|
+| 言語 | C++23 (MSVC) |
+| GUI | Win32 API |
+| 2D描画 | Direct2D (`ID2D1DeviceContext`) |
+| テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
+| Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
+| ダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 数式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| テスト | Google Test v1.18.0 |
+| ベンチマーク | Google Benchmark v1.10.0 |
+| ビルド | CMake 4.2+ |
 
 ## ビルド
 
@@ -143,7 +130,7 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
-### ベンチマーク（開発者向け）
+### ベンチマーク
 
 [Google Benchmark](https://github.com/google/benchmark) v1.10.0 でパースやレイアウトの所要時間を測ります。既定（OFF）のビルドには含まれません。
 
@@ -153,7 +140,7 @@ cmake --build build_bench --config Release --target mendo_bench
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 ```
 
-### Tracyプロファイラ有効ビルド（開発者向け）
+### Tracyプロファイラ有効ビルド
 
 [Tracy](https://github.com/wolfpld/tracy) v0.14.1 を組み込み、フレーム時間・ゾーン計測・カウンタ時系列プロットを取得できます。Tracy GUI 接続前は計測コードが no-op になる `TRACY_ON_DEMAND` モードで組み込まれます。
 
@@ -161,37 +148,6 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-## 使い方
-
-```
-mendo.exe [ファイルパス | フォルダパス]
-```
-
-| 引数 | 表示するファイル | ファイルペインのフォルダ |
-|---|---|---|
-| なし | 前回のファイル | カレントフォルダ |
-| ファイル | 指定したファイル | そのファイルのフォルダ |
-| フォルダ | 前回のファイル | 指定したフォルダ |
-
-カレントフォルダがシステムフォルダや mendo.exe のフォルダのとき（スタートメニューから起動した場合など）は、前回のファイルのフォルダを表示します。ファイルペイン上部のボタンで、表示中のファイルのフォルダへ移動できます。
-
-前回のファイルがない場合は、`Ctrl+O` またはドラッグ&ドロップでファイルを開けます。
-
-## 技術スタック
-
-| レイヤー | 技術 |
-|---|---|
-| 言語 | C++23 (MSVC) |
-| GUI | Win32 API |
-| 2D描画 | Direct2D (`ID2D1DeviceContext`) |
-| テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
-| ダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 数式 | [KaTeX](https://katex.org/) |
-| Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
-| テスト | Google Test v1.18.0 |
-| ベンチマーク | Google Benchmark v1.10.0 |
-| ビルド | CMake 4.2+ |
 
 ## ライセンス
 

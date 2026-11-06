@@ -34,7 +34,7 @@ StartupArgKind ClassifyPath(const std::wstring& path)
     return (attrs & FILE_ATTRIBUTE_DIRECTORY) ? StartupArgKind::Directory : StartupArgKind::File;
 }
 
-StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
+StartupPlan PlanStartup(const StartupArgs& args, std::wstring_view last_file)
 {
     MENDO_PROFILE("PlanStartup");
     const std::wstring cwd = QueryPath([](wchar_t* b, UINT n) static { return GetCurrentDirectoryW(n, b); });
@@ -45,14 +45,15 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
     };
     const std::wstring_view ignored_cwd_views[]{ ignored_cwds[0], ignored_cwds[1], ignored_cwds[2] };
     StartupContext ctx{
+        .anchor = args.anchor,
         .last_file = last_file,
         .cwd = cwd,
         .ignored_cwds = ignored_cwd_views,
     };
 
     std::wstring arg_path;
-    if (!arg.empty()) {
-        arg_path = ToAbsolutePath(arg);
+    if (!args.path.empty()) {
+        arg_path = ToAbsolutePath(args.path);
         ctx.arg_path = arg_path;
         ctx.arg_kind = ClassifyPath(arg_path);
     }
@@ -101,11 +102,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     }
 
     // 引数は CRT がスタートアップで分解済み。
-    const std::wstring_view arg{ (__wargv && __argc > 1) ? __wargv[1] : L"" };
+    const StartupArgs args = (__wargv && __argc > 1) ? ParseStartupArgs({ __wargv + 1, static_cast<size_t>(__argc - 1) }) : StartupArgs{};
 
     // session::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
     const std::wstring last_file = session::LoadLastFilePath(config);
-    StartupPlan plan = PlanStartup(arg, last_file);
+    StartupPlan plan = PlanStartup(args, last_file);
 
     Win32Window window(config);
 
@@ -119,8 +120,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
     std::error_code ec;
-    if (plan.restore_scroll || (plan.restore_scroll_if_same_file && std::filesystem::equivalent(arg, last_file, ec))) {
+    if (plan.restore_scroll || (plan.restore_scroll_if_same_file && std::filesystem::equivalent(args.path, last_file, ec))) {
         window.app().RestoreScrollPosition();
+    }
+    if (!plan.anchor.empty()) {
+        window.app().SetInitialAnchor(plan.anchor);
     }
     // Create 末尾の初回描画に間に合わせる。
     if (!plan.pane_directory.empty()) {

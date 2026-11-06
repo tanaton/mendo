@@ -2,7 +2,6 @@
 #include "app_state.h"
 #include "document.h"
 #include "document_utils.h"
-#include "file_io.h"
 #include "image_loader.h"
 #include "layout_cache.h"
 #include "mermaid_file_cache.h"
@@ -13,7 +12,6 @@
 #include "viewport_manager.h"
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <ranges>
 #include <utility>
 
@@ -24,38 +22,6 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     const auto b = std::ranges::lower_bound(sorted_indices, range.begin);
     const auto e = std::ranges::lower_bound(b, sorted_indices.end(), range.end);
     return { b, e };
-}
-
-// 開かない src (リモート・UNC・解決失敗) は空文字列。
-std::wstring ResolveLocalImagePath(std::string_view src, const std::wstring& doc_dir)
-{
-    if (src.contains("://")) {
-        return {};
-    }
-    // canonical() は symlink 解決のためにファイルシステムを叩くので、
-    // UI 同期パスから外すため absolute() + lexically_normal() を使う。
-    // 画像参照が symlink を跨ぐのはレアケースとして許容する。
-    // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
-    // "my%20images/a.png" のようなエンコード済みの記述も多いので、デコードしてから引く。
-    std::filesystem::path img_path(string_convert::Utf8ToWide(PercentDecode(src)));
-    // 相対パスは文書と同じ場所を引くだけなので、文書が共有フォルダ上でも通す。
-    if (!path_util::IsLocalPath(img_path.native())) {
-        return {};
-    }
-    if (img_path.is_relative()) {
-        // \\?\ 付きの文書フォルダのまま結合すると、.. で \\?\UNC\host へ抜けられる。
-        auto base = path_util::ToWin32Path(doc_dir);
-        if (!base) {
-            return {};
-        }
-        img_path = std::filesystem::path(std::move(*base)) / img_path;
-    }
-    std::error_code ec;
-    const auto abs_path = std::filesystem::absolute(img_path, ec);
-    if (ec) {
-        return {};
-    }
-    return abs_path.lexically_normal().wstring();
 }
 
 } // namespace
@@ -303,7 +269,7 @@ const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, cons
 {
     auto it = resolved_image_paths_.find(src);
     if (it == resolved_image_paths_.end()) {
-        it = resolved_image_paths_.emplace(std::string{ src }, ResolveLocalImagePath(src, doc_dir)).first;
+        it = resolved_image_paths_.emplace(std::string{ src }, ResolveLocalPath(src, doc_dir)).first;
     }
     return it->second.empty() ? nullptr : &it->second;
 }

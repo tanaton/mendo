@@ -14,8 +14,31 @@ Direct2D/DirectWrite로 직접 그리는 Markdown 뷰어입니다. 빠르고 메
 winget install tanaton.mendo
 ```
 
-### 추천하는 실행 방법
+## 사용법
+
+```
+mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
+```
+
+| 인수 | 표시할 파일 | 파일 창의 폴더 |
+|---|---|---|
+| 없음 | 마지막으로 연 파일 | 현재 폴더 |
+| 파일 | 지정한 파일 | 그 파일이 있는 폴더 |
+| 폴더 | 마지막으로 연 파일 | 지정한 폴더 |
+
+현재 폴더가 시스템 폴더나 mendo.exe가 있는 폴더일 때(시작 메뉴에서 실행한 경우 등)는 마지막으로 연 파일이 있는 폴더를 표시합니다.
+
+파일 경로 뒤에 `--anchor 제목`을 붙이면 연 파일의 그 제목으로 이동합니다. 제목은 링크의 `#` 뒤와 같은 방식으로 씁니다 (예: `mendo.exe README.md --anchor 사용법`).
+
+`Ctrl+O`나 끌어서 놓기로 파일을 열 수 있습니다.
+
+### 추천하는 사용법
+
 파일 탐색기의 주소 표시줄에 `mendo`를 입력하고 Enter 키를 누릅니다.
+
+### 조작 방법
+
+[mendo 사용 안내](../res/help_ko.md)
 
 ## 특징
 
@@ -48,69 +71,33 @@ winget install tanaton.mendo
 | LaTeX 수식 (`$...$` / `$$...$$` / ` ```math `) | ✅ 본문 색으로 렌더링 (`\color`는 무시). 모두 디스플레이 형식으로 렌더링하며, `$$...$$`로만 이루어진 단락과 ` ```math `는 블록 수식 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 각주 (`[^1]`) | ✅ 문서 끝에 번호순으로 표시하며, 참조와 정의를 서로 연결 |
-| 링크 (외부 / 페이지 내 앵커) | ✅ |
+| 링크 (외부 / 페이지 내 앵커 / 로컬 Markdown 파일) | ✅ |
 | 번호 매기기 목록 / 글머리 기호 목록 | ✅ 중첩 지원 |
 | 작업 목록 | ✅ |
 | 인용 (Blockquote) | ✅ |
 | 표 | ✅ 정렬 지원 |
 | 가로줄 | ✅ |
 
-## 바로 가기 키
-
-| 키 | 동작 |
-|---|---|
-| `Ctrl+O` | 파일 열기 |
-| `Ctrl+C` | 선택한 텍스트 복사 |
-| `Ctrl+Shift+C` | 선택한 텍스트를 서식 있는 HTML로 복사 |
-| `Ctrl+A` | 모두 선택 |
-| `Ctrl+1` | 파일 창 표시 / 숨기기 |
-| `Ctrl+2` | 목차 창 표시 / 숨기기 |
-| `Ctrl+F` | 검색 표시줄 열기 (검색 표시줄 안에서는 닫기) |
-| `F3` / `Ctrl+G` | 다음 일치 항목 (검색 표시줄 안에서는 `Enter`도 가능) |
-| `Shift+F3` / `Ctrl+Shift+G` | 이전 일치 항목 (검색 표시줄 안에서는 `Shift+Enter`도 가능) |
-| `Ctrl++` / `Ctrl+-` | 확대 / 축소 |
-| `Ctrl+0` | 확대/축소 초기화 (100%) |
-| `Ctrl+마우스 휠` | 포인터 아래 영역 (본문, 파일 창, 목차 창) 확대 / 축소 |
-| `Alt+←` | 뒤로 |
-| `Alt+→` | 앞으로 |
-| `F1` | 도움말 표시 |
-| `F5` | 다시 불러오기 |
-| `↑` `↓` | 스크롤 |
-| `Page Up` `Page Down` | 페이지 단위 스크롤 |
-| `Home` `End` | 처음 / 끝으로 이동 |
-| `Esc` | 검색 표시줄 닫기 / 선택 해제 |
-
-## 마우스 조작
-
-| 조작 | 동작 |
-|---|---|
-| 드래그 | 텍스트 범위 선택 |
-| 두 번 클릭 | 단어 선택 |
-| 오른쪽 버튼 누른 채 좌우 드래그 | 마우스 제스처 (뒤로 / 앞으로) |
-| 터치패드 가로 스와이프 | 뒤로 / 앞으로 |
-| 측면 버튼 | 뒤로 / 앞으로 |
-| 분할선 드래그 | 창 너비 조정 |
-| 링크 클릭 | 외부 링크를 브라우저에서 열기 / 페이지 내 앵커로 이동 |
-| 코드 블록의 복사 버튼 | 코드 블록 내용을 서식 있는 텍스트로 복사 |
-| Mermaid 다이어그램의 버튼 | PNG 이미지로 저장 / 클립보드에 복사 / 별도 창에서 크게 보기 |
-
-## 오른쪽 클릭 메뉴
-
-| 항목 | 동작 |
-|---|---|
-| ← → 버튼 | 뒤로 / 앞으로 |
-| 편집기에서 열기 | 현재 파일을 기본 편집기로 열기 |
-| 복사 | 선택한 텍스트 복사 (텍스트를 선택했을 때만) |
-| HTML로 복사 | 선택한 텍스트를 HTML 서식 있는 텍스트로 복사. Word, Outlook 등에 붙여 넣으면 서식 유지 (텍스트를 선택했을 때만) |
-| 다크 모드 | 라이트 / 다크 테마 전환 |
-| 파일 창 | 파일 창 표시 / 숨기기 |
-| 목차 창 | 목차 창 표시 / 숨기기 |
-
 ## 스크린샷
 
 ![mendo에서 Mermaid 표시](../example/image/mendo_light_mermaid.png)
 
 ![mendo 다크 모드](../example/image/mendo_dark_test.png)
+
+## 기술 스택
+
+| 계층 | 기술 |
+|---|---|
+| 언어 | C++23 (MSVC) |
+| GUI | Win32 API |
+| 2D 그리기 | Direct2D (`ID2D1DeviceContext`) |
+| 텍스트 그리기 | DirectWrite (`IDWriteTextLayout`) |
+| Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
+| 다이어그램 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 수식 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 테스트 | Google Test v1.18.0 |
+| 벤치마크 | Google Benchmark v1.10.0 |
+| 빌드 | CMake 4.2+ |
 
 ## 빌드
 
@@ -143,7 +130,7 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
-### 벤치마크 (개발자용)
+### 벤치마크
 
 [Google Benchmark](https://github.com/google/benchmark) v1.10.0으로 파싱과 레이아웃에 걸리는 시간을 측정합니다. 기본값(OFF) 빌드에는 포함되지 않습니다.
 
@@ -153,7 +140,7 @@ cmake --build build_bench --config Release --target mendo_bench
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 ```
 
-### Tracy 프로파일러를 켠 빌드 (개발자용)
+### Tracy 프로파일러를 켠 빌드
 
 [Tracy](https://github.com/wolfpld/tracy) v0.14.1을 포함하여 프레임 시간, 구간 측정, 카운터 시계열 그래프를 얻을 수 있습니다. Tracy는 `TRACY_ON_DEMAND` 모드로 포함되므로 Tracy GUI가 연결되기 전까지 측정 코드는 아무것도 하지 않습니다.
 
@@ -161,37 +148,6 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-## 사용법
-
-```
-mendo.exe [파일 경로 | 폴더 경로]
-```
-
-| 인수 | 표시할 파일 | 파일 창의 폴더 |
-|---|---|---|
-| 없음 | 마지막으로 연 파일 | 현재 폴더 |
-| 파일 | 지정한 파일 | 그 파일이 있는 폴더 |
-| 폴더 | 마지막으로 연 파일 | 지정한 폴더 |
-
-현재 폴더가 시스템 폴더나 mendo.exe가 있는 폴더일 때(시작 메뉴에서 실행한 경우 등)는 마지막으로 연 파일이 있는 폴더를 표시합니다. 파일 창 위쪽의 버튼으로 표시 중인 파일이 있는 폴더로 이동할 수 있습니다.
-
-마지막으로 연 파일이 없으면 `Ctrl+O`나 끌어서 놓기로 파일을 열 수 있습니다.
-
-## 기술 스택
-
-| 계층 | 기술 |
-|---|---|
-| 언어 | C++23 (MSVC) |
-| GUI | Win32 API |
-| 2D 그리기 | Direct2D (`ID2D1DeviceContext`) |
-| 텍스트 그리기 | DirectWrite (`IDWriteTextLayout`) |
-| 다이어그램 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 수식 | [KaTeX](https://katex.org/) |
-| Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
-| 테스트 | Google Test v1.18.0 |
-| 벤치마크 | Google Benchmark v1.10.0 |
-| 빌드 | CMake 4.2+ |
 
 ## 라이선스
 

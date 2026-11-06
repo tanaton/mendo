@@ -24,15 +24,20 @@ void SetCloaked(HWND hwnd, BOOL cloaked)
 
 std::wstring QuoteCommandLineArg(std::wstring_view arg)
 {
-    size_t trailing = 0;
-    while (trailing < arg.size() && arg[arg.size() - 1 - trailing] == L'\\') {
-        ++trailing;
-    }
     std::wstring quoted;
-    quoted.reserve(arg.size() + trailing + 2);
+    quoted.reserve(arg.size() + 2);
     quoted += L'"';
-    quoted += arg;
-    quoted.append(trailing, L'\\');
+    size_t backslashes = 0;
+    for (const wchar_t ch : arg) {
+        if (ch == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        quoted.append(ch == L'"' ? backslashes * 2 + 1 : backslashes, L'\\');
+        backslashes = 0;
+        quoted += ch;
+    }
+    quoted.append(backslashes * 2, L'\\');
     quoted += L'"';
     return quoted;
 }
@@ -88,7 +93,7 @@ RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const P
     return moved;
 }
 
-void LaunchSelfInNewWindow(HWND origin, std::wstring_view arg, int step)
+void LaunchSelfInNewWindow(HWND origin, std::span<const std::wstring_view> args, int step)
 {
     MONITORINFO mi{ .cbSize = sizeof(mi) };
     std::wstring exe = ExePath();
@@ -115,7 +120,7 @@ void LaunchSelfInNewWindow(HWND origin, std::wstring_view arg, int step)
     g_pending_launches.push_back({ { rect.left, rect.top }, now });
 
     std::wstring cmd = QuoteCommandLineArg(exe);
-    if (!arg.empty()) {
+    for (const auto arg : args) {
         cmd += L' ';
         cmd += QuoteCommandLineArg(arg);
     }

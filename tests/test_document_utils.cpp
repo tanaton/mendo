@@ -1608,6 +1608,7 @@ TEST(HandleLinkClickTest, ClassifiesLinks)
         std::string_view url;
         Type type;
         std::string_view target;
+        std::wstring_view path = {};
     };
     constexpr Case kCases[] = {
         { "", Type::None, "" },
@@ -1637,25 +1638,67 @@ TEST(HandleLinkClickTest, ClassifiesLinks)
         { "https://例え.jp/パス", Type::ExternalUrl, "https://例え.jp/パス" },
 
         // 埋め込みの文書は完全一致だけ。
-        { "mendo://licenses", Type::Embedded, "mendo://licenses" },
-        { "mendo://help", Type::Embedded, "mendo://help" },
+        { "mendo://licenses", Type::Embedded, "", L"mendo://licenses" },
+        { "mendo://help", Type::Embedded, "", L"mendo://help" },
         { "mendo://other", Type::None, "" },
         { "mendo://licenses/x", Type::None, "" },
 
         { "file:///C:/Windows/System32/cmd.exe", Type::None, "" },
         { "javascript:alert(1)", Type::None, "" },
         { "ftp://example.com/file", Type::None, "" },
-        { "other.md", Type::None, "" },
         // 先頭空白でスキーム比較をすり抜ける攻撃
         { " http://example.com", Type::None, "" },
         { "http:example.com", Type::None, "" },
+
+        // ローカルの Markdown は文書のフォルダから引いて mendo で開く。
+        { "other.md", Type::LocalFile, "", L"C:\\docs\\other.md" },
+        { "./sub/../other.markdown", Type::LocalFile, "", L"C:\\docs\\other.markdown" },
+        { "my%20notes/%E3%83%A1%E3%83%A2.mkd", Type::LocalFile, "", L"C:\\docs\\my notes\\メモ.mkd" },
+        // 埋め込みのライセンスに読み替えるのは埋め込みの文書の中だけ (HelpDocumentTest.EveryHelpLinksToLicenses)。
+        { "../THIRD_PARTY_LICENSES.md", Type::LocalFile, "", L"C:\\THIRD_PARTY_LICENSES.md" },
+        { "D:/notes/x.MD", Type::LocalFile, "", L"D:\\notes\\x.MD" },
+        // 別の文書の見出しは、開いてから探す。
+        { "other.md#usage", Type::LocalFile, "usage", L"C:\\docs\\other.md" },
+        { "other.md#%E4%BD%BF%E3%81%84%E6%96%B9", Type::LocalFile, "使い方", L"C:\\docs\\other.md" },
+        { "other.md#", Type::LocalFile, "", L"C:\\docs\\other.md" },
+        // 同じ文書は開き直さない。
+        { "readme.md#usage", Type::Anchor, "usage" },
+        { "README.MD", Type::None, "" },
+        { "readme.md#", Type::None, "" },
+        // Markdown 以外は ShellExecute に渡さず、開かない。
+        { "run.exe", Type::None, "" },
+        // 開くだけで SMB 接続と NTLM 認証が走る。
+        { "//host/share/x.md", Type::None, "" },
+        { "\\\\host\\share\\x.md", Type::None, "" },
+        // NTFS の代替データストリームと、拡張子の確認を NUL で切ってすり抜けるパス。
+        { "notes.txt:hidden.md", Type::None, "" },
+        { "run.exe%00.md", Type::None, "" },
+        { "file:///C:/docs/other.md", Type::None, "" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.url));
-        const auto result = ClassifyLinkClick(c.url);
+        const auto result = ClassifyLinkClick(c.url, L"C:/docs/readme.md");
         EXPECT_EQ(result.type, c.type);
         EXPECT_EQ(result.target, c.target);
+        EXPECT_EQ(result.path, c.path);
     }
+}
+
+// 埋め込みの文書とパスの無い文書には文書のフォルダが無いので、相対パスは開かない。
+TEST(HandleLinkClickTest, IgnoresRelativeLinkWithoutDocumentFolder)
+{
+    for (const auto doc_path : { std::wstring_view{}, HELP_PATH, LICENSES_PATH }) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ doc_path }));
+        EXPECT_EQ(ClassifyLinkClick("other.md", doc_path).type, LinkClickResult::Type::None);
+    }
+}
+
+// 共有フォルダ上の文書からの相対パスは同じ共有を引くだけなので開く (画像と同じ)。
+TEST(HandleLinkClickTest, OpensRelativeLinkOnSameShare)
+{
+    const auto result = ClassifyLinkClick("sub/other.md", L"\\\\host\\share\\readme.md");
+    EXPECT_EQ(result.type, LinkClickResult::Type::LocalFile);
+    EXPECT_EQ(result.path, L"\\\\host\\share\\sub\\other.md");
 }
 
 TEST(PercentDecodeTest, DecodesHexPairsAndKeepsInvalidSequences)

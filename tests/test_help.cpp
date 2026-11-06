@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <format>
 #include "document.h"
 #include "document_utils.h"
 #include "example_files.h"
@@ -89,15 +90,21 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
 }
 
 // 配布する zip には exe だけを入れるので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
-// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開けるようにする。
+// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開けるようにする。GitHub で見たヘルプからも開けるよう、
+// リンクはリポジトリでの相対パスにする。
 TEST(HelpDocumentTest, EveryHelpLinksToLicenses)
 {
+    const auto res_dir = std::filesystem::path(MENDO_RES_DIR);
+    const auto link = std::format("]({})", LICENSES_LINK_IN_EMBEDDED);
     for (const auto name : { u8"help_ja.md", u8"help_en.md", u8"help_zh.md", u8"help_zh_hant.md", u8"help_ko.md" }) {
         SCOPED_TRACE(reinterpret_cast<const char*>(name));
-        const auto text = ReadFileBytes(std::filesystem::path(MENDO_RES_DIR) / name);
-        EXPECT_NE(text.find("](mendo://licenses)"), std::string::npos);
+        const auto text = ReadFileBytes(res_dir / name);
+        EXPECT_NE(text.find(link), std::string::npos);
     }
-    const auto licenses = ReadFileBytes(std::filesystem::path(MENDO_RES_DIR) / ".." / "THIRD_PARTY_LICENSES.md");
+    const auto licenses = ReadFileBytes(res_dir / LICENSES_LINK_IN_EMBEDDED);
     EXPECT_NE(licenses.find("SIL OPEN FONT LICENSE Version 1.1"), std::string::npos);
-    EXPECT_EQ(ClassifyLinkClick("mendo://licenses").type, LinkClickResult::Type::Embedded);
+
+    const auto result = ClassifyLinkClick(LICENSES_LINK_IN_EMBEDDED, HELP_PATH);
+    EXPECT_EQ(result.type, LinkClickResult::Type::Embedded);
+    EXPECT_EQ(result.path, LICENSES_PATH);
 }

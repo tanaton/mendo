@@ -29,12 +29,18 @@ NavEntry CurrentNavEntry(const AppState& state)
     return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
 }
 
-// ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用の復元位置を捨てる。
-// 復元位置を残すと、次に開く別ファイルが無関係なノード位置へスクロールする。
+// ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用のスクロール先を捨てる。
+// スクロール先を残すと、次に開く別ファイルが無関係な位置へスクロールする。
 void DiscardPendingLoad(AppState& state)
 {
     state.view.nav_history.RollbackPending();
-    state.view.pending_restore = {};
+    state.view.pending_scroll = {};
+}
+
+// 開き終えたら DocumentOpenedAction が来るか。同じファイルの開き直しはリロードとして終わり、確定が来ない。
+bool LoadsAnotherDocument(const AppState& state, std::wstring_view path)
+{
+    return !path.empty() && !path_util::iequal(path, state.document.doc.GetFilePath());
 }
 
 // load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
@@ -44,14 +50,12 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {})
     if (!load_path.empty()) {
         DiscardPendingLoad(state);
     }
-    const auto& current_path = state.document.doc.GetFilePath();
     // doc 未ロード (パス空) の状態は戻り先にならないため積まない
-    if (current_path.empty()) {
+    if (state.document.doc.GetFilePath().empty()) {
         return;
     }
     NavEntry entry = CurrentNavEntry(state);
-    // 同じファイルの開き直しはリロードとして終わり、確定 (DocumentOpenedAction) が来ない。
-    if (load_path.empty() || path_util::iequal(load_path, current_path)) {
+    if (!LoadsAnotherDocument(state, load_path)) {
         state.view.nav_history.Push(std::move(entry));
     }
     else {
@@ -300,15 +304,15 @@ void MoveBlockHScrollDrag(ReduceContext& c, float dip_x)
 
 void ApplyNavResult(ReduceContext& c, NavEntry&& entry)
 {
-    if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, c.state.document.doc.GetFilePath())) {
-        c.state.view.pending_restore = { entry.node, entry.offset };
+    if (LoadsAnotherDocument(c.state, entry.file_path)) {
+        c.state.view.pending_scroll = ScrollTarget{ entry.node, entry.offset };
         PushEffect(c.effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
         // 戻る/進むを続けて表示中の文書へ戻ったとき、途中で開き始めたファイルが後から表示されないようにする。
         PushEffect(c.effects, effect::CancelOtherFileLoad{});
-        // 取り消すファイル用の復元位置なので、次に開くファイルへ持ち越さない。
-        c.state.view.pending_restore = {};
+        // 取り消すファイル用のスクロール先なので、次に開くファイルへ持ち越さない。
+        c.state.view.pending_scroll = {};
         // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
         c.state.view.nav_history.CommitPending();
         ScrollToNode(c.state, entry.node, entry.offset);
@@ -329,13 +333,23 @@ void On(ReduceContext& c, const NavigateHistoryAction& a)
 void On(ReduceContext& c, const OpenPathAction& a)
 {
     PushCurrentNavEntry(c.state, a.path);
+    // リロードでは開き終えた文書の扱い (RestoreScrollAfterLoad) を通らず、見出しが次に開く文書まで残る。
+    if (!a.anchor.empty() && LoadsAnotherDocument(c.state, a.path)) {
+        c.state.view.pending_scroll = a.anchor;
+    }
     PushEffect(c.effects, effect::LoadFile{ a.path });
+}
+
+// 見出しを上端に貼り付けず、上の余白ごと見せる。
+ScrollTarget HeadingTarget(const AppState& state, int node_index)
+{
+    return { node_index, -state.theme->heading_spacing_above };
 }
 
 void ScrollToHeading(AppState& state, int node_index)
 {
-    // 見出しを上端に貼り付けず、上の余白ごと見せる。
-    ScrollToNode(state, node_index, -state.theme->heading_spacing_above);
+    const ScrollTarget target = HeadingTarget(state, node_index);
+    ScrollToNode(state, target.node, target.offset);
 }
 
 void On(ReduceContext& c, const FilePaneDirectoryClickedAction& a)
@@ -385,11 +399,23 @@ void On(ReduceContext& c, const NavigateAnchorAction& a)
     ScrollToHeading(c.state, node_index);
 }
 
+ScrollTarget TakePendingScroll(AppState& state)
+{
+    const auto pending = std::exchange(state.view.pending_scroll, {});
+    if (const auto* anchor = std::get_if<std::string>(&pending)) {
+        const int node = state.document.doc.FindAnchorIndex(*anchor);
+        // 見出しが無ければ、リンク先の文書の先頭を開く。
+        return node >= 0 ? HeadingTarget(state, node) : ScrollTarget{};
+    }
+    const auto* target = std::get_if<ScrollTarget>(&pending);
+    return target ? *target : ScrollTarget{};
+}
+
 void RestoreScrollAfterLoad(AppState& state)
 {
     state.view.nav_history.CommitPending();
     auto& viewport = state.view.viewport;
-    if (const ScrollTarget restore = std::exchange(state.view.pending_restore, {}); restore.IsValid()) {
+    if (const ScrollTarget restore = TakePendingScroll(state); restore.IsValid()) {
         viewport.SetScrollTarget(restore.node, restore.offset);
         viewport.ApplyScrollTarget(state.document.layout_cache);
     }
@@ -1125,7 +1151,7 @@ void On(ReduceContext& c, const NewWindowAction& a)
         const auto& doc = c.state.document.doc;
         path = doc.HasBackingFile() ? doc.GetFilePath() : c.state.file_explorer.GetDirectory();
     }
-    PushEffect(c.effects, effect::LaunchNewWindow{ std::move(path) });
+    PushEffect(c.effects, effect::LaunchNewWindow{ std::move(path), a.anchor });
 }
 
 void On(ReduceContext& c, const ReloadFileAction&)

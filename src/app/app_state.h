@@ -16,6 +16,7 @@
 #include "theme.h"
 #include <string>
 #include <unordered_map>
+#include <variant>
 
 struct DocumentState {
     Document doc;
@@ -50,8 +51,9 @@ struct LeftDragState {
 struct ViewState {
     ViewportManager viewport;
     PaneController panes;
-    // 次に開き終えた文書で復元するスクロール位置。
-    ScrollTarget pending_restore;
+    // 次に開き終えた文書でスクロールする先。復元する位置か、飛ぶ見出し (UTF-8。別の文書へのリンクの # 以降と --anchor)。
+    // 見出しの位置は開き終えるまで分からないので、名前のまま持つ。
+    std::variant<std::monostate, ScrollTarget, std::string> pending_scroll;
     NavHistory nav_history;
 
     // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
@@ -68,6 +70,11 @@ struct ViewState {
     // クリックした項目がペイン内で動いて見失うのを防ぐ。
     bool keep_toc_pane_once = false;
     LeftDragState drag;
+
+    bool HasPendingScroll() const noexcept
+    {
+        return !std::holds_alternative<std::monostate>(pending_scroll);
+    }
 
     // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
     constexpr int HDragNode() const noexcept
