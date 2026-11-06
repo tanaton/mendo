@@ -60,9 +60,10 @@ struct LoadFile {
 };
 struct ReloadFile {};
 struct OpenFileDialog {};
-// 空なら引数なしで起動する。
+// path が空なら引数なしで起動する。anchor (UTF-8) は --anchor で渡す。
 struct LaunchNewWindow {
     std::wstring path;
+    std::string anchor;
 };
 // 表示中の文書とは別のファイルのロードを取り消す。同じファイルの再読み込みは止めない。
 struct CancelOtherFileLoad {};

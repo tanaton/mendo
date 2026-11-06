@@ -4,6 +4,8 @@
 
 namespace {
 
+constexpr std::wstring_view kAnchorOption = L"--anchor";
+
 bool IsIgnoredCwd(const StartupContext& ctx)
 {
     const auto cwd = path_util::TrimTrailingSeparators(ctx.cwd);
@@ -33,6 +35,38 @@ std::wstring PaneDirectoryFromCwd(const StartupContext& ctx)
 
 } // namespace
 
+StartupArgs ParseStartupArgs(std::span<const wchar_t* const> argv)
+{
+    StartupArgs args;
+    for (size_t i = 0; i < argv.size(); ++i) {
+        const std::wstring_view arg = argv[i];
+        if (arg == kAnchorOption) {
+            if (i + 1 < argv.size()) {
+                args.anchor = argv[++i];
+                // URL やリンクからコピーした # 付きの書き方も受け付ける。
+                if (args.anchor.starts_with(L'#')) {
+                    args.anchor.remove_prefix(1);
+                }
+            }
+        }
+        else if (args.path.empty()) {
+            args.path = arg;
+        }
+    }
+    return args;
+}
+
+std::vector<std::wstring_view> BuildStartupArgs(std::wstring_view path, std::wstring_view anchor)
+{
+    if (path.empty()) {
+        return {};
+    }
+    if (anchor.empty()) {
+        return { path };
+    }
+    return { path, kAnchorOption, anchor };
+}
+
 StartupPlan DecideStartupPlan(const StartupContext& ctx)
 {
     StartupPlan plan;
@@ -40,6 +74,10 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
     case StartupArgKind::File:
         plan.document_path = ctx.arg_path;
         plan.pane_directory = path_util::ParentDirectory(ctx.arg_path);
+        plan.anchor = ctx.anchor;
+        if (!plan.anchor.empty()) {
+            return plan;
+        }
         plan.restore_scroll = path_util::iequal(ctx.arg_path, ctx.last_file);
         plan.restore_scroll_if_same_file = !plan.restore_scroll && !ctx.last_file.empty() && MaybeSameFile(ctx.arg_path, ctx.last_file);
         return plan;

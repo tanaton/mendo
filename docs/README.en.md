@@ -14,8 +14,31 @@ Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/
 winget install tanaton.mendo
 ```
 
-### Recommended way to launch
+## Usage
+
+```
+mendo.exe [filepath | folderpath] [--anchor heading]
+```
+
+| Argument | Document shown | File pane folder |
+|---|---|---|
+| none | last opened file | current directory |
+| file | the given file | the file's folder |
+| folder | last opened file | the given folder |
+
+When the current directory is a system folder or mendo.exe's folder (e.g. launched from the Start menu), the last file's folder is shown instead.
+
+Add `--anchor <heading>` after the file path to jump to that heading in the opened file. Write the heading the same way as the part after `#` in a link (e.g. `mendo.exe README.md --anchor usage`).
+
+You can open a file with `Ctrl+O` or drag & drop.
+
+### Recommended usage
+
 Type `mendo` into the File Explorer address bar and press Enter.
+
+### Controls
+
+[mendo User Guide](../res/help_en.md)
 
 ## Features
 
@@ -48,69 +71,33 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | LaTeX math (`$...$` / `$$...$$` / ` ```math `) | ✅ Rendered in the surrounding text color (`\color` has no effect) and always in display style. A paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as block equations. |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
 | Footnotes (`[^1]`) | Supported (listed at the end of the document, with links between references and definitions) |
-| Links (external / page anchors) | Supported |
+| Links (external / page anchors / local Markdown files) | Supported |
 | Ordered / Unordered lists | Supported (nested) |
 | Task lists | Supported |
 | Blockquotes | Supported |
 | Tables | Supported (with alignment) |
 | Horizontal rules | Supported |
 
-## Keyboard Shortcuts
-
-| Key | Action |
-|---|---|
-| `Ctrl+O` | Open file |
-| `Ctrl+C` | Copy selected text |
-| `Ctrl+Shift+C` | Copy selected text as formatted (HTML) |
-| `Ctrl+A` | Select all |
-| `Ctrl+1` | Toggle file explorer |
-| `Ctrl+2` | Toggle table of contents |
-| `Ctrl+F` | Open search bar (closes it when pressed inside the search bar) |
-| `F3` / `Ctrl+G` | Next match (`Enter` also works inside the search bar) |
-| `Shift+F3` / `Ctrl+Shift+G` | Previous match (`Shift+Enter` also works inside the search bar) |
-| `Ctrl++` / `Ctrl+-` | Zoom in / Zoom out |
-| `Ctrl+0` | Reset zoom (100%) |
-| `Ctrl+Mouse wheel` | Zoom in / Zoom out the area under the pointer (document, file pane, or TOC pane) |
-| `Alt+Left` | Go back |
-| `Alt+Right` | Go forward |
-| `F1` | Show help |
-| `F5` | Reload |
-| `Up` `Down` | Scroll |
-| `Page Up` `Page Down` | Page scroll |
-| `Home` `End` | Jump to top / bottom |
-| `Esc` | Close search bar / Deselect |
-
-## Mouse Operations
-
-| Operation | Action |
-|---|---|
-| Drag | Text selection |
-| Double-click | Word selection |
-| Right-click + horizontal drag | Mouse gesture (back / forward) |
-| Touchpad horizontal swipe | Back / Forward |
-| Side buttons | Back / Forward |
-| Splitter drag | Resize pane width |
-| Click link | Open external link in browser / Jump to anchor |
-| Code block copy button | Copy code block as formatted text |
-| Mermaid diagram buttons | Save as PNG image / Copy to clipboard / Enlarge in a separate window |
-
-## Context Menu
-
-| Item | Action |
-|---|---|
-| Left / Right buttons | Back / Forward |
-| Open in Editor | Open current file in default editor |
-| Copy | Copy selected text (when text is selected) |
-| Copy as HTML | Copy selected text as HTML rich text. Preserves formatting when pasted into Word, Outlook, etc. (when text is selected) |
-| Dark Mode | Toggle light/dark theme |
-| File Pane | Toggle file explorer |
-| TOC Pane | Toggle table of contents |
-
 ## Screenshots
 
 ![mendo with mermaid](../example/image/mendo_light_mermaid.png)
 
 ![mendo dark mode](../example/image/mendo_dark_test.png)
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Language | C++23 (MSVC) |
+| GUI | Win32 API |
+| 2D rendering | Direct2D (`ID2D1DeviceContext`) |
+| Text rendering | DirectWrite (`IDWriteTextLayout`) |
+| Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
+| Diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Math | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Tests | Google Test v1.18.0 |
+| Benchmarks | Google Benchmark v1.10.0 |
+| Build | CMake 4.2+ |
 
 ## Build
 
@@ -143,7 +130,7 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
-### Benchmarks (developers)
+### Benchmarks
 
 Measures parsing and layout times with [Google Benchmark](https://github.com/google/benchmark) v1.10.0. Not included in the default (OFF) build.
 
@@ -153,7 +140,7 @@ cmake --build build_bench --config Release --target mendo_bench
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 ```
 
-### Build with Tracy Profiler (developers)
+### Build with Tracy Profiler
 
 Embeds [Tracy](https://github.com/wolfpld/tracy) v0.14.1 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
 
@@ -161,37 +148,6 @@ Embeds [Tracy](https://github.com/wolfpld/tracy) v0.14.1 for frame timing, zone 
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-## Usage
-
-```
-mendo.exe [filepath | folderpath]
-```
-
-| Argument | Document shown | File pane folder |
-|---|---|---|
-| none | last opened file | current directory |
-| file | the given file | the file's folder |
-| folder | last opened file | the given folder |
-
-When the current directory is a system folder or mendo.exe's folder (e.g. launched from the Start menu), the last file's folder is shown instead. The button at the top of the file pane jumps to the folder of the file being viewed.
-
-If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Language | C++23 (MSVC) |
-| GUI | Win32 API |
-| 2D rendering | Direct2D (`ID2D1DeviceContext`) |
-| Text rendering | DirectWrite (`IDWriteTextLayout`) |
-| Diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| Math | [KaTeX](https://katex.org/) |
-| Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
-| Tests | Google Test v1.18.0 |
-| Benchmarks | Google Benchmark v1.10.0 |
-| Build | CMake 4.2+ |
 
 ## License
 

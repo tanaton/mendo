@@ -12,6 +12,7 @@
 #include "settings_dialog.h"
 #include "profiler.h"
 #include "resource.h"
+#include "startup_plan.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -187,6 +188,11 @@ void App::UpdateTitleBar()
 PaneZone App::PaneAtPoint(float dip_x)
 {
     return DetectPaneZone(dip_x, ComputePaneLayout(state_), theme_service_.GetTheme().splitter_width);
+}
+
+bool App::IsOverMdPane(DipPoint dip)
+{
+    return dip.y >= TitleBar::BASE_HEIGHT && PaneAtPoint(dip.x) == PaneZone::MdPane;
 }
 
 SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
@@ -807,8 +813,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     ForgetInlineMath();
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
-    if (state_.view.pending_restore.IsValid()) {
-        MENDO_TRACEF("FinishLoad: node={} offset={}", state_.view.pending_restore.node, state_.view.pending_restore.offset);
+    if (state_.view.HasPendingScroll()) {
+        MENDO_TRACE("FinishLoad: pending scroll");
         if (resource_manager_.ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
             layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
         }
@@ -1007,7 +1013,8 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::LaunchNewWindow& e) {
             // 元のウィンドウのタイトルバーが隠れないだけずらす。
-            LaunchSelfInNewWindow(hwnd_, e.path, static_cast<int>(TitleBar::BASE_HEIGHT * state_.window.cached_dpi_scale));
+            const std::wstring anchor = string_convert::Utf8ToWide(e.anchor);
+            LaunchSelfInNewWindow(hwnd_, BuildStartupArgs(e.path, anchor), static_cast<int>(TitleBar::BASE_HEIGHT * state_.window.cached_dpi_scale));
         },
         [this](const effect::CancelOtherFileLoad&) {
             CancelOtherFileLoad();
@@ -1090,8 +1097,13 @@ void App::RestoreScrollPosition()
 {
     const auto pos = session::LoadScrollPosition(config_);
     if (pos.node >= 0) {
-        state_.view.pending_restore = { pos.node, static_cast<float>(pos.offset) };
+        state_.view.pending_scroll = ScrollTarget{ pos.node, static_cast<float>(pos.offset) };
     }
+}
+
+void App::SetInitialAnchor(std::wstring_view anchor)
+{
+    state_.view.pending_scroll = string_convert::WideToUtf8(anchor);
 }
 
 void App::ApplyZoom()
@@ -1161,6 +1173,14 @@ void App::OnMButtonDown(int px, int py)
     const auto dip = PixelToDip(px, py);
     if (const FileEntry* entry = FileEntryAt(dip.x, dip.y)) {
         Dispatch(NewWindowAction{ entry->full_path });
+        return;
+    }
+    // 本文のリンクも、ブラウザと同じく中クリックで新しいウィンドウに開く。
+    if (!IsOverMdPane(dip)) {
+        return;
+    }
+    if (const auto link = app_controller::LinkAtPoint(state_, ComputePaneLayout(state_), dip)) {
+        HandleLinkClick(link->url, /*new_window=*/true);
     }
 }
 
@@ -1183,7 +1203,8 @@ void App::OnLButtonUp(int px, int py)
         return;
     }
     if (const auto link = app_controller::LinkAtHit(state_, hit)) {
-        HandleLinkClick(link->url);
+        // ファイル一覧の項目と同じく Ctrl+クリックは新しいウィンドウ。
+        HandleLinkClick(link->url, IsKeyDown(VK_CONTROL));
     }
 }
 
@@ -1227,7 +1248,7 @@ bool App::OnRButtonDown(int px, int py)
     }
     const auto dip = PixelToDip(px, py);
     // タイトルバーのボタンは HTCLIENT なので届く。WM_CONTEXTMENU と同じく、タイトルバーの上では何も出さない。
-    if (dip.y < TitleBar::BASE_HEIGHT || PaneAtPoint(dip.x) != PaneZone::MdPane) {
+    if (!IsOverMdPane(dip)) {
         return false;
     }
     Dispatch(RightClickGestureStartedAction{ dip.x, dip.y });
@@ -1251,20 +1272,33 @@ void App::OnRButtonMove(int px, int py)
     Dispatch(RightClickGestureMovedAction{ dip.x, dip.y });
 }
 
-void App::HandleLinkClick(std::string_view url)
+void App::HandleLinkClick(std::string_view url, bool new_window)
 {
-    auto result = ClassifyLinkClick(url);
+    const auto& doc = state_.document.doc;
+    auto result = ClassifyLinkClick(url, doc.GetFilePath());
     switch (result.type) {
     case LinkClickResult::Type::None:
         return;
     case LinkClickResult::Type::Anchor:
+        // 埋め込みの文書は引数で開けないので、新しいウィンドウにせずその場で飛ぶ。
+        if (new_window && doc.HasBackingFile()) {
+            Dispatch(NewWindowAction{ doc.GetFilePath(), std::move(result.target) });
+            return;
+        }
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         return;
     case LinkClickResult::Type::ExternalUrl:
         ShellOpenAsync(string_convert::Utf8ToWide(result.target));
         return;
     case LinkClickResult::Type::Embedded:
-        Dispatch(OpenPathAction{ string_convert::Utf8ToWide(result.target) });
+        Dispatch(OpenPathAction{ std::move(result.path) });
+        return;
+    case LinkClickResult::Type::LocalFile:
+        if (new_window) {
+            Dispatch(NewWindowAction{ std::move(result.path), std::move(result.target) });
+            return;
+        }
+        Dispatch(OpenPathAction{ std::move(result.path), std::move(result.target) });
         return;
     }
     std::unreachable();

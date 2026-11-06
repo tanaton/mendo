@@ -122,16 +122,23 @@ struct LinkClickResult {
         Anchor,
         ExternalUrl,
         Embedded, // 埋め込みの文書 (mendo://help・mendo://licenses)
+        LocalFile, // 文書からの相対パスなどで指したローカルの Markdown ファイル
     };
     Type type = Type::None;
-    // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
-    // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
+    // Anchor・LocalFile: 飛ぶ見出し (UTF-8、'#' より後ろをパーセントデコード済み)。NavigateAnchorAction・OpenPathAction に
+    // そのまま渡せる。ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。LocalFile で無ければ空。
     // ExternalUrl: URL (UTF-8)。App::ShellOpenAsync に渡す直前で wstring 化する。
-    // Embedded: 仮想パス (UTF-8)。OpenPathAction で開く。
     std::string target;
+    // Embedded: 仮想パス。LocalFile: 絶対パス。OpenPathAction で開く。
+    std::wstring path;
 };
 
-LinkClickResult ClassifyLinkClick(std::string_view url);
+// doc_path はリンクのある文書のパス。相対パスはその文書のフォルダから引く。埋め込みの文書には文書のフォルダが無いので、
+// LICENSES_LINK_IN_EMBEDDED だけを読み替える。
+LinkClickResult ClassifyLinkClick(std::string_view url, std::wstring_view doc_path);
+// 文書に書かれたパス (UTF-8、%XX のエンコード可) を絶対パスにする。相対パスは doc_dir から引く。
+// 開かないもの (URL・ネットワーク上の絶対パス・使えない文字を含むパス・解決の失敗) は空。画像とリンクで共有する。
+std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir);
 bool IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
 // 16 進 2 桁が続かない % はそのまま残す。

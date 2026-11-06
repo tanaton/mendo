@@ -34,6 +34,12 @@ TEST(Win32UtilTest, QuoteCommandLineArgRoundTrips)
         L"C:\\",
         L"\\\\server\\share\\",
         L"C:\\dir\\\\",
+        // 見出し (--anchor) には " がありうる。前の \ も数を保つ。
+        L"say \"hi\"",
+        L"a\\\"b",
+        L"\"",
+        L"a\\\\\"",
+        L"",
     };
     for (const auto arg : kCases) {
         SCOPED_TRACE(std::wstring{ arg });

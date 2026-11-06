@@ -70,6 +70,8 @@ struct OpenFileAction {};
 // path が空なら表示中の文書 (ヘルプならファイル一覧のフォルダ) を新しいウィンドウで開く。
 struct NewWindowAction {
     std::wstring path;
+    // 新しいウィンドウで飛ぶ見出し (UTF-8)。空なら文書の先頭。
+    std::string anchor;
 };
 struct ToggleDarkModeAction {};
 // 履歴を戻る (forward が false) か進む。
@@ -177,7 +179,7 @@ struct NavigateAnchorAction {
 };
 
 // 別の文書 (読み込み・ヘルプ) に差し替えた。番号に結び付いた一時状態・サイドペインのスクロール・検索を初めに戻し、
-// ファイル一覧を合わせ、pending_restore があればそこへ、なければ先頭へスクロールする。
+// ファイル一覧を合わせ、pending_scroll があればそこへ、なければ先頭へスクロールする。
 // App は推定高さを図と画像のキャッシュの実測値で補正してから送る (復元先の Y をずらさない)。
 struct DocumentOpenedAction {
     bool follow_file_pane = false;
@@ -201,9 +203,11 @@ struct BlockHScrollDragStartedAction {
     int node_index;
     float dip_x;
 };
-// D&D・ファイルペイン・ファイルダイアログから、履歴を積んでファイルを開く。
+// D&D・ファイルペイン・ファイルダイアログ・リンクから、履歴を積んでファイルを開く。
 struct OpenPathAction {
     std::wstring path;
+    // 開いた文書で飛ぶ見出し (UTF-8)。空なら文書の先頭。
+    std::string anchor;
 };
 
 struct ResizeAction {

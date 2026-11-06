@@ -11,6 +11,8 @@ Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
 - **描画**: Direct2D (`ID2D1Factory1` + `ID2D1DeviceContext`)
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
+- **ダイアグラム**: pele + QuickJS-ng (`third_party/pele/`)
+- **数式**: KaTeX + QuickJS-ng (`third_party/katex/`)
 - **テスト**: Google Test v1.18.0
 - **ベンチマーク**: Google Benchmark v1.10.0 (`bench/`、`-DMENDO_BUILD_BENCHMARKS=ON` のときだけ)
 - **ビルド**: CMake 4.2+ (Visual Studio 2026)

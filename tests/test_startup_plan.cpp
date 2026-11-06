@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "startup_plan.h"
 #include <array>
+#include <vector>
 
 namespace {
 
@@ -22,12 +23,14 @@ TEST(StartupPlanTest, DecidesDocumentScrollAndPane)
         const char* name;
         StartupArgKind kind;
         std::wstring_view arg = {};
+        std::wstring_view anchor = {};
         std::wstring_view cwd = kCwd;
         std::wstring_view last_file = kLastFile;
         std::wstring_view document = {};
         bool restore = false;
         bool restore_if_same = false;
         std::wstring_view pane = {};
+        std::wstring_view plan_anchor = {};
     };
     using enum StartupArgKind;
     const Case kCases[] = {
@@ -52,12 +55,18 @@ TEST(StartupPlanTest, DecidesDocumentScrollAndPane)
         { .name = "Directory", .kind = Directory, .arg = L"E:\\proj", .document = kLastFile, .restore = true, .pane = L"E:\\proj" },
         { .name = "DirectoryNoLastFile", .kind = Directory, .arg = L"E:\\proj", .last_file = L"", .pane = L"E:\\proj" },
         { .name = "Invalid", .kind = Invalid, .arg = L"C:\\work\\docs\\missing.md", .pane = kCwd },
+        // 見出しはファイルを指定したときだけ使い、前回のスクロール位置より優先する。
+        { .name = "FileWithAnchor", .kind = File, .arg = kReadme, .anchor = L"usage", .document = kReadme, .pane = L"E:\\proj", .plan_anchor = L"usage" },
+        { .name = "AnchorOverridesRestore", .kind = File, .arg = kLastFile, .anchor = L"usage", .document = kLastFile, .pane = L"D:\\notes", .plan_anchor = L"usage" },
+        { .name = "AnchorWithDirectory", .kind = Directory, .arg = L"E:\\proj", .anchor = L"usage", .document = kLastFile, .restore = true, .pane = L"E:\\proj" },
+        { .name = "AnchorWithoutPath", .kind = None, .anchor = L"usage", .document = kLastFile, .restore = true, .pane = kCwd },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         const auto plan = DecideStartupPlan({
             .arg_kind = c.kind,
             .arg_path = c.arg,
+            .anchor = c.anchor,
             .last_file = c.last_file,
             .cwd = c.cwd,
             .ignored_cwds = kIgnored,
@@ -66,5 +75,44 @@ TEST(StartupPlanTest, DecidesDocumentScrollAndPane)
         EXPECT_EQ(plan.restore_scroll, c.restore);
         EXPECT_EQ(plan.restore_scroll_if_same_file, c.restore_if_same);
         EXPECT_EQ(plan.pane_directory, c.pane);
+        EXPECT_EQ(plan.anchor, c.plan_anchor);
     }
+}
+
+// mendo.exe [パス] [--anchor 見出し]。並びは問わず、--anchor の次は - で始まっていても見出しとして読む。
+// URL の書き方の # は外す。値の無い --anchor と、2 つ目以降のパスは無視する。
+TEST(StartupPlanTest, ParsesPathAndAnchor)
+{
+    struct Case {
+        const char* name;
+        std::vector<const wchar_t*> argv;
+        std::wstring_view path;
+        std::wstring_view anchor;
+    };
+    const Case kCases[] = {
+        { "None", {}, L"", L"" },
+        { "Path", { L"a.md" }, L"a.md", L"" },
+        { "PathAndAnchor", { L"a.md", L"--anchor", L"usage" }, L"a.md", L"usage" },
+        { "AnchorFirst", { L"--anchor", L"usage", L"a.md" }, L"a.md", L"usage" },
+        { "AnchorLooksLikeOption", { L"a.md", L"--anchor", L"--anchor" }, L"a.md", L"--anchor" },
+        { "AnchorWithHash", { L"a.md", L"--anchor", L"#usage" }, L"a.md", L"usage" },
+        { "AnchorOnlyHash", { L"a.md", L"--anchor", L"#" }, L"a.md", L"" },
+        { "AnchorWithoutValue", { L"a.md", L"--anchor" }, L"a.md", L"" },
+        { "ExtraPathIgnored", { L"a.md", L"b.md" }, L"a.md", L"" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        const auto args = ParseStartupArgs(c.argv);
+        EXPECT_EQ(args.path, c.path);
+        EXPECT_EQ(args.anchor, c.anchor);
+    }
+}
+
+// 新しいウィンドウに渡す引数。ParseStartupArgs が読む形 (ParsesPathAndAnchor) に並べる。
+TEST(StartupPlanTest, BuildsArgsForNewWindow)
+{
+    using Args = std::vector<std::wstring_view>;
+    EXPECT_EQ(BuildStartupArgs(L"", L""), Args{});
+    EXPECT_EQ(BuildStartupArgs(L"C:\\docs\\a.md", L""), (Args{ L"C:\\docs\\a.md" }));
+    EXPECT_EQ(BuildStartupArgs(L"C:\\docs\\a.md", L"使い方"), (Args{ L"C:\\docs\\a.md", L"--anchor", L"使い方" }));
 }

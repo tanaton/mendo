@@ -427,6 +427,15 @@ std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResul
     return node ? FindLinkHitAtPosition(*node, hit.char_pos) : std::nullopt;
 }
 
+std::optional<LinkHit> LinkAtPoint(const AppState& state, const PaneLayout& layout, DipPoint window_dip)
+{
+    const auto hit_ctx = MakeMdPaneHitContext(state, layout, window_dip);
+    if (ResolveMdPaneHit(state, hit_ctx, layout, window_dip.x, window_dip.y).kind != MdPaneHit::Kind::Content) {
+        return std::nullopt;
+    }
+    return LinkAtHit(state, hit_test::HitTest(hit_ctx));
+}
+
 bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept
 {
     const PaneRect& md = layout.md_rect;

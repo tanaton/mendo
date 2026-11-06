@@ -30,6 +30,9 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 // 埋め込みのサードパーティのライセンス (THIRD_PARTY_LICENSES.md) を表す仮想パス。配布する zip には exe だけを入れるので、
 // ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記はヘルプのリンクから開けるようにして添える。
 inline constexpr std::wstring_view LICENSES_PATH = L"mendo://licenses";
+// 埋め込みの文書 (res/ の Markdown) から THIRD_PARTY_LICENSES.md へのリンク。GitHub でも開けるようリポジトリでの相対パスで書き、
+// mendo では LICENSES_PATH に読み替える (ClassifyLinkClick)。
+inline constexpr std::string_view LICENSES_LINK_IN_EMBEDDED = "../THIRD_PARTY_LICENSES.md";
 // ファイルとしては読めない、埋め込みの文書の仮想パス。
 inline constexpr bool IsEmbeddedPath(std::wstring_view path) noexcept
 {

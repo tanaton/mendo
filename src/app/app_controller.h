@@ -43,6 +43,8 @@ struct MdPaneHit {
     OverlayButtonHit overlay_button{};
 };
 MdPaneHit ResolveMdPaneHit(const AppState& state, const MdPaneHitContext& hit_ctx, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
+// MD ペインの点にあるリンク。ボタン・スクロールバー・検索バーの上では、ホバーと同じくリンクとみなさない。
+std::optional<LinkHit> LinkAtPoint(const AppState& state, const PaneLayout& layout, DipPoint window_dip);
 
 // サイドペインで点が指すもの。
 struct SidePaneHit {

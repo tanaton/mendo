@@ -1,12 +1,15 @@
 #include "document_utils.h"
 #include "document.h"
 #include "ascii_util.h"
+#include "file_io.h"
 #include "profiler.h"
+#include "string_convert.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <charconv>
 #include <cstring>
 #include <cstdint>
+#include <filesystem>
 #include <iterator>
 #include <ranges>
 
@@ -455,7 +458,7 @@ std::string EncodeShellUnsafeChars(std::string_view url)
 
 } // namespace
 
-LinkClickResult ClassifyLinkClick(std::string_view url)
+LinkClickResult ClassifyLinkClick(std::string_view url, std::wstring_view doc_path)
 {
     LinkClickResult result;
     if (url.empty()) {
@@ -468,13 +471,83 @@ LinkClickResult ClassifyLinkClick(std::string_view url)
     }
     if (IsEmbeddedPath(url)) {
         result.type = LinkClickResult::Type::Embedded;
-        result.target = url;
+        result.path = string_convert::Utf8ToWide(url);
         return result;
     }
-    if (!IsSafeUrlScheme(url)) {
+    if (IsSafeUrlScheme(url)) {
+        result.type = LinkClickResult::Type::ExternalUrl;
+        result.target = EncodeShellUnsafeChars(url);
         return result;
     }
-    result.type = LinkClickResult::Type::ExternalUrl;
-    result.target = EncodeShellUnsafeChars(url);
+    // 埋め込みの文書には文書のフォルダが無い。res/ の元のファイルからの相対パスで書いたライセンスへのリンクだけを読み替える。
+    if (IsEmbeddedPath(doc_path)) {
+        if (url == LICENSES_LINK_IN_EMBEDDED) {
+            result.type = LinkClickResult::Type::Embedded;
+            result.path = LICENSES_PATH;
+        }
+        return result;
+    }
+    if (doc_path.empty()) {
+        return result;
+    }
+    // ローカルのファイルは Markdown だけを mendo で開く。ShellExecute に渡すと実行ファイルも起動できてしまう。
+    const auto hash = url.find('#');
+    auto path = ResolveLocalPath(url.substr(0, hash), path_util::ParentDirectory(doc_path));
+    if (path.empty() || !path_util::IsMarkdownFile(path)) {
+        return result;
+    }
+    std::string anchor = hash == std::string_view::npos ? std::string{} : PercentDecode(url.substr(hash + 1));
+    // 開き直すとリロードになり履歴も積まれるので、同じ文書なら見出しへ飛ぶだけにする。
+    if (path_util::iequal(path, std::filesystem::path(doc_path).lexically_normal().native())) {
+        if (!anchor.empty()) {
+            result.type = LinkClickResult::Type::Anchor;
+            result.target = std::move(anchor);
+        }
+        return result;
+    }
+    result.type = LinkClickResult::Type::LocalFile;
+    result.target = std::move(anchor);
+    result.path = std::move(path);
     return result;
+}
+
+std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
+{
+    if (src.contains("://")) {
+        return {};
+    }
+    // "my%20images/a.png" のようなエンコード済みの記述も多いので、デコードしてから引く。
+    const auto decoded = PercentDecode(src);
+    // 制御文字は Windows のファイル名に使えない。NUL は Win32 API がそこでパスを切るので、拡張子の確認をすり抜ける。
+    if (std::ranges::any_of(decoded, [](char c) { return static_cast<unsigned char>(c) < 0x20; })) {
+        return {};
+    }
+    // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
+    std::filesystem::path local_path(string_convert::Utf8ToWide(decoded));
+    // 相対パスは文書と同じ場所を引くだけなので、文書が共有フォルダ上でも通す。
+    if (!path_util::IsLocalPath(local_path.native())) {
+        return {};
+    }
+    if (local_path.is_relative()) {
+        // \\?\ 付きの文書フォルダのまま結合すると、.. で \\?\UNC\host へ抜けられる。
+        auto base = path_util::ToWin32Path(doc_dir);
+        if (!base) {
+            return {};
+        }
+        local_path = std::filesystem::path(std::move(*base)) / local_path;
+    }
+    // canonical() は symlink 解決のためにファイルシステムを叩くので、
+    // UI 同期パスから外すため absolute() + lexically_normal() を使う。
+    // symlink を跨ぐ参照はレアケースとして許容する。
+    std::error_code ec;
+    const auto abs_path = std::filesystem::absolute(local_path, ec);
+    if (ec) {
+        return {};
+    }
+    auto resolved = abs_path.lexically_normal().wstring();
+    // ドライブ名のほかのコロンは、スキーム (javascript: など) か NTFS の代替データストリーム。
+    if (resolved.find(L':', 2) != std::wstring::npos) {
+        return {};
+    }
+    return resolved;
 }
