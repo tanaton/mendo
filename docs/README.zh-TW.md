@@ -45,11 +45,11 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 - **快速啟動** — 視窗建立與檔案處理平行進行，啟動迅速。
 - **低記憶體用量** — 不使用瀏覽器引擎，透過 Direct2D + DirectWrite 直接繪製 Markdown。
 - **即時重新載入** — 偵測到開啟的檔案有變更時自動更新顯示，並捲動到變更的位置。
-- **Mermaid** — 將 `mermaid` 程式碼區塊顯示為圖表（在 [QuickJS-ng](https://github.com/quickjs-ng/quickjs) 上執行 [pele](https://pele.run/)，以 Direct2D 繪製）。
+- **Mermaid** — 將 ` ```mermaid ` 程式碼區塊顯示為圖表。
+- **數學公式** — 將 `$$...$$` 區塊公式、` ```math ` 程式碼區塊和行內 `$...$` 顯示為公式。
 - **離線運作** — 不需要網路連線即可使用。
 - **語法醒目提示** — 為多種程式語言、設定檔格式等的程式碼區塊上色。
 - **圖片顯示** — 顯示本機的 PNG、JPEG、BMP 等圖片。
-- **LaTeX** — 使用 KaTeX 繪製 `$$...$$` 區塊公式、` ```math ` 程式碼區塊和行內 `$...$` 公式。（只由 `$$...$$` 構成的段落和 ` ```math ` 繪製為置中的區塊公式。選取公式複製時得到去掉 `$` 的 LaTeX 文字。）
 - **瀏覽記錄** — 支援滑鼠側鍵、滑鼠手勢、觸控板滑動等瀏覽器式的上一頁 / 下一頁，並還原捲動位置。
 - **拖放** — 將 Markdown 檔案拖放到視窗中即可開啟。
 - **檔案內搜尋** — 透過標題列的搜尋按鈕或 `Ctrl+F` 在檔案內搜尋。
@@ -67,8 +67,8 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 | 行內程式碼 | ✅ |
 | 程式碼區塊（圍欄） | ✅ 附語法醒目提示。支援的語言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批次檔）, Dockerfile, Makefile, diff |
 | 圖片 (PNG / JPEG / BMP) | ✅ 非同步載入 |
-| Mermaid 圖表 | ✅ pele + QuickJS-ng，以 Direct2D 繪製 |
-| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 以內文顏色繪製（`\color` 無效）。全部以展示樣式繪製，只由 `$$...$$` 構成的段落和 ` ```math ` 繪製為區塊公式 |
+| Mermaid 圖表 | ✅ 支援 Mermaid 12.1.0 內建的圖表 |
+| 數學公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 全部以展示樣式繪製，只由 `$$...$$` 構成的段落和 ` ```math ` 繪製為區塊公式 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 註腳 (`[^1]`) | ✅ 依編號顯示在文件結尾，參照與定義互相連結 |
 | 連結（外部 / 頁內錨點 / 本機 Markdown 檔案） | ✅ |
@@ -80,7 +80,9 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 
 ## 螢幕擷取畫面
 
-![mendo 顯示 Mermaid](../example/image/mendo_light_mermaid.png)
+![mendo 螢幕擷取畫面 2](../example/image/mendo_light2.png)
+
+![mendo 螢幕擷取畫面 3](../example/image/mendo_light3.png)
 
 ![mendo 深色模式](../example/image/mendo_dark_test.png)
 
@@ -93,8 +95,8 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 | 2D 繪製 | Direct2D (`ID2D1DeviceContext`) |
 | 文字繪製 | DirectWrite (`IDWriteTextLayout`) |
 | Markdown 剖析器 | [md4c](https://github.com/mity/md4c)（SAX 式回呼） |
-| 圖表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Mermaid 圖表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 數學公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 測試 | Google Test v1.18.0 |
 | 基準測試 | Google Benchmark v1.10.0 |
 | 建置 | CMake 4.2+ |

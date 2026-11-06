@@ -45,11 +45,11 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 - **高速起動** — ウインドウ生成とファイル処理を並列化する事で高速起動します。
 - **省メモリ** — Markdownの描画にブラウザを使わず、Direct2D + DirectWrite で直接描画します。
 - **ライブリロード** — 表示中ファイルの変更を検出し、自動で表示を更新します。また、変更位置に自動スクロールします。
-- **Mermaid** — `mermaid` コードブロックを図として表示します。（[pele](https://pele.run/) を [QuickJS-ng](https://github.com/quickjs-ng/quickjs) で動かし、Direct2D で描画）
+- **Mermaid** — ` ```mermaid ` コードブロックを図として表示します。
+- **数学記法** — `$$...$$` のブロック数式、` ```math ` コードブロック、文中の `$...$` を数式として表示します。
 - **オフライン動作** — ネットワーク接続無しで動作します。
 - **シンタックスハイライト** — 複数のプログラミング言語や設定ファイル等のコードブロックを色分け表示します。
 - **画像表示** — ローカルにあるPNG, JPEG, BMP等の画像を表示します。
-- **LaTeX** — `$$...$$` のブロック数式、` ```math ` コードブロック、文中の `$...$` を KaTeX で描画して表示します。（`$$...$$` のみからなる段落と ` ```math ` はブロック数式として中央に描画。選択してコピーすると `$` を除いた LaTeX の文字列になります）
 - **ナビゲーション履歴** — マウスサイドボタン / マウスジェスチャー / タッチパッドスワイプ等でブラウザスタイルの戻る/進むが動作し、スクロール位置も復元します。
 - **ドラッグ&ドロップ** — Markdownファイルをウィンドウにドロップして開けます。
 - **ファイル内検索** — タイトルバーの検索ボタンや `Ctrl+F` でファイル内を検索できます。
@@ -67,8 +67,8 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 | インラインコード | ✅ |
 | コードブロック (フェンス) | ✅ シンタックスハイライト付き。対応言語: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (バッチ), Dockerfile, Makefile, diff |
 | 画像 (PNG / JPEG / BMP) | ✅ 非同期読み込み |
-| Mermaidダイアグラム | ✅ pele + QuickJS-ng で描画命令にし、Direct2D で描画 |
-| LaTeX数式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 本文の色で描画 (`\color` は無効)。すべてディスプレイ形式で描画し、`$$...$$` のみの段落と ` ```math ` はブロック数式にする |
+| Mermaidダイアグラム | ✅ Mermaid 12.1.0 に組み込まれている図に対応 |
+| 数学記法 (`$...$` / `$$...$$` / ` ```math `) | ✅ すべてディスプレイ形式で描画し、`$$...$$` のみの段落と ` ```math ` はブロック数式にする |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 文書末尾に番号順で表示、参照と定義を相互にリンク |
 | リンク (外部 / ページ内アンカー / ローカルの Markdown) | ✅ |
@@ -80,7 +80,9 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 
 ## スクリーンショット
 
-![mendoでmermaid](example/image/mendo_light_mermaid.png)
+![mendoのようす2](example/image/mendo_light2.png)
+
+![mendoのようす3](example/image/mendo_light3.png)
 
 ![mendoのダークモード](example/image/mendo_dark_test.png)
 
@@ -93,8 +95,8 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 | 2D描画 | Direct2D (`ID2D1DeviceContext`) |
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
-| ダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 数式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Mermaidダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 数学記法 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | テスト | Google Test v1.18.0 |
 | ベンチマーク | Google Benchmark v1.10.0 |
 | ビルド | CMake 4.2+ |

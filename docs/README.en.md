@@ -45,11 +45,11 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - **Fast startup** — Window creation and file processing run in parallel for a quick launch.
 - **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
 - **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
-- **Mermaid** — Renders `mermaid` code blocks as diagrams ([pele](https://pele.run/) runs on [QuickJS-ng](https://github.com/quickjs-ng/quickjs) and the result is drawn with Direct2D).
+- **Mermaid** — Displays ` ```mermaid ` code blocks as diagrams.
+- **Math** — Displays `$$...$$` block equations, ` ```math ` code blocks, and inline `$...$` as math.
 - **Offline** — Works without a network connection.
 - **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
 - **Images** — Displays local PNG, JPEG, BMP, and other images.
-- **LaTeX** — Renders `$$...$$` block equations, ` ```math ` code blocks, and inline `$...$` math with KaTeX. (A paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as centered block equations. Selecting and copying math gives the LaTeX source without the `$` delimiters.)
 - **Navigation history** — Browser-style back/forward via mouse side buttons, mouse gestures, touchpad swipe, and more, with scroll position restored.
 - **Drag & Drop** — Drop a Markdown file onto the window to open it.
 - **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
@@ -67,8 +67,8 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Inline code | Supported |
 | Fenced code blocks | Supported (with syntax highlighting). Languages: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (batch), Dockerfile, Makefile, diff |
 | Images (PNG / JPEG / BMP) | Supported (async loading) |
-| Mermaid diagrams | Supported (pele + QuickJS-ng, drawn with Direct2D) |
-| LaTeX math (`$...$` / `$$...$$` / ` ```math `) | ✅ Rendered in the surrounding text color (`\color` has no effect) and always in display style. A paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as block equations. |
+| Mermaid diagrams | Supported (diagram types built into Mermaid 12.1.0) |
+| Math (`$...$` / `$$...$$` / ` ```math `) | Supported (always rendered in display style; a paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as block equations) |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
 | Footnotes (`[^1]`) | Supported (listed at the end of the document, with links between references and definitions) |
 | Links (external / page anchors / local Markdown files) | Supported |
@@ -80,7 +80,9 @@ Type `mendo` into the File Explorer address bar and press Enter.
 
 ## Screenshots
 
-![mendo with mermaid](../example/image/mendo_light_mermaid.png)
+![mendo screenshot 2](../example/image/mendo_light2.png)
+
+![mendo screenshot 3](../example/image/mendo_light3.png)
 
 ![mendo dark mode](../example/image/mendo_dark_test.png)
 
@@ -93,7 +95,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | 2D rendering | Direct2D (`ID2D1DeviceContext`) |
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
-| Diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Mermaid diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | Math | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | Tests | Google Test v1.18.0 |
 | Benchmarks | Google Benchmark v1.10.0 |
