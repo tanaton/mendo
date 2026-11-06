@@ -30,7 +30,9 @@ public:
     // 6: ファイルの拡張子を .png から .drawing にした。
     // 7: 層の図形を <svg> の中身だけにして <defs> を図に 1 つ持ち、図形の SVG に初期値の属性を書かなくなった。
     // 8: 文字と数式のラベルの数の並びを、置き方 (変換・x・y・大きさ・色・不透明度) を先頭にそろえた。
-    static constexpr uint32_t VERSION = 9;
+    // 9: 図の text-decoration:line-through と calc() の足し引きを描くようにした。
+    // 10: ライトの配色を mermaid の既定のテーマに寄せた。
+    static constexpr uint32_t VERSION = 10;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();

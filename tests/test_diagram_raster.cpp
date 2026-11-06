@@ -229,12 +229,15 @@ protected:
         measurer_.emplace(dw_.Get(), L"ja-jp");
     }
 
-    std::optional<mermaid_util::DiagramDrawing> Resolve(std::string_view body, bool dark = false, float max_width = 800.0f)
+    std::optional<mermaid_util::DiagramDrawing> Resolve(std::string_view body, bool dark = false, float max_width = 800.0f,
+                                                        std::string_view root_class = "pele")
     {
-        std::string svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" width="200" height="100")svg"
-                          R"svg( style="max-width:100%;height:auto;--_bg:var(--pele-bg,#fff);--_fg:var(--pele-fg,#1f1f1f);)svg"
-                          R"svg(--_s:var(--pele-surface,#f3f3f3);--_tw:var(--pele-title-weight,bold);color:var(--_fg);font:16px sans-serif;)svg"
-                          R"svg(font-family:var(--pele-font,&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;)" fill="var(--_fg)">)svg";
+        std::string svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" class=")svg";
+        svg += root_class;
+        svg += R"svg(" viewBox="0 0 200 100" width="200" height="100")svg"
+               R"svg( style="max-width:100%;height:auto;--_bg:var(--pele-bg,#fff);--_fg:var(--pele-fg,#1f1f1f);)svg"
+               R"svg(--_s:var(--pele-surface,#f3f3f3);--_tw:var(--pele-title-weight,bold);color:var(--_fg);font:16px sans-serif;)svg"
+               R"svg(font-family:var(--pele-font,&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;)" fill="var(--_fg)">)svg";
         svg += body;
         svg += "</svg>";
         return DrawingFromPeleSvg(svg, dark, max_width, *measurer_);
@@ -259,12 +262,39 @@ TEST_F(PeleSvgTest, ResolvesVariablesAndColorMix)
     ASSERT_EQ(light->layers.size(), 1u);
     const auto& shapes = light->layers[0].shapes;
     // 不透明度 1・線の太さ 1 などの初期値は書かない。
-    EXPECT_NE(shapes.find(R"svg(fill="#f3f3f3" stroke="#808080"/>)svg"), std::string::npos) << shapes;
+    EXPECT_NE(shapes.find(R"svg(fill="#ececff" stroke="#808080"/>)svg"), std::string::npos) << shapes;
     EXPECT_NE(shapes.find(R"svg(rx="4" ry="4")svg"), std::string::npos) << shapes;
     const auto dark = Resolve(body, true);
     ASSERT_TRUE(dark);
     EXPECT_EQ(dark->background, 0x1E1E1Eu);
     EXPECT_NE(dark->layers[0].shapes.find(R"svg(fill="#2b2b2b")svg"), std::string::npos);
+}
+
+// ライトでは mermaid の既定のテーマに合わせて、枠 (flowchart と block だけ)・ノート・辺のラベル・活性区間の色を class ごとに差し替える。
+// ダークは差し替えない。
+TEST_F(PeleSvgTest, LightThemeRecolorsPartsLikeMermaid)
+{
+    const std::string_view body =
+        R"svg(<g class="pele-cluster x"><rect x="0" y="0" width="10" height="10" fill="var(--_a,#e6e6e6)" stroke="var(--_b,#8a8a8a)"/></g>)svg"
+        R"svg(<g class="pele-notes"><rect x="0" y="20" width="10" height="10" fill="var(--_a,#e6e6e6)"/></g>)svg"
+        R"svg(<g class="pele-edge-label"><rect x="0" y="40" width="10" height="10" fill="var(--_bg)"/></g>)svg"
+        R"svg(<g class="pele-activations"><rect x="0" y="60" width="10" height="10" fill="var(--_s)" stroke="var(--_b,#8a8a8a)"/></g>)svg";
+    const auto flowchart = Resolve(body, false, 800.0f, "pele pele-flowchart");
+    ASSERT_TRUE(flowchart);
+    EXPECT_EQ(flowchart->layers[0].shapes,
+              R"svg(<rect x="0" y="0" width="10" height="10" fill="#ffffbd" stroke="#aaaa33"/>)svg"
+              R"svg(<rect x="0" y="20" width="10" height="10" fill="#fff5ad"/>)svg"
+              R"svg(<rect x="0" y="40" width="10" height="10" fill="#e8e8e8" fill-opacity="0.8"/>)svg"
+              R"svg(<rect x="0" y="60" width="10" height="10" fill="#f4f4f4" stroke="#666666"/>)svg");
+    const auto state = Resolve(body, false, 800.0f, "pele pele-state");
+    ASSERT_TRUE(state);
+    EXPECT_NE(state->layers[0].shapes.find(R"svg(height="10" fill="#e6e6e6" stroke="#8a8a8a"/>)svg"), std::string::npos);
+    EXPECT_NE(state->layers[0].shapes.find(R"svg(fill="#fff5ad")svg"), std::string::npos);
+    const auto dark = Resolve(body, true, 800.0f, "pele pele-flowchart");
+    ASSERT_TRUE(dark);
+    for (const auto* color : { "#ffffbd", "#aaaa33", "#fff5ad", "#e8e8e8", "#f4f4f4" }) {
+        EXPECT_EQ(dark->layers[0].shapes.find(color), std::string::npos) << color;
+    }
 }
 
 // text-decoration の取り消し線も下線と同じく描く。祖先の線は子孫の文字にも重なる (CSS の装飾の伝播)。
@@ -426,7 +456,7 @@ TEST_F(PeleSvgTest, FoldsPaintOpacityIntoGradientStops)
     ASSERT_TRUE(drawing);
     const auto& defs = drawing->defs;
     EXPECT_NE(defs.find(R"svg(<linearGradient id="g0" gradientUnits="userSpaceOnUse" x1="0" x2="10">)svg"), std::string::npos) << defs;
-    EXPECT_NE(defs.find(R"svg(<stop offset="0" stop-color="#f3f3f3" stop-opacity="0.5"/>)svg"), std::string::npos) << defs;
+    EXPECT_NE(defs.find(R"svg(<stop offset="0" stop-color="#ececff" stop-opacity="0.5"/>)svg"), std::string::npos) << defs;
     const auto& shapes = drawing->layers[0].shapes;
     EXPECT_NE(shapes.find(R"svg(fill="url(#g0)"/>)svg"), std::string::npos) << shapes;
 }

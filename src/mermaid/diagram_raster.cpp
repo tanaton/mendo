@@ -196,6 +196,55 @@ constexpr std::string_view kDarkVars =
     "--pele-series-1:#799abe;--pele-series-2:#f8a452;--pele-series-3:#7fb978;--pele-series-4:#eb8180;"
     "--pele-series-5:#95c9c5;--pele-series-6:#f2d76c;--pele-series-7:#c59bb9;--pele-series-8:#b69886;"sv;
 
+// ライトの配色は mermaid の既定のテーマ (theme-default) に寄せる。
+// 文字は pele のまま (mermaid のノードの文字 #131300 に近い)。surface-alt は格子や済んだ作業にも使うので pele の灰のまま。
+// 系列の色も pele のまま。mermaid の円グラフの淡い色は黒い縁取りが前提で、縁取りの無い pele では白地に埋もれる。
+constexpr std::string_view kLightVars = "--pele-line:#333;--pele-surface:#ececff;--pele-border:#9370db;--pele-accent:#8a90dd;"sv;
+
+// pele では 1 つの役割の色を、mermaid は部分ごとに変える。--pele-* はルートで --_* に解かれるので (CSS の計算値)、
+// 差し替えるのは --_* の方。どちらも pele の内部の名前なので、pele を更新したらそろっているか確かめる。
+struct ScopedVars {
+    std::string_view diagram; // ルートの class。空ならどの図でも
+    std::string_view cls;
+    std::string_view vars;
+};
+// pele は枠を不透明度 0.5 で塗るので、#ffffbd で mermaid の #ffffde になる。
+constexpr std::string_view kMermaidCluster = "--_a:#ffffbd;--_b:#aaaa33;--_m:#333;"sv;
+constexpr std::string_view kMermaidNote = "--_a:#fff5ad;--_b:#aaaa33;"sv;
+constexpr ScopedVars kLightScopedVars[]{
+    // 枠を黄色にするのは flowchart と block だけ (mermaid でも class の namespace や state の入れ子は黄色でない)。
+    { "pele-flowchart"sv, "pele-cluster"sv, kMermaidCluster },
+    { "pele-block"sv, "pele-cluster"sv, kMermaidCluster },
+    // sequence の pele-note は pele-notes の中にあるが、class と state の pele-note は外にある。
+    { {}, "pele-note"sv, kMermaidNote },
+    { {}, "pele-notes"sv, kMermaidNote },
+    { {}, "pele-edge-label"sv, "--_bg:rgba(232,232,232,0.8);--_m:#333;"sv },
+    { {}, "pele-edge-labels"sv, "--_m:#333;"sv },
+    { {}, "pele-activations"sv, "--_s:#f4f4f4;--_b:#666;"sv },
+};
+
+// class 属性の語を順に f に渡す。f が true を返したらやめて true を返す。
+template <class F>
+bool AnyClass(std::string_view classes, F&& f)
+{
+    while (!classes.empty()) {
+        const size_t sp = classes.find(' ');
+        if (f(classes.substr(0, sp))) {
+            return true;
+        }
+        if (sp == std::string_view::npos) {
+            break;
+        }
+        classes.remove_prefix(sp + 1);
+    }
+    return false;
+}
+
+bool HasClass(std::string_view classes, std::string_view name) noexcept
+{
+    return AnyClass(classes, [name](std::string_view c) { return c == name; });
+}
+
 // 表の名前のように、どちらも実行時に決まる文字列の比較。片方が小文字のリテラルなら ascii_util::iequal。
 bool IEquals(std::string_view a, std::string_view b) noexcept
 {
@@ -1758,6 +1807,7 @@ private:
     Style Compute(const Style& parent, const XmlNode& el, std::string_view extra_style = {});
     // CSS として読めた (正しい値だった) か。読めない値では s を書き換えない。
     bool Apply(Style& s, const Style& parent, Prop prop, std::string_view value);
+    std::string_view ScopedVarsFor(const XmlNode& el) const;
     bool Walk(uint32_t index, const Style& parent, const Mat& ctm, float opacity);
     bool Shape(const XmlNode& el, const Style& s, const Mat& ctm, float opacity);
     bool Text(uint32_t index, const Style& s, const Mat& ctm, float opacity);
@@ -1798,7 +1848,25 @@ private:
     std::vector<mermaid_util::DrawingLayer> layers_{ 1 };
     std::vector<Bounds> text_bounds_; // 今の層の文字と数式
     Style root_style_;
+    std::vector<const ScopedVars*> scoped_; // この図に当てる kLightScopedVars の行
 };
+
+std::string_view PeleSvgResolver::ScopedVarsFor(const XmlNode& el) const
+{
+    if (scoped_.empty()) {
+        return {};
+    }
+    const auto classes = el.Attr("class");
+    if (!classes) {
+        return {};
+    }
+    for (const ScopedVars* scope : scoped_) {
+        if (HasClass(*classes, scope->cls)) {
+            return scope->vars;
+        }
+    }
+    return {};
+}
 
 bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::string_view value)
 {
@@ -2546,7 +2614,7 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
         // foreignObject・image・use・style など。一部だけ描いた図は誤解を招くので、図ごと描かない。
         return false;
     }
-    const Style s = Compute(parent, el);
+    const Style s = Compute(parent, el, ScopedVarsFor(el));
     const float own_opacity = opacity * s.own.opacity;
     if (s.own.display_none || own_opacity <= 0.0f) {
         return true;
@@ -2586,7 +2654,15 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     if (root.name != "svg") {
         return std::nullopt;
     }
-    root_style_ = Compute(Style{}, root, dark ? kDarkVars : ""sv);
+    if (!dark) {
+        const auto root_classes = root.Attr("class").value_or(""sv);
+        for (const auto& scope : kLightScopedVars) {
+            if (scope.diagram.empty() || HasClass(root_classes, scope.diagram)) {
+                scoped_.push_back(&scope);
+            }
+        }
+    }
+    root_style_ = Compute(Style{}, root, dark ? kDarkVars : kLightVars);
     const Style& rs = root_style_;
     const auto attr_w = AttrLength(root, "width", rs.font_size);
     const auto attr_h = AttrLength(root, "height", rs.font_size);
@@ -2774,28 +2850,6 @@ void AppendItems(KBox& out, KBox&& box, float dx, float dy)
     else {
         out.items.append_range(box.items | std::views::as_rvalue);
     }
-}
-
-// class 属性の語を順に f に渡す。f が true を返したらやめて true を返す。
-template <class F>
-bool AnyClass(std::string_view classes, F&& f)
-{
-    while (!classes.empty()) {
-        const size_t sp = classes.find(' ');
-        if (f(classes.substr(0, sp))) {
-            return true;
-        }
-        if (sp == std::string_view::npos) {
-            break;
-        }
-        classes.remove_prefix(sp + 1);
-    }
-    return false;
-}
-
-bool HasClass(std::string_view classes, std::string_view name) noexcept
-{
-    return AnyClass(classes, [name](std::string_view c) { return c == name; });
 }
 
 bool HasAnyClass(std::string_view classes, std::initializer_list<std::string_view> names) noexcept
