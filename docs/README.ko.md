@@ -45,11 +45,11 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 - **빠른 시작** — 창 생성과 파일 처리를 병렬로 진행하여 빠르게 시작합니다.
 - **적은 메모리 사용** — 브라우저 엔진을 쓰지 않고 Direct2D + DirectWrite로 Markdown을 직접 그립니다.
 - **실시간 다시 불러오기** — 열려 있는 파일의 변경을 감지하면 자동으로 표시를 갱신하고 변경된 위치로 스크롤합니다.
-- **Mermaid** — `mermaid` 코드 블록을 다이어그램으로 표시합니다. ([pele](https://pele.run/)를 [QuickJS-ng](https://github.com/quickjs-ng/quickjs)에서 실행하고 Direct2D로 그림)
+- **Mermaid** — ` ```mermaid ` 코드 블록을 다이어그램으로 표시합니다.
+- **수학 표기** — `$$...$$` 블록 수식, ` ```math ` 코드 블록, 문장 안의 `$...$`를 수식으로 표시합니다.
 - **오프라인 동작** — 네트워크 연결 없이 동작합니다.
 - **구문 강조** — 여러 프로그래밍 언어와 설정 파일 형식 등의 코드 블록을 색으로 구분해 표시합니다.
 - **이미지 표시** — 로컬의 PNG, JPEG, BMP 등의 이미지를 표시합니다.
-- **LaTeX** — `$$...$$` 블록 수식, ` ```math ` 코드 블록, 문장 안의 `$...$` 인라인 수식을 KaTeX로 렌더링합니다. (`$$...$$`로만 이루어진 단락과 ` ```math `는 가운데 정렬된 블록 수식으로 렌더링합니다. 수식을 선택해 복사하면 `$`를 뺀 LaTeX 문자열이 됩니다.)
 - **탐색 기록** — 마우스 측면 버튼, 마우스 제스처, 터치패드 스와이프 등으로 브라우저처럼 뒤로 / 앞으로 이동하며 스크롤 위치도 복원합니다.
 - **끌어서 놓기** — Markdown 파일을 창에 끌어다 놓으면 열립니다.
 - **파일 내 검색** — 제목 표시줄의 검색 버튼이나 `Ctrl+F`로 파일 안을 검색합니다.
@@ -67,8 +67,8 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 | 인라인 코드 | ✅ |
 | 코드 블록 (펜스) | ✅ 구문 강조 지원. 지원 언어: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (배치), Dockerfile, Makefile, diff |
 | 이미지 (PNG / JPEG / BMP) | ✅ 비동기 불러오기 |
-| Mermaid 다이어그램 | ✅ pele + QuickJS-ng, Direct2D로 그림 |
-| LaTeX 수식 (`$...$` / `$$...$$` / ` ```math `) | ✅ 본문 색으로 렌더링 (`\color`는 무시). 모두 디스플레이 형식으로 렌더링하며, `$$...$$`로만 이루어진 단락과 ` ```math `는 블록 수식 |
+| Mermaid 다이어그램 | ✅ Mermaid 12.1.0에 내장된 다이어그램 지원 |
+| 수학 표기 (`$...$` / `$$...$$` / ` ```math `) | ✅ 모두 디스플레이 형식으로 렌더링하며, `$$...$$`로만 이루어진 단락과 ` ```math `는 블록 수식 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 각주 (`[^1]`) | ✅ 문서 끝에 번호순으로 표시하며, 참조와 정의를 서로 연결 |
 | 링크 (외부 / 페이지 내 앵커 / 로컬 Markdown 파일) | ✅ |
@@ -80,7 +80,9 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 
 ## 스크린샷
 
-![mendo에서 Mermaid 표시](../example/image/mendo_light_mermaid.png)
+![mendo 스크린샷 2](../example/image/mendo_light2.png)
+
+![mendo 스크린샷 3](../example/image/mendo_light3.png)
 
 ![mendo 다크 모드](../example/image/mendo_dark_test.png)
 
@@ -93,8 +95,8 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 | 2D 그리기 | Direct2D (`ID2D1DeviceContext`) |
 | 텍스트 그리기 | DirectWrite (`IDWriteTextLayout`) |
 | Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
-| 다이어그램 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 수식 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Mermaid 다이어그램 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 수학 표기 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 테스트 | Google Test v1.18.0 |
 | 벤치마크 | Google Benchmark v1.10.0 |
 | 빌드 | CMake 4.2+ |

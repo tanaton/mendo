@@ -45,11 +45,11 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 - **快速启动** — 窗口创建与文件处理并行进行，启动迅速。
 - **低内存占用** — 不使用浏览器引擎，通过 Direct2D + DirectWrite 直接绘制 Markdown。
 - **实时重新加载** — 检测到打开的文件发生变化时自动更新显示，并滚动到变化的位置。
-- **Mermaid** — 将 `mermaid` 代码块显示为图表（在 [QuickJS-ng](https://github.com/quickjs-ng/quickjs) 上运行 [pele](https://pele.run/)，用 Direct2D 绘制）。
+- **Mermaid** — 将 ` ```mermaid ` 代码块显示为图表。
+- **数学公式** — 将 `$$...$$` 块级公式、` ```math ` 代码块和行内 `$...$` 显示为公式。
 - **离线运行** — 无需网络连接即可使用。
 - **语法高亮** — 为多种编程语言、配置文件格式等的代码块着色。
 - **图像显示** — 显示本地的 PNG、JPEG、BMP 等图像。
-- **LaTeX** — 使用 KaTeX 渲染 `$$...$$` 块级公式、` ```math ` 代码块和行内 `$...$` 公式。（只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为居中的块级公式。选中公式复制时得到去掉 `$` 的 LaTeX 文本。）
 - **导航历史** — 支持鼠标侧键、鼠标手势、触摸板滑动等浏览器式的后退 / 前进，并恢复滚动位置。
 - **拖放** — 将 Markdown 文件拖放到窗口中即可打开。
 - **文件内搜索** — 通过标题栏的搜索按钮或 `Ctrl+F` 在文件内搜索。
@@ -67,8 +67,8 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 | 行内代码 | ✅ |
 | 代码块（围栏） | ✅ 带语法高亮。支持的语言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批处理）, Dockerfile, Makefile, diff |
 | 图像 (PNG / JPEG / BMP) | ✅ 异步加载 |
-| Mermaid 图表 | ✅ pele + QuickJS-ng，用 Direct2D 绘制 |
-| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 以正文颜色渲染（`\color` 无效）。全部以展示样式渲染，只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式 |
+| Mermaid 图表 | ✅ 支持 Mermaid 12.1.0 内置的图表 |
+| 数学公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 全部以展示样式渲染，只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 按编号显示在文档末尾，引用与定义相互链接 |
 | 链接（外部 / 页内锚点 / 本地 Markdown 文件） | ✅ |
@@ -80,7 +80,9 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 
 ## 截图
 
-![mendo 显示 Mermaid](../example/image/mendo_light_mermaid.png)
+![mendo 截图 2](../example/image/mendo_light2.png)
+
+![mendo 截图 3](../example/image/mendo_light3.png)
 
 ![mendo 深色模式](../example/image/mendo_dark_test.png)
 
@@ -93,8 +95,8 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 | 2D 绘制 | Direct2D (`ID2D1DeviceContext`) |
 | 文本绘制 | DirectWrite (`IDWriteTextLayout`) |
 | Markdown 解析器 | [md4c](https://github.com/mity/md4c)（SAX 式回调） |
-| 图表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
-| 公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Mermaid 图表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 数学公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 测试 | Google Test v1.18.0 |
 | 基准测试 | Google Benchmark v1.10.0 |
 | 构建 | CMake 4.2+ |
