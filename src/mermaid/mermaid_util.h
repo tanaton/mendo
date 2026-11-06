@@ -65,7 +65,7 @@ struct DrawingText {
     uint16_t weight = 400;
     bool italic = false;
     uint8_t decoration = 0; // kTextUnderline・kTextLineThrough
-    std::wstring family; // CSS の font-family (候補の並び)
+    std::wstring family;    // CSS の font-family (候補の並び)
     std::wstring text;
 
     bool operator==(const DrawingText&) const = default;

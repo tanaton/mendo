@@ -277,17 +277,17 @@ void App::OnPaint()
     using FrameResult = Renderer::FrameResult;
     const FrameResult result = renderer_.Render({
         .md = {
-            .nodes = state_.document.doc.GetNodes(),
-            .cache = state_.document.layout_cache,
-            .selection = state_.view.viewport.GetSelection(),
-            .md_pane_rect = layout.md_rect,
-            .scroll_y = state_.view.viewport.GetScrollY(),
-            .hovered = state_.view.hover.overlay_button,
-            .hovered_diagram = state_.view.hover.diagram,
-            .block_h_scroll = h_scroll,
-            .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
-            .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
-        },
+               .nodes = state_.document.doc.GetNodes(),
+               .cache = state_.document.layout_cache,
+               .selection = state_.view.viewport.GetSelection(),
+               .md_pane_rect = layout.md_rect,
+               .scroll_y = state_.view.viewport.GetScrollY(),
+               .hovered = state_.view.hover.overlay_button,
+               .hovered_diagram = state_.view.hover.diagram,
+               .block_h_scroll = h_scroll,
+               .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
+               .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
+               },
         .inline_math = math_drawings_,
         .side_panes = sp,
         .titlebar = tb,
@@ -297,7 +297,8 @@ void App::OnPaint()
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
-        .loading_angle = show_loading ? std::optional{ spinner_angle_ } : std::nullopt,
+        .loading_angle = show_loading ? std::optional{ spinner_angle_ }
+          : std::nullopt,
     });
 
     EndPaint(hwnd_, &ps);
@@ -1648,9 +1649,9 @@ void App::ShowSettingsDialog()
         .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
         .on_clear_cache =
             [this] {
-                file_cache_.Clear();
-                file_cache_.RemoveLegacyDataAsync();
-            },
+        file_cache_.Clear();
+        file_cache_.RemoveLegacyDataAsync();
+    },
     };
     SettingsDialog::Show(hwnd_, params);
 }

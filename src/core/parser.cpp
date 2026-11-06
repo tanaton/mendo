@@ -105,9 +105,9 @@ struct ParseContext : NodeStorage {
 
     int indent_level = 0;
     int blockquote_depth = 0;
-    int blockquote_group_counter = 0;  // 最外側 blockquote に入るたびに進める group ID（ネスト中は共有）
-    int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
-    size_t quote_first_node = 0;       // 最外側 blockquote の最初のノード番号（ノードを作らない引用では後続のノードを指す）
+    int blockquote_group_counter = 0; // 最外側 blockquote に入るたびに進める group ID（ネスト中は共有）
+    int outermost_quote_indent = 0;   // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
+    size_t quote_first_node = 0;      // 最外側 blockquote の最初のノード番号（ノードを作らない引用では後続のノードを指す）
 
     // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
@@ -1092,7 +1092,8 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
 // 元の "$" / "$$" を戻して数式の run (kMath / kMathDoubleDollar) に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
 constexpr std::string_view MathDelimiterOf(MD_SPANTYPE type) noexcept
 {
-    return type == MD_SPAN_LATEXMATH ? "$" : type == MD_SPAN_LATEXMATH_DISPLAY ? "$$" : "";
+    return type == MD_SPAN_LATEXMATH ? "$" : type == MD_SPAN_LATEXMATH_DISPLAY ? "$$"
+                                                                               : "";
 }
 
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)

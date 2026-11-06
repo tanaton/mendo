@@ -43,7 +43,9 @@ template <class Fill>
     requires std::invocable<Fill&, std::wstring&>
 TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, Fill&& fill)
 {
-    TooltipHover t{ { zone, key } };
+    TooltipHover t{
+        { zone, key }
+    };
     if (t.target != current) {
         fill(t.text);
     }

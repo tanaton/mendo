@@ -79,10 +79,10 @@ struct InlineTag {
     std::string_view close;
 };
 constexpr InlineTag kInlineTags[]{
-    { TextRun::kBold, "<strong>", "</strong>" },
-    { TextRun::kItalic, "<em>", "</em>" },
-    { TextRun::kStrikethrough, "<s>", "</s>" },
-    { TextRun::kCode, "<code>", "</code>" },
+    { TextRun::kBold,          "<strong>", "</strong>" },
+    { TextRun::kItalic,        "<em>",     "</em>"     },
+    { TextRun::kStrikethrough, "<s>",      "</s>"      },
+    { TextRun::kCode,          "<code>",   "</code>"   },
 };
 
 // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。

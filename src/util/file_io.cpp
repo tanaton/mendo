@@ -129,7 +129,7 @@ namespace {
 using FileDialogFn = BOOL(WINAPI*)(LPOPENFILENAMEW);
 
 std::wstring ShowFileDialog(FileDialogFn show, HWND owner, const wchar_t* filter, const wchar_t* default_ext,
-                                 DWORD flags, const wchar_t* initial_name)
+                            DWORD flags, const wchar_t* initial_name)
 {
     wchar_t filename[MAX_PATH] = {};
     if (initial_name) {

@@ -288,12 +288,12 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
         const D2D1_RECT_F& rect;
         SearchBarHitZone zone;
     } targets[] = {
-        { sbl.up_btn, SearchBarHitZone::Up },
-        { sbl.down_btn, SearchBarHitZone::Down },
-        { sbl.case_btn, SearchBarHitZone::CaseSensitive },
-        { sbl.highlight_btn, SearchBarHitZone::Highlight },
-        { sbl.close_btn, SearchBarHitZone::Close },
-        { sbl.input_rect, SearchBarHitZone::Input },
+        { sbl.up_btn,        SearchBarHitZone::Up            },
+        { sbl.down_btn,      SearchBarHitZone::Down          },
+        { sbl.case_btn,      SearchBarHitZone::CaseSensitive },
+        { sbl.highlight_btn, SearchBarHitZone::Highlight     },
+        { sbl.close_btn,     SearchBarHitZone::Close         },
+        { sbl.input_rect,    SearchBarHitZone::Input         },
     };
     for (const auto& t : targets) {
         if (PointInRect(x, y, t.rect)) {
@@ -316,7 +316,8 @@ inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
-    const float slot = kind == OverlayButton::DiagramView ? 2.0f : kind == OverlayButton::DiagramCopy ? 1.0f : 0.0f;
+    const float slot = kind == OverlayButton::DiagramView ? 2.0f : kind == OverlayButton::DiagramCopy ? 1.0f
+                                                                                                      : 0.0f;
     const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - slot * (COPY_BTN_SIZE + COPY_BTN_GAP);
     const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);

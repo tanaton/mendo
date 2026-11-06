@@ -124,8 +124,8 @@ int ContextMenu::NavHitTest(float x, float y) const noexcept
 std::optional<ZoomDirection> ContextMenu::ZoomHitTest(float x, float y) const noexcept
 {
     const std::pair<const DipRect&, ZoomDirection> buttons[] = {
-        { zoom_layout.out_rect, ZoomDirection::Out },
-        { zoom_layout.in_rect, ZoomDirection::In },
+        { zoom_layout.out_rect,   ZoomDirection::Out   },
+        { zoom_layout.in_rect,    ZoomDirection::In    },
         { zoom_layout.reset_rect, ZoomDirection::Reset },
     };
     for (const auto& [rect, direction] : buttons) {

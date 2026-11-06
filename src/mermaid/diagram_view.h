@@ -57,7 +57,12 @@ public:
 private:
     static constexpr UINT_PTR kTooltipTimer = 2;
     // 並びは右上のバーの左から。
-    enum class Button : uint8_t { None, ZoomOut, ZoomIn, Fit };
+    enum class Button : uint8_t {
+        None,
+        ZoomOut,
+        ZoomIn,
+        Fit
+    };
 
     DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);

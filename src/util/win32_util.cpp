@@ -117,7 +117,10 @@ void LaunchSelfInNewWindow(HWND origin, std::span<const std::wstring_view> args,
     }
     const ULONGLONG now = GetTickCount64();
     rect = CascadeRect(rect, mi.rcWork, step, OccupiedOrigins(origin, now));
-    g_pending_launches.push_back({ { rect.left, rect.top }, now });
+    g_pending_launches.push_back({
+        { rect.left, rect.top },
+        now
+    });
 
     std::wstring cmd = QuoteCommandLineArg(exe);
     for (const auto arg : args) {

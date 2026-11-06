@@ -119,7 +119,12 @@ private:
     // 拡大表示の結果。描けなければ drawing は null。
     using ViewCallback = std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)>;
     // RenderRequest::target の並び。Display だけが結果をキャッシュに持ち、ほかは結果を target のコールバックで返す。
-    enum class RequestKind : uint8_t { Display, Svg, View, Math };
+    enum class RequestKind : uint8_t {
+        Display,
+        Svg,
+        View,
+        Math
+    };
 
     struct RenderRequest {
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。

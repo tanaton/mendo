@@ -163,8 +163,8 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
 
 // 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
 [[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
-                                    DWORD share_mode = FILE_SHARE_READ,
-                                    LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
+                                      DWORD share_mode = FILE_SHARE_READ,
+                                      LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 
 // 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
 // EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。

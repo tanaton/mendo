@@ -120,7 +120,10 @@ constexpr ThemeColor Same(BrushId id, D2D1_COLOR_F color) noexcept
 // 黒 (ライト) か白 (ダーク) を alpha で重ねる色。
 constexpr ThemeColor Monochrome(BrushId id, float light_alpha, float dark_alpha) noexcept
 {
-    return { id, { 0.0f, 0.0f, 0.0f, light_alpha }, { 1.0f, 1.0f, 1.0f, dark_alpha } };
+    return {
+        id, { 0.0f, 0.0f, 0.0f, light_alpha },
+         { 1.0f, 1.0f, 1.0f, dark_alpha  }
+    };
 }
 
 using theme_palette::SharedColors;
@@ -185,9 +188,13 @@ constexpr ThemeColor kThemeColors[]{
     { BrushId::OverlayGestureBg, Rgb(0x000000), { 0.2f, 0.2f, 0.2f, 1.0f } },
     Same(BrushId::OverlayWhite, Rgb(0xFFFFFF)),
     Monochrome(BrushId::Overlay, 1.0f, 1.0f),
-    Same(BrushId::GestureTrail, { 0.9f, 0.2f, 0.2f, 1.0f }),
+    Same(
+        BrushId::GestureTrail, { 0.9f, 0.2f, 0.2f, 1.0f }
+    ),
 
-    Same(BrushId::Selection, { 0.26f, 0.56f, 0.84f, 0.3f }),
+    Same(
+        BrushId::Selection, { 0.26f, 0.56f, 0.84f, 0.3f }
+    ),
     Monochrome(BrushId::TableStripe, 0.02f, 0.05f),
     Monochrome(BrushId::ScrollbarThumb, 0.25f, 0.4f),
 };
