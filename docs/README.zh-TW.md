@@ -119,7 +119,6 @@ winget install tanaton.mendo
 - Windows 10 或更新版本
 - Visual Studio 2026（MSVC，支援 C++23）
 - CMake 4.2+（支援 Visual Studio 2026 產生器的版本）
-- clang-cl（選用。用於部分建置，找不到時使用 MSVC。）
 
 ### 建置步驟
 

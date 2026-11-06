@@ -119,7 +119,6 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - Windows 10 or later
 - Visual Studio 2026 (MSVC, C++23)
 - CMake 4.2+ (required for the Visual Studio 2026 generator)
-- clang-cl (optional; used for part of the build, MSVC is used if it is not found)
 
 ### Build Steps
 
