@@ -29,8 +29,8 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 
 bool ResourceManager::ApplyCachedImageSizes(IndexRange range)
 {
-    // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
-    if (image_loader_.CacheSize() == 0) {
+    // 読み込みを起動しないので、読んだ画像が無ければ何も適用できない (起動直後の復元など)。
+    if (image_loader_.ImageInfoCount() == 0) {
         return false;
     }
     InlineImageUpdate update;
@@ -73,6 +73,8 @@ void ResourceManager::LoadImages()
     DropQueuesIfJumped();
     InlineImageUpdate update;
     ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, update);
+    // 受け取ったビットマップは描く側へ渡し終えた。先読み範囲の外へ出た画像の分は捨て、戻ったら読み直す。
+    image_loader_.ClearDelivered();
     NotifyInlineImages(update);
 }
 
@@ -197,34 +199,34 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
 {
     const uint64_t key = InlineImageKey(src);
     const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
-    const auto* cached = abs_path ? image_loader_.FindCachedImage(*abs_path) : nullptr;
-    if (!cached) {
+    const auto* info = abs_path ? image_loader_.FindImageInfo(*abs_path) : nullptr;
+    if (!info && (!abs_path || image_loader_.HasGivenUp(*abs_path))) {
         // 読めないもの (解決できない src・読むのをあきらめたファイル) は alt を出す。読み直しで失敗の記録が消えても、
         // 読めるまで alt のまま読み直す (読み込み中の幅 0 との行き来でちらつかせない)。
-        if (!abs_path || image_loader_.HasGivenUp(*abs_path)) {
-            SetInlineImage(key, { .state = InlineImageState::Unavailable }, update);
-        }
-        // キャッシュから落ちても、描くビットマップを持っている間は読み直さない。表は 1 ノードで全部の画像を読むので、
-        // 画像がキャッシュの件数を超えると読み込みが互いを追い出し、約 1ms ごとに読み直しと描き直しが続いていた。
-        // 持っていない画像は寸法を残したまま読み直す。
-        else if (start_loads && !inline_drawings_.images.Find(key)) {
-            image_loader_.RequestLoadAsync(*abs_path, max_width);
+        SetInlineImage(key, { .state = InlineImageState::Unavailable }, update);
+        return;
+    }
+    if (info) {
+        // DPI が変わると同じ画像でも DIP の寸法が変わる。
+        const auto size = image_loader_.DipSize(*info);
+        SetInlineImage(key, {
+                                .state = InlineImageState::Ready, .size = { size.width, size.height }
+        },
+                       update);
+    }
+    if (ID2D1Bitmap* const delivered = image_loader_.FindDelivered(*abs_path)) {
+        auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
+        if (bitmap.Get() != delivered) {
+            bitmap = delivered;
+            update.bitmaps_changed = true;
         }
         return;
     }
-    // DPI が変わると同じビットマップでも DIP の寸法が変わる。
-    const auto size = image_loader_.DipSize(*cached);
-    SetInlineImage(key, {
-                            .state = InlineImageState::Ready, .size = { size.width, size.height }
-    },
-                   update);
-    auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
-    if (bitmap != cached->bitmap) {
-        bitmap = cached->bitmap;
-        update.bitmaps_changed = true;
-    }
+    // 描くビットマップが無ければ読む (保持範囲の外や別の文書から戻ったときは寸法が残っているので組み直さない)。
+    // 持っている間は読み直さない。表は 1 ノードで全部の画像を読むので、件数に上限のあるキャッシュに置いていた頃は
+    // 画像が 128 種類を超えると読み込みが互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた。
     // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-    if (start_loads && image_loader_.NeedsSharperDecode(*cached, max_width)) {
+    if (start_loads && (!inline_drawings_.FindImage(key) || (info && image_loader_.NeedsSharperDecode(*info, max_width)))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }
 }

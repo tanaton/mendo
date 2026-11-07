@@ -25,8 +25,10 @@ void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskSche
 
 void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
 {
+    // 寸法はデバイスに依らないので残す。
     if (render_target_) {
-        ClearCache();
+        delivered_.Clear();
+        ResetFailedPaths();
     }
     render_target_ = rt;
     max_bitmap_dim_.store(MaxBitmapDim(rt));
@@ -40,12 +42,35 @@ void ImageLoader::Shutdown()
     pending_paths_.clear();
 }
 
-const ImageLoader::CachedImage* ImageLoader::FindCachedImage(const std::wstring& abs_path)
+uint64_t ImageLoader::PathKey(const std::wstring& path) noexcept
 {
-    return cache_.Find(abs_path);
+    return Fnv1a64({ reinterpret_cast<const char*>(path.data()), path.size() * sizeof(wchar_t) });
 }
 
-D2D1_SIZE_F ImageLoader::DipSize(const CachedImage& image) const noexcept
+const ImageLoader::ImageInfo* ImageLoader::FindImageInfo(const std::wstring& abs_path) const noexcept
+{
+    return infos_.Find(PathKey(abs_path));
+}
+
+ID2D1Bitmap* ImageLoader::FindDelivered(const std::wstring& abs_path) const noexcept
+{
+    const auto* bitmap = delivered_.Find(PathKey(abs_path));
+    return bitmap ? bitmap->Get() : nullptr;
+}
+
+void ImageLoader::StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap)
+{
+    const uint64_t key = PathKey(path);
+    if (infos_.size() >= kMaxImageInfos && !infos_.Find(key)) {
+        infos_.Clear();
+    }
+    *infos_.TryEmplace(key).first = info;
+    if (bitmap) {
+        *delivered_.TryEmplace(key).first = std::move(bitmap);
+    }
+}
+
+D2D1_SIZE_F ImageLoader::DipSize(const ImageInfo& image) const noexcept
 {
     const float scale = DpiScale();
     return { PixelToDip(image.pixel_width, scale), PixelToDip(image.pixel_height, scale) };
@@ -137,21 +162,12 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
             return;
         }
         request_again = true;
-        // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
-        bool failed = !r.bitmap;
-        const auto* existing = cache_.Find(r.path);
-        if (r.bitmap && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
-            Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-            const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
-            if (SUCCEEDED(hr) && bitmap) {
-                cache_.Insert(r.path, CachedImage{ std::move(bitmap), r.width, r.height, r.sharp_width_px });
-                cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static noexcept { return BitmapBytes(c.bitmap.Get()); });
-            }
-            else {
-                failed = true;
-            }
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+        if (r.bitmap && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
+            StoreResult(r.path, { r.width, r.height, r.sharp_width_px }, std::move(bitmap));
         }
-        if (failed) {
+        else {
+            // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
             ++failed_paths_[r.path];
         }
     });

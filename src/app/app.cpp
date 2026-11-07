@@ -914,8 +914,8 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
 
-    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。画像の寸法も
-    // image_loader のメモリキャッシュから入れる。引き継いだノードは実測の高さを持っているので、当てるのは変わった範囲だけでよい。
+    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。image_loader が
+    // 覚えている画像の寸法も入れる。引き継いだノードは実測の高さを持っているので、当てるのは変わった範囲だけでよい。
     // 引き継いだ高さと合わせて Y を 1 回で組み直す。
     const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {

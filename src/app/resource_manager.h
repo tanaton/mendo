@@ -58,11 +58,11 @@ public:
           inline_images_(inline_images), inline_drawings_(inline_drawings), host_(host)
     {}
 
-    // range のノードの本文中の画像に、読み込み済みのキャッシュにある寸法とビットマップを入れる。未キャッシュは無視。
+    // range のノードの本文中の画像に、読んだことのある画像の寸法を入れる。読んでいない画像は無視。
     // 組む前に呼べば最初から画像の寸法で組める。寸法を入れたら true。読み込みは後続の FlushPendingResources が起動する。
     bool ApplyCachedImageSizes(IndexRange range);
     // 開くときとリロードのスクロール位置の計算用に、range のノードの推定高さを図のキャッシュにある実測の寸法で上書きし、
-    // 本文中の画像の寸法もキャッシュから入れる。高さを変えたら true (Y は組み直さない)。
+    // 読んだことのある本文中の画像の寸法も入れる。高さを変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は済ませておく。
     bool ApplyCachedHeights(IndexRange range);
     void LoadImages();
@@ -88,7 +88,7 @@ private:
         bool bitmaps_changed = false;
     };
     // 以下の適用と要求は再レイアウトしない。画像は update に、高さが変わった図のノードは changed に積む。
-    // slices は走査する画像を持つノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。
+    // slices は走査する画像を持つノードの範囲の並び。start_loads なら描くビットマップの無い画像の読み込みを起動する。
     void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update);
     // max_width はデコードする幅 (0 は原寸)。
     void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, bool start_loads, InlineImageUpdate& update);

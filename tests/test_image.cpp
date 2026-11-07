@@ -30,21 +30,21 @@
 
 namespace {
 
-// FindCachedImage の結果 (bitmap と、今の DPI での寸法)。
+// 読み込んだ結果 (受け取ったビットマップと、今の DPI での寸法)。
 struct LoadedImage {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
 };
 
-inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
+inline bool GetLoadedImage(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
 {
-    const auto* cached = loader.FindCachedImage(path);
-    if (!cached) {
+    const auto* info = loader.FindImageInfo(path);
+    if (!info) {
         return false;
     }
-    out.bitmap = cached->bitmap;
-    const auto size = loader.DipSize(*cached);
+    out.bitmap = loader.FindDelivered(path);
+    const auto size = loader.DipSize(*info);
     out.width = size.width;
     out.height = size.height;
     return true;
@@ -353,7 +353,7 @@ protected:
     void TearDown() override
     {
         scheduler_.Shutdown();
-        loader_.ClearCache();
+        loader_.ClearDelivered();
     }
 
     // 積んだデコードを終わらせ、届いた結果をすべて取り込む。取り込んだものがあれば true (失敗の結果も数える)。
@@ -366,12 +366,12 @@ protected:
         return DrainDecodes(loader_);
     }
 
-    // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。キャッシュに当たれば取り込むものは無い。
+    // 非同期経路でデコードさせ、完了後に読み込んだ結果を取り出す。
     bool LoadAndGet(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
     {
         loader.RequestLoadAsync(path, 0.0f);
         (void)DrainDecodes(loader);
-        return GetCachedImage(loader, path, out);
+        return GetLoadedImage(loader, path, out);
     }
     bool LoadAndGet(const std::wstring& path, LoadedImage& out)
     {
@@ -451,7 +451,7 @@ TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
 
     LoadedImage entry;
     EXPECT_FALSE(LoadAndGet(path, entry));
-    EXPECT_EQ(loader_.FindCachedImage(path), nullptr);
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
 }
 
 // 呼び出し側が指定した形式のデコーダだけを使い、別形式のバイト列は読まない (Mermaid の PNG 等)。
@@ -498,29 +498,46 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
     }
 }
 
-// ---- 正常系: キャッシュ動作 ----
+// ---- 正常系: 寸法の表と受け取ったビットマップ ----
 
-TEST_F(ImageLoaderTest, CacheHitsUntilClearCache)
+// 受け取ったビットマップは描く側へ渡したら手放す。寸法は残り、読み直すと新しいビットマップを受け取る。
+TEST_F(ImageLoaderTest, DeliveredBitmapIsDroppedButSizeStays)
 {
-    ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 40));
+    ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 30));
     auto path = GetTestImagePath(L"clear.png");
 
     LoadedImage entry1;
     EXPECT_TRUE(LoadAndGet(path, entry1));
-    auto* first_bitmap = entry1.bitmap.Get();
+    ASSERT_TRUE(entry1.bitmap);
 
-    // 消す前は同じビットマップをキャッシュから返す
-    LoadedImage hit;
-    EXPECT_TRUE(GetCachedImage(loader_, path, hit));
-    EXPECT_EQ(hit.bitmap.Get(), first_bitmap);
-
-    loader_.ClearCache();
+    loader_.ClearDelivered();
+    EXPECT_EQ(loader_.FindDelivered(path), nullptr);
+    LoadedImage size_only;
+    ASSERT_TRUE(GetLoadedImage(loader_, path, size_only));
+    EXPECT_FALSE(size_only.bitmap);
+    EXPECT_FLOAT_EQ(size_only.width, 40.0f);
+    EXPECT_FLOAT_EQ(size_only.height, 30.0f);
 
     LoadedImage entry2;
     EXPECT_TRUE(LoadAndGet(path, entry2));
+    ASSERT_TRUE(entry2.bitmap);
+    EXPECT_NE(entry1.bitmap.Get(), entry2.bitmap.Get());
+}
 
-    // キャッシュクリア後は新しいビットマップが作成される
-    EXPECT_NE(first_bitmap, entry2.bitmap.Get());
+// 描画先を差し替えると、旧描画先のビットマップは捨てる。寸法はデバイスに依らないので残す。
+TEST_F(ImageLoaderTest, RenderTargetSwapDropsBitmapsKeepsSizes)
+{
+    ASSERT_TRUE(CreateTestImage(L"swap_keep.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"swap_keep.png");
+    LoadedImage entry;
+    ASSERT_TRUE(LoadAndGet(path, entry));
+
+    const auto rt = CreateRenderTarget();
+    ASSERT_TRUE(rt);
+    loader_.SetRenderTarget(rt.Get());
+    EXPECT_EQ(loader_.FindDelivered(path), nullptr);
+    EXPECT_NE(loader_.FindImageInfo(path), nullptr);
+    loader_.SetRenderTarget(render_target_.Get());
 }
 
 // 始まっていないデコードを捨てると読まずに返る。待つ間に要求し直されていれば、届いたときに読み直させる。失敗には数えない。
@@ -537,7 +554,7 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
         loader_.RequestLoadAsync(path, 0.0f);
         gate.Open();
         EXPECT_TRUE(DrainDecodes());
-        EXPECT_EQ(loader_.CacheSize(), 0u);
+        EXPECT_EQ(loader_.ImageInfoCount(), 0u);
     }
 
     LoadedImage entry;
@@ -557,7 +574,7 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、捨てた要求の結果が届いている。
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
-    EXPECT_EQ(loader_.CacheSize(), 0u);
+    EXPECT_EQ(loader_.ImageInfoCount(), 0u);
 }
 
 // ---- 異常系: ファイルが存在しない ----
@@ -687,7 +704,7 @@ TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
 // ============================================================
 
 // 基底の loader_ (既定 DPI) は使わず、CreateRenderTarget(dpi) から DPI 別のローダーを作る。
-// 読み込み直後もキャッシュから引き直しても、同じ DIP サイズになること。
+// 読み込み直後も寸法の表から引き直しても、同じ DIP サイズになること。
 TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
 {
     struct Case {
@@ -722,7 +739,7 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
         EXPECT_NEAR(loaded.height, c.dip_height, tolerance);
 
         LoadedImage cached;
-        ASSERT_TRUE(GetCachedImage(loader, path, cached));
+        ASSERT_TRUE(GetLoadedImage(loader, path, cached));
         EXPECT_NEAR(cached.width, c.dip_width, tolerance);
         EXPECT_NEAR(cached.height, c.dip_height, tolerance);
     }
@@ -760,7 +777,7 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     // 予算が無くても 1 件は取り込むので、重複のデコードが走っていれば次の結果が残る。
     EXPECT_TRUE(loader_.ProcessCompletedDecodes(kExpiredDeadline));
     EXPECT_FALSE(loader_.HasLeftoverUploads()) << "結果は 1 件だけ届く";
-    EXPECT_EQ(loader_.CacheSize(), 1u);
+    EXPECT_EQ(loader_.ImageInfoCount(), 1u);
 }
 
 TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
@@ -790,7 +807,7 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
-    EXPECT_EQ(loader_.CacheSize(), 0u);
+    EXPECT_EQ(loader_.ImageInfoCount(), 0u);
 }
 
 // デバイスの作り直しで旧 rt から新 rt へ直に差し替えても、受け箱の結果を捨てずに新しい rt に載せる。
@@ -806,15 +823,16 @@ TEST_F(ImageLoaderAsyncTest, RenderTargetSwapKeepsCompletedDecodes)
     loader_.SetRenderTarget(rt.Get());
     EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
     LoadedImage entry;
-    EXPECT_TRUE(GetCachedImage(loader_, path, entry));
+    EXPECT_TRUE(GetLoadedImage(loader_, path, entry));
+    EXPECT_TRUE(entry.bitmap);
     loader_.SetRenderTarget(render_target_.Get());
 }
 
 // ---- スレッドプールテスト ----
 
-TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
+TEST_F(ImageLoaderAsyncTest, ManyImagesAllLoaded)
 {
-    // ワーカー数を超える画像を同時にリクエストし、全て正しくキャッシュされること
+    // ワーカー数を超える画像を同時にリクエストし、全て正しく読み込まれること
     constexpr int kImageCount = 8;
     std::vector<std::wstring> paths;
     for (int i = 0; i < kImageCount; ++i) {
@@ -830,12 +848,12 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
     }
 
     ASSERT_TRUE(DrainDecodes()) << "非同期読み込みが完了しなかった";
-    EXPECT_EQ(loader_.CacheSize(), paths.size());
+    EXPECT_EQ(loader_.ImageInfoCount(), paths.size());
 
     for (int i = 0; i < kImageCount; ++i) {
         LoadedImage entry;
-        EXPECT_TRUE(GetCachedImage(loader_, paths[i], entry))
-            << "画像 " << i << " がキャッシュされていない";
+        EXPECT_TRUE(GetLoadedImage(loader_, paths[i], entry))
+            << "画像 " << i << " が読み込まれていない";
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(10 + i * 5));
         EXPECT_FLOAT_EQ(entry.height, static_cast<float>(20 + i * 3));
     }
@@ -855,11 +873,11 @@ TEST_F(ImageLoaderAsyncTest, ProcessCompletedDecodesDefersOverBudget)
 
     EXPECT_FALSE(loader_.HasLeftoverUploads()) << "届いただけの結果は投函で知らせる";
     EXPECT_TRUE(loader_.ProcessCompletedDecodes(kExpiredDeadline));
-    EXPECT_EQ(loader_.CacheSize(), 1u);
+    EXPECT_EQ(loader_.ImageInfoCount(), 1u);
     EXPECT_TRUE(loader_.HasLeftoverUploads());
 
     loader_.ProcessCompletedDecodes(kNoDeadline);
-    EXPECT_EQ(loader_.CacheSize(), static_cast<size_t>(kImageCount));
+    EXPECT_EQ(loader_.ImageInfoCount(), static_cast<size_t>(kImageCount));
     EXPECT_FALSE(loader_.HasLeftoverUploads());
 }
 
@@ -875,7 +893,6 @@ TEST_F(ImageLoaderAsyncTest, LoadAfterShutdownWithHeavyLoad)
 
     loader_.Shutdown();
     loader_.CancelPending();
-    loader_.ClearCache();
 
     auto name = L"reinit_b.png";
     ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));
@@ -905,10 +922,10 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
 
     loader_.RequestLoadAsync(path, 0.0f);
 
-    // キャンセル前の要求の結果も一緒に届くので、対象画像のキャッシュで確かめる
+    // キャンセル前の要求の結果も一緒に届くので、対象画像の結果で確かめる
     ASSERT_TRUE(DrainDecodes());
     LoadedImage entry;
-    ASSERT_TRUE(GetCachedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
+    ASSERT_TRUE(GetLoadedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }
@@ -929,7 +946,7 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
 
     LoadedImage entry;
-    EXPECT_FALSE(GetCachedImage(loader_, path, entry));
+    EXPECT_FALSE(GetLoadedImage(loader_, path, entry));
 }
 
 // 失敗の記録を消す操作の後は、同じパスを読み直せる。
@@ -941,7 +958,6 @@ TEST_F(ImageLoaderAsyncTest, ClearingFailedPathsAllowsRetry)
     };
     const Case kCases[] = {
         { L"fail_cancel.png", &ImageLoader::CancelPending },
-        { L"fail_clear_cache.png", &ImageLoader::ClearCache },
         { L"fail_reset.png", &ImageLoader::ResetFailedPaths },
     };
     for (const auto& c : kCases) {
@@ -982,24 +998,24 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     // 300 DIP (96 DPI で 300px) は 256px 単位に切り上げて 512px でデコードする。
     loader_.RequestLoadAsync(path, 300.0f);
     ASSERT_TRUE(DrainDecodes());
-    const auto* cached = loader_.FindCachedImage(path);
-    ASSERT_NE(cached, nullptr);
-    ASSERT_TRUE(cached->bitmap);
-    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 512u);
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    ASSERT_NE(loader_.FindDelivered(path), nullptr);
+    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 512u);
     // レイアウトは原寸基準のまま。
-    EXPECT_FLOAT_EQ(cached->pixel_width, 1000.0f);
-    EXPECT_FLOAT_EQ(cached->pixel_height, 20.0f);
-    EXPECT_EQ(cached->sharp_width_px, 512u);
-    EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 500.0f));
-    EXPECT_TRUE(loader_.NeedsSharperDecode(*cached, 600.0f));
+    EXPECT_FLOAT_EQ(info->pixel_width, 1000.0f);
+    EXPECT_FLOAT_EQ(info->pixel_height, 20.0f);
+    EXPECT_EQ(info->sharp_width_px, 512u);
+    EXPECT_FALSE(loader_.NeedsSharperDecode(*info, 500.0f));
+    EXPECT_TRUE(loader_.NeedsSharperDecode(*info, 600.0f));
 
-    // 表示幅が広がったら、高い解像度で読み直してキャッシュを差し替える。
+    // 表示幅が広がったら、高い解像度で読み直す。
     loader_.RequestLoadAsync(path, 600.0f);
     ASSERT_TRUE(DrainDecodes());
-    cached = loader_.FindCachedImage(path);
-    ASSERT_NE(cached, nullptr);
-    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 768u);
-    EXPECT_EQ(cached->sharp_width_px, 768u);
+    info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 768u);
+    EXPECT_EQ(info->sharp_width_px, 768u);
 }
 
 TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
@@ -1009,10 +1025,10 @@ TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
 
     loader_.RequestLoadAsync(path, 300.0f);
     ASSERT_TRUE(DrainDecodes());
-    const auto* cached = loader_.FindCachedImage(path);
-    ASSERT_NE(cached, nullptr);
-    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 100u);
-    EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 5000.0f));
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 100u);
+    EXPECT_FALSE(loader_.NeedsSharperDecode(*info, 5000.0f));
 }
 
 // ============================================================
@@ -1072,41 +1088,26 @@ TEST(SniffImageContainer, RejectsOtherFormats)
 }
 
 // ============================================================
-// ImageLoader キャッシュテスト
+// ImageLoader 寸法の表のテスト
 // ============================================================
 
-class ImageLoaderCacheTest : public ::testing::Test {
-protected:
-    // FindCachedImage / InsertCacheEntryForTest だけを使うので Init は不要。
-    ImageLoader loader_;
-};
-
-// 並べ替えの規則は TranspositionCache のテストで見る。ここでは容量が MAX_CACHE_ENTRIES (128) であることと、
-// FindCachedImage のヒットで順位が上がることだけを確かめる。
-TEST_F(ImageLoaderCacheTest, HoldsMaxEntriesAndFindPromotes)
+// 件数が上限に届いたら、空にしてから新しい画像を入れる。
+TEST(ImageLoaderInfoTest, ClearsWhenFull)
 {
-    constexpr size_t kMaxEntries = 128;
-    EXPECT_EQ(loader_.FindCachedImage(L"img_0.png"), nullptr);
-    for (size_t i = 0; i < kMaxEntries; i++) {
-        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    ImageLoader loader;
+    for (size_t i = 0; i < ImageLoader::kMaxImageInfos; i++) {
+        loader.InsertImageForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
-    EXPECT_EQ(loader_.CacheSize(), kMaxEntries);
+    EXPECT_EQ(loader.ImageInfoCount(), ImageLoader::kMaxImageInfos);
+    EXPECT_NE(loader.FindImageInfo(L"img_0.png"), nullptr);
 
-    // 最も古い img_0 はヒットで末尾から外れるので、溢れたときは 1 つ前の img_1 が捨てられる
-    ASSERT_NE(loader_.FindCachedImage(L"img_0.png"), nullptr);
-    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
-    EXPECT_EQ(loader_.CacheSize(), kMaxEntries);
-    EXPECT_NE(loader_.FindCachedImage(L"img_0.png"), nullptr);
-    EXPECT_EQ(loader_.FindCachedImage(L"img_1.png"), nullptr);
-    EXPECT_NE(loader_.FindCachedImage(L"overflow.png"), nullptr);
-}
+    // 入っている画像は数え直さない。
+    loader.InsertImageForTest(L"img_0.png", 200.0f, 100.0f);
+    EXPECT_EQ(loader.ImageInfoCount(), ImageLoader::kMaxImageInfos);
+    EXPECT_FLOAT_EQ(loader.FindImageInfo(L"img_0.png")->pixel_width, 200.0f);
 
-TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
-{
-    loader_.InsertCacheEntryForTest(L"a.png", 100.0f, 100.0f);
-    loader_.InsertCacheEntryForTest(L"b.png", 100.0f, 100.0f);
-    loader_.ClearCache();
-    EXPECT_EQ(loader_.CacheSize(), 0u);
-    EXPECT_EQ(loader_.FindCachedImage(L"a.png"), nullptr);
-    EXPECT_EQ(loader_.FindCachedImage(L"b.png"), nullptr);
+    loader.InsertImageForTest(L"overflow.png", 100.0f, 100.0f);
+    EXPECT_EQ(loader.ImageInfoCount(), 1u);
+    EXPECT_EQ(loader.FindImageInfo(L"img_0.png"), nullptr);
+    EXPECT_NE(loader.FindImageInfo(L"overflow.png"), nullptr);
 }

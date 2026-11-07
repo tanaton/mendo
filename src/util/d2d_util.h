@@ -111,13 +111,3 @@ inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
     constexpr UINT kWithoutTarget = 16384;
     return rt ? rt->GetMaximumBitmapSize() : kWithoutTarget;
 }
-
-// GPU メモリ見積もり (PBGRA)。キャッシュのバイト予算に使う。
-inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
-{
-    if (!bitmap) {
-        return 0;
-    }
-    const auto size = bitmap->GetPixelSize();
-    return static_cast<size_t>(size.width) * size.height * 4;
-}

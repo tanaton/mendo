@@ -187,7 +187,7 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenNoImagesInDocument)
 TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
 {
     LoadMarkdown("# heading\n\n![alt](foo.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
     SetContentWidth(0.0f);
     rm_.LoadImages();
     EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
@@ -216,7 +216,7 @@ protected:
     void TearDown() override
     {
         scheduler_.Shutdown();
-        image_loader_.ClearCache();
+        image_loader_.ClearDelivered();
         inline_drawings_.images = {};
     }
 
@@ -237,9 +237,9 @@ protected:
     TaskScheduler scheduler_{ 2 };
 };
 
-// 1 つの表の画像がキャッシュの件数 (128) を超えても、描くビットマップを持つ画像は読み直さず、読み込みが止まる。
-// 読み込みが互いを追い出して読み直し続けていた。
-TEST_F(ResourceManagerImageFileTest, ImagesBeyondCacheEntriesSettle)
+// 画像の多い表 (128 種類のキャッシュがあった頃は読み込みが互いを追い出して読み直し続けた) でも、描くビットマップを持つ画像は
+// 読み直さず、読み込みが止まる。受け取ったビットマップは描く側へ渡したら ImageLoader に残さない。
+TEST_F(ResourceManagerImageFileTest, ManyImagesInTableSettle)
 {
     constexpr int kImages = 140;
     std::string md = "| i |\n|---|\n";
@@ -263,17 +263,48 @@ TEST_F(ResourceManagerImageFileTest, ImagesBeyondCacheEntriesSettle)
         const std::string src = std::format("i{}.png", i);
         EXPECT_EQ(Entry(src).state, InlineImageState::Ready) << src;
         EXPECT_NE(inline_drawings_.FindImage(InlineImageKey(src)), nullptr) << src;
+        EXPECT_EQ(image_loader_.FindDelivered((dir_.path() / std::format(L"i{}.png", i)).wstring()), nullptr) << src;
     }
+}
+
+// 別の文書を開いて戻っても、読んだ画像の寸法はパスで引けるので、組む前に入れられる。ビットマップは持たないので読み直す。
+TEST_F(ResourceManagerImageFileTest, ReturningDocumentKeepsSizesAndReloadsBitmap)
+{
+    WritePng(dir_.path() / L"a.png");
+    const std::wstring doc_path = (dir_.path() / L"test.md").wstring();
+    LoadMarkdown("![a](a.png)\n", 100.0f, doc_path.c_str());
+    rm_.LoadImages();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    ASSERT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline));
+    rm_.LoadImages();
+    ASSERT_NE(inline_drawings_.FindImage(InlineImageKey("a.png")), nullptr);
+
+    LoadMarkdown("other\n", 100.0f, (dir_.path() / L"other.md").wstring().c_str());
+    LoadMarkdown("![a](a.png)\n", 100.0f, doc_path.c_str());
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("a.png")), nullptr);
+
+    rm_.LoadImages();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline)) << "ビットマップを読み直す";
+    const int updates = host_.inline_updates;
+    rm_.LoadImages();
+    EXPECT_NE(inline_drawings_.FindImage(InlineImageKey("a.png")), nullptr);
+    EXPECT_EQ(host_.inline_updates, updates + 1);
+    EXPECT_FALSE(host_.last_pending_resolved) << "寸法は変わらないので組み直さない";
+    EXPECT_FALSE(host_.last_sizes_changed);
 }
 
 // ---- 画像経路: ApplyCachedImageSizes (issue #148) ----
 
-// 組む前にキャッシュの寸法とビットマップを入れる。縮めるのは組むときなので、寸法は原寸 (DIP) のまま。
+// 組む前に読んだ画像の寸法を入れる。受け取ったばかりのビットマップがあれば描く側へ渡す。縮めるのは組むときなので、
+// 寸法は原寸 (DIP) のまま。
 TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeAndBitmap)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f, &bitmap);
+    image_loader_.InsertImageForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f, &bitmap);
 
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     EXPECT_EQ(Entry("foo.png"), (InlineImageEntry{ InlineImageState::Ready, { 1000.0f, 800.0f } }));
@@ -285,7 +316,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeAndBitmap)
 TEST_F(ResourceManagerTest, LoadImagesResolvesPendingImages)
 {
     LoadMarkdown("# heading\n\ntext ![a](one.png) and ![b](two.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
 
     rm_.LoadImages();
     EXPECT_EQ(host_.inline_updates, 1);
@@ -303,7 +334,7 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![a](one.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
     // 200% のときに入れた寸法。
     inline_images_.Exchange(InlineImageKey("one.png"), { InlineImageState::Ready, { 200.0f, 150.0f } });
 
@@ -355,27 +386,27 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesResolvesSrc)
         // デコードは 1 回だけ。二重エンコードの %255C は文書フォルダ内の "%5C" という名前のファイルになる。
         { "PercentOnlyOnce", "![e](%255C%255Cattacker%255Cshare%255Ce.png)\n", kTestDocPath, 1,
           { { L"\\\\attacker\\share\\e.png", 100.0f }, { L"C:\\dir\\%5C%5Cattacker%5Cshare%5Ce.png", 300.0f } }, 300.0f },
-        // "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果がキャッシュにあっても引かない。
+        // "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果を読んだことがあっても引かない。
         { "Scheme", "![alt](https://example.com/foo.png)\n", kTestDocPath, 1,
           { { joined(L"C:\\dir", L"https://example.com/foo.png"), 300.0f } }, std::nullopt, true },
         // 文書を \\?\ 付きのパスで開いていても、相対パスの .. で \\?\UNC\host へ抜けさせない。
         { "DevicePrefixEscape", "![a](../../UNC/attacker/share/a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { escaped, 300.0f } }, std::nullopt },
         // \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
         { "DevicePrefixRelative", "![a](img/../a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { L"C:\\dir\\a.png", 300.0f } }, 300.0f },
-        // キャッシュに無ければ何も入れず、読み込み中のまま。
+        // 読んだことが無ければ何も入れず、読み込み中のまま。
         { "CacheMiss", "![alt](missing.png)\n", kTestDocPath, 1, {}, std::nullopt },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.label);
-        image_loader_.ClearCache();
+        image_loader_.ClearImagesForTest();
         LoadMarkdown(c.md, 100.0f, c.doc_path);
         const auto& image_indices = doc_.GetImageNodeIndices();
         ASSERT_EQ(image_indices.size(), c.images);
         for (const auto& e : c.entries) {
-            image_loader_.InsertCacheEntryForTest(e.key, 400.0f, e.height);
+            image_loader_.InsertImageForTest(e.key, 400.0f, e.height);
         }
-        // 読み込みの起動を避けるため、キャッシュが空でないことを確かめる経路 (ApplyCachedImageSizes) を通す。
-        image_loader_.InsertCacheEntryForTest(L"C:\\unrelated\\x.png", 1.0f, 1.0f);
+        // 読み込みの起動を避けるため、読んだ画像があることを確かめる経路 (ApplyCachedImageSizes) を通す。
+        image_loader_.InsertImageForTest(L"C:\\unrelated\\x.png", 1.0f, 1.0f);
         const bool applied = rm_.ApplyCachedImageSizes({ 0, SIZE_MAX });
         const Node& first = doc_.GetNodes()[image_indices[0]];
         const auto entry = inline_images_.Find(InlineImageKey(first.image_src(first.runs()[0])));
@@ -404,7 +435,7 @@ TEST_F(ResourceManagerTest, UnavailableImageStaysUntilLoaded)
     EXPECT_EQ(Entry("a.png").state, InlineImageState::Unavailable);
     EXPECT_EQ(host_.inline_updates, 0);
 
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
     rm_.LoadImages();
     EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 400.0f, 300.0f } }));
     EXPECT_EQ(host_.inline_updates, 1);
@@ -427,8 +458,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesBeyondVisibleRange)
     // 画像を 2 個配置し、2 個目を viewport から大きく外して LoadImages との差を出す。
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     ASSERT_EQ(doc_.GetImageNodeIndices().size(), 2u);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
     // 先読み範囲は可視 ± PREFETCH_BUFFER_SCREENS 画面。2 個目は y=3000 にあり範囲外。
     rm_.LoadImages();
@@ -445,8 +476,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesOnlyGivenRange)
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     const auto& image_indices = doc_.GetImageNodeIndices();
     ASSERT_EQ(image_indices.size(), 2u);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ image_indices[1], image_indices[1] + 1 }));
     EXPECT_EQ(Entry("one.png").state, InlineImageState::Loading);
@@ -458,8 +489,8 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f, &bitmap);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
+    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f, &bitmap);
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     ASSERT_NE(inline_drawings_.FindImage(InlineImageKey("two.png")), nullptr);
 
@@ -531,7 +562,7 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRedrawsSynchronousDiagramError)
 TEST_F(ResourceManagerTest, ApplyCachedImageSizesDoesNotCarryChangeRange)
 {
     LoadMarkdown("![one](one.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
     mock_mermaid_.sync_apply_bitmap = true;
@@ -724,8 +755,8 @@ TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
 TEST_F(ResourceManagerTest, FlushPendingResourcesRecomputesOnceForImagesAndDiagrams)
 {
     LoadMarkdown("![a](one.png)\n\n![b](two.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
     mock_mermaid_.sync_apply_bitmap = true;
 
     rm_.FlushPendingResources();
@@ -734,11 +765,11 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRecomputesOnceForImagesAndDiagr
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 }
 
-// 取り込んだデコード結果が無ければ、キャッシュにある画像も適用し直さない。
+// 取り込んだデコード結果が無ければ、読んだことのある画像も適用し直さない。
 TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 {
     LoadMarkdown("![a](one.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
 
     rm_.OnImagesDecoded();
 
@@ -750,17 +781,17 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 // ---- ファイル切替時クリーンアップ ----
 
 // 解決済みパスは src をキーに持ち、文書フォルダが変わったら捨てる。同じ index が別画像を指しても、
-// 別フォルダの同じ src を指しても旧パスでキャッシュを引かない。
+// 別フォルダの同じ src を指しても旧パスの寸法を引かない。
 TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 {
     LoadMarkdown("![alt](old.png)\n");
     EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
     LoadMarkdown("![alt](new.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
-    image_loader_.InsertCacheEntryForTest(L"C:\\other\\same.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\other\\same.png", 400.0f, 300.0f);
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\dir\\doc.md");
     EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\other\\doc.md");
