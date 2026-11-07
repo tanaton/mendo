@@ -1345,6 +1345,24 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
+// ドロップしたフォルダは読み込まずにファイル一覧で開き、隠していた一覧を出す。
+TEST_F(ReducerTest, OpenDirectory_MovesFilePaneAndShowsIt)
+{
+    for (const bool visible : { true, false }) {
+        SCOPED_TRACE(visible);
+        state.view.panes.SetSidePaneVisible(PaneTarget::File, visible);
+        state.view.panes.SidePaneScroll(PaneTarget::File) = 100.0f;
+        const std::wstring dir = visible ? L"C:\\nonexistent_dir_a" : L"C:\\nonexistent_dir_b";
+
+        auto effects = Reduce(state, OpenDirectoryAction{ dir });
+
+        EXPECT_TRUE(state.view.panes.IsSidePaneVisible(PaneTarget::File));
+        EXPECT_EQ(state.file_explorer.GetDirectory(), dir);
+        EXPECT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File), 0.0f);
+        EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
+    }
+}
+
 // ---- FilePaneRevealCurrentFile テスト ----
 
 class FilePaneRevealTest : public ReducerTest {

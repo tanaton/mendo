@@ -57,6 +57,12 @@ public:
     App(ConfigService& config, Win32Window& window) noexcept : config_(config), window_(window)
     {}
     bool Init(HWND hwnd);
+    // Init が保存済みの設定 (ペインなど) を読み終えた。終える前に閉じるなら、窓の配置もセッションも保存しない。
+    // 読んでいない既定値で保存済みの設定を上書きしてしまう。
+    bool IsInitialized() const noexcept
+    {
+        return initialized_;
+    }
 
     // ウィンドウを保存済みの配置で表示した後、初回描画の前に呼ぶ。
     // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
@@ -305,7 +311,7 @@ private:
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
-    void DeferReloadRetry();
+    void DeferReloadRetry(UINT delay_ms = app_timer::FILE_RELOAD_RETRY_MS);
     // テキスト選択のドラッグ中なら、リロードをドラッグの終わりまで待たせて true。
     bool DeferReloadWhileSelecting();
 
@@ -330,6 +336,7 @@ private:
     SystemCursors cursors_;
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
+    bool initialized_ = false;
     Win32Window& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
     std::wstring title_text_ = L"mendo";
@@ -364,6 +371,10 @@ private:
     // 超えたら縮んだ内容を確定版として受け入れる。
     static constexpr int kMaxPrefixShrinkDefers = 10;
     int prefix_shrink_defers_ = 0;
+    // 共有を許さずに開かれている間は開けるまで読み直す。諦めると、最後の変更通知を読み直しの前に捨てているので
+    // 次の保存まで古い内容のままになる。短い間隔で 50 回 (約 3 秒) 開けなければ一度知らせ、以後は間隔を空ける。
+    static constexpr int kLockedRetriesBeforeNotice = 50;
+    int locked_retries_ = 0;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;

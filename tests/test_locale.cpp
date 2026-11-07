@@ -52,6 +52,7 @@ constexpr std::wstring_view i18n::Strings::* kStringFields[] = {
     &i18n::Strings::pane_header_toc,
     &i18n::Strings::menu_reset_window,
     &i18n::Strings::toast_file_not_found,
+    &i18n::Strings::toast_file_locked,
     &i18n::Strings::toast_file_too_large,
     &i18n::Strings::toast_file_read_failed,
     &i18n::Strings::toast_image_saved,

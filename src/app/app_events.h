@@ -170,6 +170,10 @@ struct RightClickGestureCompletedAction {
 struct FilePaneDirectoryClickedAction {
     std::wstring full_path;
 };
+// ドロップしたフォルダ。起動引数のフォルダと同じく、文書はそのままでファイル一覧をそのフォルダへ移す。
+struct OpenDirectoryAction {
+    std::wstring path;
+};
 struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
     int node_index;
@@ -281,6 +285,7 @@ using AppAction = std::variant<
     RightClickGestureMovedAction,
     RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction,
+    OpenDirectoryAction,
     FilePaneRevealCurrentFileAction,
     TocItemClickedAction,
     NavigateAnchorAction,

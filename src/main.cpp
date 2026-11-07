@@ -119,8 +119,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     }
 
     // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
+    // equivalent は前回のファイルを開くので、ネットワークドライブ上なら確かめずに復元しない (LoadLastFilePath と同じ理由)。
     std::error_code ec;
-    if (plan.restore_scroll || (plan.restore_scroll_if_same_file && std::filesystem::equivalent(args.path, last_file, ec))) {
+    if (plan.restore_scroll || (plan.restore_scroll_if_same_file && !path_util::IsOnNetworkDrive(last_file) && std::filesystem::equivalent(args.path, last_file, ec))) {
         window.app().RestoreScrollPosition();
     }
     if (!plan.anchor.empty()) {

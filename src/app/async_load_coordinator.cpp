@@ -146,6 +146,13 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
     FileWatchTarget watch = reload_base.data ? FileWatchTarget{} : OpenWatchTarget(path);
     auto file = load_file_(path, stop_token);
     if (!file) {
+        // 表示中のファイルを読み直すなら、旧文書の表示を続けて読み直させる。
+        if (reload_base.data && file.error() == FileLoadError::Locked) {
+            Publish(stop_token, AsyncLoadResult{
+                                    .reload = ReloadCheck{ .decision = { ReloadOp::Locked, std::string_view::npos }, .base = reload_base.data }
+            });
+            return;
+        }
         Publish(stop_token, std::unexpected(file.error()));
         return;
     }

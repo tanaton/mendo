@@ -10,10 +10,11 @@ std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* pa
     }
     UniqueHandle hFile(CreateFileW(path, GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
+        const DWORD error = GetLastError();
         if (out_error) {
-            *out_error = GetLastError();
+            *out_error = error;
         }
-        return std::unexpected(FileLoadError::NotFound);
+        return std::unexpected(error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION ? FileLoadError::Locked : FileLoadError::NotFound);
     }
     LARGE_INTEGER file_size;
     if (!GetFileSizeEx(hFile.get(), &file_size) || file_size.QuadPart < 0) {
@@ -56,24 +57,39 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept
     return size > static_cast<uint64_t>(reference_size) + kTolerance;
 }
 
+namespace {
+
+bool WriteToHandle(HANDLE file, const void* data, size_t size, bool flush_buffers) noexcept
+{
+    DWORD bytes_written = 0;
+    if (!WriteFile(file, data, static_cast<DWORD>(size), &bytes_written, nullptr) ||
+        bytes_written != static_cast<DWORD>(size)) {
+        return false;
+    }
+    return !flush_buffers || FlushFileBuffers(file);
+}
+
+// 書き終えた tmp_path で path を置き換える。置き換えられなければ tmp_path を消す。
+// 直書きフォールバックは CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
+bool ReplaceWithTmp(const std::filesystem::path& tmp_path, const std::filesystem::path& path, bool durable) noexcept
+{
+    const DWORD move_flags = MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0);
+    if (MoveFileExW(tmp_path.c_str(), path.c_str(), move_flags)) {
+        return true;
+    }
+    DeleteFileW(tmp_path.c_str());
+    return false;
+}
+
+} // namespace
+
 bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)
 {
     if (size > std::numeric_limits<DWORD>::max()) {
         return false;
     }
     UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (!hFile) {
-        return false;
-    }
-    DWORD bytes_written = 0;
-    if (!WriteFile(hFile.get(), data, static_cast<DWORD>(size), &bytes_written, nullptr) ||
-        bytes_written != static_cast<DWORD>(size)) {
-        return false;
-    }
-    if (flush_buffers && !FlushFileBuffers(hFile.get())) {
-        return false;
-    }
-    return true;
+    return hFile && WriteToHandle(hFile.get(), data, size, flush_buffers);
 }
 
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable)
@@ -90,14 +106,34 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
         DeleteFileW(tmp_path.c_str());
         return false;
     }
+    return ReplaceWithTmp(tmp_path, path, durable);
+}
 
-    const DWORD move_flags = MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0);
-    if (MoveFileExW(tmp_path.c_str(), path.c_str(), move_flags)) {
-        return true;
+bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, size_t size)
+{
+    if (size > std::numeric_limits<DWORD>::max()) {
+        return false;
     }
-
-    // 直書きフォールバックは CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
-    DeleteFileW(tmp_path.c_str());
+    constexpr DWORD kMaxAttempts = 16;
+    for (DWORD attempt = 0; attempt < kMaxAttempts; ++attempt) {
+        std::filesystem::path tmp_path = path;
+        tmp_path += std::format(L".{}-{}.tmp", GetCurrentProcessId(), attempt);
+        // CREATE_NEW なので、同じ名前のファイルがあれば触らずに次の名前を試す。
+        UniqueHandle hFile(CreateFileW(tmp_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (!hFile) {
+            if (GetLastError() == ERROR_FILE_EXISTS) {
+                continue;
+            }
+            return false;
+        }
+        const bool written = WriteToHandle(hFile.get(), data, size, /* flush_buffers = */ true);
+        hFile.reset();
+        if (!written) {
+            DeleteFileW(tmp_path.c_str());
+            return false;
+        }
+        return ReplaceWithTmp(tmp_path, path, /* durable = */ true);
+    }
     return false;
 }
 

@@ -120,6 +120,7 @@ bool App::Init(HWND hwnd)
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
+    initialized_ = true;
     return true;
 }
 
@@ -495,7 +496,15 @@ void App::OnDropFiles(HDROP hDrop)
     if (required > 0) {
         std::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
-            Dispatch(OpenPathAction{ std::move(path) });
+            // フォルダは読み込みに回すとファイルとして開けずに失敗する。ドロップした項目はエクスプローラーが触ったばかりなので、
+            // ネットワーク上でも UI スレッドで確かめてよい。
+            const DWORD attrs = GetFileAttributesW(path.c_str());
+            if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                Dispatch(OpenDirectoryAction{ std::move(path) });
+            }
+            else {
+                Dispatch(OpenPathAction{ std::move(path) });
+            }
         }
     }
     DragFinish(hDrop);
@@ -670,11 +679,11 @@ void App::BeginAsyncLoad(std::wstring path, bool show_animation)
     load_coordinator_.Start(std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
 }
 
-void App::DeferReloadRetry()
+void App::DeferReloadRetry(UINT delay_ms)
 {
     // FileWatcher は paused のまま維持する。resume すると待機中の変更通知が
     // FILE_RELOAD_DEBOUNCE を 200ms に上書きし、短縮リトライが効かなくなる。
-    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS);
+    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, delay_ms);
 }
 
 // 読み込みとパースは大きさによらず worker で行い、UI スレッドではファイルに触れない (ネットワーク上のファイルで止まらない)。
@@ -685,6 +694,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
     file_watcher_.RequeueIfPaused();
     prefix_shrink_defers_ = 0;
+    locked_retries_ = 0;
     // 仮想パスはファイルとして読めないので、埋め込みリソースから開く。
     if (IsEmbeddedPath(path)) {
         ShowEmbeddedResource(path);
@@ -745,6 +755,9 @@ void App::OnParseComplete()
     }
 
     StopLoadingAnimation();
+    if (step != ParseCompleteStep::RetryLocked) {
+        locked_retries_ = 0;
+    }
 
     // Fail のときだけ結果が無い。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
@@ -767,6 +780,12 @@ void App::OnParseComplete()
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
         DeferReloadRetry();
+        return;
+    case ParseCompleteStep::RetryLocked:
+        if (++locked_retries_ == kLockedRetriesBeforeNotice) {
+            ShowToast(FileLoadErrorMessage(FileLoadError::Locked, i18n::S()));
+        }
+        DeferReloadRetry(locked_retries_ < kLockedRetriesBeforeNotice ? app_timer::FILE_RELOAD_RETRY_MS : app_timer::FILE_RELOAD_LOCKED_RETRY_MS);
         return;
     case ParseCompleteStep::ReloadUnchanged:
         prefix_shrink_defers_ = 0;
@@ -1042,9 +1061,9 @@ void App::SaveSession()
     const auto& doc = state_.document.doc;
     if (doc.HasBackingFile()) {
         session::SaveLastFilePath(config_, doc.GetFilePath());
-        if (const auto t = SnapshotVisibleTarget(state_); t.IsValid()) {
-            session::SaveScrollPosition(config_, t.node, t.offset);
-        }
+        // ノードの無い文書でも書く。残すと前のファイルの位置がこのファイルの位置として復元される。
+        const auto t = SnapshotVisibleTarget(state_);
+        session::SaveScrollPosition(config_, t.IsValid() ? t.node : -1, t.IsValid() ? t.offset : 0.0f);
     }
 
     session::SavePanes(config_, state_.view.panes);
@@ -1057,7 +1076,9 @@ void App::SaveSession()
 void App::OnDestroy()
 {
     // ログオフ時は OS に打ち切られる前に済ませたいので、スレッドの join より先に保存する。
-    SaveSession();
+    if (initialized_) {
+        SaveSession();
+    }
 
     mermaid_renderer_.Shutdown();
     // 計測ワーカーが measurer_ を参照したまま走らないよう、参照を外してから join する。

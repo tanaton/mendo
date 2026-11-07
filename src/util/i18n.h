@@ -75,6 +75,7 @@ struct Strings {
 
     // トースト
     std::wstring_view toast_file_not_found;
+    std::wstring_view toast_file_locked;
     std::wstring_view toast_file_too_large;
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
@@ -151,6 +152,7 @@ inline constexpr Strings kJa = {
     .pane_header_toc = L"目次",
     .menu_reset_window = L"ウィンドウ位置をリセット(&R)",
     .toast_file_not_found = L"ファイルが見つかりません",
+    .toast_file_locked = L"ファイルが他のアプリで使用中です",
     .toast_file_too_large = L"ファイルが大きすぎます",
     .toast_file_read_failed = L"ファイルの読み込みに失敗しました",
     .toast_image_saved = L"画像を保存しました",
@@ -216,6 +218,7 @@ inline constexpr Strings kEn = {
     .pane_header_toc = L"TOC",
     .menu_reset_window = L"Reset Window Position (&R)",
     .toast_file_not_found = L"File not found",
+    .toast_file_locked = L"File is in use by another app",
     .toast_file_too_large = L"File is too large",
     .toast_file_read_failed = L"Failed to read file",
     .toast_image_saved = L"Image saved",
@@ -281,6 +284,7 @@ inline constexpr Strings kZh = {
     .pane_header_toc = L"目录",
     .menu_reset_window = L"重置窗口位置(&R)",
     .toast_file_not_found = L"找不到文件",
+    .toast_file_locked = L"文件正被其他应用使用",
     .toast_file_too_large = L"文件过大",
     .toast_file_read_failed = L"读取文件失败",
     .toast_image_saved = L"已保存图像",
@@ -346,6 +350,7 @@ inline constexpr Strings kZhHant = {
     .pane_header_toc = L"目錄",
     .menu_reset_window = L"重設視窗位置(&R)",
     .toast_file_not_found = L"找不到檔案",
+    .toast_file_locked = L"檔案正被其他應用程式使用",
     .toast_file_too_large = L"檔案太大",
     .toast_file_read_failed = L"無法讀取檔案",
     .toast_image_saved = L"已儲存圖片",
@@ -411,6 +416,7 @@ inline constexpr Strings kKo = {
     .pane_header_toc = L"목차",
     .menu_reset_window = L"창 위치 초기화(&R)",
     .toast_file_not_found = L"파일을 찾을 수 없습니다",
+    .toast_file_locked = L"다른 앱에서 파일을 사용 중입니다",
     .toast_file_too_large = L"파일이 너무 큽니다",
     .toast_file_read_failed = L"파일을 읽지 못했습니다",
     .toast_image_saved = L"이미지를 저장했습니다",

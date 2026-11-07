@@ -224,6 +224,30 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     EXPECT_TRUE(result.doc.IsEmpty());
 }
 
+// 表示中のファイルが共有を許さずに開かれていれば、失敗にせず読み直させる。表示中でないファイルは失敗として返す。
+TEST_F(AsyncLoadCoordinatorTest, LockedFileIsRetriedOnlyForReload)
+{
+    std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string("# Title\n"), L"note.md").ShareData();
+    AsyncLoadCoordinator c(scheduler_, [](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+        return std::unexpected(FileLoadError::Locked);
+    });
+
+    c.Start((temp_dir_ / L"note.md").native(), GetLightTheme(), 0.0f, ReloadBase{ base });
+    const auto reload = WaitForOutcome(scheduler_, c);
+    ASSERT_TRUE(reload.has_value());
+    ASSERT_TRUE(reload->has_value());
+    ASSERT_TRUE((*reload)->reload.has_value());
+    EXPECT_EQ((*reload)->reload->decision.op, ReloadOp::Locked);
+    EXPECT_EQ((*reload)->reload->base.lock(), base);
+    EXPECT_TRUE((*reload)->doc.IsEmpty());
+
+    c.Start((temp_dir_ / L"other.md").native(), GetLightTheme());
+    const auto open = WaitForOutcome(scheduler_, c);
+    ASSERT_TRUE(open.has_value());
+    ASSERT_FALSE(open->has_value());
+    EXPECT_EQ(open->error(), FileLoadError::Locked);
+}
+
 // 表示中でないファイルは伸びていても開く (リロードの判定を付けない)。
 TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseOpensEvenWhileGrowing)
 {
