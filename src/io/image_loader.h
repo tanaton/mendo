@@ -15,6 +15,17 @@
 
 class TaskScheduler;
 
+// ImageLoader::ProcessCompletedDecodes で GPU に載せたビットマップ。TakeDelivered で受け取った側が描く側へ渡す。
+class DeliveredImages {
+public:
+    ID2D1Bitmap* Find(const std::wstring& abs_path) const noexcept;
+
+private:
+    friend class ImageLoader;
+    // キーはパスのハッシュ。
+    FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> bitmaps_;
+};
+
 class ImageLoader {
 public:
     ImageLoader() noexcept;
@@ -46,11 +57,10 @@ public:
     }
     // 寸法の表の件数の上限。1 枠 24 バイト (4096 件で 200KB ほど) なので大きく取り、超えたら空にして数え直す。
     static constexpr size_t kMaxImageInfos = 4096;
-    // ProcessCompletedDecodes で GPU に載せたビットマップ。描く側へ渡したら ClearDelivered で手放す。
-    ID2D1Bitmap* FindDelivered(const std::wstring& abs_path) const noexcept;
-    void ClearDelivered() noexcept
+    // 受け取ったビットマップを渡し、ImageLoader には残さない。
+    DeliveredImages TakeDelivered() noexcept
     {
-        delivered_.Clear();
+        return std::exchange(delivered_, {});
     }
     // 今の DPI での表示寸法 (画像の 1 px を物理 1 px で描く)。
     D2D1_SIZE_F DipSize(const ImageInfo& image) const noexcept;
@@ -92,7 +102,7 @@ public:
     void ClearImagesForTest() noexcept
     {
         infos_.Clear();
-        delivered_.Clear();
+        delivered_ = {};
     }
     // 読み込んだ結果として寸法 (と bitmap があれば受け取ったビットマップ) を入れる。テスト専用。
     void InsertImageForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr)
@@ -103,16 +113,13 @@ public:
 private:
     struct DecodeResult {
         std::wstring path;
-        // worker でデコード確定・縮小済み (失敗時は null)。width/height は縮小前の原寸 (レイアウトは原寸基準)。
+        // worker でデコード確定・縮小済み (失敗時は null)。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-        float width = 0.0f;
-        float height = 0.0f;
-        UINT sharp_width_px = UINT_MAX;
+        ImageInfo info;
         // 始まる前に捨てられた。読まずに返す。
         bool dropped = false;
     };
 
-    static uint64_t PathKey(const std::wstring& path) noexcept;
     void StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
     float DpiScale() const noexcept;
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
@@ -129,9 +136,9 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
     std::atomic<UINT> max_bitmap_dim_;
-    // キーはパスのハッシュ (PathKey)。
+    // キーはパスのハッシュ。
     FlatHashMap<ImageInfo> infos_;
-    FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> delivered_;
+    DeliveredImages delivered_;
 
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;

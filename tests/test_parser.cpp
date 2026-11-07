@@ -1148,7 +1148,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
             EXPECT_EQ(node.alert_type, AlertType::Note);
             EXPECT_EQ(node.blockquote_group, nodes[0].blockquote_group);
         }
-        EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "img", "p.png" } }));
+        EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "img", "p.png" } }));
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
 }
@@ -1160,7 +1160,7 @@ TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsPlainQuote)
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_FALSE(nodes.empty());
-        EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "img", "p.png" } }));
+        EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "img", "p.png" } }));
         for (const auto& node : nodes) {
             EXPECT_EQ(node.alert_type, AlertType::None);
         }
@@ -1733,7 +1733,7 @@ TEST(ParserChunks, ContinuationKeepsImageRun)
     const auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 1u);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-    EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "alt", "a.png" } }));
+    EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "alt", "a.png" } }));
 }
 
 // 区切りを待つ間に空行が目安の長さを超えて続いても、順序を保って区切る。

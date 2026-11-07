@@ -128,13 +128,10 @@ const TextRun* RunContaining(std::span<const TextRun> runs, uint32_t pos) noexce
     return pos < run.start + run.length ? &run : nullptr;
 }
 
-// heading の文字を画像の範囲で区切り、画像でない部分を順に append へ渡す。画像が無ければ false を返し、何も渡さない。
+// heading の文字を画像の範囲で区切り、画像でない部分を順に append へ渡す。
 template <class Append>
-bool ForEachTextOutsideImages(const Node& heading, Append&& append)
+void ForEachTextOutsideImages(const Node& heading, Append&& append)
 {
-    if (!heading.has_images()) {
-        return false;
-    }
     const std::string_view text = heading.GetText();
     uint32_t pos = 0;
     for (const auto& r : heading.runs()) {
@@ -144,30 +141,32 @@ bool ForEachTextOutsideImages(const Node& heading, Append&& append)
         }
     }
     append(text.substr(pos));
-    return true;
 }
 
 } // namespace
 
 std::string_view TextWithoutImages(const Node& heading, std::string& scratch)
 {
+    if (!heading.has_images()) {
+        return heading.GetText();
+    }
     scratch.clear();
-    const bool has_images = ForEachTextOutsideImages(heading, [&](std::string_view part) { scratch.append(part); });
-    return has_images ? std::string_view{ scratch } : heading.GetText();
+    ForEachTextOutsideImages(heading, [&](std::string_view part) { scratch.append(part); });
+    return scratch;
 }
 
 std::string_view TocHeadingText(const Node& heading, std::string& scratch)
 {
+    if (!heading.has_images()) {
+        return heading.GetText();
+    }
     scratch.clear();
-    const bool has_images = ForEachTextOutsideImages(heading, [&](std::string_view part) {
+    ForEachTextOutsideImages(heading, [&](std::string_view part) {
         if (scratch.empty() || scratch.back() == ' ') {
             part.remove_prefix(std::min(part.find_first_not_of(' '), part.size()));
         }
         scratch.append(part);
     });
-    if (!has_images) {
-        return heading.GetText();
-    }
     while (!scratch.empty() && scratch.back() == ' ') {
         scratch.pop_back();
     }

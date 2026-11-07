@@ -75,6 +75,11 @@ constexpr std::uint64_t Fnv1a64(std::string_view sv) noexcept
     }
     return h;
 }
+// UTF-16 のバイト列のハッシュ (パスのキーなど)。
+inline std::uint64_t Fnv1a64(std::wstring_view sv) noexcept
+{
+    return Fnv1a64(std::string_view{ reinterpret_cast<const char*>(sv.data()), sv.size() * sizeof(wchar_t) });
+}
 
 // 文字列キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
 // std::equal_to<> と組み合わせて使う。

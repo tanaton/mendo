@@ -142,7 +142,7 @@ InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::fi
 {
     // 名前に '\\' を含められないのでパスはハッシュにする。
     const std::wstring& native = path.native();
-    const uint64_t hash = Fnv1a64({ reinterpret_cast<const char*>(native.data()), native.size() * sizeof(wchar_t) });
+    const uint64_t hash = Fnv1a64(std::wstring_view{ native });
     const std::wstring name = std::format(L"Local\\mendo-{}-{:016x}", kind, hash);
     mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
     if (!mutex_) {

@@ -100,9 +100,10 @@ inline std::vector<std::string> HeadingAnchors(const std::vector<Node>& nodes)
 }
 
 // 画像の run ごとの (alt, src)。
-inline std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node, std::string_view text, std::span<const TextRun> runs)
+using ImageList = std::vector<std::pair<std::string_view, std::string_view>>;
+inline ImageList ImagesOf(const Node& node, std::string_view text, std::span<const TextRun> runs)
 {
-    std::vector<std::pair<std::string, std::string_view>> images;
+    ImageList images;
     for (const auto& r : runs) {
         if (r.image()) {
             images.emplace_back(text.substr(r.start, r.length), node.image_src(r));
@@ -111,7 +112,7 @@ inline std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node
     return images;
 }
 
-inline std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node)
+inline ImageList ImagesOf(const Node& node)
 {
     return ImagesOf(node, node.GetText(), node.runs());
 }

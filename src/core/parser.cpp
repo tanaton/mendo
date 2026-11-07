@@ -239,7 +239,7 @@ struct ParseContext : NodeStorage {
     bool CanSplitCurrentNode() const noexcept
     {
         // 画像の途中で区切ると、1 つの画像が前後のノードに 1 つずつ出る。
-        if (active_text_buffer != &current_text || (current_run_flags & TextRun::kImage)) {
+        if (active_text_buffer != &current_text || InImageRun()) {
             return false;
         }
         switch (current_node->type) {
@@ -1134,16 +1134,17 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
 
     ctx->EnsureNodeForListItemText();
-    // Chrome と同じく alt は平文にし、画像 1 つを run 1 つにする。入れ子の画像は alt の文字になるので深さだけ数える。
+    // 入れ子の画像は alt の文字になるので深さだけ数える。
+    const bool enters_image = type == MD_SPAN_IMG && ctx->image_span_depth++ == 0;
+    // Chrome と同じく alt は平文にし、画像 1 つを run 1 つにする。
     if (ctx->InImageRun()) {
-        ctx->image_span_depth += type == MD_SPAN_IMG;
         return 0;
     }
     ctx->FlushPendingRun();
     // span が自分で足す文字 ("$" や脚注番号、画像の置き換え文字) は、待っている区切りの後ろに入れる。
     // 画像は src を今のノードに登録するので、入る前に区切る (画像の中では区切らない)。
     const std::string_view math_delimiter = MathDelimiterOf(type);
-    if (!math_delimiter.empty() || type == MD_SPAN_FOOTNOTE_REF || (type == MD_SPAN_IMG && ctx->image_span_depth == 0)) {
+    if (!math_delimiter.empty() || type == MD_SPAN_FOOTNOTE_REF || enters_image) {
         ctx->ApplyPendingSplit();
     }
 
@@ -1158,7 +1159,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     }
     case MD_SPAN_IMG:
-        if (ctx->image_span_depth++ == 0) {
+        if (enters_image) {
             ctx->BeginImage(*static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
         }
         break;
@@ -1183,9 +1184,8 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         return 1;
     }
 
-    const bool leaves_image = type == MD_SPAN_IMG && ctx->image_span_depth == 1;
+    const bool leaves_image = type == MD_SPAN_IMG && --ctx->image_span_depth == 0;
     if (ctx->InImageRun() && !leaves_image) {
-        ctx->image_span_depth -= type == MD_SPAN_IMG;
         return 0;
     }
     // 閉じの "$" / "$$" や画像の置き換え文字も、その run に含めるため run を確定する前に足す。
@@ -1206,7 +1206,6 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
-        --ctx->image_span_depth;
         if (leaves_image) {
             ctx->EndImage();
         }

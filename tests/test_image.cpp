@@ -19,7 +19,6 @@
 #include <deque>
 #include <format>
 #include <memory>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -30,20 +29,21 @@
 
 namespace {
 
-// 読み込んだ結果 (受け取ったビットマップと、今の DPI での寸法)。
+// 読み込んだ結果 (今の DPI での寸法と、受け取ったビットマップ)。
 struct LoadedImage {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
 };
 
-inline bool GetLoadedImage(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
+// 受け取ったビットマップは ImageLoader から引き取る。
+inline bool TakeLoadedImage(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
 {
     const auto* info = loader.FindImageInfo(path);
     if (!info) {
         return false;
     }
-    out.bitmap = loader.FindDelivered(path);
+    out.bitmap = loader.TakeDelivered().Find(path);
     const auto size = loader.DipSize(*info);
     out.width = size.width;
     out.height = size.height;
@@ -116,9 +116,9 @@ TEST(ParserImage, ParagraphKeepsTextAndEveryImage)
     EXPECT_EQ(nodes[0].GetText(), "before a bc after");
     const auto images = ImagesOf(nodes[0]);
     ASSERT_EQ(images.size(), 3u);
-    EXPECT_EQ(images[0], (std::pair<std::string, std::string_view>{ "a", "first.png" }));
-    EXPECT_EQ(images[1], (std::pair<std::string, std::string_view>{ "b", "second.png" }));
-    EXPECT_EQ(images[2], (std::pair<std::string, std::string_view>{ "c", "first.png" }));
+    EXPECT_EQ(images[0], (ImageList::value_type{ "a", "first.png" }));
+    EXPECT_EQ(images[1], (ImageList::value_type{ "b", "second.png" }));
+    EXPECT_EQ(images[2], (ImageList::value_type{ "c", "first.png" }));
     const auto runs = nodes[0].runs();
     ASSERT_EQ(runs.size(), 3u);
     EXPECT_EQ(runs[0].image_slot, runs[2].image_slot);
@@ -148,7 +148,7 @@ TEST(ParserImage, AltIsPlainTextInOneRun)
         ASSERT_EQ(runs.size(), 1u);
         EXPECT_EQ(runs[0].flags, c.flags);
         EXPECT_FALSE(runs[0].has_link());
-        EXPECT_EQ(ImagesOf(nodes[0]), (std::vector<std::pair<std::string, std::string_view>>{ { c.alt, "x.png" } }));
+        EXPECT_EQ(ImagesOf(nodes[0]), (ImageList{ { c.alt, "x.png" } }));
         EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
     }
 }
@@ -226,9 +226,9 @@ TEST(ParserImage, ImageInTableCell)
     ASSERT_NE(tbl, nullptr);
     EXPECT_EQ(tbl->row_count, 2u);
     EXPECT_EQ(ImagesOf(nodes[0], tbl->GetCellText(0, 0), tbl->GetCellRuns(0, 0)),
-              (std::vector<std::pair<std::string, std::string_view>>{ { "badge", "a.png" } }));
+              (ImageList{ { "badge", "a.png" } }));
     EXPECT_EQ(ImagesOf(nodes[0], tbl->GetCellText(1, 1), tbl->GetCellRuns(1, 1)),
-              (std::vector<std::pair<std::string, std::string_view>>{ { "\xEF\xBF\xBC", "d.png" } }));
+              (ImageList{ { "\xEF\xBF\xBC", "d.png" } }));
     EXPECT_EQ(result.indices.image_indices, std::vector<size_t>{ 0 });
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
@@ -276,7 +276,7 @@ TEST(ParserImage, ImageInFootnoteDefKeepsNumberAndSrc)
     EXPECT_EQ(def.type, NodeType::ListItem);
     EXPECT_TRUE(def.list_ordered());
     EXPECT_EQ(def.list_number(), 1);
-    EXPECT_EQ(ImagesOf(def), (std::vector<std::pair<std::string, std::string_view>>{ { "alt", "img.png" } }));
+    EXPECT_EQ(ImagesOf(def), (ImageList{ { "alt", "img.png" } }));
     EXPECT_EQ(def.view_link_urls().size(), 3u) << "本文のリンクと戻りのリンク 2 つ";
     EXPECT_TRUE(ParseInvariantsHold(md, result.nodes));
 }
@@ -353,7 +353,6 @@ protected:
     void TearDown() override
     {
         scheduler_.Shutdown();
-        loader_.ClearDelivered();
     }
 
     // 積んだデコードを終わらせ、届いた結果をすべて取り込む。取り込んだものがあれば true (失敗の結果も数える)。
@@ -371,7 +370,7 @@ protected:
     {
         loader.RequestLoadAsync(path, 0.0f);
         (void)DrainDecodes(loader);
-        return GetLoadedImage(loader, path, out);
+        return TakeLoadedImage(loader, path, out);
     }
     bool LoadAndGet(const std::wstring& path, LoadedImage& out)
     {
@@ -500,8 +499,8 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
 
 // ---- 正常系: 寸法の表と受け取ったビットマップ ----
 
-// 受け取ったビットマップは描く側へ渡したら手放す。寸法は残り、読み直すと新しいビットマップを受け取る。
-TEST_F(ImageLoaderTest, DeliveredBitmapIsDroppedButSizeStays)
+// 受け取ったビットマップは 1 度だけ渡し、ImageLoader には残さない。寸法は残り、読み直すと新しいビットマップを受け取る。
+TEST_F(ImageLoaderTest, DeliveredBitmapIsHandedOverOnce)
 {
     ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 30));
     auto path = GetTestImagePath(L"clear.png");
@@ -510,10 +509,8 @@ TEST_F(ImageLoaderTest, DeliveredBitmapIsDroppedButSizeStays)
     EXPECT_TRUE(LoadAndGet(path, entry1));
     ASSERT_TRUE(entry1.bitmap);
 
-    loader_.ClearDelivered();
-    EXPECT_EQ(loader_.FindDelivered(path), nullptr);
     LoadedImage size_only;
-    ASSERT_TRUE(GetLoadedImage(loader_, path, size_only));
+    ASSERT_TRUE(TakeLoadedImage(loader_, path, size_only));
     EXPECT_FALSE(size_only.bitmap);
     EXPECT_FLOAT_EQ(size_only.width, 40.0f);
     EXPECT_FLOAT_EQ(size_only.height, 30.0f);
@@ -529,13 +526,13 @@ TEST_F(ImageLoaderTest, RenderTargetSwapDropsBitmapsKeepsSizes)
 {
     ASSERT_TRUE(CreateTestImage(L"swap_keep.png", GUID_ContainerFormatPng, 40, 30));
     const auto path = GetTestImagePath(L"swap_keep.png");
-    LoadedImage entry;
-    ASSERT_TRUE(LoadAndGet(path, entry));
+    loader_.RequestLoadAsync(path, 0.0f);
+    ASSERT_TRUE(DrainDecodes());
 
     const auto rt = CreateRenderTarget();
     ASSERT_TRUE(rt);
     loader_.SetRenderTarget(rt.Get());
-    EXPECT_EQ(loader_.FindDelivered(path), nullptr);
+    EXPECT_EQ(loader_.TakeDelivered().Find(path), nullptr);
     EXPECT_NE(loader_.FindImageInfo(path), nullptr);
     loader_.SetRenderTarget(render_target_.Get());
 }
@@ -704,7 +701,7 @@ TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
 // ============================================================
 
 // 基底の loader_ (既定 DPI) は使わず、CreateRenderTarget(dpi) から DPI 別のローダーを作る。
-// 読み込み直後も寸法の表から引き直しても、同じ DIP サイズになること。
+// 読み込んだ寸法は物理 px を DPI の倍率で割った DIP。
 TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
 {
     struct Case {
@@ -737,11 +734,6 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
         ASSERT_TRUE(LoadAndGet(loader, path, loaded));
         EXPECT_NEAR(loaded.width, c.dip_width, tolerance);
         EXPECT_NEAR(loaded.height, c.dip_height, tolerance);
-
-        LoadedImage cached;
-        ASSERT_TRUE(GetLoadedImage(loader, path, cached));
-        EXPECT_NEAR(cached.width, c.dip_width, tolerance);
-        EXPECT_NEAR(cached.height, c.dip_height, tolerance);
     }
 }
 
@@ -823,7 +815,7 @@ TEST_F(ImageLoaderAsyncTest, RenderTargetSwapKeepsCompletedDecodes)
     loader_.SetRenderTarget(rt.Get());
     EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
     LoadedImage entry;
-    EXPECT_TRUE(GetLoadedImage(loader_, path, entry));
+    EXPECT_TRUE(TakeLoadedImage(loader_, path, entry));
     EXPECT_TRUE(entry.bitmap);
     loader_.SetRenderTarget(render_target_.Get());
 }
@@ -852,7 +844,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllLoaded)
 
     for (int i = 0; i < kImageCount; ++i) {
         LoadedImage entry;
-        EXPECT_TRUE(GetLoadedImage(loader_, paths[i], entry))
+        EXPECT_TRUE(TakeLoadedImage(loader_, paths[i], entry))
             << "画像 " << i << " が読み込まれていない";
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(10 + i * 5));
         EXPECT_FLOAT_EQ(entry.height, static_cast<float>(20 + i * 3));
@@ -925,7 +917,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     // キャンセル前の要求の結果も一緒に届くので、対象画像の結果で確かめる
     ASSERT_TRUE(DrainDecodes());
     LoadedImage entry;
-    ASSERT_TRUE(GetLoadedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
+    ASSERT_TRUE(TakeLoadedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }
@@ -946,7 +938,7 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
 
     LoadedImage entry;
-    EXPECT_FALSE(GetLoadedImage(loader_, path, entry));
+    EXPECT_FALSE(TakeLoadedImage(loader_, path, entry));
 }
 
 // 失敗の記録を消す操作の後は、同じパスを読み直せる。
@@ -1000,8 +992,9 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     ASSERT_TRUE(DrainDecodes());
     const auto* info = loader_.FindImageInfo(path);
     ASSERT_NE(info, nullptr);
-    ASSERT_NE(loader_.FindDelivered(path), nullptr);
-    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 512u);
+    const auto delivered = loader_.TakeDelivered();
+    ASSERT_NE(delivered.Find(path), nullptr);
+    EXPECT_EQ(delivered.Find(path)->GetPixelSize().width, 512u);
     // レイアウトは原寸基準のまま。
     EXPECT_FLOAT_EQ(info->pixel_width, 1000.0f);
     EXPECT_FLOAT_EQ(info->pixel_height, 20.0f);
@@ -1014,7 +1007,7 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     ASSERT_TRUE(DrainDecodes());
     info = loader_.FindImageInfo(path);
     ASSERT_NE(info, nullptr);
-    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 768u);
+    EXPECT_EQ(loader_.TakeDelivered().Find(path)->GetPixelSize().width, 768u);
     EXPECT_EQ(info->sharp_width_px, 768u);
 }
 
@@ -1027,7 +1020,7 @@ TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
     ASSERT_TRUE(DrainDecodes());
     const auto* info = loader_.FindImageInfo(path);
     ASSERT_NE(info, nullptr);
-    EXPECT_EQ(loader_.FindDelivered(path)->GetPixelSize().width, 100u);
+    EXPECT_EQ(loader_.TakeDelivered().Find(path)->GetPixelSize().width, 100u);
     EXPECT_FALSE(loader_.NeedsSharperDecode(*info, 5000.0f));
 }
 

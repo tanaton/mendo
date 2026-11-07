@@ -583,20 +583,24 @@ BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Un
 BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
+void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, const std::vector<Node>& nodes)
+{
+    LayoutCache cache(nodes.size());
+    ComputeLayout(engine, nodes, cache, 1200.0f);
+    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
+    size_t k = 0;
+    for (auto _ : state) {
+        ComputeLayout(engine, nodes, cache, kWidths[k++ % kWidths.size()]);
+    }
+}
+
 void BM_ResizeRemeasure(benchmark::State& state, const char* path)
 {
     const auto opened = OpenDoc(state, ReadOrSkip(state, path), 0);
     if (!opened) {
         return;
     }
-    auto& [doc, l] = *opened;
-    LayoutCache cache(doc.GetNodes().size());
-    ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
-    size_t k = 0;
-    for (auto _ : state) {
-        ComputeLayout(l.engine, doc.GetNodes(), cache, kWidths[k++ % kWidths.size()]);
-    }
+    RemeasureAcrossWidths(state, opened->l.engine, opened->doc.GetNodes());
 }
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, test_md, "example/test.md")->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, readme, "../README.md")->Unit(benchmark::kMicrosecond);
@@ -1621,7 +1625,7 @@ std::string ImageTableMd(int rows)
     return md;
 }
 
-// 画像を 16x16 で読めた (リモートは読めない) 文書の、全ノードを組んだあと幅を変えたときの再計測 (直列)。
+// 画像を 16x16 で読めた (リモートは読めない) 文書の RemeasureAcrossWidths。
 void BM_ImageResizeRemeasure(benchmark::State& state, bool badge_readme)
 {
     const auto opened = OpenDoc(state, badge_readme ? BadgeReadmeMd(state) : InlineIconMd(2000), 0);
@@ -1632,13 +1636,7 @@ void BM_ImageResizeRemeasure(benchmark::State& state, bool badge_readme)
     InlineImageTable table;
     ResolveImages(table, doc, { 16.0f, 16.0f });
     l.measurer.SetInlineImages(&table);
-    LayoutCache cache(doc.GetNodes().size());
-    ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
-    size_t k = 0;
-    for (auto _ : state) {
-        ComputeLayout(l.engine, doc.GetNodes(), cache, kWidths[k++ % kWidths.size()]);
-    }
+    RemeasureAcrossWidths(state, l.engine, doc.GetNodes());
     l.measurer.SetInlineImages(nullptr);
 }
 BENCHMARK_CAPTURE(BM_ImageResizeRemeasure, badge_readme, true)->Unit(benchmark::kMicrosecond);

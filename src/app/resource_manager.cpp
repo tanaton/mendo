@@ -34,7 +34,7 @@ bool ResourceManager::ApplyCachedImageSizes(IndexRange range)
         return false;
     }
     InlineImageUpdate update;
-    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range) }, false, update);
+    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range) }, nullptr, update);
     return update.pending_resolved || update.sizes_changed;
 }
 
@@ -71,10 +71,10 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
 void ResourceManager::LoadImages()
 {
     DropQueuesIfJumped();
+    // 受け取ったビットマップは描く側へ渡す。先読み範囲の外へ出た画像の分は捨て、戻ったら読み直す。
+    const DeliveredImages delivered = image_loader_.TakeDelivered();
     InlineImageUpdate update;
-    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, update);
-    // 受け取ったビットマップは描く側へ渡し終えた。先読み範囲の外へ出た画像の分は捨て、戻ったら読み直す。
-    image_loader_.ClearDelivered();
+    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), &delivered, update);
     NotifyInlineImages(update);
 }
 
@@ -126,11 +126,6 @@ void ResourceManager::EvictOffscreenBitmaps()
 
 void ResourceManager::FlushPendingResources()
 {
-    // 画像の通知で組み直す (RelayoutViewport) ときは入り直さない。入り直すと届いたデコード結果の転送が
-    // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った分は BITMAP_MANAGE が拾う。
-    if (notifying_images_) {
-        return;
-    }
     image_loader_.ProcessCompletedDecodes();
     // ScheduleBitmapManage 以外（OnBitmapManageTimer 等）からのフラッシュでも
     // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
@@ -167,7 +162,7 @@ void ResourceManager::OnBitmapManageTimer()
     FlushPendingResources();
 }
 
-void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update)
+void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, const DeliveredImages* delivered, InlineImageUpdate& update)
 {
     const std::wstring& doc_dir = state_.document.doc.GetDirectory();
     if (doc_dir.empty()) {
@@ -190,12 +185,12 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         // 表のセルの画像は列幅に縮めて出し、表は本文の幅に収めるので、表も本文の幅でデコードする。
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
         for (const std::string_view src : node.image_srcs()) {
-            ApplyCachedImage(src, doc_dir, max_width, start_loads, update);
+            ApplyCachedImage(src, doc_dir, max_width, delivered, update);
         }
     }
 }
 
-void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, bool start_loads, InlineImageUpdate& update)
+void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered, InlineImageUpdate& update)
 {
     const uint64_t key = InlineImageKey(src);
     const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
@@ -214,10 +209,13 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
         },
                        update);
     }
-    if (ID2D1Bitmap* const delivered = image_loader_.FindDelivered(*abs_path)) {
+    if (!delivered) {
+        return;
+    }
+    if (ID2D1Bitmap* const received = delivered->Find(*abs_path)) {
         auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
-        if (bitmap.Get() != delivered) {
-            bitmap = delivered;
+        if (bitmap.Get() != received) {
+            bitmap = received;
             update.bitmaps_changed = true;
         }
         return;
@@ -226,7 +224,7 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     // 持っている間は読み直さない。表は 1 ノードで全部の画像を読むので、件数に上限のあるキャッシュに置いていた頃は
     // 画像が 128 種類を超えると読み込みが互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた。
     // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-    if (start_loads && (!inline_drawings_.FindImage(key) || (info && image_loader_.NeedsSharperDecode(*info, max_width)))) {
+    if (!inline_drawings_.FindImage(key) || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }
 }
@@ -241,8 +239,6 @@ void ResourceManager::SetInlineImage(uint64_t key, const InlineImageEntry& entry
 void ResourceManager::NotifyInlineImages(const InlineImageUpdate& update)
 {
     if (update.pending_resolved || update.sizes_changed || update.bitmaps_changed) {
-        notifying_images_ = true;
-        const ScopeGuard reset{ [this] noexcept { notifying_images_ = false; } };
         host_.OnInlineImagesUpdated(update.pending_resolved, update.sizes_changed);
     }
 }

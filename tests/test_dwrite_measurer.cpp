@@ -647,7 +647,7 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageKeepsLayoutUntilItMustShrink)
     ComputeLayout(engine_, nodes, cache, 1400.0f);
     auto* const wide = cache[0].text_layout();
     ASSERT_NE(wide, nullptr);
-    EXPECT_FLOAT_EQ(cache[0].image_min_width, 600.0f);
+    EXPECT_FLOAT_EQ(cache[0].image_min_width(), 600.0f);
 
     ComputeLayout(engine_, nodes, cache, 1200.0f);
     EXPECT_EQ(cache[0].text_layout(), wide) << "組み直さない";
@@ -658,7 +658,7 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageKeepsLayoutUntilItMustShrink)
     ASSERT_NE(narrow, nullptr);
     EXPECT_NE(narrow, wide);
     EXPECT_LT(InlineRangeWidth(narrow, 2, 1), 600.0f);
-    EXPECT_GT(cache[0].image_min_width, 1.0e30f);
+    EXPECT_GT(cache[0].image_min_width(), 1.0e30f);
 
     ComputeLayout(engine_, nodes, cache, 1400.0f);
     EXPECT_NE(cache[0].text_layout(), narrow);

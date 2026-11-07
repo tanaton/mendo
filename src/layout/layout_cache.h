@@ -85,10 +85,19 @@ struct TableLayoutData {
     std::vector<float> min_col_widths;      // 列ごとの最小幅 (最も長い単語、DetermineMinWidth)。リサイズ高速パス用
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
-    // 画像を含むセルの番号 (昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。
-    std::vector<uint32_t> image_cells;
-    // image_cells の各セルの layout の NodeLayoutEntry::image_min_width。列幅がこれ以上なら組み直さない。
-    std::vector<float> image_cell_min_widths;
+    // 画像を含むセル (index の昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。min_width はそのセルの layout の
+    // NodeLayoutEntry::image_min_width で、列幅がこれ以上なら組み直さない。
+    struct ImageCell {
+        uint32_t index = 0;
+        float min_width = 0.0f;
+    };
+    std::vector<ImageCell> image_cells;
+    // セル ci が画像を含めば、その項目。
+    ImageCell* FindImageCell(size_t ci) noexcept
+    {
+        const auto it = std::ranges::lower_bound(image_cells, ci, {}, &ImageCell::index);
+        return it != image_cells.end() && it->index == ci ? std::to_address(it) : nullptr;
+    }
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -259,9 +268,6 @@ struct NodeLayoutEntry {
     // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_inline = false;
-    // text_layout の画像を縮めずに置ける最小の幅 (画像が無ければ 0、縮めて組んだら無限大)。この幅以上なら、幅を変えても
-    // 画像の組み方は同じなので組み直さない。表はセルごとに TableLayoutData::image_cell_min_widths に持つ。
-    float image_min_width = 0.0f;
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
     constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
@@ -312,6 +318,14 @@ struct NodeLayoutEntry {
     constexpr void set_natural_code_width(float w)
     {
         SetAux(&Aux::natural_code_width, w);
+    }
+    constexpr float image_min_width() const noexcept
+    {
+        return GetAux(&Aux::image_min_width);
+    }
+    constexpr void set_image_min_width(float w)
+    {
+        SetAux(&Aux::image_min_width, w);
     }
 
     // テーブルのみ確保。未確保なら nullptr。
@@ -373,6 +387,9 @@ private:
         // クランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
         // CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
+        // text_layout の画像を縮めずに置ける最小の幅 (画像が無ければ 0、縮めて組んだら無限大)。この幅以上なら、幅を変えても
+        // 画像の組み方は同じなので組み直さない。表はセルごとに TableLayoutData::ImageCell に持つ。
+        float image_min_width = 0.0f;
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::vector<InlineCodeBg> inline_code_bgs;
         std::vector<SyntaxToken> syntax_tokens;
@@ -446,7 +463,7 @@ struct DiagramResult {
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
     // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
-    // クリアされ再試行の契機になる。オフスクリーン evict では保持する。
+    // クリアされ再試行の契機になる。
     DiagramError error;
 };
 
@@ -479,7 +496,7 @@ struct DiagramEntry : DiagramResult {
         return (!HasImage() || stale) && error.empty();
     }
 
-    // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
+    // デバイスロスト用。旧デバイスのコマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
     // 寸法はレイアウト維持のため残す。
     void EvictForRetry() noexcept
     {

@@ -419,7 +419,7 @@ private:
     return scheduler.WorkerCount() > 0 && gate.ready();
 }
 
-// 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
+// 読み込んだ画像を装う最小 ID2D1Bitmap スタブ。描画はしない。
 // AddRef/Release は no-op (static instance で寿命管理は不要)。
 class StubD2D1Bitmap : public ID2D1Bitmap {
 public:

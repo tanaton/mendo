@@ -263,6 +263,8 @@ private:
     void SettleLayout();
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウトを追従させる (目次は描画の SyncActiveTocIndex)。
     void RelayoutViewport();
+    // RelayoutViewport のうち、可視範囲の計測とスクロールの収め直しだけ。
+    void LayoutViewport();
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。

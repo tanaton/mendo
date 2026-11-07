@@ -5,6 +5,25 @@
 #include "ui_constants.h"
 #include "wic_util.h"
 
+namespace {
+
+uint64_t PathKey(const std::wstring& path) noexcept
+{
+    return Fnv1a64(std::wstring_view{ path });
+}
+
+} // namespace
+
+ID2D1Bitmap* DeliveredImages::Find(const std::wstring& abs_path) const noexcept
+{
+    // ほとんどの走査では空なので、パスのハッシュを取らずに返す。
+    if (bitmaps_.size() == 0) {
+        return nullptr;
+    }
+    const auto* bitmap = bitmaps_.Find(PathKey(abs_path));
+    return bitmap ? bitmap->Get() : nullptr;
+}
+
 ImageLoader::ImageLoader() noexcept
     : max_bitmap_dim_(MaxBitmapDim(nullptr))
 {
@@ -27,7 +46,7 @@ void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
 {
     // 寸法はデバイスに依らないので残す。
     if (render_target_) {
-        delivered_.Clear();
+        delivered_ = {};
         ResetFailedPaths();
     }
     render_target_ = rt;
@@ -42,20 +61,9 @@ void ImageLoader::Shutdown()
     pending_paths_.clear();
 }
 
-uint64_t ImageLoader::PathKey(const std::wstring& path) noexcept
-{
-    return Fnv1a64({ reinterpret_cast<const char*>(path.data()), path.size() * sizeof(wchar_t) });
-}
-
 const ImageLoader::ImageInfo* ImageLoader::FindImageInfo(const std::wstring& abs_path) const noexcept
 {
     return infos_.Find(PathKey(abs_path));
-}
-
-ID2D1Bitmap* ImageLoader::FindDelivered(const std::wstring& abs_path) const noexcept
-{
-    const auto* bitmap = delivered_.Find(PathKey(abs_path));
-    return bitmap ? bitmap->Get() : nullptr;
 }
 
 void ImageLoader::StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap)
@@ -66,7 +74,7 @@ void ImageLoader::StoreResult(const std::wstring& path, const ImageInfo& info, M
     }
     *infos_.TryEmplace(key).first = info;
     if (bitmap) {
-        *delivered_.TryEmplace(key).first = std::move(bitmap);
+        *delivered_.bitmaps_.TryEmplace(key).first = std::move(bitmap);
     }
 }
 
@@ -140,11 +148,9 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
     }
     const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, max_width_px, max_bitmap_dim_.load());
     result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target);
-    result.width = static_cast<float>(decoded->pixel_width);
-    result.height = static_cast<float>(decoded->pixel_height);
     // GPU の最大辺で縮んだ場合は幅を広げて読み直しても変わらないので上限なし扱いにする。
     const bool width_limited = target.width < decoded->pixel_width && target.width == max_width_px;
-    result.sharp_width_px = width_limited ? target.width : UINT_MAX;
+    result.info = { static_cast<float>(decoded->pixel_width), static_cast<float>(decoded->pixel_height), width_limited ? target.width : UINT_MAX };
 }
 
 bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
@@ -164,7 +170,7 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         request_again = true;
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         if (r.bitmap && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
-            StoreResult(r.path, { r.width, r.height, r.sharp_width_px }, std::move(bitmap));
+            StoreResult(r.path, r.info, std::move(bitmap));
         }
         else {
             // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。

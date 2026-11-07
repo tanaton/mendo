@@ -13,12 +13,14 @@
 struct AppState;
 struct InlineDrawings;
 struct InlineImageEntry;
+class DeliveredImages;
 class ImageLoader;
 class IMermaidRenderer;
 class InlineImageTable;
 class MermaidFileCache;
 
-// ResourceManager が App に頼むこと。
+// ResourceManager が App に頼むこと。通知は取り込み (FlushPendingResources・LoadImages) の中から届くので、
+// 組み直しと描き直しだけをさせ、取り込みに入り直させない。
 class ResourceManagerHost {
 public:
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
@@ -38,9 +40,9 @@ protected:
 // Appから画像読み込み、Mermaidの要求、ビットマップ解放の責務を分離する。
 class ResourceManager {
 public:
-    // 画像/図のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
+    // 画像のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
     static constexpr float EVICT_BUFFER_SCREENS = 2.0f;
-    // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像/図を毎回読み直す。
+    // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像を毎回読み直す。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
     // text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
@@ -79,7 +81,7 @@ public:
 
 private:
     // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
-    // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
+    // 描画命令は作らないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
     bool ApplyMermaidCacheHeights(IndexRange range);
     // 本文中の画像の表の変わり方。NotifyInlineImages で App に組み直しか描き直しをさせる。
     struct InlineImageUpdate {
@@ -88,10 +90,11 @@ private:
         bool bitmaps_changed = false;
     };
     // 以下の適用と要求は再レイアウトしない。画像は update に、高さが変わった図のノードは changed に積む。
-    // slices は走査する画像を持つノードの範囲の並び。start_loads なら描くビットマップの無い画像の読み込みを起動する。
-    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update);
+    // slices は走査する画像を持つノードの範囲の並び。delivered があれば受け取ったビットマップを描く側へ渡し、描くビットマップの
+    // 無い画像の読み込みを起動する。無ければ寸法だけを入れる。
+    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, const DeliveredImages* delivered, InlineImageUpdate& update);
     // max_width はデコードする幅 (0 は原寸)。
-    void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, bool start_loads, InlineImageUpdate& update);
+    void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered, InlineImageUpdate& update);
     void SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update);
     void NotifyInlineImages(const InlineImageUpdate& update);
     void RequestVisibleDiagrams(IndexRange& changed);
@@ -135,6 +138,4 @@ private:
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::wstring resolved_dir_;
     std::chrono::steady_clock::time_point last_flush_time_{};
-    // host_.OnInlineImagesUpdated の中。
-    bool notifying_images_ = false;
 };

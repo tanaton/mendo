@@ -417,7 +417,8 @@ bool App::InvalidatePendingInline(bool force_tables)
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
     // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
     // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
-    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。画像の結果も同じ表を組み直すので、ここで一緒に間引く。
+    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。数式を待っている間は画像の結果でも表を組み直さない。
+    // 画像だけなら組み直しの間に残りのデコードが終わり、結果は 1〜2 回にまとまる (アイコン 120 種類の 5000 行の表で 2 回・計 63ms)。
     const auto now = std::chrono::steady_clock::now();
     const auto since = now - last_inline_table_relayout_;
     const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
@@ -1751,13 +1752,18 @@ void App::SettleLayout()
 void App::RelayoutViewport()
 {
     MENDO_PROFILE("RelayoutViewport");
+    LayoutViewport();
+    resource_manager_.FlushPendingResources();
+    Invalidate();
+    SettleLayout();
+}
+
+void App::LayoutViewport()
+{
     const PaneRect md = ComputePaneLayout(state_).md_rect;
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
     layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     ClampScrollToContent();
-    resource_manager_.FlushPendingResources();
-    Invalidate();
-    SettleLayout();
 }
 
 void App::SettleViewport()
@@ -1808,11 +1814,13 @@ void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
     bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
     relayout |= pending_resolved && InvalidatePendingInline(/*force_tables=*/false);
     if (relayout) {
-        RelayoutViewport();
+        // 取り込みの中なので RelayoutViewport (FlushPendingResources) を呼ばない。入り直すと届いたデコード結果の転送が
+        // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った画像と図は、残った dirty を
+        // 組み終えたとき (OnDeferredLayout) か BITMAP_MANAGE で取り込む。
+        LayoutViewport();
+        SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
     }
-    else {
-        Invalidate();
-    }
+    Invalidate();
 }
 
 void App::RecomputeLayout(IndexRange changed)

@@ -464,7 +464,7 @@ constexpr bool JoinsNextInline(std::span<const Node> nodes, size_t i) noexcept
     return i + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
 }
 
-// テキストではなくビットマップを描くノード。
+// テキストではなく図を描くノード。
 constexpr bool IsBitmapDrawNode(const Node& node) noexcept
 {
     return node.type == NodeType::Diagram;

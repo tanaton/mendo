@@ -35,9 +35,9 @@ public:
     std::vector<const Node*> requested;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
-    // true のとき RequestRender でキャッシュヒットを模し、同期で bitmap を設定して true を返す。
+    // true のとき RequestRender でキャッシュヒットを模し、同期で描画命令を設定して true を返す。
     bool sync_apply_bitmap = false;
-    // true のとき RequestRender でエラーの確定を模し、bitmap なしで true を返す。
+    // true のとき RequestRender でエラーの確定を模し、描画命令なしで true を返す。
     bool sync_error = false;
 
     bool RequestRender(
@@ -166,7 +166,8 @@ protected:
     Document& doc_ = state_.document.doc;
     LayoutCache& cache_ = state_.document.layout_cache;
     ViewportManager& viewport_ = state_.view.viewport;
-    ImageLoader image_loader_; // Init せずに使う（画像経路は通らないテストのみ）
+    // Init しないので読み込みは起動しない。読み込んだ結果は InsertImageForTest で入れる (本物で読むのは ResourceManagerImageFileTest)。
+    ImageLoader image_loader_;
     MockMermaidRenderer mock_mermaid_;
     TestResourceManagerHost host_;
     InlineImageTable inline_images_;
@@ -216,7 +217,7 @@ protected:
     void TearDown() override
     {
         scheduler_.Shutdown();
-        image_loader_.ClearDelivered();
+        image_loader_.ClearImagesForTest();
         inline_drawings_.images = {};
     }
 
@@ -263,8 +264,8 @@ TEST_F(ResourceManagerImageFileTest, ManyImagesInTableSettle)
         const std::string src = std::format("i{}.png", i);
         EXPECT_EQ(Entry(src).state, InlineImageState::Ready) << src;
         EXPECT_NE(inline_drawings_.FindImage(InlineImageKey(src)), nullptr) << src;
-        EXPECT_EQ(image_loader_.FindDelivered((dir_.path() / std::format(L"i{}.png", i)).wstring()), nullptr) << src;
     }
+    EXPECT_EQ(image_loader_.TakeDelivered().Find((dir_.path() / L"i0.png").wstring()), nullptr);
 }
 
 // 別の文書を開いて戻っても、読んだ画像の寸法はパスで引けるので、組む前に入れられる。ビットマップは持たないので読み直す。
@@ -298,9 +299,8 @@ TEST_F(ResourceManagerImageFileTest, ReturningDocumentKeepsSizesAndReloadsBitmap
 
 // ---- 画像経路: ApplyCachedImageSizes (issue #148) ----
 
-// 組む前に読んだ画像の寸法を入れる。受け取ったばかりのビットマップがあれば描く側へ渡す。縮めるのは組むときなので、
-// 寸法は原寸 (DIP) のまま。
-TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeAndBitmap)
+// 組む前に読んだ画像の寸法を入れる。縮めるのは組むときなので、寸法は原寸 (DIP) のまま。ビットマップは LoadImages が渡す。
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeOnly)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
@@ -308,8 +308,11 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeAndBitmap)
 
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     EXPECT_EQ(Entry("foo.png"), (InlineImageEntry{ InlineImageState::Ready, { 1000.0f, 800.0f } }));
-    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("foo.png")), &bitmap);
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("foo.png")), nullptr);
     EXPECT_EQ(host_.inline_updates, 0) << "組む前に呼ぶので組み直させない";
+
+    rm_.LoadImages();
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("foo.png")), &bitmap);
 }
 
 // 寸法を待って仮に組んだノードを組み直させる。表が変わらなければ知らせない。
@@ -345,7 +348,7 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
     EXPECT_FALSE(host_.last_pending_resolved);
 }
 
-// 画像の src をキャッシュのキーへ解決する規則。引いてはいけない行のキーは、判定を外したときに解決されるパスで入れる。
+// 画像の src を寸法の表のパスへ解決する規則。引いてはいけない行のパスは、判定を外したときに解決されるパスで入れる。
 TEST_F(ResourceManagerTest, ApplyCachedImageSizesResolvesSrc)
 {
     const auto joined = [](const wchar_t* dir, const wchar_t* rel) {
@@ -366,17 +369,17 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesResolvesSrc)
         std::vector<Entry> entries;
         // 最初の画像に入る高さ。nullopt なら寸法を入れない。
         std::optional<float> height;
-        // src を解決しない。キャッシュにあっても引かず、読めない画像にする。
+        // src を解決しない。そのパスを読んだことがあっても引かず、読めない画像にする。
         bool unresolved = false;
     };
     const Case kCases[] = {
         { "Relative", "![alt](small.png)\n", kTestDocPath, 1, { { L"C:\\dir\\small.png", 300.0f } }, 300.0f },
-        // src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、キャッシュを引けない。
+        // src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、寸法を引けない。
         { "NonAscii", "![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n" /* 画像.png */, kTestDocPath, 1, { { L"C:\\dir\\\u753B\u50CF.png", 300.0f } }, 300.0f },
         // md4c は src をパーセントエンコードのまま渡すので、ファイルパスにする前にデコードする。
         { "PercentEncoded", "![alt](my%20images/%E7%94%BB%E5%83%8F.png)\n", kTestDocPath, 1,
           { { L"C:\\dir\\my images\\\u753B\u50CF.png", 300.0f } }, 300.0f },
-        // UNC の画像はキャッシュにあっても引かない。判定はデコード後のパスにかける。
+        // UNC の画像は読んだことがあっても引かない。判定はデコード後のパスにかける。
         // Markdown の \\ は \ 1 個になるので、UNC の \\ は \\\\ と書く。
         { "Unc", "![a](\\\\\\\\attacker\\share\\a.png)\n\n![c](%5C%5Cattacker%5Cshare%5Cc.png)\n", kTestDocPath, 2,
           { { L"\\\\attacker\\share\\a.png", 300.0f }, { L"\\\\attacker\\share\\c.png", 300.0f } }, std::nullopt, true },
@@ -489,10 +492,12 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
-    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
-    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f, &bitmap);
+    image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
-    ASSERT_NE(inline_drawings_.FindImage(InlineImageKey("two.png")), nullptr);
+    for (const char* src : { "one.png", "two.png" }) {
+        *inline_drawings_.images.TryEmplace(InlineImageKey(src)).first = &bitmap;
+    }
 
     rm_.EvictOffscreenBitmaps();
     EXPECT_NE(inline_drawings_.FindImage(InlineImageKey("one.png")), nullptr);
@@ -508,7 +513,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
 
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(host_.recompute_layout, 0); // mock は bitmap をセットしない
+    EXPECT_EQ(host_.recompute_layout, 0); // mock は描画命令をセットしない
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
     EXPECT_FLOAT_EQ(mock_mermaid_.last_max_width, kContentWidth);
     EXPECT_FALSE(mock_mermaid_.last_dark_mode);
