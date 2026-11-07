@@ -30,8 +30,14 @@
 
 namespace {
 
-// FindCachedImage の結果を DiagramEntry に写す (bitmap と、今の DPI での寸法)。
-inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+// FindCachedImage の結果 (bitmap と、今の DPI での寸法)。
+struct LoadedImage {
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
 {
     const auto* cached = loader.FindCachedImage(path);
     if (!cached) {
@@ -53,37 +59,11 @@ bool CanOpenExclusively(const std::wstring& path)
 
 } // namespace
 
-
 using Microsoft::WRL::ComPtr;
 
 // ============================================================
 // パーサーテスト: 本文中の画像 (TextRun::kImage)
 // ============================================================
-
-namespace {
-
-// 画像の run を、alt の装飾で分かれた run をまとめて 1 つずつ (alt, src) にする。
-std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node, std::string_view text, std::span<const TextRun> runs)
-{
-    std::vector<std::pair<std::string, std::string_view>> images;
-    for (const auto& r : runs) {
-        if (!r.image()) {
-            continue;
-        }
-        if (r.image_start() || images.empty()) {
-            images.emplace_back(std::string{}, node.image_src(r));
-        }
-        images.back().first += text.substr(r.start, r.length);
-    }
-    return images;
-}
-
-std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node)
-{
-    return ImagesOf(node, node.GetText(), node.runs());
-}
-
-} // namespace
 
 // 画像は段落を画像のノードに変えず、alt の範囲の run にする (GitHub と同じく文と並べて描く)。
 TEST(ParserImage, ImageBecomesRunInParagraph)
@@ -146,23 +126,31 @@ TEST(ParserImage, ParagraphKeepsTextAndEveryImage)
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
-// alt の装飾で 1 つの画像が複数の run に分かれても、最初の run だけが画像の始まりで、どれも同じ src を指す。
-TEST(ParserImage, AltWithEmphasisIsOneImage)
+// alt は平文で、中の装飾・リンク・数式があっても画像 1 つが run 1 つになる。外側の装飾は画像の run に付く。
+TEST(ParserImage, AltIsPlainTextInOneRun)
 {
-    const char* md = "![a *b* c](x.png)";
-    const auto nodes = ParseNodes(md);
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto runs = nodes[0].runs();
-    ASSERT_EQ(runs.size(), 3u);
-    EXPECT_TRUE(runs[0].image_start());
-    for (const auto& r : runs) {
-        EXPECT_TRUE(r.image());
-        EXPECT_EQ(nodes[0].image_src(r), "x.png");
+    struct Case {
+        const char* md;
+        const char* alt;
+        uint8_t flags;
+    };
+    const Case cases[] = {
+        { "![a *b* c](x.png)", "a b c", TextRun::kImage },
+        { "![a [b](u) `c`](x.png)", "a b c", TextRun::kImage },
+        { "![a $x$](x.png)", "a x", TextRun::kImage },
+        { "*![a **b**](x.png)*", "a b", TextRun::kImage | TextRun::kItalic },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        const auto runs = nodes[0].runs();
+        ASSERT_EQ(runs.size(), 1u);
+        EXPECT_EQ(runs[0].flags, c.flags);
+        EXPECT_FALSE(runs[0].has_link());
+        EXPECT_EQ(ImagesOf(nodes[0]), (std::vector<std::pair<std::string, std::string_view>>{ { c.alt, "x.png" } }));
+        EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
     }
-    EXPECT_FALSE(runs[1].image_start());
-    EXPECT_TRUE(runs[1].italic());
-    EXPECT_FALSE(runs[2].image_start());
-    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
 // リンクの付いた画像 (バッジ) は、画像の run がリンクも持つ。
@@ -379,13 +367,13 @@ protected:
     }
 
     // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。キャッシュに当たれば取り込むものは無い。
-    bool LoadAndGet(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+    bool LoadAndGet(ImageLoader& loader, const std::wstring& path, LoadedImage& out)
     {
         loader.RequestLoadAsync(path, 0.0f);
         (void)DrainDecodes(loader);
         return GetCachedImage(loader, path, out);
     }
-    bool LoadAndGet(const std::wstring& path, DiagramEntry& out)
+    bool LoadAndGet(const std::wstring& path, LoadedImage& out)
     {
         return LoadAndGet(loader_, path, out);
     }
@@ -461,7 +449,7 @@ TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
                                                                   WICDecodeMetadataCacheOnDemand, &system_decoder)))
         << "WIC 自体は TIFF を読めること";
 
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_FALSE(LoadAndGet(path, entry));
     EXPECT_EQ(loader_.FindCachedImage(path), nullptr);
 }
@@ -499,7 +487,7 @@ TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.filename }));
         ASSERT_TRUE(CreateTestImage(c.filename, c.container, c.width, c.height));
-        DiagramEntry entry;
+        LoadedImage entry;
         EXPECT_TRUE(LoadAndGet(GetTestImagePath(c.filename), entry));
         ASSERT_TRUE(entry.bitmap);
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(c.width));
@@ -517,18 +505,18 @@ TEST_F(ImageLoaderTest, CacheHitsUntilClearCache)
     ASSERT_TRUE(CreateTestImage(L"clear.png", GUID_ContainerFormatPng, 40, 40));
     auto path = GetTestImagePath(L"clear.png");
 
-    DiagramEntry entry1;
+    LoadedImage entry1;
     EXPECT_TRUE(LoadAndGet(path, entry1));
     auto* first_bitmap = entry1.bitmap.Get();
 
     // 消す前は同じビットマップをキャッシュから返す
-    DiagramEntry hit;
+    LoadedImage hit;
     EXPECT_TRUE(GetCachedImage(loader_, path, hit));
     EXPECT_EQ(hit.bitmap.Get(), first_bitmap);
 
     loader_.ClearCache();
 
-    DiagramEntry entry2;
+    LoadedImage entry2;
     EXPECT_TRUE(LoadAndGet(path, entry2));
 
     // キャッシュクリア後は新しいビットマップが作成される
@@ -552,7 +540,7 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
         EXPECT_EQ(loader_.CacheSize(), 0u);
     }
 
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_TRUE(LoadAndGet(path, entry));
 }
 
@@ -576,7 +564,7 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
 
 TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 {
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_FALSE(LoadAndGet(L"", entry));
     EXPECT_FALSE(entry.bitmap);
 }
@@ -602,7 +590,7 @@ TEST_F(ImageLoaderTest, UndecodableFileReturnsFalse)
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.filename }));
         const auto path = temp_dir_.Write(c.filename, c.content);
-        DiagramEntry entry;
+        LoadedImage entry;
         EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
         EXPECT_FALSE(entry.bitmap);
     }
@@ -616,7 +604,7 @@ TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
     loader_null.Init(wic_factory_.Get(), nullptr, 0, scheduler_);
     ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_FALSE(LoadAndGet(loader_null, GetTestImagePath(L"valid.png"), entry));
 }
 
@@ -636,7 +624,7 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
     // 壊れた画像でも読み込み後にファイルがロックされないこと
     const auto path = temp_dir_.Write(L"bad_lock.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
-    DiagramEntry entry;
+    LoadedImage entry;
     LoadAndGet(path.wstring(), entry);
     EXPECT_TRUE(CanOpenExclusively(path.wstring())) << "失敗した読み込み後にファイルがロックされている";
 }
@@ -728,12 +716,12 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
         const auto path = GetTestImagePath(filename);
         // 96 / 192 DPI は倍率が 2 の冪なので丸め誤差なく一致する。
         const float tolerance = (c.dpi == 96.0f || c.dpi == 192.0f) ? 0.0f : 0.1f;
-        DiagramEntry loaded;
+        LoadedImage loaded;
         ASSERT_TRUE(LoadAndGet(loader, path, loaded));
         EXPECT_NEAR(loaded.width, c.dip_width, tolerance);
         EXPECT_NEAR(loaded.height, c.dip_height, tolerance);
 
-        DiagramEntry cached;
+        LoadedImage cached;
         ASSERT_TRUE(GetCachedImage(loader, path, cached));
         EXPECT_NEAR(cached.width, c.dip_width, tolerance);
         EXPECT_NEAR(cached.height, c.dip_height, tolerance);
@@ -780,7 +768,7 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
     ASSERT_TRUE(CreateTestImage(L"async_lock.png", GUID_ContainerFormatPng, 80, 60));
     auto path = GetTestImagePath(L"async_lock.png");
 
-    DiagramEntry entry;
+    LoadedImage entry;
     ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
     EXPECT_TRUE(CanOpenExclusively(path)) << "非同期読み込み後にファイルが書き込みロックされている";
 }
@@ -817,7 +805,7 @@ TEST_F(ImageLoaderAsyncTest, RenderTargetSwapKeepsCompletedDecodes)
     ASSERT_TRUE(rt);
     loader_.SetRenderTarget(rt.Get());
     EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_TRUE(GetCachedImage(loader_, path, entry));
     loader_.SetRenderTarget(render_target_.Get());
 }
@@ -845,7 +833,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
     EXPECT_EQ(loader_.CacheSize(), paths.size());
 
     for (int i = 0; i < kImageCount; ++i) {
-        DiagramEntry entry;
+        LoadedImage entry;
         EXPECT_TRUE(GetCachedImage(loader_, paths[i], entry))
             << "画像 " << i << " がキャッシュされていない";
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(10 + i * 5));
@@ -893,7 +881,7 @@ TEST_F(ImageLoaderAsyncTest, LoadAfterShutdownWithHeavyLoad)
     ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));
     auto path = GetTestImagePath(name);
 
-    DiagramEntry entry;
+    LoadedImage entry;
     ASSERT_TRUE(LoadAndGet(path, entry)) << "Shutdown 後の非同期読み込みが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 77.0f);
     EXPECT_FLOAT_EQ(entry.height, 55.0f);
@@ -919,7 +907,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
 
     // キャンセル前の要求の結果も一緒に届くので、対象画像のキャッシュで確かめる
     ASSERT_TRUE(DrainDecodes());
-    DiagramEntry entry;
+    LoadedImage entry;
     ASSERT_TRUE(GetCachedImage(loader_, path, entry)) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
@@ -940,7 +928,7 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
 
-    DiagramEntry entry;
+    LoadedImage entry;
     EXPECT_FALSE(GetCachedImage(loader_, path, entry));
 }
 
@@ -964,7 +952,7 @@ TEST_F(ImageLoaderAsyncTest, ClearingFailedPathsAllowsRetry)
         (loader_.*c.clear)();
 
         ASSERT_TRUE(CreateTestImage(c.filename, GUID_ContainerFormatPng, 40, 30));
-        DiagramEntry entry;
+        LoadedImage entry;
         ASSERT_TRUE(LoadAndGet(path, entry)) << "記録を消した後のリトライが完了しなかった";
         EXPECT_FLOAT_EQ(entry.width, 40.0f);
         EXPECT_FLOAT_EQ(entry.height, 30.0f);
@@ -979,7 +967,7 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
 
     ASSERT_TRUE(CreateTestImage(L"transient.png", GUID_ContainerFormatPng, 70, 50));
 
-    DiagramEntry entry;
+    LoadedImage entry;
     ASSERT_TRUE(LoadAndGet(path, entry)) << "一時障害後のリトライが成功しなかった";
     EXPECT_FLOAT_EQ(entry.width, 70.0f);
     EXPECT_FLOAT_EQ(entry.height, 50.0f);

@@ -121,10 +121,7 @@ constexpr bool IsUncShareRoot(std::wstring_view path) noexcept
     if (path.size() < 3 || !IsPathSlash(path[0]) || !IsPathSlash(path[1]) || path[2] == L'?' || path[2] == L'.') {
         return false;
     }
-    path.remove_prefix(2);
-    while (!path.empty() && IsPathSlash(path.back())) {
-        path.remove_suffix(1);
-    }
+    path = TrimTrailingSeparators(path).substr(2);
     const auto sep = std::ranges::find_if(path, IsPathSlash);
     if (sep == path.begin() || sep == path.end()) {
         return false;

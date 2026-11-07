@@ -260,32 +260,16 @@ InlineImageEntry InlineImageTable::Find(uint64_t key)
     return it != entries_.end() ? it->second : InlineImageEntry{};
 }
 
-bool InlineImageTable::Set(uint64_t key, const InlineImageEntry& entry)
+InlineImageEntry InlineImageTable::Exchange(uint64_t key, const InlineImageEntry& entry)
 {
     const std::lock_guard lock(mutex_);
-    const auto [it, inserted] = entries_.try_emplace(key, entry);
-    if (inserted) {
-        return entry != InlineImageEntry{};
-    }
-    if (it->second == entry) {
-        return false;
-    }
-    it->second = entry;
-    return true;
+    return std::exchange(entries_[key], entry);
 }
 
 void InlineImageTable::Clear()
 {
     const std::lock_guard lock(mutex_);
     entries_.clear();
-}
-
-InlineImageSize FitInlineImage(InlineImageSize size, float max_width) noexcept
-{
-    if (max_width <= 0.0f || size.width <= max_width) {
-        return size;
-    }
-    return { max_width, size.height * (max_width / size.width) };
 }
 
 namespace {

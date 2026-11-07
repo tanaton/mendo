@@ -405,31 +405,36 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         }
         *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
-    state_.view.viewport.EnsureScrollTarget(cache);
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
     // 1 件あたり 1ms 以下、全部で約 4ms (12 件が続けて届く場合)。
+    RelayoutPendingInline(/*force_tables=*/false);
+}
+
+bool App::InvalidatePendingInline(bool force_tables)
+{
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
     // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
     // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
-    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。
-    const auto since = std::chrono::steady_clock::now() - last_math_table_relayout_;
-    const bool tables = !inline_math_.HasUnresolved() || since >= kMathTableRelayoutInterval;
-    if (!tables) {
-        SetTimer(app_timer::Id::INLINE_MATH_TABLES,
-                 static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kMathTableRelayoutInterval - since).count()));
+    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。画像の結果も同じ表を組み直すので、ここで一緒に間引く。
+    const auto now = std::chrono::steady_clock::now();
+    const auto since = now - last_inline_table_relayout_;
+    const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
+    if (tables) {
+        KillTimer(app_timer::Id::INLINE_TABLES);
+        last_inline_table_relayout_ = now;
     }
-    RelayoutPendingInlineMath(tables);
+    else {
+        SetTimer(app_timer::Id::INLINE_TABLES,
+                 static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kInlineTableRelayoutInterval - since).count()));
+    }
+    return state_.document.layout_cache.InvalidatePendingInlineLayouts(tables);
 }
 
-void App::RelayoutPendingInlineMath(bool tables)
+void App::RelayoutPendingInline(bool force_tables)
 {
-    if (tables) {
-        KillTimer(app_timer::Id::INLINE_MATH_TABLES);
-        last_math_table_relayout_ = std::chrono::steady_clock::now();
-    }
-    if (state_.document.layout_cache.InvalidatePendingInlineLayouts(tables)) {
+    if (InvalidatePendingInline(force_tables)) {
         RelayoutViewport();
     }
     else {
@@ -568,8 +573,8 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(id);
         Invalidate();
         return;
-    case INLINE_MATH_TABLES:
-        RelayoutPendingInlineMath(true);
+    case INLINE_TABLES:
+        RelayoutPendingInline(/*force_tables=*/true);
         return;
     case FILE_RELOAD_DEBOUNCE:
         KillTimer(id);
@@ -841,7 +846,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     ForgetInlineMath();
     ForgetInlineImages();
 
-    // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
+    // スクロール復元先の Y がずれないよう、推定高さを図のキャッシュの実測値で補正し、画像の寸法も入れてから reducer に渡す。
     if (state_.view.HasPendingScroll()) {
         MENDO_TRACE("FinishLoad: pending scroll");
         if (resource_manager_.ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
@@ -909,9 +914,9 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
 
-    // Mermaid の図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
-    // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。引き継いだノードは実測の高さを持っているので、
-    // 当てるのは変わった範囲だけでよい。引き継いだ高さと合わせて Y を 1 回で組み直す。
+    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。画像の寸法も
+    // image_loader のメモリキャッシュから入れる。引き継いだノードは実測の高さを持っているので、当てるのは変わった範囲だけでよい。
+    // 引き継いだ高さと合わせて Y を 1 回で組み直す。
     const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
@@ -1800,13 +1805,8 @@ void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
     auto& cache = state_.document.layout_cache;
     // 画像の寸法で見ている段落の高さが変わっても、見ている位置を動かさない。
     state_.view.viewport.EnsureScrollTarget(cache);
-    bool relayout = false;
-    if (sizes_changed) {
-        relayout |= cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
-    }
-    if (pending_resolved) {
-        relayout |= cache.InvalidatePendingInlineLayouts(/*tables=*/true);
-    }
+    bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
+    relayout |= pending_resolved && InvalidatePendingInline(/*force_tables=*/false);
     if (relayout) {
         RelayoutViewport();
     }

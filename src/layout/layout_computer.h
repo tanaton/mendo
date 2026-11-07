@@ -56,7 +56,7 @@ inline float NodeBoxPadBottom(const Node& node, const Theme& theme) noexcept
     return (node.type == NodeType::CodeBlock && !node.continues_next()) ? theme.code_block_padding : 0.0f;
 }
 
-// ダイアグラム/画像ノードのビットマップ未確定時に使うプレースホルダー高さ。
+// 図を描き終えるまで使うプレースホルダー高さ。
 inline float PlaceholderHeight(const Theme& theme) noexcept
 {
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
@@ -176,7 +176,7 @@ size_t CarryOverUnchanged(
 LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme,
                                      float content_width = 0.0f, std::stop_token stop_token = {});
 
-// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。画像・図は触らない。
+// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。図は触らない。
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
 // safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むため、再計算を先頭からの全件ではなく

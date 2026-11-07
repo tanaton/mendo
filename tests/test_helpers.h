@@ -485,6 +485,45 @@ inline StubD2D1Bitmap& SharedStubBitmap() noexcept
     return instance;
 }
 
+// 描き終えた図 (DiagramResult::commands) を装う最小 ID2D1CommandList スタブ。描画はしない。
+class StubD2D1CommandList : public ID2D1CommandList {
+public:
+    STDMETHODIMP QueryInterface(REFIID, void**) override
+    {
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP_(ULONG)
+    AddRef() override
+    {
+        return 1;
+    }
+    STDMETHODIMP_(ULONG)
+    Release() override
+    {
+        return 1;
+    }
+    void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
+    {
+        if (factory) {
+            *factory = nullptr;
+        }
+    }
+    HRESULT STDMETHODCALLTYPE Stream(ID2D1CommandSink*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE Close() override
+    {
+        return S_OK;
+    }
+};
+
+inline StubD2D1CommandList& SharedStubCommandList() noexcept
+{
+    static StubD2D1CommandList instance;
+    return instance;
+}
+
 // DWRITE_FACTORY_TYPE_SHARED はプロセスで 1 つなので、テストごとに作らず引き回す。作れなければ null。
 inline IDWriteFactory* SharedDWriteFactory()
 {

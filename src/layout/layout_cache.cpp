@@ -162,7 +162,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
         tl->EvictRowsOutside(0, 0, released);
         return;
     }
-    // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
+    // レイアウトを持たないノード (HR / 図 / 空テキスト) は計測済みのまま残す。
     const bool had_layout = e.text_layout() != nullptr;
     ReleaseEntryLayouts(e, released);
     if (had_layout) {
@@ -228,15 +228,6 @@ void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
     for (auto& d : diagrams_ | std::views::values) {
         d.EvictForRetry();
-    }
-}
-
-void LayoutCache::EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
-{
-    for (auto& [idx, d] : diagrams_) {
-        if (idx < first_keep_inclusive || idx >= last_keep_exclusive) {
-            d.EvictBitmap();
-        }
     }
 }
 

@@ -115,26 +115,27 @@ bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, si
         return false;
     }
     constexpr DWORD kMaxAttempts = 16;
-    for (DWORD attempt = 0; attempt < kMaxAttempts; ++attempt) {
-        std::filesystem::path tmp_path = path;
+    std::filesystem::path tmp_path;
+    UniqueHandle hFile;
+    for (DWORD attempt = 0; attempt < kMaxAttempts && !hFile; ++attempt) {
+        tmp_path = path;
         tmp_path += std::format(L".{}-{}.tmp", GetCurrentProcessId(), attempt);
         // CREATE_NEW なので、同じ名前のファイルがあれば触らずに次の名前を試す。
-        UniqueHandle hFile(CreateFileW(tmp_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
-        if (!hFile) {
-            if (GetLastError() == ERROR_FILE_EXISTS) {
-                continue;
-            }
+        hFile.reset(CreateFileW(tmp_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (!hFile && GetLastError() != ERROR_FILE_EXISTS) {
             return false;
         }
-        const bool written = WriteToHandle(hFile.get(), data, size, /* flush_buffers = */ true);
-        hFile.reset();
-        if (!written) {
-            DeleteFileW(tmp_path.c_str());
-            return false;
-        }
-        return ReplaceWithTmp(tmp_path, path, /* durable = */ true);
     }
-    return false;
+    if (!hFile) {
+        return false;
+    }
+    const bool written = WriteToHandle(hFile.get(), data, size, /* flush_buffers = */ true);
+    hFile.reset();
+    if (!written) {
+        DeleteFileW(tmp_path.c_str());
+        return false;
+    }
+    return ReplaceWithTmp(tmp_path, path, /* durable = */ true);
 }
 
 InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path)

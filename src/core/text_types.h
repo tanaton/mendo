@@ -17,10 +17,8 @@ struct TextRun {
     // $$...$$ と ```math。範囲は前後の "$$" を含む (```math はパーサが "$$" で囲む)。
     static constexpr uint8_t kMathDoubleDollar = 0x20;
     // 画像。範囲は alt (空ならパーサが置く kImagePlaceholder) で、レイアウトで画像に置き換える。
-    // alt に装飾があれば 1 つの画像が隣り合う複数の run になり、どれも同じ image_slot を持つ。
+    // 画像 1 つが run 1 つで、alt は平文 (中の装飾・リンク・数式は run を分けない)。
     static constexpr uint8_t kImage = 0x40;
-    // 画像の最初の run。同じ src の画像が隣り合っても (![](star.png)![](star.png)) 1 つにまとめない。
-    static constexpr uint8_t kImageStart = 0x80;
 
     uint32_t start = 0;
     uint32_t length = 0;
@@ -58,10 +56,6 @@ struct TextRun {
     {
         return flags & kImage;
     }
-    constexpr bool image_start() const noexcept
-    {
-        return flags & kImageStart;
-    }
     constexpr bool has_link() const noexcept
     {
         return link_url_index >= 0;
@@ -76,6 +70,13 @@ static_assert(sizeof(TextRun) == 12);
 inline constexpr size_t kMaxImageSlots = 256;
 // alt の空な画像の範囲に置く文字 (U+FFFC OBJECT REPLACEMENT CHARACTER)。レイアウトで画像に置き換え、コピーと目次では外す。
 inline constexpr std::string_view kImagePlaceholder = "\xEF\xBF\xBC";
+
+// 画像の run の alt。置き換え文字なら空。
+constexpr std::string_view ImageAlt(std::string_view text, const TextRun& image) noexcept
+{
+    const std::string_view alt = text.substr(image.start, image.length);
+    return alt == kImagePlaceholder ? std::string_view{} : alt;
+}
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
 struct TextSelection {

@@ -60,7 +60,7 @@ struct DrawTextLayoutCmd {
 };
 
 struct DrawBitmapCmd {
-    ID2D1Bitmap* bitmap; // 非所有; ライフタイムは LayoutCache::DiagramEntry か Renderer が管理。
+    ID2D1Bitmap* bitmap; // 非所有; ライフタイムは Renderer が管理。
     D2D1_RECT_F dest;
     float opacity = 1.0f;
 };

@@ -9,8 +9,10 @@
 #include <iterator>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // Alert の先頭に置くアイコンとラベル。GitHub と同じ表記を、パーサの表とは別に書いて照合する。
@@ -88,10 +90,28 @@ inline std::vector<std::string> HeadingAnchors(const std::vector<Node>& nodes)
 {
     HeadingAnchorIndex index;
     std::vector<std::string> anchors(nodes.size());
+    std::string scratch;
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (node.type == NodeType::Heading) {
-            anchors[i] = index.Add(node.GetText(), static_cast<int>(i));
+            anchors[i] = index.Add(TextWithoutImages(node, scratch), static_cast<int>(i));
         }
     }
     return anchors;
+}
+
+// 画像の run ごとの (alt, src)。
+inline std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node, std::string_view text, std::span<const TextRun> runs)
+{
+    std::vector<std::pair<std::string, std::string_view>> images;
+    for (const auto& r : runs) {
+        if (r.image()) {
+            images.emplace_back(text.substr(r.start, r.length), node.image_src(r));
+        }
+    }
+    return images;
+}
+
+inline std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node)
+{
+    return ImagesOf(node, node.GetText(), node.runs());
 }

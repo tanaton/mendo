@@ -38,29 +38,22 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
 // 図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
 TEST(LayoutCacheTest, InvalidateAllLayoutsKeepsBitmapNodes)
 {
-    LayoutCache cache(3);
-    std::vector<Node> nodes(3);
-    for (const size_t i : { 1u, 2u }) {
-        nodes[i].type = NodeType::Diagram;
-        nodes[i].code_language = SyntaxLanguage::Mermaid;
-    }
-    for (size_t i = 0; i < 3; i++) {
+    LayoutCache cache(2);
+    std::vector<Node> nodes(2);
+    nodes[1].type = NodeType::Diagram;
+    nodes[1].code_language = SyntaxLanguage::Mermaid;
+    for (size_t i = 0; i < 2; i++) {
         cache[i].height = 500.0f;
     }
     cache.EnsureDiagram(1).width = 400.0f;
     cache.EnsureDiagram(1).height = 300.0f;
-    cache.EnsureDiagram(2).width = 500.0f;
-    cache.EnsureDiagram(2).height = 250.0f;
 
     cache.InvalidateAllLayouts(nodes);
 
     EXPECT_FLOAT_EQ(cache[0].height, 0.0f);
     EXPECT_FLOAT_EQ(cache[1].height, 500.0f);
-    EXPECT_FLOAT_EQ(cache[2].height, 500.0f);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 400.0f);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 300.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->width, 500.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->height, 250.0f);
 }
 
 TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)

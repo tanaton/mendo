@@ -431,8 +431,7 @@ struct DiagramDrawing;
 }
 
 struct DiagramResult {
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    // 画像はビットマップを描く。図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
+    // 図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
     // 1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
@@ -450,13 +449,13 @@ struct DiagramEntry : DiagramResult {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
-    // 絵 (bitmap / commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
+    // 絵 (commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
 
     bool HasImage() const noexcept
     {
-        return bitmap || commands;
+        return commands != nullptr;
     }
     void SetResult(DiagramResult r) noexcept
     {
@@ -473,13 +472,6 @@ struct DiagramEntry : DiagramResult {
     bool NeedsRender() const noexcept
     {
         return (!HasImage() || stale) && error.empty();
-    }
-
-    // オフスクリーン evict 用。画像のビットマップだけ捨て、寸法とエラーはレイアウト維持/再試行抑止のため残す。
-    // 図はビットマップを持たない。描画命令は小さい (30 図で 4MB ほど) ので残し、見えたときに描き直させない。
-    void EvictBitmap() noexcept
-    {
-        bitmap.Reset();
     }
 
     // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
@@ -554,7 +546,7 @@ public:
         }
     }
 
-    // 画像/図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
+    // 図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
     // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
     // 要素は node-based のマップに置くので、Mermaid の処理待ちが持つポインタは他ノードの追加で動かない。
     DiagramEntry& EnsureDiagram(size_t i)
@@ -577,13 +569,10 @@ public:
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
-    // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
+    // デバイスロスト時用。旧デバイス上の描画命令は新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramBitmaps() noexcept;
-
-    // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
-    void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
     // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を
     // 破棄し、layout_dirty=true で再生成させる。text_top と height は維持する。

@@ -267,8 +267,10 @@ private:
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
-    // 寸法を待って原文のまま組んだ段落を組み直す。tables が false なら表は待たせたままにする。
-    void RelayoutPendingInlineMath(bool tables);
+    // 数式か画像の寸法を待って組んだレイアウトを捨てる。表は force_tables でなければ間引く。捨てたら true。
+    bool InvalidatePendingInline(bool force_tables);
+    // InvalidatePendingInline で捨てた分を組み直す。
+    void RelayoutPendingInline(bool force_tables);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
     // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
@@ -279,7 +281,7 @@ private:
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
+    // 図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(IndexRange changed) override;
     void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override;
     void EnsureNodeLayout(int node_index) override;
@@ -360,9 +362,9 @@ private:
     InlineDrawings inline_drawings_;
     // 文書の数式の組。組ごとに bg のワーカーで描く。
     InlineMathPlan inline_math_plan_;
-    // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
-    static constexpr std::chrono::milliseconds kMathTableRelayoutInterval{ 1000 };
-    std::chrono::steady_clock::time_point last_math_table_relayout_{};
+    // 数式か画像を待つ表を組み直した時刻と、その間隔 (InvalidatePendingInline)。
+    static constexpr std::chrono::milliseconds kInlineTableRelayoutInterval{ 1000 };
+    std::chrono::steady_clock::time_point last_inline_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;

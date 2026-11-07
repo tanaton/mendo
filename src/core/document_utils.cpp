@@ -127,9 +127,6 @@ const TextRun* RunContaining(std::span<const TextRun> runs, uint32_t pos) noexce
     const TextRun& run = *std::prev(it);
     return pos < run.start + run.length ? &run : nullptr;
 }
-} // namespace
-
-namespace {
 
 // heading の文字を画像の範囲で区切り、画像でない部分を順に append へ渡す。画像が無ければ false を返し、何も渡さない。
 template <class Append>
@@ -252,13 +249,10 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
     if ((!at && a.GetText() != b.GetText()) || !std::ranges::equal(a.runs(), b.runs()) ||
-        !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
+        !std::ranges::equal(a.view_link_urls(), b.view_link_urls()) || (at && !(*at == *b.table_data()))) {
         return false;
     }
-    if (!at && !SameImageSrcs(a, b, a.runs())) {
-        return false;
-    }
-    return !at || (*at == *b.table_data() && SameImageSrcs(a, b, at->all_runs));
+    return SameImageSrcs(a, b, at ? std::span<const TextRun>{ at->all_runs } : a.runs());
 }
 
 } // namespace

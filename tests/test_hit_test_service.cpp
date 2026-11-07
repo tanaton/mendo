@@ -266,13 +266,13 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 
 TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
-    // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）なのでボタンは無い
+    // Mermaid ブロックはあるが図を描いていない（未ロード）のでボタンは無い
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
     const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
     ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language));
     const auto* diagram = pr.cache.FindDiagram(static_cast<size_t>(mermaid_idx));
-    ASSERT_TRUE(diagram == nullptr || !diagram->bitmap);
+    ASSERT_TRUE(diagram == nullptr || !diagram->HasImage());
 
     const float content_width = theme_.ContentWidth(800.0f);
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));

@@ -72,7 +72,7 @@ public:
     void RequestMermaidRenders();
 
     void EvictOffscreenBitmaps();
-    // 届いたデコード結果も ApplyCachedImages でまとめて適用し、再レイアウトを 1 回にする。
+    // 届いたデコード結果を取り込んで先読み範囲の画像に入れ、図の描画を頼む。
     void FlushPendingResources();
     void ScheduleBitmapManage();
     void OnBitmapManageTimer();
@@ -87,9 +87,7 @@ private:
         bool sizes_changed = false;
         bool bitmaps_changed = false;
     };
-    // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは changed に積む。
-    // 先読み範囲だけを見て、未キャッシュは非同期ロード起動（通常描画用）。
-    void ApplyCachedImages(InlineImageUpdate& update);
+    // 以下の適用と要求は再レイアウトしない。画像は update に、高さが変わった図のノードは changed に積む。
     // slices は走査する画像を持つノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。
     void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update);
     // max_width はデコードする幅 (0 は原寸)。
@@ -137,4 +135,6 @@ private:
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::wstring resolved_dir_;
     std::chrono::steady_clock::time_point last_flush_time_{};
+    // host_.OnInlineImagesUpdated の中。
+    bool notifying_images_ = false;
 };

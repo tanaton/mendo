@@ -69,7 +69,7 @@ protected:
 // 測れたら組んだ幅 (NodeLayoutWidth) を cached_width に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
 // 測れなければ何も確定せず、推定の高さを実測値として残さない。
-// bitmap は画像/図ノードの DiagramEntry (無ければ nullptr)。
+// bitmap は図のノードの DiagramEntry (無ければ nullptr)。
 inline void MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* bitmap)
 {

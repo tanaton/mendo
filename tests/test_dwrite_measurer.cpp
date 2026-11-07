@@ -532,7 +532,7 @@ protected:
 
     void SetReady(std::string_view src, float width, float height)
     {
-        table_.Set(InlineImageKey(src), { InlineImageState::Ready, { width, height } });
+        table_.Exchange(InlineImageKey(src), { InlineImageState::Ready, { width, height } });
     }
 
     InlineImageTable table_;
@@ -587,8 +587,8 @@ TEST_F(DWriteInlineImageTest, AdjacentImagesStaySeparate)
 // 読めない画像は Chrome と同じく、壊れた画像のアイコンの右に alt を並べた 1 つの箱にする。alt が空なら何も出さない。
 TEST_F(DWriteInlineImageTest, UnavailableImageShowsIconAndAlt)
 {
-    table_.Set(InlineImageKey("x.png"), { .state = InlineImageState::Unavailable });
-    table_.Set(InlineImageKey("y.png"), { .state = InlineImageState::Unavailable });
+    table_.Exchange(InlineImageKey("x.png"), { .state = InlineImageState::Unavailable });
+    table_.Exchange(InlineImageKey("y.png"), { .state = InlineImageState::Unavailable });
     auto [nodes, cache] = ParseAndLayout("alt ![alt](x.png) ![](y.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_FALSE(cache[0].pending_inline);

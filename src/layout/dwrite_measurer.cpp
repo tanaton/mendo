@@ -386,16 +386,6 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
     // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
     bool pending = false;
-    // 1 つの画像の run (alt の装飾で分かれたもの) をまとめた範囲。画像ごとにオブジェクトを掛ける。
-    struct OpenImage {
-        const TextRun* first;
-        DWRITE_TEXT_RANGE range;
-        // alt の text での範囲。
-        uint32_t alt_begin;
-        uint32_t alt_end;
-        bool placeholder_only;
-    };
-    std::optional<OpenImage> image;
     // 読めない画像の alt。幅が決まっていればアイコンの右に収まる幅で折り返し、リンクの中ならリンクの色にする (下線は引かない)。
     const auto make_alt_layout = [&](std::string_view alt, bool link) -> ComPtr<IDWriteTextLayout> {
         const float icon = format.font_size;
@@ -410,30 +400,31 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         }
         return alt_layout;
     };
-    const auto flush_image = [&] {
-        if (!image) {
-            return;
-        }
-        const OpenImage img = *std::exchange(image, std::nullopt);
-        const uint64_t key = InlineImageKey(format.owner.image_src(*img.first));
+    const auto apply_image = [&](const TextRun& r, DWRITE_TEXT_RANGE wr) {
+        const uint64_t key = InlineImageKey(format.owner.image_src(r));
         const InlineImageEntry entry = inline_images_->Find(key);
         switch (entry.state) {
         case InlineImageState::Loading:
-            layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), img.range);
+            layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), wr);
             pending = true;
             break;
-        case InlineImageState::Ready:
-            layout->SetInlineObject(MakeInlineImageObject(key, FitInlineImage(entry.size, format.image_fit_width)).Get(), img.range);
+        case InlineImageState::Ready: {
+            const auto size = format.image_fit_width > 0.0f ? FitBitmapSize(entry.size.width, entry.size.height, format.image_fit_width)
+                                                            : D2D1_SIZE_F{ entry.size.width, entry.size.height };
+            layout->SetInlineObject(MakeInlineImageObject(key, { size.width, size.height }).Get(), wr);
             break;
-        case InlineImageState::Unavailable:
+        }
+        case InlineImageState::Unavailable: {
             // alt が空なら置き換え文字を幅 0 の箱で隠す (Chrome は alt="" の壊れた画像を描かない)。
-            if (img.placeholder_only) {
-                layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), img.range);
+            const std::string_view alt = ImageAlt(text, r);
+            if (alt.empty()) {
+                layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), wr);
             }
-            else if (auto alt = make_alt_layout(text.substr(img.alt_begin, img.alt_end - img.alt_begin), img.first->has_link())) {
-                layout->SetInlineObject(MakeBrokenImageObject(key, std::move(alt), format.font_size).Get(), img.range);
+            else if (auto alt_layout = make_alt_layout(alt, r.has_link())) {
+                layout->SetInlineObject(MakeBrokenImageObject(key, std::move(alt_layout), format.font_size).Get(), wr);
             }
             break;
+        }
         }
     };
     // runs は start 昇順・非重複なので、境界の UTF-16 位置は前方への 1 回の走査で求まる。
@@ -449,18 +440,8 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         strike.Update(r.strikethrough(), wr);
         link.Update(r.has_link(), wr);
         underline.Update(r.has_link() && !(inline_images_ && r.image()), wr);
-        if (inline_images_) {
-            if (r.image() && !r.image_start() && image && image->range.startPosition + image->range.length == wr.startPosition) {
-                image->range.length += wr.length;
-                image->alt_end = r.start + r.length;
-                image->placeholder_only = false;
-            }
-            else {
-                flush_image();
-                if (r.image()) {
-                    image = OpenImage{ &r, wr, r.start, r.start + r.length, text.substr(r.start, r.length) == kImagePlaceholder };
-                }
-            }
+        if (inline_images_ && r.image()) {
+            apply_image(r, wr);
         }
         if (!inline_math_ || !r.math()) {
             continue;
@@ -480,9 +461,6 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         else {
             pending = true;
         }
-    }
-    if (inline_images_) {
-        flush_image();
     }
 
     bold.Flush();

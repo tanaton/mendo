@@ -546,20 +546,26 @@ struct ParseContext : NodeStorage {
         }
         current_image_slot = *slot;
         open_image_start = active_text_buffer->size();
-        current_run_flags |= TextRun::kImage | TextRun::kImageStart;
+        current_run_flags |= TextRun::kImage;
+    }
+
+    // alt を画像の run にしている最中か。src の無い画像の中は含まない (alt を装飾付きの文字として出す)。
+    bool InImageRun() const noexcept
+    {
+        return current_run_flags & TextRun::kImage;
     }
 
     // 画像の範囲を閉じる前に呼ぶ。alt が空なら置き換える文字を置き、範囲を空にしない (空の範囲には画像を置けない)。
     void EndImageText()
     {
-        if ((current_run_flags & TextRun::kImage) && active_text_buffer->size() == open_image_start) {
+        if (InImageRun() && active_text_buffer->size() == open_image_start) {
             AppendDoc(kImagePlaceholder);
         }
     }
 
     void EndImage() noexcept
     {
-        current_run_flags &= static_cast<uint8_t>(~(TextRun::kImage | TextRun::kImageStart));
+        current_run_flags &= static_cast<uint8_t>(~TextRun::kImage);
         current_image_slot = 0;
     }
 
@@ -644,7 +650,6 @@ struct ParseContext : NodeStorage {
                         tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
                     }
                 }
-                current_run_flags &= static_cast<uint8_t>(~TextRun::kImageStart);
             }
         }
         has_pending_run = false;
@@ -1138,6 +1143,11 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
 
     ctx->EnsureNodeForListItemText();
+    // Chrome と同じく alt は平文にし、画像 1 つを run 1 つにする。入れ子の画像は alt の文字になるので深さだけ数える。
+    if (ctx->InImageRun()) {
+        ctx->image_span_depth += type == MD_SPAN_IMG;
+        return 0;
+    }
     ctx->FlushPendingRun();
     // span が自分で足す文字 ("$" や脚注番号、画像の置き換え文字) は、待っている区切りの後ろに入れる。
     // 画像は src を今のノードに登録するので、入る前に区切る (画像の中では区切らない)。
@@ -1182,11 +1192,15 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         return 1;
     }
 
+    const bool leaves_image = type == MD_SPAN_IMG && ctx->image_span_depth == 1;
+    if (ctx->InImageRun() && !leaves_image) {
+        ctx->image_span_depth -= type == MD_SPAN_IMG;
+        return 0;
+    }
     // 閉じの "$" / "$$" や画像の置き換え文字も、その run に含めるため run を確定する前に足す。
     if (const std::string_view d = MathDelimiterOf(type); !d.empty()) {
         ctx->AppendDoc(d);
     }
-    const bool leaves_image = type == MD_SPAN_IMG && ctx->image_span_depth == 1;
     if (leaves_image) {
         ctx->EndImageText();
     }

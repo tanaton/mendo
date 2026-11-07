@@ -161,17 +161,14 @@ class InlineImageTable {
 public:
     // 無ければ Loading。
     InlineImageEntry Find(uint64_t key);
-    // 戻り値: 前の値から変わった。
-    bool Set(uint64_t key, const InlineImageEntry& entry);
+    // 戻り値: 前の値 (無ければ Loading)。
+    InlineImageEntry Exchange(uint64_t key, const InlineImageEntry& entry);
     void Clear();
 
 private:
     std::mutex mutex_;
     std::unordered_map<uint64_t, InlineImageEntry> entries_;
 };
-
-// max_width より広い画像は縦横比を保って max_width に縮める。max_width が 0 以下なら縮めない。
-InlineImageSize FitInlineImage(InlineImageSize size, float max_width) noexcept;
 
 // 画像の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
 // InlineImageObjectOf で引いた key のビットマップを箱いっぱいに描く。

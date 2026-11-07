@@ -1134,22 +1134,6 @@ TEST(Parser, AlertMarkerAfterLeadingContentIsPlainQuote)
     }
 }
 
-namespace {
-
-// 画像の run (alt の装飾で分かれた run は最初のものだけ) の src。
-std::vector<std::string_view> ImageSrcsOf(const Node& node)
-{
-    std::vector<std::string_view> srcs;
-    for (const auto& r : node.runs()) {
-        if (r.image_start()) {
-            srcs.push_back(node.image_src(r));
-        }
-    }
-    return srcs;
-}
-
-} // namespace
-
 // マーカー直後の画像は md4c では同じ段落になる。画像は段落の中の run なので、マーカーの段落がそのまま Alert になり、
 // 画像はラベルの後ろに残る (GitHub と同じ)。別の段落の画像は Alert を引き継ぐ。
 TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
@@ -1164,7 +1148,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
             EXPECT_EQ(node.alert_type, AlertType::Note);
             EXPECT_EQ(node.blockquote_group, nodes[0].blockquote_group);
         }
-        EXPECT_EQ(ImageSrcsOf(nodes.back()), std::vector<std::string_view>{ "p.png" });
+        EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "img", "p.png" } }));
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
 }
@@ -1176,7 +1160,7 @@ TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsPlainQuote)
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_FALSE(nodes.empty());
-        EXPECT_EQ(ImageSrcsOf(nodes.back()), std::vector<std::string_view>{ "p.png" });
+        EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "img", "p.png" } }));
         for (const auto& node : nodes) {
             EXPECT_EQ(node.alert_type, AlertType::None);
         }
@@ -1742,16 +1726,14 @@ TEST(ParserChunks, OtherBlocksAreNotSplit)
     }
 }
 
-// 区切った段落の続きは、画像を含んでいても画像ノードにしない (前の部分だけが本文として残るため)。
-TEST(ParserChunks, ContinuationIsNotPromotedToImage)
+// 区切った段落の続きの画像は、続きのノードの run になる。
+TEST(ParserChunks, ContinuationKeepsImageRun)
 {
     const std::string md = MakeNumberedLines(2000) + "![alt](a.png)";
     const auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 1u);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-    for (const auto& node : nodes) {
-        EXPECT_EQ(node.type, NodeType::Paragraph);
-    }
+    EXPECT_EQ(ImagesOf(nodes.back()), (std::vector<std::pair<std::string, std::string_view>>{ { "alt", "a.png" } }));
 }
 
 // 区切りを待つ間に空行が目安の長さを超えて続いても、順序を保って区切る。

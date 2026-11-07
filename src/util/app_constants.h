@@ -13,7 +13,7 @@ enum class Id : UINT_PTR {
     FILE_RELOAD_DEBOUNCE,
     PELE_TRIM,
     DEVICE_RECREATE_RETRY,
-    INLINE_MATH_TABLES,
+    INLINE_TABLES,
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS = 16;             // ~60fps アニメーション用

@@ -75,17 +75,13 @@ inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view w
         if (r.link_url_index >= 0 && static_cast<size_t>(r.link_url_index) >= link_url_count) {
             sink.Add("node {} {} run {}: link_url_index {} >= urls {}", node_index, where, k, r.link_url_index, link_url_count);
         }
-        if (r.image_start() && !r.image()) {
-            sink.Add("node {} {} run {}: image start without image", node_index, where, k);
-        }
         if (r.image()) {
             if (owner.image_src(r).empty()) {
                 sink.Add("node {} {} run {}: image without src", node_index, where, k);
             }
-            const bool continues = k > 0 && runs[k - 1].image() && runs[k - 1].image_slot == r.image_slot &&
-                                   runs[k - 1].start + runs[k - 1].length == r.start;
-            if (!r.image_start() && !continues) {
-                sink.Add("node {} {} run {}: image run without start", node_index, where, k);
+            // alt の中の数式は run を分けない (alt は平文)。
+            if (r.math()) {
+                sink.Add("node {} {} run {}: math inside image", node_index, where, k);
             }
         }
         prev_end = std::max(prev_end, end);

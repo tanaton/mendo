@@ -43,12 +43,6 @@ void ForEachImageSrc(const Node& node, Fn&& fn)
 
 } // namespace
 
-void ResourceManager::ApplyCachedImages(InlineImageUpdate& update)
-{
-    DropQueuesIfJumped();
-    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, update);
-}
-
 bool ResourceManager::ApplyCachedImageSizes(IndexRange range)
 {
     // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
@@ -92,8 +86,9 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
 
 void ResourceManager::LoadImages()
 {
+    DropQueuesIfJumped();
     InlineImageUpdate update;
-    ApplyCachedImages(update);
+    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, update);
     NotifyInlineImages(update);
 }
 
@@ -126,11 +121,6 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図の bitmap も可視範囲外の分を捨てる。描いた図の
-    // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
-    // 全消去すると可視中の図まで捨てて描き直しの cliff を生むため。
-    state_.document.layout_cache.EvictDiagramBitmapsOutside(keep->range.begin, keep->range.end);
-
     // 本文中の画像のビットマップも保持範囲の画像の分だけ残す。寸法は表に残すので、戻ってきても組み直さない。
     if (inline_drawings_.images.size() == 0) {
         return;
@@ -150,14 +140,17 @@ void ResourceManager::EvictOffscreenBitmaps()
 
 void ResourceManager::FlushPendingResources()
 {
+    // 画像の通知で組み直す (RelayoutViewport) ときは入り直さない。入り直すと届いたデコード結果の転送が
+    // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った分は BITMAP_MANAGE が拾う。
+    if (notifying_images_) {
+        return;
+    }
     image_loader_.ProcessCompletedDecodes();
     // ScheduleBitmapManage 以外（OnBitmapManageTimer 等）からのフラッシュでも
     // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
     last_flush_time_ = std::chrono::steady_clock::now();
 
-    InlineImageUpdate images;
-    ApplyCachedImages(images);
-    NotifyInlineImages(images);
+    LoadImages();
     // 図の再レイアウトを 1 回にまとめる。
     IndexRange changed;
     RequestVisibleDiagrams(changed);
@@ -208,8 +201,8 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     const auto& nodes = state_.document.doc.GetNodes();
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
-        // 表のセルの画像は縮めずに出すので原寸でデコードする。
-        const float max_width = node.table_data() ? 0.0f : layout::NodeContentWidth(node, theme, content_width);
+        // 表のセルの画像は列幅に縮めて出し、表は本文の幅に収めるので、表も本文の幅でデコードする。
+        const float max_width = layout::NodeContentWidth(node, theme, content_width);
         ForEachImageSrc(node, [&](std::string_view src) { ApplyCachedImage(src, doc_dir, max_width, start_loads, update); });
     }
 }
@@ -250,15 +243,16 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
 
 void ResourceManager::SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update)
 {
-    const InlineImageState before = inline_images_.Find(key).state;
-    if (inline_images_.Set(key, entry)) {
-        (before == InlineImageState::Loading ? update.pending_resolved : update.sizes_changed) = true;
+    if (const InlineImageEntry before = inline_images_.Exchange(key, entry); before != entry) {
+        (before.state == InlineImageState::Loading ? update.pending_resolved : update.sizes_changed) = true;
     }
 }
 
 void ResourceManager::NotifyInlineImages(const InlineImageUpdate& update)
 {
     if (update.pending_resolved || update.sizes_changed || update.bitmaps_changed) {
+        notifying_images_ = true;
+        const ScopeGuard reset{ [this] noexcept { notifying_images_ = false; } };
         host_.OnInlineImagesUpdated(update.pending_resolved, update.sizes_changed);
     }
 }

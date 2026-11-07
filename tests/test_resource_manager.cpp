@@ -48,7 +48,7 @@ public:
         if (!sync_apply_bitmap) {
             return false;
         }
-        diagram_entry.bitmap = &SharedStubBitmap();
+        diagram_entry.commands = &SharedStubCommandList();
         diagram_entry.width = 100.0f;
         diagram_entry.height = 50.0f;
         return true;
@@ -230,7 +230,7 @@ TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
     LoadMarkdown("![a](one.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
     // 200% のときに入れた寸法。
-    inline_images_.Set(InlineImageKey("one.png"), { InlineImageState::Ready, { 200.0f, 150.0f } });
+    inline_images_.Exchange(InlineImageKey("one.png"), { InlineImageState::Ready, { 200.0f, 150.0f } });
 
     rm_.LoadImages();
     EXPECT_EQ(Entry("one.png").size, (InlineImageSize{ 400.0f, 300.0f }));
@@ -323,7 +323,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesResolvesSrc)
 TEST_F(ResourceManagerTest, UnavailableImageStaysUntilLoaded)
 {
     LoadMarkdown("![alt](a.png)\n");
-    inline_images_.Set(InlineImageKey("a.png"), { .state = InlineImageState::Unavailable });
+    inline_images_.Exchange(InlineImageKey("a.png"), { .state = InlineImageState::Unavailable });
 
     rm_.LoadImages();
     EXPECT_EQ(Entry("a.png").state, InlineImageState::Unavailable);
@@ -412,7 +412,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
     rm_.RequestMermaidRenders();
     const auto* diagram = cache_.FindDiagram(doc_.GetDiagramNodeIndices()[0]);
     ASSERT_NE(diagram, nullptr);
-    EXPECT_NE(diagram->bitmap, nullptr);
+    EXPECT_TRUE(diagram->HasImage());
     EXPECT_EQ(host_.recompute_layout, 1);
 }
 
@@ -498,7 +498,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
     SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
-    ASSERT_TRUE(diagram.bitmap);
+    ASSERT_TRUE(diagram.commands);
     // 表示幅に合わせて縮めた図なので、幅が変われば描き直しになる。
     diagram.width = 2000.0f;
 
@@ -506,7 +506,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
     SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
 
-    EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
+    EXPECT_TRUE(diagram.commands) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
     EXPECT_TRUE(diagram.NeedsRender());
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
@@ -520,7 +520,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     mock_mermaid_.sync_apply_bitmap = true;
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
-    ASSERT_TRUE(diagram.bitmap);
+    ASSERT_TRUE(diagram.commands);
     diagram.width = 100.0f;
     const int initial_drop = mock_mermaid_.drop_queued_count;
 
@@ -532,7 +532,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     mock_mermaid_.sync_apply_bitmap = false;
     theme_.dark = true;
     rm_.RequestMermaidRenders();
-    EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
+    EXPECT_TRUE(diagram.commands) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
     EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
@@ -614,26 +614,6 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesThrottlesFollowingBitmapManage)
 
 // ---- ビットマップ管理 ----
 
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
-{
-    // viewport 高さ 0 (初期化中) では保持範囲が潰れるため、遠方の図も含め何も解放しない。
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
-                 /*block_height=*/10000.0f);
-    const auto& indices = doc_.GetDiagramNodeIndices();
-    ASSERT_GE(indices.size(), 2u);
-    for (const size_t i : indices) {
-        cache_.EnsureDiagram(i).bitmap = &SharedStubBitmap();
-    }
-    SetWindowSize(state_, kContentWidth, 0.0f);
-    viewport_.SetScrollY(0.0f);
-
-    rm_.EvictOffscreenBitmaps();
-
-    for (const size_t i : indices) {
-        EXPECT_NE(cache_.FindDiagram(i)->bitmap, nullptr) << "node " << i;
-    }
-}
-
 // 保持範囲外のノードも text_layout を捨てるだけで、計測済み (layout_dirty=false) のまま残す。
 // text_layout は実物の COM オブジェクトが要るので、layout_dirty の遷移だけを確かめる。
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
@@ -654,30 +634,6 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
     }
-}
-
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesBitmapButKeepsSize)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
-                 /*block_height=*/10000.0f);
-    const auto& indices = doc_.GetDiagramNodeIndices();
-    ASSERT_GE(indices.size(), 2u);
-    for (const size_t i : indices) {
-        auto& d = cache_.EnsureDiagram(i);
-        d.bitmap = &SharedStubBitmap();
-        d.width = 320.0f;
-        d.height = 240.0f;
-    }
-
-    viewport_.SetScrollY(0.0f);
-    rm_.EvictOffscreenBitmaps();
-
-    const auto& near_diagram = *cache_.FindDiagram(indices[0]);
-    const auto& far_diagram = *cache_.FindDiagram(indices[1]);
-    EXPECT_NE(near_diagram.bitmap, nullptr);
-    EXPECT_EQ(far_diagram.bitmap, nullptr);
-    EXPECT_FLOAT_EQ(far_diagram.width, 320.0f);
-    EXPECT_FLOAT_EQ(far_diagram.height, 240.0f);
 }
 
 // スクロール停止のたびに全画面再描画しないよう、何も適用されなければ再レイアウト (と再描画) しない。

@@ -144,13 +144,16 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
 
     // 読む前に監視を始め、読んでから UI が監視を引き継ぐまでの保存も通知で届くようにする。リロードは今の監視を続ける。
     FileWatchTarget watch = reload_base.data ? FileWatchTarget{} : OpenWatchTarget(path);
+    // 差分を取らずに旧文書の表示を続けさせ、読み直させる。
+    const auto publish_retry = [&](ReloadOp op) {
+        Publish(stop_token, AsyncLoadResult{
+                                .reload = ReloadCheck{ .decision = { op, std::string_view::npos }, .base = reload_base.data }
+        });
+    };
     auto file = load_file_(path, stop_token);
     if (!file) {
-        // 表示中のファイルを読み直すなら、旧文書の表示を続けて読み直させる。
         if (reload_base.data && file.error() == FileLoadError::Locked) {
-            Publish(stop_token, AsyncLoadResult{
-                                    .reload = ReloadCheck{ .decision = { ReloadOp::Locked, std::string_view::npos }, .base = reload_base.data }
-            });
+            publish_retry(ReloadOp::Locked);
             return;
         }
         Publish(stop_token, std::unexpected(file.error()));
@@ -166,9 +169,7 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{
-                                    .reload = ReloadCheck{ .decision = { ReloadOp::StillGrowing, std::string_view::npos }, .base = reload_base.data }
-            });
+            publish_retry(ReloadOp::StillGrowing);
             return;
         }
         reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text, reload_base.accept_prefix_shrink), reload_base.data });

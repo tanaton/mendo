@@ -135,7 +135,7 @@ bool IsSafeImageSrc(std::string_view src)
 // 範囲外の番号と危険なスキームのリンクは外す。画像の印はタグにならないので比べない (画像の前後でリンクを閉じない)。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
-    InlineState s{ static_cast<uint8_t>(r.flags & ~(TextRun::kImage | TextRun::kImageStart)), r.link_url_index };
+    InlineState s{ static_cast<uint8_t>(r.flags & ~TextRun::kImage), r.link_url_index };
     if (s.link_url_index >= 0 &&
         (static_cast<size_t>(s.link_url_index) >= link_urls.size() || !IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]))) {
         s.link_url_index = -1;
@@ -143,20 +143,9 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> li
     return s;
 }
 
-// 1 つの画像の run (alt の装飾で分かれたもの) の最後の添字。
-size_t LastRunOfImage(std::span<const TextRun> runs, size_t first) noexcept
-{
-    size_t last = first;
-    while (last + 1 < runs.size() && runs[last + 1].image() && !runs[last + 1].image_start() &&
-           runs[last + 1].start == runs[last].start + runs[last].length) {
-        ++last;
-    }
-    return last;
-}
-
 // src は外部へのアクセスにならないものだけ記述値のまま出す (相対パスは貼付先で解決できないが仕様上の限界)。
-// alt は image_runs のうち [start, end) にかかる文字。置き換え文字 (alt が空) と alt の中の数式の区切りは出さない。
-void AppendImageTag(std::string& out, std::string_view src, std::string_view text, std::span<const TextRun> image_runs, uint32_t start, uint32_t end)
+// alt は image の alt のうち [start, end) にかかる文字。
+void AppendImageTag(std::string& out, std::string_view src, std::string_view text, const TextRun& image, uint32_t start, uint32_t end)
 {
     out.append("<img");
     if (IsSafeImageSrc(src)) {
@@ -165,13 +154,8 @@ void AppendImageTag(std::string& out, std::string_view src, std::string_view tex
         out.append("\"");
     }
     out.append(" alt=\"");
-    for (const auto& r : image_runs) {
-        const uint32_t delim = MathDelimiterLength(text, r);
-        const uint32_t b = std::max(start, r.start + delim);
-        const uint32_t e = std::min(end, r.start + r.length - delim);
-        if (b < e && text.substr(r.start, r.length) != kImagePlaceholder) {
-            AppendHtmlEscaped(out, text.substr(b, e - b));
-        }
+    if (const uint32_t b = std::max(start, image.start), e = std::min(end, image.start + image.length); b < e && !ImageAlt(text, image).empty()) {
+        AppendHtmlEscaped(out, text.substr(b, e - b));
     }
     out.append("\">");
 }
@@ -225,7 +209,6 @@ void AppendInlineHtml(
             s = InlineStateOf(r, link_urls);
             if (r.image()) {
                 // alt でなく <img> を 1 つ出す。
-                const size_t last = LastRunOfImage(runs, run_idx);
                 if (s != current) {
                     close();
                     current = s;
@@ -233,9 +216,9 @@ void AppendInlineHtml(
                 if (!opened) {
                     open();
                 }
-                AppendImageTag(out, owner.image_src(r), text, runs.subspan(run_idx, last - run_idx + 1), pos, end);
-                pos = std::min(end, runs[last].start + runs[last].length);
-                run_idx = last + 1;
+                AppendImageTag(out, owner.image_src(r), text, r, pos, end);
+                pos = std::min(end, r.start + r.length);
+                ++run_idx;
                 continue;
             }
             segment_end = std::min(end, r.start + r.length);
@@ -581,7 +564,7 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
             if (run_start >= end) {
                 break;
             }
-            if (r.image() && local.substr(r.start, r.length) == kImagePlaceholder) {
+            if (r.image() && ImageAlt(local, r).empty()) {
                 skip(run_start, run_start + r.length);
             }
             else if (const uint32_t delim = MathDelimiterLength(local, r); delim > 0) {
@@ -763,7 +746,5 @@ std::optional<ImageHit> FindImageHitAtPosition(const Node& node, uint32_t text_p
     if (!run || !run->image()) {
         return std::nullopt;
     }
-    const uint32_t start = base + run->start;
-    const std::string_view alt = node.GetText().substr(start, run->length);
-    return ImageHit{ node.image_src(*run), alt == kImagePlaceholder ? std::string_view{} : alt, start };
+    return ImageHit{ node.image_src(*run), ImageAlt(node.GetText().substr(base), *run), base + run->start };
 }
