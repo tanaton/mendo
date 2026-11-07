@@ -201,11 +201,13 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!cached) {
         // 読めないもの (解決できない src・読むのをあきらめたファイル) は alt を出す。読み直しで失敗の記録が消えても、
         // 読めるまで alt のまま読み直す (読み込み中の幅 0 との行き来でちらつかせない)。
-        // キャッシュから落ちた画像は寸法とビットマップを残したまま読み直す。
         if (!abs_path || image_loader_.HasGivenUp(*abs_path)) {
             SetInlineImage(key, { .state = InlineImageState::Unavailable }, update);
         }
-        else if (start_loads) {
+        // キャッシュから落ちても、描くビットマップを持っている間は読み直さない。表は 1 ノードで全部の画像を読むので、
+        // 画像がキャッシュの件数を超えると読み込みが互いを追い出し、約 1ms ごとに読み直しと描き直しが続いていた。
+        // 持っていない画像は寸法を残したまま読み直す。
+        else if (start_loads && !inline_drawings_.images.Find(key)) {
             image_loader_.RequestLoadAsync(*abs_path, max_width);
         }
         return;

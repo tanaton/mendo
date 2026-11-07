@@ -14,8 +14,14 @@
 #include "reducer_harness.h"
 #include "theme.h"
 #include "test_helpers.h"
+#include "task_scheduler.h"
+#include "wic_util.h"
+#include <d2d1.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -112,7 +118,7 @@ LayoutCache SeedLayoutCache(size_t node_count, float block_height = 100.0f)
 
 } // namespace
 
-class ResourceManagerTest : public ::testing::Test {
+class ResourceManagerTest : public ComApartmentTest {
 protected:
     // 画像の適用は doc_dir.empty() で早期 return するため、テスト用ドキュメントパスは
     // parent_path を持つ絶対パスでなければならない。
@@ -189,6 +195,75 @@ TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
     EXPECT_EQ(host_.inline_updates, 0);
     EXPECT_EQ(host_.recompute_layout, 0);
     EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
+}
+
+// 本物の ImageLoader で画像ファイルを読む。
+class ResourceManagerImageFileTest : public ResourceManagerTest {
+protected:
+    void SetUp() override
+    {
+        ResourceManagerTest::SetUp();
+        wic_ = wic_util::CreateWicFactory("ResourceManagerImageFileTest");
+        ASSERT_TRUE(wic_);
+        Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
+        ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d.GetAddressOf()));
+        Microsoft::WRL::ComPtr<IWICBitmap> target;
+        ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &target));
+        ASSERT_HRESULT_SUCCEEDED(d2d->CreateWicBitmapRenderTarget(target.Get(), D2D1::RenderTargetProperties(), &rt_));
+        image_loader_.Init(wic_.Get(), nullptr, 0, scheduler_);
+        image_loader_.SetRenderTarget(rt_.Get());
+    }
+    void TearDown() override
+    {
+        scheduler_.Shutdown();
+        image_loader_.ClearCache();
+        inline_drawings_.images = {};
+    }
+
+    // 1x1 の PNG。
+    void WritePng(const std::filesystem::path& path)
+    {
+        static constexpr unsigned char kPng[] = {
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF,
+            0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        };
+        ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng), false));
+    }
+
+    ScopedTempDir dir_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt_;
+    TaskScheduler scheduler_{ 2 };
+};
+
+// 1 つの表の画像がキャッシュの件数 (128) を超えても、描くビットマップを持つ画像は読み直さず、読み込みが止まる。
+// 読み込みが互いを追い出して読み直し続けていた。
+TEST_F(ResourceManagerImageFileTest, ImagesBeyondCacheEntriesSettle)
+{
+    constexpr int kImages = 140;
+    std::string md = "| i |\n|---|\n";
+    for (int i = 0; i < kImages; ++i) {
+        WritePng(dir_.path() / std::format(L"i{}.png", i));
+        md += std::format("| ![i](i{}.png) |\n", i);
+    }
+    const std::wstring doc_path = (dir_.path() / L"test.md").wstring();
+    LoadMarkdown(md, 100.0f, doc_path.c_str());
+
+    int rounds = 0;
+    for (; rounds < 10; ++rounds) {
+        rm_.LoadImages();
+        ASSERT_TRUE(DrainScheduler(scheduler_));
+        if (!image_loader_.ProcessCompletedDecodes(kNoDeadline)) {
+            break;
+        }
+    }
+    EXPECT_LT(rounds, 10) << "読み込みが止まらない";
+    for (int i = 0; i < kImages; ++i) {
+        const std::string src = std::format("i{}.png", i);
+        EXPECT_EQ(Entry(src).state, InlineImageState::Ready) << src;
+        EXPECT_NE(inline_drawings_.FindImage(InlineImageKey(src)), nullptr) << src;
+    }
 }
 
 // ---- 画像経路: ApplyCachedImageSizes (issue #148) ----
