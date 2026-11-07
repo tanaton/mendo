@@ -71,7 +71,6 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     case NodeType::ListItem:
     case NodeType::Table:
     case NodeType::TaskListItem:
-    case NodeType::Image:
         return 0.0f;
     }
     std::unreachable();
@@ -88,7 +87,6 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Diagram:
-    case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
@@ -142,8 +140,6 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
         return HorizontalRuleHeight(theme);
     case NodeType::Table:
         return line_height * 1.5f * static_cast<float>(node.table_data()->row_count);
-    case NodeType::Image:
-        return PlaceholderHeight(theme);
     case NodeType::ListItem:
     case NodeType::TaskListItem:
     case NodeType::Paragraph:
@@ -229,7 +225,7 @@ LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme
 
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
-    // 画像・図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
+    // 図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
     // 描画時にビットマップが後続ノードへはみ出すため既存値を維持する。
     if (IsBitmapDrawNode(node)) {
         return;

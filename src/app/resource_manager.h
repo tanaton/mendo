@@ -11,8 +11,11 @@
 #include <unordered_map>
 
 struct AppState;
+struct InlineDrawings;
+struct InlineImageEntry;
 class ImageLoader;
 class IMermaidRenderer;
+class InlineImageTable;
 class MermaidFileCache;
 
 // ResourceManager が App に頼むこと。
@@ -20,8 +23,12 @@ class ResourceManagerHost {
 public:
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;
-    // 画像・図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
+    // 図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
     virtual void RecomputeLayout(IndexRange changed) = 0;
+    // 本文中の画像の寸法かビットマップが変わった。pending_resolved なら寸法を待って仮に組んだノードを、sizes_changed なら
+    // 組んだ寸法が変わった画像 (DPI の変更・読めなかった画像が読めた) があるので画像を持つノードを組み直させる。
+    // どちらでもなければ描き直させる。
+    virtual void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) = 0;
 
 protected:
     ~ResourceManagerHost() = default;
@@ -43,16 +50,20 @@ public:
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
-    // 渡すものはどれも ResourceManager より長生きする。
-    ResourceManager(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache, ResourceManagerHost& host) noexcept
-        : state_(state), image_loader_(image_loader), mermaid_(mermaid), mermaid_file_cache_(mermaid_file_cache), host_(host)
+    // 渡すものはどれも ResourceManager より長生きする。inline_images と inline_drawings.images は本文中の画像の寸法と
+    // ビットマップで、ResourceManager が読み込みの結果を書く。
+    ResourceManager(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache,
+                    InlineImageTable& inline_images, InlineDrawings& inline_drawings, ResourceManagerHost& host) noexcept
+        : state_(state), image_loader_(image_loader), mermaid_(mermaid), mermaid_file_cache_(mermaid_file_cache),
+          inline_images_(inline_images), inline_drawings_(inline_drawings), host_(host)
     {}
 
-    // range のノードの画像の推定高さを、読み込み済みのキャッシュにある寸法で上書きする。未キャッシュは無視。高さを変えたら true。
-    // 読み込みは後続の RelayoutViewport (FlushPendingResources) が起動する。
-    bool ApplyImageCacheHeights(IndexRange range);
-    // 開くときとリロードのスクロール位置の計算用に、range のノードの推定高さを図と画像のキャッシュにある実測の寸法で
-    // 上書きする。変えたら true (Y は組み直さない)。呼び出し前にノード高さの初期化 (EstimateNodeHeights) は済ませておく。
+    // range のノードの本文中の画像に、読み込み済みのキャッシュにある寸法とビットマップを入れる。未キャッシュは無視。
+    // 組む前に呼べば最初から画像の寸法で組める。寸法を入れたら true。読み込みは後続の FlushPendingResources が起動する。
+    bool ApplyCachedImageSizes(IndexRange range);
+    // 開くときとリロードのスクロール位置の計算用に、range のノードの推定高さを図のキャッシュにある実測の寸法で上書きし、
+    // 本文中の画像の寸法もキャッシュから入れる。高さを変えたら true (Y は組み直さない)。
+    // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は済ませておく。
     bool ApplyCachedHeights(IndexRange range);
     void LoadImages();
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
@@ -70,16 +81,24 @@ private:
     // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
     // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
     bool ApplyMermaidCacheHeights(IndexRange range);
+    // 本文中の画像の表の変わり方。NotifyInlineImages で App に組み直しか描き直しをさせる。
+    struct InlineImageUpdate {
+        bool pending_resolved = false;
+        bool sizes_changed = false;
+        bool bitmaps_changed = false;
+    };
     // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは changed に積む。
     // 先読み範囲だけを見て、未キャッシュは非同期ロード起動（通常描画用）。
-    void ApplyCachedImages(IndexRange& changed);
-    // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。高さを変えたノードは changed に積む。
-    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, IndexRange& changed);
+    void ApplyCachedImages(InlineImageUpdate& update);
+    // slices は走査する画像を持つノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。
+    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update);
+    // max_width はデコードする幅 (0 は原寸)。
+    void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, bool start_loads, InlineImageUpdate& update);
+    void SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update);
+    void NotifyInlineImages(const InlineImageUpdate& update);
     void RequestVisibleDiagrams(IndexRange& changed);
     void RequestDiagramRender(size_t i, float content_width, bool dark_mode, IndexRange& changed);
-    // 読めない画像 (解決できない src・読むのをあきらめたファイル) に alt の枠を出させ、高さを changed に積む。
-    void MarkImageUnavailable(size_t i, float node_width, IndexRange& changed);
-    // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
+    // 図の寸法が確定したノードの高さを決め、changed に積む。
     void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, IndexRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
     const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
@@ -108,6 +127,8 @@ private:
     ImageLoader& image_loader_;
     IMermaidRenderer& mermaid_;
     MermaidFileCache& mermaid_file_cache_;
+    InlineImageTable& inline_images_;
+    InlineDrawings& inline_drawings_;
     ResourceManagerHost& host_;
 
     float last_mermaid_content_width_ = 0.0f;

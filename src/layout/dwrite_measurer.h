@@ -10,6 +10,7 @@
 struct NodeTableData;
 struct TableLayoutData;
 class InlineMathTable;
+class InlineImageTable;
 
 // ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
 // theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
@@ -33,6 +34,11 @@ public:
     void SetInlineMath(InlineMathTable* table) noexcept
     {
         inline_math_ = table;
+    }
+    // 無ければ画像を alt の文字のまま組む。
+    void SetInlineImages(InlineImageTable* table) noexcept
+    {
+        inline_images_ = table;
     }
     // theme.font_family と theme.text_locale の書式の対応。
     const FallbackFontMap& BodyFonts() const noexcept
@@ -63,15 +69,25 @@ private:
     TextStyle NodeStyle(const DWriteContext& ctx, const Node& node) const noexcept;
     TextStyle TableRowStyle(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) const noexcept;
     std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const;
-    // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
-    // fit_width > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
-    // 戻り値: 寸法がまだ無く原文のまま組んだインライン数式がある。
-    bool ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float math_font_size, float fit_width) const;
-    // MeasureTableCells と RestoreEvictedTableRows で共通。空セルは null。原文のまま組んだ数式があれば pending_math を立てる。
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, bool& pending_math, size_t r, size_t c) const;
+    // run の書式と、数式・画像のインラインオブジェクトの掛け先。
+    struct RunFormat {
+        // 画像の src を引くノード (表はセルの run も表のノードで引く)。
+        const Node& owner;
+        // false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
+        bool apply_code_size = true;
+        float math_font_size = 0.0f;
+        // > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
+        float math_fit_width = 0.0f;
+        // > 0 なら、それより広い画像をその幅に縮める。
+        float image_fit_width = 0.0f;
+    };
+    // 戻り値: 寸法がまだ無いインライン数式か画像があり、仮に組んだ (InvalidatePendingInlineLayouts で組み直す)。
+    bool ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, const RunFormat& format) const;
+    // MeasureTableCells と RestoreEvictedTableRows で共通。空セルは null。仮に組んだ数式か画像があれば pending_inline を立てる。
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c) const;
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅と最小幅を tl.natural_col_widths・tl.min_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
-    void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl, bool& pending_math) const;
+    void MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline) const;
     // 戻り値はテーブル全体の高さ。
     float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
 
@@ -82,4 +98,5 @@ private:
     // RecreateFormats を呼んだスレッド。並列計測中には変わらない (RecreateFormats と同じ契約)。
     std::thread::id owner_thread_;
     InlineMathTable* inline_math_ = nullptr;
+    InlineImageTable* inline_images_ = nullptr;
 };

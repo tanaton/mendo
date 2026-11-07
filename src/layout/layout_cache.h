@@ -252,9 +252,9 @@ struct NodeLayoutEntry {
         return cached_width > 0.0f;
     }
     bool layout_dirty = true;
-    // 寸法がまだ無いインライン数式を原文のまま組んだ。描画の結果が出たら組み直す (LayoutCache::InvalidatePendingMathLayouts)。
+    // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
-    bool pending_math = false;
+    bool pending_inline = false;
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
     constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
@@ -408,8 +408,6 @@ struct DiagramError {
         Render,
         // 描画命令にできない要素がある。
         Unsupported,
-        // 画像を読めない (リモート・UNC・見つからない・壊れている)。message は代わりに枠で囲んで出す alt (空なら src)。
-        ImageUnavailable,
     };
     Kind kind = Kind::None;
     // pele が返した文言 (表示用に整形済み)。pele の文言は訳さないのでそのまま持つ。
@@ -483,12 +481,10 @@ struct DiagramEntry : DiagramResult {
     }
 
     // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
-    // 寸法はレイアウト維持のため残す。読めない画像はデバイスに依らないので残し、読み直す間も alt の枠のまま出す。
+    // 寸法はレイアウト維持のため残す。
     void EvictForRetry() noexcept
     {
-        SetResult({ .width = width,
-                    .height = height,
-                    .error = error.kind == DiagramError::Kind::ImageUnavailable ? std::move(error) : DiagramError{} });
+        SetResult({ .width = width, .height = height });
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
@@ -573,9 +569,11 @@ public:
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
 
-    // インライン数式の寸法を待って原文のまま組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
+    // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
     // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
-    bool InvalidatePendingMathLayouts(bool tables) noexcept;
+    bool InvalidatePendingInlineLayouts(bool tables) noexcept;
+    // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
+    bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。

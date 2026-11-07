@@ -124,3 +124,65 @@ struct InlineMathObjectRef {
 };
 // MakeInlineMathObject で作ったものなら key と倍率。書式の省略記号 (CreateEllipsisTrimmingSign) などは nullopt。
 std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* object) noexcept;
+
+// ---- 画像 ----
+
+// 本文中の画像 (TextRun::kImage)。GitHub と同じく行の中に置き、下端を本文のベースラインに揃え (vertical-align: baseline)、
+// 行より広い画像は行の幅に縮める (max-width: 100%)。
+
+// 表示寸法 (DIP)。
+struct InlineImageSize {
+    float width = 0.0f;
+    float height = 0.0f;
+
+    constexpr bool operator==(const InlineImageSize&) const noexcept = default;
+};
+
+enum class InlineImageState : uint8_t {
+    // 寸法をまだ知らない。何も描かない幅 0 の箱で組み、寸法が分かったら組み直す。
+    Loading,
+    Ready,
+    // 読めない。alt を文字で出す (alt が空なら壊れた画像の枠)。
+    Unavailable,
+};
+
+struct InlineImageEntry {
+    InlineImageState state = InlineImageState::Loading;
+    InlineImageSize size;
+
+    constexpr bool operator==(const InlineImageEntry&) const noexcept = default;
+};
+
+// 文書の中の記述どおりの src で決まる。画像の場所は文書のフォルダで決まるので、文書を替えたら表を空にする。
+uint64_t InlineImageKey(std::string_view src) noexcept;
+
+// 画像の寸法表。計測ワーカーが引き、UI スレッド (ResourceManager) が読み込みの結果を書く。
+class InlineImageTable {
+public:
+    // 無ければ Loading。
+    InlineImageEntry Find(uint64_t key);
+    // 戻り値: 前の値から変わった。
+    bool Set(uint64_t key, const InlineImageEntry& entry);
+    void Clear();
+
+private:
+    std::mutex mutex_;
+    std::unordered_map<uint64_t, InlineImageEntry> entries_;
+};
+
+// alt が空のとき (範囲が kImagePlaceholder だけ) に読めなかった画像の枠の大きさ (DIP)。
+inline constexpr InlineImageSize kBrokenInlineImageSize{ 16.0f, 16.0f };
+
+// max_width より広い画像は縦横比を保って max_width に縮める。max_width が 0 以下なら縮めない。
+InlineImageSize FitInlineImage(InlineImageSize size, float max_width) noexcept;
+
+// 画像の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
+// InlineImageObjectOf で引いた key のビットマップを箱いっぱいに描く。broken なら壊れた画像の枠を描く。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size, bool broken);
+struct InlineImageObjectRef {
+    uint64_t key = 0;
+    InlineImageSize size;
+    bool broken = false;
+};
+// MakeInlineImageObject で作ったものなら key と寸法。ほかのインラインオブジェクトは nullopt。
+std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept;

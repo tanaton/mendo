@@ -22,6 +22,7 @@ inline constexpr size_t kTextChunkWindow = kTextChunkTarget / 8;
 // パース後の全ノード走査を避けるため、パース中に構築する特殊ノードのインデックス。
 struct NodeIndices {
     std::vector<TocEntry> toc_entries;
+    // 画像 (kImage の run) を持つノード (表はどれかのセル)。読み込む画像を見えている範囲から探すのに使う。
     std::vector<size_t> image_indices;
     std::vector<size_t> diagram_indices;
     std::vector<size_t> table_indices;

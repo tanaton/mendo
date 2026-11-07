@@ -69,18 +69,6 @@ inline float ErrorPlaceholderHeight(const Theme& theme) noexcept
     return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR * 3.0f;
 }
 
-// 読めない画像の alt を囲む枠の余白 (上下左右)。
-inline float ImageAltPadding(const Theme& theme) noexcept
-{
-    return theme.font_size_body * 0.5f;
-}
-
-// 読めない画像の alt の枠の高さ。alt は 1 行に収め、収まらない分は省略記号で切る。
-inline float ImageAltHeight(const Theme& theme) noexcept
-{
-    return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR + 2.0f * ImageAltPadding(theme);
-}
-
 // 子ブロックも無い空 LI は bullet / checkbox だけの 1 行。
 inline float EmptyListItemHeight(const Theme& theme) noexcept
 {
@@ -146,12 +134,9 @@ void ForEachOverlayButton(const Node& node, const LayoutCache& cache, size_t i, 
 }
 
 // ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
-// 描けなかった図は ErrorPlaceholderHeight 以上にし、読めない画像は alt の枠の高さにする。
+// 描けなかった図は ErrorPlaceholderHeight 以上にする。
 inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
 {
-    if (bitmap && bitmap->error.kind == DiagramError::Kind::ImageUnavailable) {
-        return ImageAltHeight(theme);
-    }
     if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
         return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
     }

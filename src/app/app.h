@@ -271,6 +271,8 @@ private:
     void RelayoutPendingInlineMath(bool tables);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
+    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
+    void ForgetInlineImages();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
     void SettleViewport();
@@ -279,6 +281,7 @@ private:
     void DisposeReleasedLayouts();
     // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(IndexRange changed) override;
+    void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override;
     void EnsureNodeLayout(int node_index) override;
 
     // ---- ファイル読み込み ----
@@ -351,8 +354,10 @@ private:
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の Shutdown が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
-    // インライン数式の描画命令。描画が読む。
-    InlineMathDrawings math_drawings_;
+    // 本文中の画像の寸法表。計測ワーカーが引き、ResourceManager が読み込みの結果を書く。
+    InlineImageTable inline_images_;
+    // インライン数式の描画命令と画像のビットマップ。描画が読む。
+    InlineDrawings inline_drawings_;
     // 文書の数式の組。組ごとに bg のワーカーで描く。
     InlineMathPlan inline_math_plan_;
     // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
@@ -388,5 +393,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, *this };
+    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, inline_images_, inline_drawings_, *this };
 };

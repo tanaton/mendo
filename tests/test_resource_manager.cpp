@@ -3,7 +3,9 @@
 #include "app_constants.h"
 #include "app_state.h"
 #include "document.h"
+#include "draw_command.h"
 #include "file_io.h"
+#include "inline_math.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
@@ -86,6 +88,16 @@ struct TestResourceManagerHost final : ResourceManagerHost {
         recompute_layout++;
         last_change = changed;
     }
+
+    int inline_updates = 0;
+    bool last_pending_resolved = false;
+    bool last_sizes_changed = false;
+    void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override
+    {
+        inline_updates++;
+        last_pending_resolved = pending_resolved;
+        last_sizes_changed = sizes_changed;
+    }
 };
 
 // MakeUniformCache をベースに layout_dirty=false を立てたキャッシュを返す。
@@ -132,6 +144,14 @@ protected:
         std::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
+        // 別の文書を開いた App と同じく、画像の表は空にする (App::ForgetInlineImages)。
+        inline_images_.Clear();
+        inline_drawings_.images = {};
+    }
+
+    InlineImageEntry Entry(std::string_view src)
+    {
+        return inline_images_.Find(InlineImageKey(src));
     }
 
     Theme theme_{};
@@ -143,7 +163,9 @@ protected:
     ImageLoader image_loader_; // Init せずに使う（画像経路は通らないテストのみ）
     MockMermaidRenderer mock_mermaid_;
     TestResourceManagerHost host_;
-    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, file_cache_, host_ };
+    InlineImageTable inline_images_;
+    InlineDrawings inline_drawings_;
+    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, file_cache_, inline_images_, inline_drawings_, host_ };
 };
 
 // ---- 画像経路 ----
@@ -152,7 +174,7 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenNoImagesInDocument)
 {
     LoadMarkdown("# heading\n\nparagraph text\n");
     rm_.LoadImages();
-    EXPECT_EQ(host_.recompute_layout, 0);
+    EXPECT_EQ(host_.inline_updates, 0);
 }
 
 // 本文の幅が 0 (最小化など) のうちは、画像も図も適用・要求しない。
@@ -162,73 +184,63 @@ TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
     SetContentWidth(0.0f);
     rm_.LoadImages();
-    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     rm_.RequestMermaidRenders();
+    EXPECT_EQ(host_.inline_updates, 0);
     EXPECT_EQ(host_.recompute_layout, 0);
     EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
 }
 
-// ---- 画像経路: ApplyImageCacheHeights (issue #148) ----
+// ---- 画像経路: ApplyCachedImageSizes (issue #148) ----
 
-TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesHeightFromCache)
+// 組む前にキャッシュの寸法とビットマップを入れる。縮めるのは組むときなので、寸法は原寸 (DIP) のまま。
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesSetsSizeAndBitmap)
 {
+    auto& bitmap = SharedStubBitmap();
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f, &bitmap);
 
-    // 適用前: SeedLayoutCache が block_height=100 で初期化している。
-    const auto& image_indices = doc_.GetImageNodeIndices();
-    ASSERT_EQ(image_indices.size(), 1u);
-    const size_t img_idx = image_indices[0];
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 100.0f);
-
-    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
-
-    // content_width=800, image_width=1000 → スケール係数 800/1000、
-    // height=800 * 0.8 = 640
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 640.0f);
-    EXPECT_FALSE(cache_[img_idx].layout_dirty);
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
+    EXPECT_EQ(Entry("foo.png"), (InlineImageEntry{ InlineImageState::Ready, { 1000.0f, 800.0f } }));
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("foo.png")), &bitmap);
+    EXPECT_EQ(host_.inline_updates, 0) << "組む前に呼ぶので組み直させない";
 }
 
-// 高さを更新したノードだけを再計算範囲として渡す (先頭からの全件再計算を避ける)。
-TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
+// 寸法を待って仮に組んだノードを組み直させる。表が変わらなければ知らせない。
+TEST_F(ResourceManagerTest, LoadImagesResolvesPendingImages)
 {
-    LoadMarkdown("# heading\n\ntext\n\n![alt](foo.png)\n");
-    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 400.0f, 300.0f);
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    LoadMarkdown("# heading\n\ntext ![a](one.png) and ![b](two.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
 
     rm_.LoadImages();
+    EXPECT_EQ(host_.inline_updates, 1);
+    EXPECT_TRUE(host_.last_pending_resolved);
+    EXPECT_FALSE(host_.last_sizes_changed);
+    EXPECT_EQ(Entry("one.png").state, InlineImageState::Ready);
+    EXPECT_EQ(Entry("two.png").state, InlineImageState::Loading);
 
-    EXPECT_EQ(host_.recompute_layout, 1);
-    EXPECT_EQ(host_.last_change.begin, img_idx);
-    EXPECT_EQ(host_.last_change.end, img_idx + 1);
+    rm_.LoadImages();
+    EXPECT_EQ(host_.inline_updates, 1) << "変わらなければ知らせない";
 }
 
-// DPI が変わると同じビットマップでも DIP の寸法が変わる。前の DPI で決めた寸法のまま残さない。
+// DPI が変わると同じビットマップでも DIP の寸法が変わる。組んだ寸法が変わるので、画像を持つノードを組み直させる。
 TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
 {
     auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![a](one.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    rm_.LoadImages();
-    auto* diagram = cache_.FindDiagram(img_idx);
-    ASSERT_NE(diagram, nullptr);
-    ASSERT_EQ(diagram->bitmap.Get(), &bitmap);
-
     // 200% のときに入れた寸法。
-    diagram->width = 200.0f;
-    diagram->height = 150.0f;
-    rm_.LoadImages();
-    EXPECT_FLOAT_EQ(diagram->width, 400.0f);
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
-    EXPECT_EQ(host_.recompute_layout, 2);
+    inline_images_.Set(InlineImageKey("one.png"), { InlineImageState::Ready, { 200.0f, 150.0f } });
 
     rm_.LoadImages();
-    EXPECT_EQ(host_.recompute_layout, 2) << "寸法が同じなら適用し直さない";
+    EXPECT_EQ(Entry("one.png").size, (InlineImageSize{ 400.0f, 300.0f }));
+    EXPECT_EQ(host_.inline_updates, 1);
+    EXPECT_TRUE(host_.last_sizes_changed);
+    EXPECT_FALSE(host_.last_pending_resolved);
 }
 
 // 画像の src をキャッシュのキーへ解決する規則。引いてはいけない行のキーは、判定を外したときに解決されるパスで入れる。
-TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesResolvesSrc)
 {
     const auto joined = [](const wchar_t* dir, const wchar_t* rel) {
         return (std::filesystem::path(dir) / rel).lexically_normal().wstring();
@@ -246,14 +258,13 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         const wchar_t* doc_path;
         size_t images;
         std::vector<Entry> entries;
-        // 1 枚目の画像に入る高さ。nullopt なら何も適用しない。
+        // 最初の画像に入る高さ。nullopt なら寸法を入れない。
         std::optional<float> height;
-        // src を解決しない。キャッシュにあっても引かず、alt の枠を出す。
+        // src を解決しない。キャッシュにあっても引かず、読めない画像にする。
         bool unresolved = false;
     };
     const Case kCases[] = {
-        // content_width=800 より小さい画像はスケール無し。
-        { "WithinContentWidth", "![alt](small.png)\n", kTestDocPath, 1, { { L"C:\\dir\\small.png", 300.0f } }, 300.0f },
+        { "Relative", "![alt](small.png)\n", kTestDocPath, 1, { { L"C:\\dir\\small.png", 300.0f } }, 300.0f },
         // src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、キャッシュを引けない。
         { "NonAscii", "![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n" /* 画像.png */, kTestDocPath, 1, { { L"C:\\dir\\\u753B\u50CF.png", 300.0f } }, 300.0f },
         // md4c は src をパーセントエンコードのまま渡すので、ファイルパスにする前にデコードする。
@@ -276,7 +287,7 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         { "DevicePrefixEscape", "![a](../../UNC/attacker/share/a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { escaped, 300.0f } }, std::nullopt },
         // \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
         { "DevicePrefixRelative", "![a](img/../a.png)\n", L"\\\\?\\C:\\dir\\test.md", 1, { { L"C:\\dir\\a.png", 300.0f } }, 300.0f },
-        // キャッシュに無ければ何も適用せず、SeedLayoutCache の高さのまま。
+        // キャッシュに無ければ何も入れず、読み込み中のまま。
         { "CacheMiss", "![alt](missing.png)\n", kTestDocPath, 1, {}, std::nullopt },
     };
     for (const auto& c : kCases) {
@@ -288,82 +299,73 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsResolvesSrc)
         for (const auto& e : c.entries) {
             image_loader_.InsertCacheEntryForTest(e.key, 400.0f, e.height);
         }
-        const bool applied = rm_.ApplyImageCacheHeights({ 0, SIZE_MAX });
-        const auto* d = cache_.FindDiagram(image_indices[0]);
+        // 読み込みの起動を避けるため、キャッシュが空でないことを確かめる経路 (ApplyCachedImageSizes) を通す。
+        image_loader_.InsertCacheEntryForTest(L"C:\\unrelated\\x.png", 1.0f, 1.0f);
+        const bool applied = rm_.ApplyCachedImageSizes({ 0, SIZE_MAX });
+        const Node& first = doc_.GetNodes()[image_indices[0]];
+        const auto entry = inline_images_.Find(InlineImageKey(first.image_src(first.runs()[0])));
+        EXPECT_EQ(applied, c.unresolved || c.height.has_value());
         if (c.unresolved) {
-            EXPECT_TRUE(applied);
-            ASSERT_NE(d, nullptr);
-            EXPECT_EQ(d->error.kind, DiagramError::Kind::ImageUnavailable);
-            EXPECT_EQ(d->bitmap, nullptr);
+            EXPECT_EQ(entry.state, InlineImageState::Unavailable);
             continue;
         }
-        EXPECT_EQ(applied, c.height.has_value());
-        EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, c.height.value_or(100.0f));
-        EXPECT_TRUE(!d || d->error.empty());
+        if (c.height) {
+            EXPECT_EQ(entry, (InlineImageEntry{ InlineImageState::Ready, { 400.0f, *c.height } }));
+        }
+        else {
+            EXPECT_EQ(entry.state, InlineImageState::Loading);
+        }
     }
 }
 
-// 読めない画像の枠に出すのは段落の文字 (alt)。alt が空なら src を出す。
-TEST_F(ResourceManagerTest, UnavailableImageShowsAltOrSrc)
-{
-    LoadMarkdown("![logo badge](https://example.com/a.png)\n\n![](https://example.com/b.png)\n");
-    const auto& image_indices = doc_.GetImageNodeIndices();
-    ASSERT_EQ(image_indices.size(), 2u);
-    rm_.LoadImages();
-    const auto* with_alt = cache_.FindDiagram(image_indices[0]);
-    const auto* without_alt = cache_.FindDiagram(image_indices[1]);
-    ASSERT_NE(with_alt, nullptr);
-    ASSERT_NE(without_alt, nullptr);
-    EXPECT_EQ(with_alt->error.message, L"logo badge");
-    EXPECT_EQ(without_alt->error.message, L"https://example.com/b.png");
-}
-
-// 読み直しで失敗の記録が消えても、読めるまでは alt の枠のまま (読み込み中と行き来させない)。読めたら画像にする。
+// 読み直しで失敗の記録が消えても、読めるまでは読めない画像のまま (幅 0 の読み込み中と行き来させない)。
+// 読めたら寸法が変わるので、画像を持つノードを組み直させる。
 TEST_F(ResourceManagerTest, UnavailableImageStaysUntilLoaded)
 {
     LoadMarkdown("![alt](a.png)\n");
-    const size_t img_idx = doc_.GetImageNodeIndices()[0];
-    cache_.EnsureDiagram(img_idx).error = { DiagramError::Kind::ImageUnavailable, L"alt" };
+    inline_images_.Set(InlineImageKey("a.png"), { .state = InlineImageState::Unavailable });
 
     rm_.LoadImages();
-    EXPECT_EQ(cache_.FindDiagram(img_idx)->error.kind, DiagramError::Kind::ImageUnavailable);
+    EXPECT_EQ(Entry("a.png").state, InlineImageState::Unavailable);
+    EXPECT_EQ(host_.inline_updates, 0);
 
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
     rm_.LoadImages();
-    EXPECT_TRUE(cache_.FindDiagram(img_idx)->error.empty());
-    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 400.0f, 300.0f } }));
+    EXPECT_EQ(host_.inline_updates, 1);
+    EXPECT_TRUE(host_.last_sizes_changed);
 }
 
-TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesBeyondVisibleRange)
+// 解決できない画像は読めない画像にし、寸法を待っていたノードを alt で組み直させる。
+TEST_F(ResourceManagerTest, RemoteImageBecomesUnavailable)
 {
-    // issue #148 の本質: 可視範囲外の画像も全件走査して height を更新する。
+    LoadMarkdown("![logo](https://example.com/a.png)\n");
+    rm_.LoadImages();
+    EXPECT_EQ(Entry("https://example.com/a.png").state, InlineImageState::Unavailable);
+    EXPECT_EQ(host_.inline_updates, 1);
+    EXPECT_TRUE(host_.last_pending_resolved);
+}
+
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesBeyondVisibleRange)
+{
+    // issue #148 の本質: 可視範囲外の画像も全件走査して寸法を入れる。
     // 画像を 2 個配置し、2 個目を viewport から大きく外して LoadImages との差を出す。
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
-
-    const auto& image_indices = doc_.GetImageNodeIndices();
-    ASSERT_EQ(image_indices.size(), 2u);
-
+    ASSERT_EQ(doc_.GetImageNodeIndices().size(), 2u);
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
-    // 先読み範囲は可視 ± PREFETCH_BUFFER_SCREENS 画面。2個目は y=3000 にあり範囲外なので、
-    // LoadImages は 1 件のみ適用する。
+    // 先読み範囲は可視 ± PREFETCH_BUFFER_SCREENS 画面。2 個目は y=3000 にあり範囲外。
     rm_.LoadImages();
-    EXPECT_EQ(host_.last_change.begin, image_indices[0]);
-    EXPECT_EQ(host_.last_change.end, image_indices[0] + 1);
+    EXPECT_EQ(Entry("one.png").state, InlineImageState::Ready);
+    EXPECT_EQ(Entry("two.png").state, InlineImageState::Loading);
 
-    // 2個目の高さはまだ SeedLayoutCache の block_height=3000 のまま。
-    EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
-
-    // ApplyImageCacheHeights は可視範囲に縛られないので残りの 1 件も適用する。
-    // 1 個目は LoadImages で diagram.bitmap がセットされていないのでもう一度適用される。
-    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
-    EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
-    EXPECT_FALSE(cache_[image_indices[1]].layout_dirty);
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
+    EXPECT_EQ(Entry("two.png").state, InlineImageState::Ready);
 }
 
-// リロードでは変わった範囲のノードにだけ当てる (引き継いだノードは実測の高さを持っている)。
-TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesOnlyGivenRange)
+// リロードでは変わった範囲のノードにだけ当てる。
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesOnlyGivenRange)
 {
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     const auto& image_indices = doc_.GetImageNodeIndices();
@@ -371,9 +373,25 @@ TEST_F(ResourceManagerTest, ApplyImageCacheHeightsAppliesOnlyGivenRange)
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
-    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ image_indices[1], image_indices[1] + 1 }));
-    EXPECT_FLOAT_EQ(cache_[image_indices[0]].height, 3000.0f);
-    EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ image_indices[1], image_indices[1] + 1 }));
+    EXPECT_EQ(Entry("one.png").state, InlineImageState::Loading);
+    EXPECT_EQ(Entry("two.png").state, InlineImageState::Ready);
+}
+
+// ビットマップは保持範囲の画像の分だけ残す。寸法は残すので、戻ってきても組み直さない。
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
+{
+    auto& bitmap = SharedStubBitmap();
+    LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f, &bitmap);
+    ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
+    ASSERT_NE(inline_drawings_.FindImage(InlineImageKey("two.png")), nullptr);
+
+    rm_.EvictOffscreenBitmaps();
+    EXPECT_NE(inline_drawings_.FindImage(InlineImageKey("one.png")), nullptr);
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("two.png")), nullptr);
+    EXPECT_EQ(Entry("two.png").state, InlineImageState::Ready);
 }
 
 // ---- Mermaid 経路 ----
@@ -434,12 +452,12 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRedrawsSynchronousDiagramError)
     EXPECT_EQ(host_.recompute_layout, 1);
 }
 
-// リロード前の高さの適用は Y を組み直さないので、変えた範囲を後の再レイアウトに持ち越さない。
-TEST_F(ResourceManagerTest, ApplyImageCacheHeightsDoesNotCarryChangeRange)
+// リロード前の寸法の適用は Y を組み直さないので、変えた範囲を後の再レイアウトに持ち越さない。
+TEST_F(ResourceManagerTest, ApplyCachedImageSizesDoesNotCarryChangeRange)
 {
     LoadMarkdown("![one](one.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    ASSERT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
     mock_mermaid_.sync_apply_bitmap = true;
     rm_.RequestMermaidRenders();
@@ -693,9 +711,9 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 
     rm_.OnImagesDecoded();
 
-    EXPECT_EQ(host_.recompute_layout, 0);
+    EXPECT_EQ(host_.inline_updates, 0);
     rm_.LoadImages();
-    EXPECT_EQ(host_.recompute_layout, 1);
+    EXPECT_EQ(host_.inline_updates, 1);
 }
 
 // ---- ファイル切替時クリーンアップ ----
@@ -705,15 +723,15 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 {
     LoadMarkdown("![alt](old.png)\n");
-    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
     LoadMarkdown("![alt](new.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
-    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
     image_loader_.InsertCacheEntryForTest(L"C:\\other\\same.png", 400.0f, 300.0f);
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\dir\\doc.md");
-    EXPECT_FALSE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\other\\doc.md");
-    EXPECT_TRUE(rm_.ApplyImageCacheHeights({ 0, SIZE_MAX }));
+    EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 }

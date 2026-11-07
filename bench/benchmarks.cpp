@@ -1004,17 +1004,17 @@ BENCHMARK_CAPTURE(BM_TocColdFrame, explicit_fonts, true)->Unit(benchmark::kMicro
 // 数式 10000 個の描画命令から、画面の 200 個を引く。描画はインラインオブジェクトごとに 1 回引く。
 void BM_InlineMathDrawingFind(benchmark::State& state)
 {
-    InlineMathDrawings math;
+    InlineDrawings drawings;
     const auto drawing = std::make_shared<const MathDrawing>();
     std::vector<uint64_t> keys;
     for (int i = 0; i < 10000; ++i) {
         keys.push_back(InlineMathKey(std::to_string(i), 16.0f));
-        *math.drawings.TryEmplace(keys.back()).first = drawing;
+        *drawings.math.TryEmplace(keys.back()).first = drawing;
     }
     size_t at = 0;
     for (auto _ : state) {
         for (int k = 0; k < 200; ++k) {
-            benchmark::DoNotOptimize(math.Find(keys[at]));
+            benchmark::DoNotOptimize(drawings.FindMath(keys[at]));
             at = (at + 3779) % keys.size();
         }
     }
@@ -1106,11 +1106,11 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
     auto& [cache, viewport, service, generator, cmds] = frame;
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane }, 1.0f);
-    InlineMathDrawings math;
+    InlineDrawings drawings;
     for (auto _ : state) {
         target.context->BeginDraw();
         target.context->Clear(l.theme.Color(BrushId::Background));
-        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, math);
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, drawings);
         target.context->EndDraw();
     }
     state.counters["cmds"] = static_cast<double>(cmds.size());

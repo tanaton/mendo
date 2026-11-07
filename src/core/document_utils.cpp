@@ -149,8 +149,8 @@ NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
 {
-    // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
-    if (const auto [run, base] = FindRunAt(nodes[node], pos); run && run->math()) {
+    // インライン数式と画像は 1 つの塊として描くので、どこを指しても範囲全体を選ぶ。
+    if (const auto [run, base] = FindRunAt(nodes[node], pos); run && (run->math() || run->image())) {
         const uint32_t start = base + run->start;
         return { node, start, node, start + run->length };
     }
@@ -183,6 +183,12 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
 
 namespace {
 
+// run の並びが同じ 2 つのノードで、画像の src も同じか。src は run の image_slot で引く。
+bool SameImageSrcs(const Node& a, const Node& b, std::span<const TextRun> runs) noexcept
+{
+    return std::ranges::all_of(runs, [&](const TextRun& r) { return !r.image() || a.image_src(r) == b.image_src(r); });
+}
+
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
     // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
@@ -200,7 +206,10 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
         !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
         return false;
     }
-    return a.image_src() == b.image_src() && (!at || *at == *b.table_data());
+    if (!at && !SameImageSrcs(a, b, a.runs())) {
+        return false;
+    }
+    return !at || (*at == *b.table_data() && SameImageSrcs(a, b, at->all_runs));
 }
 
 } // namespace

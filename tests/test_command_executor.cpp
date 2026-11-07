@@ -114,7 +114,7 @@ protected:
         if (via_executor) {
             DrawCommandList cmds;
             cmds.emplace_back(cmd);
-            ExecuteDrawCommands(cmds, rt.Get(), brushes, no_math_);
+            ExecuteDrawCommands(cmds, rt.Get(), brushes, no_drawings_);
         }
         else {
             rt->DrawTextLayout(cmd.origin, cmd.layout, brushes[std::to_underlying(BrushId::Text)].Get());
@@ -155,7 +155,7 @@ protected:
         if (via_executor) {
             DrawCommandList cmds;
             cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .brush_id = BrushId::CodeText, .syntax_tokens = tokens });
-            ExecuteDrawCommands(cmds, rt.Get(), brushes, no_math_);
+            ExecuteDrawCommands(cmds, rt.Get(), brushes, no_drawings_);
         }
         else {
             for (const auto& t : tokens) {
@@ -169,11 +169,11 @@ protected:
     }
 
     // rt を白で塗ってから cmds を描く。EndDraw の結果を返す。
-    static HRESULT DrawOnWhite(ID2D1RenderTarget* rt, const DrawCommandList& cmds, const FixedBrushArray& brushes, const InlineMathDrawings& math)
+    static HRESULT DrawOnWhite(ID2D1RenderTarget* rt, const DrawCommandList& cmds, const FixedBrushArray& brushes, const InlineDrawings& drawings)
     {
         rt->BeginDraw();
         rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
-        ExecuteDrawCommands(cmds, rt, brushes, math);
+        ExecuteDrawCommands(cmds, rt, brushes, drawings);
         return rt->EndDraw();
     }
 
@@ -183,7 +183,7 @@ protected:
     }
 
     UINT size_ = 32;
-    InlineMathDrawings no_math_;
+    InlineDrawings no_drawings_;
     static inline ComPtr<ID2D1Factory> d2d_factory_;
     static inline ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<IWICBitmap> wic_bitmap_;
@@ -194,7 +194,7 @@ TEST_F(CommandExecutorIntegrationTest, ExecuteEmptyListSucceeds)
 {
     DrawCommandList cmds;
     rt_->BeginDraw();
-    ExecuteDrawCommands(cmds, rt_.Get(), FixedBrushArray{}, no_math_);
+    ExecuteDrawCommands(cmds, rt_.Get(), FixedBrushArray{}, no_drawings_);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
@@ -213,7 +213,7 @@ TEST_F(CommandExecutorIntegrationTest, FixedBrushesDrawWithOwnColor)
     // 未作成のブラシは描かない。
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(12, 0, 16, 4), BrushId::Hr });
 
-    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_drawings_));
     EXPECT_EQ(PixelAt(1, 1), 0xFFFF0000u);
     EXPECT_EQ(PixelAt(5, 1), 0xFF00FF00u);
     EXPECT_EQ(PixelAt(9, 1), 0xFF0000FFu);
@@ -243,7 +243,7 @@ TEST_F(CommandExecutorIntegrationTest, DiagramCommandListIsScaledToDest)
     // 幅 20 で記録した図を 10 の枠に描く
     cmds.emplace_back(DrawDiagramCmd{ list.Get(), D2D1::RectF(4, 4, 14, 14), 20.0f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(20, 20, 24, 24), BrushId::Link });
-    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_drawings_));
     EXPECT_EQ(PixelAt(2, 2), 0xFFFFFFFFu);
     EXPECT_EQ(PixelAt(5, 5), 0xFFFF0000u);
     EXPECT_EQ(PixelAt(13, 13), 0xFFFF0000u);
@@ -259,7 +259,7 @@ TEST_F(CommandExecutorIntegrationTest, RoundedRectOpacityIsRestored)
     cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(0, 0, 8, 8), 0.0f, BrushId::Overlay, 0.5f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 16, 8), BrushId::Overlay });
 
-    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_drawings_));
     const uint32_t half = PixelAt(4, 4);
     EXPECT_NE(half, 0xFFFFFFFFu);
     EXPECT_NE(half, 0xFF000000u);
@@ -279,7 +279,7 @@ TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
     cmds.emplace_back(PopClipCmd{});
 
     rt_->BeginDraw();
-    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_math_);
+    ExecuteDrawCommands(cmds, rt_.Get(), brushes, no_drawings_);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
@@ -302,7 +302,7 @@ TEST_F(CommandExecutorIntegrationTest, CircleAndGeometryOpacityIsRestored)
     cmds.emplace_back(DrawGeometryCmd{ .geometry = path.Get(), .stroke_style = nullptr, .stroke_width = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(24, 0, 32, 8), BrushId::Overlay });
 
-    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_math_));
+    ASSERT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, no_drawings_));
     for (const uint32_t half : { PixelAt(4, 4), PixelAt(8, 20) }) {
         EXPECT_NE(half, 0xFFFFFFFFu);
         EXPECT_NE(half, 0xFF000000u);
@@ -350,12 +350,12 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsDrawingInTextColor)
     ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(2, { 10.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ 2, 1 }));
     auto drawing = std::make_shared<MathDrawing>(MathDrawing{ .width = 10.0f, .height = 8.0f, .depth = 2.0f });
     drawing->items.emplace_back(MathDrawing::Rect{ .x = 0.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Top });
-    InlineMathDrawings math;
-    *math.drawings.TryEmplace(1).first = std::move(drawing);
+    InlineDrawings drawings;
+    *drawings.math.TryEmplace(1).first = std::move(drawing);
     DrawCommandList cmds;
     cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
     const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
-    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, math));
+    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, drawings));
     const auto pixels = ReadAllPixels();
     EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100) << "1 つ目の数式の 10x10 だけを文字の色で塗る";
 }
@@ -370,12 +370,12 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsSpecifiedColors)
     drawing->items.emplace_back(MathDrawing::Rect{ .x = 0.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Fill });
     drawing->items.emplace_back(
         MathDrawing::Rect{ .x = 10.0f, .y = -8.0f, .w = 10.0f, .h = 10.0f, .side = MathDrawing::Rect::Side::Fill, .color = 0x0000FFFFu });
-    InlineMathDrawings math;
-    *math.drawings.TryEmplace(1).first = std::move(drawing);
+    InlineDrawings drawings;
+    *drawings.math.TryEmplace(1).first = std::move(drawing);
     DrawCommandList cmds;
     cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
     const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
-    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, math));
+    EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt_.Get(), cmds, brushes, drawings));
     const auto pixels = ReadAllPixels();
     EXPECT_EQ(std::ranges::count(pixels, 0xFFFF0000u), 100);
     EXPECT_EQ(std::ranges::count(pixels, 0xFF0000FFu), 100);
@@ -457,7 +457,7 @@ TEST_F(CommandExecutorIntegrationTest, HorizontalCullKeepsPixelsInsideClip)
             DrawCommandList cmds;
             cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Translation(-kScrollX, 0.0f) });
             cmds.emplace_back(text);
-            EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt.Get(), cmds, brushes, no_math_));
+            EXPECT_HRESULT_SUCCEEDED(DrawOnWhite(rt.Get(), cmds, brushes, no_drawings_));
             return ReadAllPixels();
         };
         const auto expected = render(false);

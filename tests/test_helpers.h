@@ -205,9 +205,9 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
         return table;
     }
     if (bucket < 19) {
-        static constexpr std::string_view kImageSrc = "img.png";
-        n.type = NodeType::Image;
-        n.set_image_src(&kImageSrc);
+        n.type = NodeType::Diagram;
+        n.code_language = SyntaxLanguage::Mermaid;
+        SetTestText(n, "graph TD; A-->B", 0);
         return n;
     }
     n.type = NodeType::Paragraph;
@@ -227,7 +227,7 @@ struct StressFixture {
         }
         cache = MakeUniformCache(static_cast<int>(n), 80.0f);
         for (size_t i = 0; i < n; ++i) {
-            if (nodes[i].type == NodeType::Image) {
+            if (IsBitmapDrawNode(nodes[i])) {
                 auto& d = cache.EnsureDiagram(i);
                 d.width = 100.0f + static_cast<float>(i % 50);
                 d.height = 50.0f + static_cast<float>(i % 30);

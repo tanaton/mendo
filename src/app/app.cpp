@@ -64,6 +64,7 @@ bool App::Init(HWND hwnd)
     }
     measurer_.SetFactory(renderer_.GetDWriteFactory());
     measurer_.SetInlineMath(&inline_math_);
+    measurer_.SetInlineImages(&inline_images_);
     inline_math_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::INLINE_MATH_REQUESTED, 0, 0); });
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
@@ -150,9 +151,10 @@ void App::ShareRenderTarget()
 void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
-    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。ApplyCachedImages は
-    // ビットマップの残るノードを飛ばすため、FlushPendingResources の前に破棄する必要がある。
+    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
+    // 新しい RT で読み直したビットマップに差し替える。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    inline_drawings_.images = {};
     // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
     resource_manager_.FlushPendingResources();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
@@ -289,7 +291,7 @@ void App::OnPaint()
                .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
                .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
                },
-        .inline_math = math_drawings_,
+        .inline_drawings = inline_drawings_,
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
@@ -401,7 +403,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
             continue;
         }
-        *math_drawings_.drawings.TryEmplace(item.key).first = std::move(item.drawing);
+        *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
     auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
@@ -427,7 +429,7 @@ void App::RelayoutPendingInlineMath(bool tables)
         KillTimer(app_timer::Id::INLINE_MATH_TABLES);
         last_math_table_relayout_ = std::chrono::steady_clock::now();
     }
-    if (state_.document.layout_cache.InvalidatePendingMathLayouts(tables)) {
+    if (state_.document.layout_cache.InvalidatePendingInlineLayouts(tables)) {
         RelayoutViewport();
     }
     else {
@@ -435,10 +437,16 @@ void App::RelayoutPendingInlineMath(bool tables)
     }
 }
 
+void App::ForgetInlineImages()
+{
+    inline_images_.Clear();
+    inline_drawings_.images = {};
+}
+
 void App::ForgetInlineMath()
 {
     inline_math_.Clear();
-    math_drawings_ = {};
+    inline_drawings_.math = {};
     mermaid_renderer_.DropQueuedMath();
     // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
     RebuildInlineMathPlan();
@@ -831,6 +839,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
+    ForgetInlineImages();
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
     if (state_.view.HasPendingScroll()) {
@@ -1784,6 +1793,26 @@ void App::OnDeferredLayout()
 void App::EnsureNodeLayout(int node_index)
 {
     layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, ComputePaneLayout(state_).md_rect.width, node_index);
+}
+
+void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
+{
+    auto& cache = state_.document.layout_cache;
+    // 画像の寸法で見ている段落の高さが変わっても、見ている位置を動かさない。
+    state_.view.viewport.EnsureScrollTarget(cache);
+    bool relayout = false;
+    if (sizes_changed) {
+        relayout |= cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
+    }
+    if (pending_resolved) {
+        relayout |= cache.InvalidatePendingInlineLayouts(/*tables=*/true);
+    }
+    if (relayout) {
+        RelayoutViewport();
+    }
+    else {
+        Invalidate();
+    }
 }
 
 void App::RecomputeLayout(IndexRange changed)

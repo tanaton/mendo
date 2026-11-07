@@ -283,13 +283,13 @@ constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
     return (uint64_t{ outer } << 32) | inner;
 }
 
-TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::optional<LinkHit> link)
+// リンクの付いた画像はリンク先を出す。
+TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::optional<LinkHit> link, std::optional<ImageHit> image)
 {
     if (hit_node < 0) {
         return {};
     }
     const auto& current = state.interaction.tooltip;
-    const auto& node = state.document.doc.GetNodes()[hit_node];
     const auto node_index = static_cast<uint32_t>(hit_node);
     if (link) {
         const uint64_t key = PackTooltipKey(node_index, link->index);
@@ -297,17 +297,15 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
             text = string_convert::Utf8ToWide(link->url);
         });
     }
-    const std::string_view src = node.image_src();
-    if (src.empty()) {
+    if (!image) {
         return {};
     }
-    const std::string_view alt = node.GetText();
-    return MakeTooltip(current, TooltipTarget::Zone::MdImage, node_index, [&](std::wstring& text) {
-        if (!alt.empty()) {
-            text = string_convert::Utf8ToWide(alt);
+    return MakeTooltip(current, TooltipTarget::Zone::MdImage, PackTooltipKey(node_index, image->start), [&](std::wstring& text) {
+        if (!image->alt.empty()) {
+            text = string_convert::Utf8ToWide(image->alt);
             text += L"\n";
         }
-        text += string_convert::Utf8ToWide(src);
+        text += string_convert::Utf8ToWide(image->src);
     });
 }
 
@@ -334,6 +332,7 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
     const auto& toc_entries = state.document.doc.GetToc();
     return MakeTooltip(current, TooltipTarget::Zone::TocPaneItem, item, [&](std::wstring& text) {
         text = string_convert::Utf8ToWide(state.document.doc.GetNodes()[toc_entries[item].node_index].GetText());
+        std::erase(text, kImagePlaceholderW);
     });
 }
 
@@ -394,12 +393,22 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
         return;
     }
 
-    // 文字位置はリンク判定にしか使わないので、リンクを含むノードの上でだけ求める。
+    // 文字位置はリンクと画像の判定にしか使わないので、それらを含むノードの上でだけ求める。
     std::optional<LinkHit> link;
-    if (node_index >= 0 && !state.document.doc.GetNodes()[node_index].view_link_urls().empty()) {
-        link = LinkAtHit(state, hit_test::HitTest(hit_ctx));
+    std::optional<ImageHit> image;
+    if (node_index >= 0) {
+        const auto& doc = state.document.doc;
+        const Node& node = doc.GetNodes()[node_index];
+        const bool has_images = std::ranges::binary_search(doc.GetImageNodeIndices(), static_cast<size_t>(node_index));
+        if (!node.view_link_urls().empty() || has_images) {
+            const auto hit = hit_test::HitTest(hit_ctx);
+            link = LinkAtHit(state, hit);
+            if (has_images && hit.node_index == node_index && hit.char_pos != hit_test::HitResult::kNoChar) {
+                image = FindImageHitAtPosition(node, hit.char_pos);
+            }
+        }
     }
-    hover.tooltip = BuildMdContentTooltip(state, node_index, link);
+    hover.tooltip = BuildMdContentTooltip(state, node_index, link, image);
     result.cursor = link ? PointerCursor::Hand : PointerCursor::IBeam;
 }
 

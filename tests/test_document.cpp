@@ -152,7 +152,8 @@ TEST(DocumentTest, NodesSurviveMove)
         EXPECT_TRUE(runs[0].bold());
         ASSERT_TRUE(runs[1].has_link());
         EXPECT_EQ(nodes[3].view_link_urls()[runs[1].link_url_index], "u_x");
-        EXPECT_EQ(nodes[4].image_src(), "i_x.png");
+        ASSERT_EQ(nodes[4].runs().size(), 1u);
+        EXPECT_EQ(nodes[4].image_src(nodes[4].runs()[0]), "i_x.png");
     };
     auto src = Document::FromMarkdown("# Alpha\n\nHello world\n\nHello &amp; world\n\n**b** [l](u\\_x)\nm\n\n![a](i\\_x.png)", L"t.md");
     check(src);
@@ -184,13 +185,13 @@ TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
     EXPECT_EQ(doc.FindAnchorIndex("head"), 0);
 }
 
-// 画像と図 (Mermaid) のノードの索引。ほかのコードブロックは図に数えない。
+// 画像を持つノードと図 (Mermaid) のノードの索引。ほかのコードブロックは図に数えない。
 TEST(DocumentTest, ImageAndDiagramNodeIndices)
 {
     auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\n```mermaid\ngraph TD\n```\n\n```cpp\nint x;\n```", L"test.md");
     const auto& nodes = doc.GetNodes();
     ASSERT_EQ(doc.GetImageNodeIndices().size(), 1u);
-    EXPECT_EQ(nodes[doc.GetImageNodeIndices()[0]].type, NodeType::Image);
+    EXPECT_EQ(nodes[doc.GetImageNodeIndices()[0]].GetText(), "alt");
     ASSERT_EQ(doc.GetDiagramNodeIndices().size(), 1u);
     EXPECT_EQ(nodes[doc.GetDiagramNodeIndices()[0]].code_language, SyntaxLanguage::Mermaid);
 

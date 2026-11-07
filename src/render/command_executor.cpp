@@ -60,8 +60,8 @@ private:
 // スタック上でのみ使うので参照カウントは持たない。
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineMathDrawings& math) noexcept
-        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), math_(math)
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings) noexcept
+        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -122,7 +122,8 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インライン数式は描画命令を周りの文字の色で描く。ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
+    // インライン数式は描画命令を周りの文字の色で描き、画像はビットマップを箱いっぱいに描く。
+    // ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void* context, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL sideways, BOOL rtl, IUnknown* effect) noexcept override
     {
         // 見えない行のものは数式か見分ける (QueryInterface の参照カウントの往復) 前に飛ばす。積分記号の端などのインクは
@@ -132,11 +133,15 @@ public:
         if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cmd_.cull_top || y - kInkPad > cmd_.cull_bottom) {
             return S_OK;
         }
+        if (const auto image = InlineImageObjectOf(object)) {
+            DrawImage(*image, x, y);
+            return S_OK;
+        }
         const auto math = InlineMathObjectOf(object);
         if (!math) {
             return object->Draw(context, this, x, y, sideways, rtl, effect);
         }
-        const MathDrawing* drawing = math_.Find(math->key);
+        const MathDrawing* drawing = inline_.FindMath(math->key);
         if (!drawing) {
             return S_OK;
         }
@@ -152,6 +157,22 @@ private:
     {
         auto* brush = FixedBrush(brushes_, id);
         return brush ? brush : default_brush_;
+    }
+
+    // 読み込み中 (ビットマップがまだ無い) は何も描かない。読めない画像は枠だけ描く (ブラウザの壊れた画像の代わり)。
+    void DrawImage(const InlineImageObjectRef& image, float x, float y) const noexcept
+    {
+        const auto rect = D2D1::RectF(x, y, x + image.size.width, y + image.size.height);
+        if (image.broken) {
+            if (auto* b = FixedBrush(brushes_, BrushId::Hr)) {
+                constexpr float kHalf = 0.5f;
+                rt_->DrawRectangle(D2D1::RectF(rect.left + kHalf, rect.top + kHalf, rect.right - kHalf, rect.bottom - kHalf), b);
+            }
+            return;
+        }
+        if (auto* bitmap = inline_.FindImage(image.key)) {
+            rt_->DrawBitmap(bitmap, rect);
+        }
     }
 
     // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばして描く。
@@ -225,12 +246,12 @@ private:
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
     const FixedBrushArray& brushes_;
-    const InlineMathDrawings& math_;
+    const InlineDrawings& inline_;
 };
 
 } // namespace
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathDrawings& math)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
     // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。
@@ -263,7 +284,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c, brushes, math };
+                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },

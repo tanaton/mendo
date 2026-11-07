@@ -151,7 +151,7 @@ void ReleaseEntryLayouts(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
     Bury(released, e.take_text_layout());
     e.release_layout_state();
     // 原文のまま組んだのは捨てた layout なので、組み直しを待つ印も下ろす (残すと数式が届くたびに再レイアウトが空振りする)。
-    e.pending_math = false;
+    e.pending_inline = false;
 }
 
 void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
@@ -197,20 +197,31 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingMathLayouts(bool tables) noexcept
+bool LayoutCache::InvalidatePendingInlineLayouts(bool tables) noexcept
 {
     bool any = false;
     for (auto& e : entries_) {
-        if (!e.pending_math || (!tables && e.table_layout())) {
+        if (!e.pending_inline || (!tables && e.table_layout())) {
             continue;
         }
-        // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
+        // 数式や画像の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
         ReleaseEntryLayouts(e, released_layouts_);
         e.layout_dirty = true;
         any = true;
     }
     has_dirty_nodes_ |= any;
     return any;
+}
+
+bool LayoutCache::InvalidateLayoutsOf(std::span<const size_t> indices) noexcept
+{
+    for (const size_t i : indices) {
+        auto& e = entries_[i];
+        ReleaseEntryLayouts(e, released_layouts_);
+        e.layout_dirty = true;
+    }
+    has_dirty_nodes_ |= !indices.empty();
+    return !indices.empty();
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept

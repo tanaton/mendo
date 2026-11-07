@@ -7,6 +7,7 @@
 #include "file_io.h"
 #include "image_loader.h"
 #include "layout_invariants.h"
+#include "parse_invariants.h"
 #include "wic_util.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
@@ -16,7 +17,13 @@
 #include <wrl/client.h>
 #include <shlwapi.h>
 #include <deque>
+#include <format>
 #include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include "document_test_helpers.h"
 #include <algorithm>
 #include <ranges>
@@ -50,67 +57,196 @@ bool CanOpenExclusively(const std::wstring& path)
 using Microsoft::WRL::ComPtr;
 
 // ============================================================
-// パーサーテスト: 画像ノードの生成
+// パーサーテスト: 本文中の画像 (TextRun::kImage)
 // ============================================================
 
-TEST(ParserImage, SingleImageBecomesImageNode)
+namespace {
+
+// 画像の run を、alt の装飾で分かれた run をまとめて 1 つずつ (alt, src) にする。
+std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node, std::string_view text, std::span<const TextRun> runs)
+{
+    std::vector<std::pair<std::string, std::string_view>> images;
+    for (const auto& r : runs) {
+        if (!r.image()) {
+            continue;
+        }
+        if (r.image_start() || images.empty()) {
+            images.emplace_back(std::string{}, node.image_src(r));
+        }
+        images.back().first += text.substr(r.start, r.length);
+    }
+    return images;
+}
+
+std::vector<std::pair<std::string, std::string_view>> ImagesOf(const Node& node)
+{
+    return ImagesOf(node, node.GetText(), node.runs());
+}
+
+} // namespace
+
+// 画像は段落を画像のノードに変えず、alt の範囲の run にする (GitHub と同じく文と並べて描く)。
+TEST(ParserImage, ImageBecomesRunInParagraph)
 {
     struct Case {
         const char* md;
         const char* src;
-        const char* alt;  // nullptr なら alt は確かめない
+        const char* alt;
     };
     const Case cases[] = {
         {"![alt text](image.png)", "image.png", "alt text"},
-        {"![photo](./images/photo.jpg)", "./images/photo.jpg", nullptr},
-        {"![img](C:/Users/test/pic.png)", "C:/Users/test/pic.png", nullptr},
-        {"![logo](https://example.com/logo.png)", "https://example.com/logo.png", nullptr},
-        {"![](image.png)", "image.png", ""},
-        {"![alt](image.png \"My Title\")", "image.png", nullptr},
-        // 現在の実装では、画像を含む段落は全体が Image ノードに変換される
-        {"before ![alt](img.png) after", "img.png", nullptr},
-        // OnLeaveSpan で最後の image_src がノードに設定される
-        {"![a](first.png) ![b](second.png)", "second.png", nullptr},
-        {"> ![alt](img.png)", "img.png", nullptr},
-        // CommonMark では画像説明内に画像記法を書ける。ノードの src は最外側を採用する
-        {"![outer ![inner](inner.png)](outer.png)", "outer.png", nullptr},
-        {"![alt](path%20with%20spaces/img.png)", "path%20with%20spaces/img.png", nullptr},
+        {"![photo](./images/photo.jpg)", "./images/photo.jpg", "photo"},
+        {"![img](C:/Users/test/pic.png)", "C:/Users/test/pic.png", "img"},
+        {"![logo](https://example.com/logo.png)", "https://example.com/logo.png", "logo"},
+        {"![alt](image.png \"My Title\")", "image.png", "alt"},
+        {"> ![alt](img.png)", "img.png", "alt"},
+        // CommonMark では画像説明内に画像記法を書ける。src は最外側を採用し、内側は alt の文字になる。
+        {"![outer ![inner](inner.png)](outer.png)", "outer.png", "outer inner"},
+        {"![alt](path%20with%20spaces/img.png)", "path%20with%20spaces/img.png", "alt"},
         // エスケープを含む src は md4c が一時バッファで組み立てて渡すので、原文ではなく arena へ写す。
-        {"![alt](img\\_x.png)", "img_x.png", nullptr},
+        {"![alt](img\\_x.png)", "img_x.png", "alt"},
         // 参照形式の画像の src は原文の参照定義から取る。
-        {"![alt][logo]\n\n[logo]: ref.png", "ref.png", nullptr},
+        {"![alt][logo]\n\n[logo]: ref.png", "ref.png", "alt"},
         {"![日本語のaltテキスト](img.png)", "img.png", "日本語のaltテキスト"},
-        {"![alt](画像/テスト.png)", "画像/テスト.png", nullptr},
+        {"![alt](画像/テスト.png)", "画像/テスト.png", "alt"},
+        // alt が空なら置き換える文字を置き、画像を置く範囲を空にしない。
+        {"![](image.png)", "image.png", "\xEF\xBF\xBC"},
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.md);
-        auto nodes = ParseNodes(c.md);
+        const auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_EQ(nodes[0].type, NodeType::Image);
-        EXPECT_EQ(nodes[0].image_src(), c.src);
-        if (c.alt) {
-            EXPECT_EQ(nodes[0].GetText(), c.alt);
+        EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+        EXPECT_EQ(nodes[0].GetText(), c.alt);
+        const auto images = ImagesOf(nodes[0]);
+        ASSERT_EQ(images.size(), 1u);
+        EXPECT_EQ(images[0].first, c.alt);
+        EXPECT_EQ(images[0].second, c.src);
+        EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
+    }
+}
+
+// 文と画像の並ぶ段落は、文も全部の画像も残す。同じ src は 1 つの slot にまとめ、隣り合っても別の画像にする。
+TEST(ParserImage, ParagraphKeepsTextAndEveryImage)
+{
+    const char* md = "before ![a](first.png) ![b](second.png)![c](first.png) after";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[0].GetText(), "before a bc after");
+    const auto images = ImagesOf(nodes[0]);
+    ASSERT_EQ(images.size(), 3u);
+    EXPECT_EQ(images[0], (std::pair<std::string, std::string_view>{ "a", "first.png" }));
+    EXPECT_EQ(images[1], (std::pair<std::string, std::string_view>{ "b", "second.png" }));
+    EXPECT_EQ(images[2], (std::pair<std::string, std::string_view>{ "c", "first.png" }));
+    const auto runs = nodes[0].runs();
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_EQ(runs[0].image_slot, runs[2].image_slot);
+    EXPECT_NE(runs[0].image_slot, runs[1].image_slot);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+// alt の装飾で 1 つの画像が複数の run に分かれても、最初の run だけが画像の始まりで、どれも同じ src を指す。
+TEST(ParserImage, AltWithEmphasisIsOneImage)
+{
+    const char* md = "![a *b* c](x.png)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto runs = nodes[0].runs();
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_TRUE(runs[0].image_start());
+    for (const auto& r : runs) {
+        EXPECT_TRUE(r.image());
+        EXPECT_EQ(nodes[0].image_src(r), "x.png");
+    }
+    EXPECT_FALSE(runs[1].image_start());
+    EXPECT_TRUE(runs[1].italic());
+    EXPECT_FALSE(runs[2].image_start());
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+// リンクの付いた画像 (バッジ) は、画像の run がリンクも持つ。
+TEST(ParserImage, LinkedImageKeepsLink)
+{
+    const char* md = "[![build](b1.svg)](https://x.example/build) [![license](b2.svg)](https://x.example/license)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto runs = nodes[0].runs();
+    const auto urls = nodes[0].view_link_urls();
+    std::vector<std::pair<std::string_view, std::string_view>> found;
+    for (const auto& r : runs) {
+        if (r.image()) {
+            ASSERT_TRUE(r.has_link());
+            found.emplace_back(nodes[0].image_src(r), urls[static_cast<size_t>(r.link_url_index)]);
         }
     }
+    ASSERT_EQ(found.size(), 2u);
+    EXPECT_EQ(found[0], (std::pair<std::string_view, std::string_view>{ "b1.svg", "https://x.example/build" }));
+    EXPECT_EQ(found[1], (std::pair<std::string_view, std::string_view>{ "b2.svg", "https://x.example/license" }));
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+// src の無い画像は描けないので alt を文字のまま残す。
+TEST(ParserImage, ImageWithoutSrcStaysText)
+{
+    const auto nodes = ParseNodes("![alt]()");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].GetText(), "alt");
+    EXPECT_TRUE(nodes[0].runs().empty());
+}
+
+// 1 ノードの src は kMaxImageSlots 個まで。超えた画像は alt を文字のまま出す。
+TEST(ParserImage, ImagesBeyondSlotLimitStayText)
+{
+    std::string md;
+    for (size_t i = 0; i < kMaxImageSlots + 2; ++i) {
+        md += std::format("![{}](i{}.png) ", i, i);
+    }
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto images = ImagesOf(nodes[0]);
+    ASSERT_EQ(images.size(), kMaxImageSlots);
+    EXPECT_EQ(images.back().second, std::format("i{}.png", kMaxImageSlots - 1));
+    EXPECT_TRUE(nodes[0].GetText().ends_with(std::format("{} {}", kMaxImageSlots, kMaxImageSlots + 1)));
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+// 長い段落は区切るが、画像の途中では区切らない (1 つの画像が前後のノードに 1 つずつ出る)。
+TEST(ParserImage, LongAltIsNotSplit)
+{
+    const std::string alt(kTextChunkTarget + kTextChunkWindow * 2, 'a');
+    const std::string md = "![" + alt + "](x.png)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto images = ImagesOf(nodes[0]);
+    ASSERT_EQ(images.size(), 1u);
+    EXPECT_EQ(images[0].first, alt);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
 // ---- ブロック要素内の画像 ----
 
-TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
+// テーブルセル内の画像はセルの run になり、src は表のノードで引く。NodeTableData を壊さない。
+TEST(ParserImage, ImageInTableCell)
 {
-    // テーブルセル内の画像が variant の NodeTableData を破壊しないこと。
-    // 破壊されると active_text_buffer がダングリングになり UAF / クラッシュする。
-    auto nodes = ParseNodes("| ![badge](a.png) text | b |\n|---|---|\n| c | d |");
+    const char* md = "| ![badge](a.png) text | b |\n|---|---|\n| c | ![](d.png) |";
+    const auto result = ParseMarkdown(md);
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_NE(nodes[0].table_data(), nullptr);
-    EXPECT_EQ(nodes[0].table_data()->row_count, 2u);
-    EXPECT_TRUE(nodes[0].image_src().empty());
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(tbl->row_count, 2u);
+    EXPECT_EQ(ImagesOf(nodes[0], tbl->GetCellText(0, 0), tbl->GetCellRuns(0, 0)),
+              (std::vector<std::pair<std::string, std::string_view>>{ { "badge", "a.png" } }));
+    EXPECT_EQ(ImagesOf(nodes[0], tbl->GetCellText(1, 1), tbl->GetCellRuns(1, 1)),
+              (std::vector<std::pair<std::string, std::string_view>>{ { "\xEF\xBF\xBC", "d.png" } }));
+    EXPECT_EQ(result.indices.image_indices, std::vector<size_t>{ 0 });
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
-// 段落以外のブロックの画像や、画像の無い段落は Image ノードにならず、ブロックの種類と番号を保つ。
-// タイトリストの項目は段落を作らないので ListItem のまま。番号が画像の src で上書きされない (#298)。
-TEST(ParserImage, NonImageBlockKeepsItsKind)
+// 段落以外のブロックの画像も run になり、ブロックの種類と番号を保つ (#298)。
+TEST(ParserImage, ImageInOtherBlocksKeepsItsKind)
 {
     struct Case {
         std::string_view md;
@@ -124,15 +260,13 @@ TEST(ParserImage, NonImageBlockKeepsItsKind)
         { "- ![alt](img.png)", NodeType::ListItem },
         { "3. ![alt](img.png)", NodeType::ListItem, 0, 3 },
         { "- [x] ![alt](img.png)", NodeType::TaskListItem, 0, 0, true },
-        { "Just text", NodeType::Paragraph },
-        { "[link text](https://example.com)", NodeType::Paragraph },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
         const auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].type, c.type);
-        EXPECT_TRUE(nodes[0].image_src().empty());
+        EXPECT_EQ(ImagesOf(nodes[0]).size(), 1u);
         EXPECT_EQ(nodes[0].heading_level, c.heading_level);
         if (c.type == NodeType::ListItem) {
             EXPECT_EQ(nodes[0].list_ordered(), c.list_number > 0);
@@ -144,148 +278,44 @@ TEST(ParserImage, NonImageBlockKeepsItsKind)
     }
 }
 
-TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
+// 脚注の定義は戻りのリンク "↩" をパースの後で足す。リンク URL を足しても画像の src を引ける。
+TEST(ParserImage, ImageInFootnoteDefKeepsNumberAndSrc)
 {
-    const auto result = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)");
+    const char* md = "text[^1] and[^1]\n\n[^1]: ![alt](img.png) [l](u.md)";
+    const auto result = ParseMarkdown(md);
     ASSERT_EQ(result.indices.footnote_def_indices.size(), 1u);
     const auto& def = result.nodes[result.indices.footnote_def_indices[0]];
     EXPECT_EQ(def.type, NodeType::ListItem);
     EXPECT_TRUE(def.list_ordered());
     EXPECT_EQ(def.list_number(), 1);
+    EXPECT_EQ(ImagesOf(def), (std::vector<std::pair<std::string, std::string_view>>{ { "alt", "img.png" } }));
+    EXPECT_EQ(def.view_link_urls().size(), 3u) << "本文のリンクと戻りのリンク 2 つ";
+    EXPECT_TRUE(ParseInvariantsHold(md, result.nodes));
 }
 
+// 画像を含むリスト項目の後の段落に画像が漏れない。
 TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 {
-    // 画像を含むリスト項目の後の段落が Image に変換されないこと
-    auto nodes = ParseNodes("- ![alt](img.png)\n\nNormal paragraph");
-    bool found_para = false;
-    for (const auto& node : nodes) {
-        if (node.type == NodeType::Paragraph) {
-            found_para = true;
-            EXPECT_TRUE(node.image_src().empty())
-                << "後続の段落にimage_srcがリークしていないこと";
-        }
-    }
-    EXPECT_TRUE(found_para) << "後続の段落ノードが存在すること";
+    const auto result = ParseMarkdown("- ![alt](img.png)\n\nNormal paragraph");
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(ImagesOf(nodes[0]).size(), 1u);
+    EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
+    EXPECT_TRUE(nodes[1].runs().empty());
+    EXPECT_EQ(result.indices.image_indices, std::vector<size_t>{ 0 });
 }
 
-// ---- 複数ノード内の画像 ----
-
-TEST(ParserImage, ImageBetweenParagraphs)
+TEST(ParserImage, ImageParagraphsAreIndexed)
 {
-    auto nodes = ParseNodes("Before\n\n![alt](img.png)\n\nAfter");
-    ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[1].type, NodeType::Image);
-    EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
-}
-
-TEST(ParserImage, MultipleImageParagraphs)
-{
-    auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
-    ASSERT_EQ(nodes.size(), 3u);
-    for (size_t i = 0; i < 3; i++) {
-        EXPECT_EQ(nodes[i].type, NodeType::Image) << "ノード " << i;
-    }
-    EXPECT_EQ(nodes[0].image_src(), "a.png");
-    EXPECT_EQ(nodes[1].image_src(), "b.png");
-    EXPECT_EQ(nodes[2].image_src(), "c.png");
-}
-
-// ============================================================
-// レイアウトテスト: 画像ノードの高さ計算
-// ============================================================
-
-// 画像の読み込み (DiagramEntry への寸法設定) を模してからレイアウトするため、ParseAndLayout ではなく Layout を使う。
-class ImageLayoutTest : public MockLayoutTestBase {
-protected:
-    static void SetImageSize(LayoutCache& cache, size_t i, float width, float height)
-    {
-        auto& d = cache.EnsureDiagram(i);
-        d.width = width;
-        d.height = height;
-    }
-    LayoutCache Layout(std::vector<Node>& nodes, float viewport_w = 800.0f)
-    {
-        LayoutCache cache(nodes.size());
-        ComputeLayout(engine_, nodes, cache, viewport_w);
-        return cache;
-    }
-    void Layout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_w = 800.0f)
-    {
-        ComputeLayout(engine_, nodes, cache, viewport_w);
-    }
-};
-
-// 本文の幅に収まる画像は原寸の高さ、はみ出す画像は縦横比を保って本文の幅まで縮める (拡大はしない)。
-TEST_F(ImageLayoutTest, ImageHeightFitsContentWidth)
-{
-    struct Case {
-        float width;
-        float height;
-        float viewport_width;
-        bool scaled;
-    };
-    constexpr Case kCases[] = {
-        { 400.0f, 300.0f, 800.0f, false },
-        { 100.0f, 80.0f, 800.0f, false },
-        { 1600.0f, 900.0f, 800.0f, true },
-        { 1000.0f, 500.0f, 600.0f, true },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::Message() << c.width << "x" << c.height << " @" << c.viewport_width);
-        auto nodes = ParseNodes("![alt](img.png)");
-        ASSERT_EQ(nodes.size(), 1u);
-        LayoutCache cache(nodes.size());
-        SetImageSize(cache, 0, c.width, c.height);
-        Layout(nodes, cache, c.viewport_width);
-
-        const float content_width = theme_.ContentWidth(c.viewport_width);
-        ASSERT_EQ(c.width > content_width, c.scaled);
-        EXPECT_NEAR(cache[0].height, c.scaled ? content_width * c.height / c.width : c.height, 0.1f);
-    }
-}
-
-TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    LayoutCache cache(nodes.size());
-    SetImageSize(cache, 0, 1600.0f, 900.0f);
-
-    ComputeLayout(engine_, nodes, cache, 1800.0f);
-    float h_wide = cache[0].height;
-
-    ComputeLayout(engine_, nodes, cache, 400.0f);
-    float h_narrow = cache[0].height;
-
-    EXPECT_LT(h_narrow, h_wide);
-}
-
-// 画像どうし・文章との並びでも Y の連鎖が崩れない (重ならない)。
-TEST_F(ImageLayoutTest, ImageNodesKeepYChain)
-{
-    auto nodes = ParseNodes("Text before\n\n![a](a.png)\n\n![b](b.png)\n\nText after");
+    const auto result = ParseMarkdown("Before\n\n![a](a.png)\n\n![b](b.png)\n\nAfter");
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 4u);
-    LayoutCache cache(nodes.size());
-    for (const size_t i : { 1u, 2u }) {
-        ASSERT_EQ(nodes[i].type, NodeType::Image);
-        SetImageSize(cache, i, 400.0f, 300.0f);
+    for (const auto& node : nodes) {
+        EXPECT_EQ(node.type, NodeType::Paragraph);
     }
-    Layout(nodes, cache);
-    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
-}
-
-TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].type, NodeType::Image);
-    auto cache = Layout(nodes);
-    ASSERT_EQ(cache.FindDiagram(0), nullptr);
-
-    EXPECT_GT(cache[0].height, 0.0f) << "プレースホルダー高さが設定されるべき";
-    EXPECT_FALSE(cache[0].layout_dirty);
+    EXPECT_EQ(result.indices.image_indices, (std::vector<size_t>{ 1, 2 }));
+    EXPECT_EQ(ImagesOf(nodes[1])[0].second, "a.png");
+    EXPECT_EQ(ImagesOf(nodes[2])[0].second, "b.png");
 }
 
 // ============================================================

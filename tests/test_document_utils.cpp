@@ -377,11 +377,26 @@ TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
     EXPECT_FALSE(html.contains("<pre>"));
 }
 
+// 文と画像の並ぶ段落は、文を残して画像を <img> にする。リンクの付いた画像はリンクの中に置き、alt の空な画像は alt を空にする。
+TEST(ExtractSelectedTextAsHtml, InlineImagesKeepSurroundingText)
+{
+    EXPECT_EQ(CopyAllAsHtml("a ![x](p.png) b [![](q.png)](https://e.example) ![y](p.png)"),
+              "<p>a <img src=\"p.png\" alt=\"x\"> b <a href=\"https://e.example\"><img src=\"q.png\" alt=\"\"></a> <img src=\"p.png\" alt=\"y\"></p>");
+}
+
+// プレーンテキストは alt を写し、alt の無い画像の置き換え文字は写さない。
+TEST(ExtractSelectedText, InlineImagesCopyAlt)
+{
+    auto nodes = ParseNodes("a ![x](p.png) b ![](q.png) c");
+    const auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    EXPECT_EQ(ExtractSelectedText(nodes, sel), "a x b  c");
+}
+
 TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
 {
     // alt と src の両方で & " がエスケープされること。
     const auto html = CopyAllAsHtml("![Q&A \"x\"](path?a=1&b=2)");
-    EXPECT_TRUE(html.starts_with("<img ")) << html;
+    EXPECT_TRUE(html.starts_with("<p><img ")) << html;
     EXPECT_TRUE(html.contains("src=\"path?a=1&amp;b=2\""));
     EXPECT_TRUE(html.contains("Q&amp;A"));
     EXPECT_TRUE(html.contains("&quot;x&quot;"));
@@ -415,7 +430,7 @@ TEST(ExtractSelectedTextAsHtml, ImageSrcDropsUnsafeSchemes)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
         const auto html = CopyAllAsHtml(c.md);
-        EXPECT_TRUE(html.starts_with("<img ")) << html;
+        EXPECT_TRUE(html.starts_with("<p><img ")) << html;
         EXPECT_EQ(html.contains(" src=\""), c.keeps_src) << html;
         EXPECT_TRUE(html.contains("alt=\"x\"")) << html;
     }
@@ -485,7 +500,7 @@ TEST(ExtractSelectedTextAsHtml, MathCopiesTexOnly)
     const auto table = CopyAllAsHtml("| $x$ |\n|---|\n| $$y$$ |");
     EXPECT_TRUE(table.contains(">x</th>")) << table;
     EXPECT_TRUE(table.contains(">y</td>")) << table;
-    EXPECT_EQ(CopyAllAsHtml("![a $x$ b](p.png)"), "<img src=\"p.png\" alt=\"a x b\">");
+    EXPECT_EQ(CopyAllAsHtml("![a $x$ b](p.png)"), "<p><img src=\"p.png\" alt=\"a x b\"></p>");
 }
 
 // Mermaid の図は書式付きコピーでは元のコードを <pre> で出す。項目内の図はその <li> に入る。

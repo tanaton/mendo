@@ -71,7 +71,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     // ホバーが切れないようにする。
     const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
     const NodeType type = ctx.nodes[c].type;
-    if (inside && (type == NodeType::Table || type == NodeType::Image || ctx.cache[c].text_layout())) {
+    if (inside && (type == NodeType::Table || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
     }
     return hit;

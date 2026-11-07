@@ -110,17 +110,25 @@ using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>,
 
 struct MathDrawing;
 
-// インライン数式の描画命令。キーは InlineMathKey。\color などで色を指定した部分のほかは、描くときに周りの文字の色で塗る
-// (ダークモードやリンクの色で描き直さずに済む)。
-struct InlineMathDrawings {
-    FlatHashMap<std::shared_ptr<const MathDrawing>> drawings;
+// 本文中のインラインオブジェクトの描画に使うもの。
+struct InlineDrawings {
+    // インライン数式の描画命令。キーは InlineMathKey。\color などで色を指定した部分のほかは、描くときに周りの文字の色で塗る
+    // (ダークモードやリンクの色で描き直さずに済む)。
+    FlatHashMap<std::shared_ptr<const MathDrawing>> math;
+    // 画像のビットマップ。キーは InlineImageKey。見えている範囲の画像だけ持つ (ResourceManager が入れ替える)。
+    FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> images;
 
-    const MathDrawing* Find(uint64_t key) const noexcept
+    const MathDrawing* FindMath(uint64_t key) const noexcept
     {
-        const auto* found = drawings.Find(key);
+        const auto* found = math.Find(key);
         return found ? found->get() : nullptr;
+    }
+    ID2D1Bitmap* FindImage(uint64_t key) const noexcept
+    {
+        const auto* found = images.Find(key);
+        return found ? found->Get() : nullptr;
     }
 };
 
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathDrawings& math);
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings);

@@ -245,3 +245,110 @@ std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* objec
     }
     return math->Ref();
 }
+
+// ---- 画像 ----
+
+uint64_t InlineImageKey(std::string_view src) noexcept
+{
+    return Fnv1a64(src);
+}
+
+InlineImageEntry InlineImageTable::Find(uint64_t key)
+{
+    const std::lock_guard lock(mutex_);
+    const auto it = entries_.find(key);
+    return it != entries_.end() ? it->second : InlineImageEntry{};
+}
+
+bool InlineImageTable::Set(uint64_t key, const InlineImageEntry& entry)
+{
+    const std::lock_guard lock(mutex_);
+    const auto [it, inserted] = entries_.try_emplace(key, entry);
+    if (inserted) {
+        return entry != InlineImageEntry{};
+    }
+    if (it->second == entry) {
+        return false;
+    }
+    it->second = entry;
+    return true;
+}
+
+void InlineImageTable::Clear()
+{
+    const std::lock_guard lock(mutex_);
+    entries_.clear();
+}
+
+InlineImageSize FitInlineImage(InlineImageSize size, float max_width) noexcept
+{
+    if (max_width <= 0.0f || size.width <= max_width) {
+        return size;
+    }
+    return { max_width, size.height * (max_width / size.width) };
+}
+
+namespace {
+
+// 描画に届いたインラインオブジェクトが画像かを QueryInterface で見分ける。
+MIDL_INTERFACE("0f8d2a64-37c1-4b9e-a5d3-6e21c9b47f08")
+IInlineImageRef : public IUnknown
+{
+    virtual InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept = 0;
+};
+
+// 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
+class InlineImageObject final
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineImageRef> {
+public:
+    explicit InlineImageObject(const InlineImageObjectRef& ref) noexcept : ref_(ref)
+    {
+    }
+
+    InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept override
+    {
+        return ref_;
+    }
+
+    HRESULT STDMETHODCALLTYPE Draw(void*, IDWriteTextRenderer*, FLOAT, FLOAT, BOOL, BOOL, IUnknown*) noexcept override
+    {
+        return S_OK;
+    }
+    // 下端をベースラインに置く。
+    HRESULT STDMETHODCALLTYPE GetMetrics(DWRITE_INLINE_OBJECT_METRICS* metrics) noexcept override
+    {
+        *metrics = { ref_.size.width, ref_.size.height, ref_.size.height, FALSE };
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetOverhangMetrics(DWRITE_OVERHANG_METRICS* overhangs) noexcept override
+    {
+        *overhangs = {};
+        return S_OK;
+    }
+    // 前後で折り返せるかは隣の文字に任せる (ブラウザの img と同じく、隣が空白なら折り返せる)。
+    HRESULT STDMETHODCALLTYPE GetBreakConditions(DWRITE_BREAK_CONDITION* before, DWRITE_BREAK_CONDITION* after) noexcept override
+    {
+        *before = DWRITE_BREAK_CONDITION_NEUTRAL;
+        *after = DWRITE_BREAK_CONDITION_NEUTRAL;
+        return S_OK;
+    }
+
+private:
+    InlineImageObjectRef ref_;
+};
+
+} // namespace
+
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size, bool broken)
+{
+    return Microsoft::WRL::Make<InlineImageObject>(InlineImageObjectRef{ key, size, broken });
+}
+
+std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept
+{
+    Microsoft::WRL::ComPtr<IInlineImageRef> image;
+    if (FAILED(object->QueryInterface(IID_PPV_ARGS(&image)))) {
+        return std::nullopt;
+    }
+    return image->Ref();
+}

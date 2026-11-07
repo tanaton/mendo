@@ -2,15 +2,17 @@
 #include "app_state.h"
 #include "document.h"
 #include "document_utils.h"
+#include "draw_command.h"
 #include "image_loader.h"
+#include "inline_math.h"
 #include "layout_cache.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
-#include "string_convert.h"
 #include "theme.h"
 #include "viewport_manager.h"
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <ranges>
 #include <utility>
@@ -24,31 +26,44 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     return { b, e };
 }
 
-} // namespace
-
-void ResourceManager::ApplyCachedImages(IndexRange& changed)
+// node の画像の src を、同じ src (image_slot) ごとに 1 回ずつ fn へ渡す。
+template <class Fn>
+void ForEachImageSrc(const Node& node, Fn&& fn)
 {
-    DropQueuesIfJumped();
-    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, changed);
+    const auto* tbl = node.table_data();
+    const std::span<const TextRun> runs = tbl ? std::span<const TextRun>{ tbl->all_runs } : node.runs();
+    std::bitset<kMaxImageSlots> seen;
+    for (const auto& r : runs) {
+        if (r.image() && !seen.test(r.image_slot)) {
+            seen.set(r.image_slot);
+            fn(node.image_src(r));
+        }
+    }
 }
 
-bool ResourceManager::ApplyImageCacheHeights(IndexRange range)
+} // namespace
+
+void ResourceManager::ApplyCachedImages(InlineImageUpdate& update)
+{
+    DropQueuesIfJumped();
+    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), true, update);
+}
+
+bool ResourceManager::ApplyCachedImageSizes(IndexRange range)
 {
     // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
     if (image_loader_.CacheSize() == 0) {
         return false;
     }
-    // Y は呼び出し側が組み直す。
-    IndexRange changed;
-    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range) }, false, changed);
-    return !changed.empty();
+    InlineImageUpdate update;
+    ApplyCachedImagesIn(std::array{ VisibleSlice(state_.document.doc.GetImageNodeIndices(), range) }, false, update);
+    return update.pending_resolved || update.sizes_changed;
 }
 
 bool ResourceManager::ApplyCachedHeights(IndexRange range)
 {
-    const bool mermaid_applied = ApplyMermaidCacheHeights(range);
-    const bool image_applied = ApplyImageCacheHeights(range);
-    return mermaid_applied || image_applied;
+    ApplyCachedImageSizes(range);
+    return ApplyMermaidCacheHeights(range);
 }
 
 bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
@@ -77,9 +92,9 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
 
 void ResourceManager::LoadImages()
 {
-    IndexRange changed;
-    ApplyCachedImages(changed);
-    RecomputeChangedHeights(changed);
+    InlineImageUpdate update;
+    ApplyCachedImages(update);
+    NotifyInlineImages(update);
 }
 
 void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point deadline)
@@ -111,10 +126,26 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // image/diagram bitmap も可視範囲外の分を捨てる。描いた図の
+    // 図の bitmap も可視範囲外の分を捨てる。描いた図の
     // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
     // 全消去すると可視中の図まで捨てて描き直しの cliff を生むため。
     state_.document.layout_cache.EvictDiagramBitmapsOutside(keep->range.begin, keep->range.end);
+
+    // 本文中の画像のビットマップも保持範囲の画像の分だけ残す。寸法は表に残すので、戻ってきても組み直さない。
+    if (inline_drawings_.images.size() == 0) {
+        return;
+    }
+    FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> kept;
+    const auto& nodes = state_.document.doc.GetNodes();
+    for (const size_t i : VisibleSlice(state_.document.doc.GetImageNodeIndices(), keep->range)) {
+        ForEachImageSrc(nodes[i], [&](std::string_view src) {
+            const uint64_t key = InlineImageKey(src);
+            if (const auto* bitmap = inline_drawings_.images.Find(key)) {
+                *kept.TryEmplace(key).first = *bitmap;
+            }
+        });
+    }
+    inline_drawings_.images = std::move(kept);
 }
 
 void ResourceManager::FlushPendingResources()
@@ -124,9 +155,11 @@ void ResourceManager::FlushPendingResources()
     // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
     last_flush_time_ = std::chrono::steady_clock::now();
 
-    // 画像と図の再レイアウトを 1 回にまとめる。
+    InlineImageUpdate images;
+    ApplyCachedImages(images);
+    NotifyInlineImages(images);
+    // 図の再レイアウトを 1 回にまとめる。
     IndexRange changed;
-    ApplyCachedImages(changed);
     RequestVisibleDiagrams(changed);
     RecomputeChangedHeights(changed);
 }
@@ -155,7 +188,7 @@ void ResourceManager::OnBitmapManageTimer()
     FlushPendingResources();
 }
 
-void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, IndexRange& changed)
+void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, InlineImageUpdate& update)
 {
     const std::wstring& doc_dir = state_.document.doc.GetDirectory();
     if (doc_dir.empty()) {
@@ -173,47 +206,60 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
 
     const Theme& theme = *state_.theme;
     const auto& nodes = state_.document.doc.GetNodes();
-
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
-        const std::string_view src = node.image_src();
-        if (src.empty()) {
-            continue;
-        }
+        // 表のセルの画像は縮めずに出すので原寸でデコードする。
+        const float max_width = node.table_data() ? 0.0f : layout::NodeContentWidth(node, theme, content_width);
+        ForEachImageSrc(node, [&](std::string_view src) { ApplyCachedImage(src, doc_dir, max_width, start_loads, update); });
+    }
+}
 
-        const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
-        const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        const auto* d = state_.document.layout_cache.FindDiagram(i);
-        const auto* cached = abs_path ? image_loader_.FindCachedImage(*abs_path) : nullptr;
-        if (!cached) {
-            // キャッシュから落ちても表示中のビットマップはそのまま使う。
-            if (d && d->bitmap) {
-                continue;
-            }
-            // 読み直しで失敗の記録が消えても、読めるまで alt の枠のまま読み直す (読み込み中との行き来でちらつかせない)。
-            if (!abs_path || image_loader_.HasGivenUp(*abs_path)) {
-                if (!d || d->error.kind != DiagramError::Kind::ImageUnavailable) {
-                    MarkImageUnavailable(i, max_width, changed);
-                }
-            }
-            else if (start_loads) {
-                image_loader_.RequestLoadAsync(*abs_path, max_width);
-            }
-            continue;
+void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, bool start_loads, InlineImageUpdate& update)
+{
+    const uint64_t key = InlineImageKey(src);
+    const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
+    const auto* cached = abs_path ? image_loader_.FindCachedImage(*abs_path) : nullptr;
+    if (!cached) {
+        // 読めないもの (解決できない src・読むのをあきらめたファイル) は alt を出す。読み直しで失敗の記録が消えても、
+        // 読めるまで alt のまま読み直す (読み込み中の幅 0 との行き来でちらつかせない)。
+        // キャッシュから落ちた画像は寸法とビットマップを残したまま読み直す。
+        if (!abs_path || image_loader_.HasGivenUp(*abs_path)) {
+            SetInlineImage(key, { .state = InlineImageState::Unavailable }, update);
         }
-
-        // DiagramEntry はキャッシュに当たった画像と読めない画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
-        // DPI が変わると同じビットマップでも DIP の寸法が変わるので、寸法も比べる。
-        const auto size = image_loader_.DipSize(*cached);
-        if (!d || !d->bitmap || d->bitmap != cached->bitmap || d->width != size.width || d->height != size.height) {
-            auto& diagram = state_.document.layout_cache.EnsureDiagram(i);
-            diagram.SetResult({ .bitmap = cached->bitmap, .width = size.width, .height = size.height });
-            ApplyBitmapHeight(i, diagram, max_width, changed);
-        }
-        // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-        if (start_loads && image_loader_.NeedsSharperDecode(*cached, max_width)) {
+        else if (start_loads) {
             image_loader_.RequestLoadAsync(*abs_path, max_width);
         }
+        return;
+    }
+    // DPI が変わると同じビットマップでも DIP の寸法が変わる。
+    const auto size = image_loader_.DipSize(*cached);
+    SetInlineImage(key, {
+                            .state = InlineImageState::Ready, .size = { size.width, size.height }
+    },
+                   update);
+    auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
+    if (bitmap != cached->bitmap) {
+        bitmap = cached->bitmap;
+        update.bitmaps_changed = true;
+    }
+    // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
+    if (start_loads && image_loader_.NeedsSharperDecode(*cached, max_width)) {
+        image_loader_.RequestLoadAsync(*abs_path, max_width);
+    }
+}
+
+void ResourceManager::SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update)
+{
+    const InlineImageState before = inline_images_.Find(key).state;
+    if (inline_images_.Set(key, entry)) {
+        (before == InlineImageState::Loading ? update.pending_resolved : update.sizes_changed) = true;
+    }
+}
+
+void ResourceManager::NotifyInlineImages(const InlineImageUpdate& update)
+{
+    if (update.pending_resolved || update.sizes_changed || update.bitmaps_changed) {
+        host_.OnInlineImagesUpdated(update.pending_resolved, update.sizes_changed);
     }
 }
 
@@ -246,18 +292,6 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
     }
     // 失敗 (エラー確定) でも、プレースホルダーの文言と、文言を見せる高さが変わる。
     ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, *state_.theme, content_width), changed);
-}
-
-void ResourceManager::MarkImageUnavailable(size_t i, float node_width, IndexRange& changed)
-{
-    auto& d = state_.document.layout_cache.EnsureDiagram(i);
-    // Image ノードの本文は段落の文字 (alt を含む)。alt が空なら src を出し、何の画像かを分かるようにする。
-    const Node& node = state_.document.doc.GetNodes()[i];
-    const std::string_view text = node.HasText() ? std::string_view{ node.GetText() } : node.image_src();
-    d.SetResult({
-        .error = { DiagramError::Kind::ImageUnavailable, string_convert::Utf8ToWide(text) }
-    });
-    ApplyBitmapHeight(i, d, node_width, changed);
 }
 
 void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, IndexRange& changed)
