@@ -369,6 +369,32 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
     EXPECT_FALSE(html.contains("#d0d0d0"));
 }
 
+// 見出しの中の画像の alt は、アンカーにも目次にも入れない (GitHub は見出しの文字だけを使う)。
+// 目次は除いた跡で並んだ空白を 1 つにし、前後の空白を落とす。アンカーは空白をそのまま残す。
+TEST(TocHeadingText, ExcludesImageAlt)
+{
+    struct Case {
+        std::string_view md;
+        std::string_view anchor_text;
+        std::string_view toc;
+    };
+    constexpr Case kCases[] = {
+        { "# Plain", "Plain", "Plain" },
+        { "# ![icon](x.png) Title", " Title", "Title" },
+        { "# Before ![](y.png) after", "Before  after", "Before after" },
+        { "# Title ![badge](b.svg)", "Title ", "Title" },
+        { "# [![b](b.svg)](u) Linked", " Linked", "Linked" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        std::string scratch;
+        EXPECT_EQ(TextWithoutImages(nodes[0], scratch), c.anchor_text);
+        EXPECT_EQ(TocHeadingText(nodes[0], scratch), c.toc);
+    }
+}
+
 TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
 {
     const auto html = CopyAllAsHtml("![alt text](https://example.com/img.png)");

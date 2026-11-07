@@ -74,9 +74,8 @@ static_assert(sizeof(TextRun) == 12);
 
 // 1 ノードの画像の src の数 (TextRun::image_slot で引ける数)。超えた画像は alt を文字のまま出す。
 inline constexpr size_t kMaxImageSlots = 256;
-// alt の空な画像の範囲に置く文字 (U+FFFC OBJECT REPLACEMENT CHARACTER)。レイアウトで画像に置き換え、コピーと検索では外す。
+// alt の空な画像の範囲に置く文字 (U+FFFC OBJECT REPLACEMENT CHARACTER)。レイアウトで画像に置き換え、コピーと目次では外す。
 inline constexpr std::string_view kImagePlaceholder = "\xEF\xBF\xBC";
-inline constexpr wchar_t kImagePlaceholderW = L'￼';
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
 struct TextSelection {

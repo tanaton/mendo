@@ -1,6 +1,7 @@
 #include "command_generator.h"
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
+#include "document_utils.h"
 #include "i18n.h"
 #include "layout_computer.h"
 #include "pane_layout.h"
@@ -658,6 +659,7 @@ void EmitToc(CmdWriter w, const SidePaneFormats& fmts, float header_h, const Sid
     const auto& entries = sp.toc_entries;
     const int active_index = sp.active_toc_index;
     std::wstring title;
+    std::string heading_text;
     EmitSidePane(w, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const Node& heading = sp.nodes[entries[i].node_index];
 
@@ -668,9 +670,7 @@ void EmitToc(CmdWriter w, const SidePaneFormats& fmts, float header_h, const Sid
 
         const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         // 項目の文字列は持たない。見えている 40 行を描くたびに変換して 1 フレーム約 4µs (BM_TocFrame)。
-        DecodeForDWrite(TocItemText(heading.GetText()), title);
-        // 見出しの中の alt の無い画像は、目次では箱の字形になるので出さない。
-        std::erase(title, kImagePlaceholderW);
+        DecodeForDWrite(TocItemText(TocHeadingText(heading, heading_text)), title);
         EmitLeftText(w, fmts.toc_item, title, text_left, row.top, pane.item_height, fmts.item_fonts);
 
         if (i == active_index) {

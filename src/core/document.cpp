@@ -3,34 +3,9 @@
 #include "file_io.h"
 #include "parser.h"
 #include "profiler.h"
-#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <string>
-
-namespace {
-
-// GitHub は見出しのスラグを見出しの文字 (textContent) から作るので、画像の alt (属性) は含めない。
-std::string_view AnchorTextOf(const Node& heading, std::string& scratch)
-{
-    const std::string_view text = heading.GetText();
-    const auto runs = heading.runs();
-    if (std::ranges::none_of(runs, &TextRun::image)) {
-        return text;
-    }
-    scratch.clear();
-    uint32_t pos = 0;
-    for (const auto& r : runs) {
-        if (r.image()) {
-            scratch.append(text.substr(pos, r.start - pos));
-            pos = r.start + r.length;
-        }
-    }
-    scratch.append(text.substr(pos));
-    return scratch;
-}
-
-} // namespace
 
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {
@@ -80,7 +55,7 @@ int Document::FindAnchorIndex(std::string_view anchor)
     std::string scratch;
     for (size_t i = index.heading_count(); i < indices.toc_entries.size(); ++i) {
         const int node_index = indices.toc_entries[i].node_index;
-        if (index.Add(AnchorTextOf(GetNodes()[node_index], scratch), node_index) == key) {
+        if (index.Add(TextWithoutImages(GetNodes()[node_index], scratch), node_index) == key) {
             return node_index;
         }
     }

@@ -1,4 +1,5 @@
 #include "app_controller.h"
+#include "document_utils.h"
 #include "i18n.h"
 #include "string_convert.h"
 #include "titlebar.h"
@@ -331,8 +332,8 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
     }
     const auto& toc_entries = state.document.doc.GetToc();
     return MakeTooltip(current, TooltipTarget::Zone::TocPaneItem, item, [&](std::wstring& text) {
-        text = string_convert::Utf8ToWide(state.document.doc.GetNodes()[toc_entries[item].node_index].GetText());
-        std::erase(text, kImagePlaceholderW);
+        std::string heading_text;
+        text = string_convert::Utf8ToWide(TocHeadingText(state.document.doc.GetNodes()[toc_entries[item].node_index], heading_text));
     });
 }
 
