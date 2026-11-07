@@ -142,7 +142,7 @@ enum class InlineImageState : uint8_t {
     // 寸法をまだ知らない。何も描かない幅 0 の箱で組み、寸法が分かったら組み直す。
     Loading,
     Ready,
-    // 読めない。alt を文字で出す (alt が空なら壊れた画像の枠)。
+    // 読めない。Chrome と同じく壊れた画像のアイコンと alt を並べる。alt が空なら何も出さない。
     Unavailable,
 };
 
@@ -170,19 +170,30 @@ private:
     std::unordered_map<uint64_t, InlineImageEntry> entries_;
 };
 
-// alt が空のとき (範囲が kImagePlaceholder だけ) に読めなかった画像の枠の大きさ (DIP)。
-inline constexpr InlineImageSize kBrokenInlineImageSize{ 16.0f, 16.0f };
-
 // max_width より広い画像は縦横比を保って max_width に縮める。max_width が 0 以下なら縮めない。
 InlineImageSize FitInlineImage(InlineImageSize size, float max_width) noexcept;
 
 // 画像の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
-// InlineImageObjectOf で引いた key のビットマップを箱いっぱいに描く。broken なら壊れた画像の枠を描く。
-Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size, bool broken);
+// InlineImageObjectOf で引いた key のビットマップを箱いっぱいに描く。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size);
+// 読めない画像のアイコンの左端から alt の左端まで (アイコンと隙間)。
+constexpr float BrokenImageAltLeft(float icon_size) noexcept
+{
+    return icon_size * 1.25f;
+}
+// 読めない画像。壊れた画像のアイコン (一辺 icon_size) の右に alt を組んだ layout を並べ、alt のベースラインを本文に揃える。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeBrokenImageObject(uint64_t key, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt, float icon_size);
 struct InlineImageObjectRef {
     uint64_t key = 0;
+    // 箱の大きさ。読めない画像はアイコンと alt を並べた大きさ。
     InlineImageSize size;
-    bool broken = false;
+    // 読めない画像の alt。null なら画像を描く。
+    IDWriteTextLayout* alt = nullptr;
+    // 読めない画像のアイコンの大きさと位置、alt の位置 (どれも箱の左上から)。
+    float icon_size = 0.0f;
+    float icon_top = 0.0f;
+    float alt_left = 0.0f;
+    float alt_top = 0.0f;
 };
-// MakeInlineImageObject で作ったものなら key と寸法。ほかのインラインオブジェクトは nullopt。
+// MakeInlineImageObject / MakeBrokenImageObject で作ったものなら key と寸法。ほかのインラインオブジェクトは nullopt。
 std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept;

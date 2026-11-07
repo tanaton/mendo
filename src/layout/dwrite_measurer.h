@@ -73,9 +73,12 @@ private:
     struct RunFormat {
         // 画像の src を引くノード (表はセルの run も表のノードで引く)。
         const Node& owner;
+        // layout の書式。読めない画像の alt を同じ書式で組む。
+        const TextStyle& style;
         // false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
         bool apply_code_size = true;
-        float math_font_size = 0.0f;
+        // 置く場所の文字の大きさ。数式のキーと、読めない画像のアイコンの大きさに使う。
+        float font_size = 0.0f;
         // > 0 なら、それより広い数式をその幅に縮める (ブロック数式)。
         float math_fit_width = 0.0f;
         // > 0 なら、それより広い画像をその幅に縮める。
@@ -84,12 +87,13 @@ private:
     // 戻り値: 寸法がまだ無いインライン数式か画像があり、仮に組んだ (InvalidatePendingInlineLayouts で組み直す)。
     bool ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, const RunFormat& format) const;
     // MeasureTableCells と RestoreEvictedTableRows で共通。空セルは null。仮に組んだ数式か画像があれば pending_inline を立てる。
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c) const;
+    // image_fit_width > 0 なら、それより広い画像をその幅に縮める (列幅を決めた後)。
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c, float image_fit_width) const;
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅と最小幅を tl.natural_col_widths・tl.min_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
     void MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline) const;
-    // 戻り値はテーブル全体の高さ。
-    float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
+    // 戻り値はテーブル全体の高さ。画像を含むセルは決めた列幅で組み直す。
+    float FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const;
 
     DWriteContext ctx_;
     // 本文と見出し (theme.font_family)、コードブロック (theme.monospace_font) の書式の対応。フォールバック先は主フォントでも変わる。

@@ -134,7 +134,7 @@ public:
             return S_OK;
         }
         if (const auto image = InlineImageObjectOf(object)) {
-            DrawImage(*image, x, y);
+            DrawImage(*image, context, x, y);
             return S_OK;
         }
         const auto math = InlineMathObjectOf(object);
@@ -159,20 +159,33 @@ private:
         return brush ? brush : default_brush_;
     }
 
-    // 読み込み中 (ビットマップがまだ無い) は何も描かない。読めない画像は枠だけ描く (ブラウザの壊れた画像の代わり)。
-    void DrawImage(const InlineImageObjectRef& image, float x, float y) const noexcept
+    // 読み込み中 (ビットマップがまだ無い) は何も描かない。読めない画像はアイコンと alt を描く。alt はこのレンダラで描き、
+    // alt に付けたリンクの色を使う。
+    void DrawImage(const InlineImageObjectRef& image, void* context, float x, float y) noexcept
     {
-        const auto rect = D2D1::RectF(x, y, x + image.size.width, y + image.size.height);
-        if (image.broken) {
-            if (auto* b = FixedBrush(brushes_, BrushId::Hr)) {
-                constexpr float kHalf = 0.5f;
-                rt_->DrawRectangle(D2D1::RectF(rect.left + kHalf, rect.top + kHalf, rect.right - kHalf, rect.bottom - kHalf), b);
-            }
+        if (image.alt) {
+            DrawBrokenImageIcon(x, y + image.icon_top, image.icon_size);
+            image.alt->Draw(context, this, x + image.alt_left, y + image.alt_top);
             return;
         }
         if (auto* bitmap = inline_.FindImage(image.key)) {
-            rt_->DrawBitmap(bitmap, rect);
+            rt_->DrawBitmap(bitmap, D2D1::RectF(x, y, x + image.size.width, y + image.size.height));
         }
+    }
+
+    // 一辺 size の正方形に、枠と山と太陽の絵 (画像のアイコン) を描く。寸法は一辺 16 の格子で決める。
+    void DrawBrokenImageIcon(float x, float y, float size) const noexcept
+    {
+        auto* b = BrushOr(BrushId::BlockquoteText);
+        const float k = size / 16.0f;
+        const float stroke = std::max(1.2f * k, 1.0f);
+        const auto at = [&](float px, float py) { return D2D1::Point2F(x + px * k, y + py * k); };
+        rt_->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x + 1.5f * k, y + 2.5f * k, x + 14.5f * k, y + 13.5f * k), 1.5f * k, 1.5f * k), b, stroke);
+        const D2D1_POINT_2F mountain[] = { at(3.5f, 11.5f), at(7.0f, 7.5f), at(9.5f, 10.0f), at(11.0f, 8.5f), at(12.5f, 11.5f) };
+        for (size_t i = 0; i + 1 < std::size(mountain); ++i) {
+            rt_->DrawLine(mountain[i], mountain[i + 1], b, stroke);
+        }
+        rt_->DrawEllipse(D2D1::Ellipse(at(10.5f, 5.5f), 1.2f * k, 1.2f * k), b, stroke);
     }
 
     // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばして描く。

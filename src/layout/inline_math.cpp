@@ -298,11 +298,14 @@ IInlineImageRef : public IUnknown
 };
 
 // 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
+// 読めない画像は alt の layout を持ち、描く側に渡す。
 class InlineImageObject final
     : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineImageRef> {
 public:
-    explicit InlineImageObject(const InlineImageObjectRef& ref) noexcept : ref_(ref)
+    InlineImageObject(const InlineImageObjectRef& ref, float baseline, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt) noexcept
+        : ref_(ref), baseline_(baseline), alt_(std::move(alt))
     {
+        ref_.alt = alt_.Get();
     }
 
     InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept override
@@ -314,10 +317,9 @@ public:
     {
         return S_OK;
     }
-    // 下端をベースラインに置く。
     HRESULT STDMETHODCALLTYPE GetMetrics(DWRITE_INLINE_OBJECT_METRICS* metrics) noexcept override
     {
-        *metrics = { ref_.size.width, ref_.size.height, ref_.size.height, FALSE };
+        *metrics = { ref_.size.width, ref_.size.height, baseline_, FALSE };
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetOverhangMetrics(DWRITE_OVERHANG_METRICS* overhangs) noexcept override
@@ -335,13 +337,38 @@ public:
 
 private:
     InlineImageObjectRef ref_;
+    float baseline_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> alt_;
 };
 
 } // namespace
 
-Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size, bool broken)
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size)
 {
-    return Microsoft::WRL::Make<InlineImageObject>(InlineImageObjectRef{ key, size, broken });
+    // 下端をベースラインに置く。
+    return Microsoft::WRL::Make<InlineImageObject>(InlineImageObjectRef{ .key = key, .size = size }, size.height, nullptr);
+}
+
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeBrokenImageObject(uint64_t key, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt, float icon_size)
+{
+    DWRITE_TEXT_METRICS m{};
+    alt->GetMetrics(&m);
+    std::vector<DWRITE_LINE_METRICS> lines(std::max<UINT32>(m.lineCount, 1));
+    UINT32 line_count = 0;
+    const float alt_baseline = SUCCEEDED(alt->GetLineMetrics(lines.data(), static_cast<UINT32>(lines.size()), &line_count)) && line_count > 0
+                                   ? lines[0].baseline
+                                   : m.height;
+    // アイコンは下端を alt の 1 行目のベースラインに置く。アイコンが alt の上端より高ければ箱をその分伸ばす。
+    const float baseline = std::max(alt_baseline, icon_size);
+    InlineImageObjectRef ref{
+        .key = key,
+        .icon_size = icon_size,
+        .icon_top = baseline - icon_size,
+        .alt_left = BrokenImageAltLeft(icon_size),
+        .alt_top = baseline - alt_baseline,
+    };
+    ref.size = { ref.alt_left + m.width, std::max(ref.alt_top + m.height, baseline) };
+    return Microsoft::WRL::Make<InlineImageObject>(ref, baseline, std::move(alt));
 }
 
 std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept

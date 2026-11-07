@@ -85,6 +85,8 @@ struct TableLayoutData {
     std::vector<float> min_col_widths;      // 列ごとの最小幅 (最も長い単語、DetermineMinWidth)。リサイズ高速パス用
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
+    // 画像を含むセルの番号 (昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。
+    std::vector<uint32_t> image_cells;
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。

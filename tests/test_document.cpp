@@ -169,6 +169,15 @@ TEST(DocumentTest, NodesSurviveMove)
 
 // ---- 索引 ----
 
+// 見出しの中の画像の alt はアンカーに入れない (GitHub は見出しの文字だけからスラグを作る)。画像の後の空白は '-' になる。
+TEST(DocumentTest, HeadingAnchorExcludesImageAlt)
+{
+    auto doc = Document::FromMarkdown("# ![icon](x.png) Title\n\n## Before ![](y.png) after\n", L"t.md");
+    EXPECT_EQ(doc.FindAnchorIndex("-title"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex("icon-title"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex("before--after"), 1);
+}
+
 // 脚注のリンク URL ("#..." ) を辿ると、参照から定義へ、定義の "↩" から参照へ移れる。
 TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
 {

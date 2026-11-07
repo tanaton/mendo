@@ -390,9 +390,26 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     struct OpenImage {
         const TextRun* first;
         DWRITE_TEXT_RANGE range;
+        // alt の text での範囲。
+        uint32_t alt_begin;
+        uint32_t alt_end;
         bool placeholder_only;
     };
     std::optional<OpenImage> image;
+    // 読めない画像の alt。幅が決まっていればアイコンの右に収まる幅で折り返し、リンクの中ならリンクの色にする (下線は引かない)。
+    const auto make_alt_layout = [&](std::string_view alt, bool link) -> ComPtr<IDWriteTextLayout> {
+        const float icon = format.font_size;
+        const float max_width = format.image_fit_width > 0.0f ? std::max(format.image_fit_width - BrokenImageAltLeft(icon), icon) : layout::kNoWrapLayoutWidth;
+        ComPtr<IDWriteTextLayout> alt_layout;
+        if (FAILED(CreateDocTextLayout(Context().factory.Get(), alt, format.style.format, max_width, layout::kNoWrapLayoutWidth, format.style.fonts, &alt_layout))) {
+            return nullptr;
+        }
+        if (link) {
+            Utf16OffsetCursor alt_cursor{ alt };
+            alt_layout->SetDrawingEffect(BrushEffect::For(BrushId::Link), alt_cursor.WideRange(0, static_cast<uint32_t>(alt.size())));
+        }
+        return alt_layout;
+    };
     const auto flush_image = [&] {
         if (!image) {
             return;
@@ -402,16 +419,19 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         const InlineImageEntry entry = inline_images_->Find(key);
         switch (entry.state) {
         case InlineImageState::Loading:
-            layout->SetInlineObject(MakeInlineImageObject(key, {}, /*broken=*/false).Get(), img.range);
+            layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), img.range);
             pending = true;
             break;
         case InlineImageState::Ready:
-            layout->SetInlineObject(MakeInlineImageObject(key, FitInlineImage(entry.size, format.image_fit_width), /*broken=*/false).Get(), img.range);
+            layout->SetInlineObject(MakeInlineImageObject(key, FitInlineImage(entry.size, format.image_fit_width)).Get(), img.range);
             break;
         case InlineImageState::Unavailable:
-            // alt があれば文字で出す。
+            // alt が空なら置き換え文字を幅 0 の箱で隠す (Chrome は alt="" の壊れた画像を描かない)。
             if (img.placeholder_only) {
-                layout->SetInlineObject(MakeInlineImageObject(key, kBrokenInlineImageSize, /*broken=*/true).Get(), img.range);
+                layout->SetInlineObject(MakeInlineImageObject(key, {}).Get(), img.range);
+            }
+            else if (auto alt = make_alt_layout(text.substr(img.alt_begin, img.alt_end - img.alt_begin), img.first->has_link())) {
+                layout->SetInlineObject(MakeBrokenImageObject(key, std::move(alt), format.font_size).Get(), img.range);
             }
             break;
         }
@@ -432,12 +452,13 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         if (inline_images_) {
             if (r.image() && !r.image_start() && image && image->range.startPosition + image->range.length == wr.startPosition) {
                 image->range.length += wr.length;
+                image->alt_end = r.start + r.length;
                 image->placeholder_only = false;
             }
             else {
                 flush_image();
                 if (r.image()) {
-                    image = OpenImage{ &r, wr, text.substr(r.start, r.length) == kImagePlaceholder };
+                    image = OpenImage{ &r, wr, r.start, r.start + r.length, text.substr(r.start, r.length) == kImagePlaceholder };
                 }
             }
         }
@@ -448,7 +469,7 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         if (!tex) {
             continue;
         }
-        const uint64_t key = InlineMathKey(*tex, format.math_font_size);
+        const uint64_t key = InlineMathKey(*tex, format.font_size);
         if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
                 const float fit_width = format.math_fit_width;
@@ -520,8 +541,9 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
 
     entry.pending_inline = ApplyRunFormatting(layout.Get(), node.runs(), text,
                                               { .owner = node,
+                                                .style = style,
                                                 .apply_code_size = node.type != NodeType::Heading,
-                                                .math_font_size = MathFontSize(*theme_, node),
+                                                .font_size = MathFontSize(*theme_, node),
                                                 .math_fit_width = block_math ? layout_width : 0.0f,
                                                 .image_fit_width = layout_width });
     if (block_math) {
@@ -545,15 +567,15 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
     return FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
-ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c, float image_fit_width) const
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const NodeTableData& tbl = *node.table_data();
     const auto text = tbl.GetCellText(r, c);
     const TextStyle style = TableRowStyle(ctx, tbl, r);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, style.format, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, style.fonts, &cell_layout))) {
-        // セルの画像は縮めない。列幅はセルの自然幅で決まり、収まらない表は横にスクロールする。
-        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, { .owner = node, .math_font_size = MathFontSize(*theme_, tbl, r) })) {
+        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text,
+                               { .owner = node, .style = style, .font_size = MathFontSize(*theme_, tbl, r), .image_fit_width = image_fit_width })) {
             std::atomic_ref{ pending_inline }.store(true, std::memory_order_relaxed);
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
@@ -591,7 +613,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
                 if (!reps.empty() && reps[ci] != ci) {
                     continue;
                 }
-                auto cell_layout = CreateCellLayout(ctx, node, pending_inline, r, c);
+                auto cell_layout = CreateCellLayout(ctx, node, pending_inline, r, c, 0.0f);
                 if (!cell_layout) {
                     continue;
                 }
@@ -600,7 +622,15 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
                 tl.cell_natural_widths[ci] = metrics.width;
                 tl.cell_nowrap_heights[ci] = metrics.height;
                 if (auto& col_min = min_widths[c]; metrics.width > col_min.load(std::memory_order_relaxed)) {
-                    if (FLOAT w = 0.0f; SUCCEEDED(cell_layout->DetermineMinWidth(&w))) {
+                    // 画像は列幅まで縮むので最小幅に効かせない (GitHub の表で max-width: 100% の画像が縮むのと同じ)。
+                    // 画像をほぼ幅 0 に縮めて組んだ layout で、文字の最小幅だけを測る。
+                    ComPtr<IDWriteTextLayout> shrunk;
+                    if (std::ranges::binary_search(tl.image_cells, static_cast<uint32_t>(ci))) {
+                        constexpr float kShrunkImageWidth = 0.01f;
+                        shrunk = CreateCellLayout(ctx, node, pending_inline, r, c, kShrunkImageWidth);
+                    }
+                    auto* const min_layout = shrunk ? shrunk.Get() : cell_layout.Get();
+                    if (FLOAT w = 0.0f; SUCCEEDED(min_layout->DetermineMinWidth(&w))) {
                         RaiseTo(col_min, std::min(w, metrics.width));
                     }
                 }
@@ -631,14 +661,26 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     }
 }
 
-float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const
+float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
+    const auto& tbl = *node.table_data();
     const size_t col_count = tl.col_count;
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * TABLE_BORDER_WIDTH;
     const float paddings_width = static_cast<float>(col_count) * TABLE_CELL_PADDING * 2.0f;
 
     layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
+
+    // 画像は列幅に縮めるので、画像を含むセルを今の列幅で組み直す。layout の無いセル (evict 中の行) は行を戻すときに組む。
+    if (!tl.image_cells.empty()) {
+        const auto& ctx = Context();
+        for (const uint32_t ci : tl.image_cells) {
+            if (tl.cell_layouts[ci]) {
+                const size_t c = ci % col_count;
+                tl.cell_layouts[ci] = CreateCellLayout(ctx, node, pending_inline, ci / col_count, c, tl.col_widths[c]);
+            }
+        }
+    }
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は layout のあるセル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
@@ -687,7 +729,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         for (size_t k = begin; k < end; k++) {
             const size_t r = rows[k];
             for (size_t c = 0; c < tbl.col_count; c++) {
-                tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, node, entry.pending_inline, r, c);
+                tl.cell_layouts[tl.CellIndex(r, c)] = CreateCellLayout(ctx, node, entry.pending_inline, r, c, tl.col_widths[c]);
             }
             row_heights[k] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
@@ -725,7 +767,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     // evict しても残る。行の高さは FinalizeTableLayout が新しい列幅で全行測り、見えている evict 行は次の計測パス
     // (RestoreEvictedTableRows) が戻す。
     if (auto* tl = entry.table_layout()) {
-        return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(*tbl, *tl, max_width);
+        return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
     }
 
     // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
@@ -733,9 +775,18 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
         return r.code() && r.length > 0;
     });
     auto tl = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code);
+    // 画像の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
+    if (std::ranges::any_of(tbl->all_runs, &TextRun::image)) {
+        const size_t cells = tl->cell_layouts.size();
+        for (size_t ci = 0; ci < cells; ++ci) {
+            if (std::ranges::any_of(tbl->CellRuns(ci), &TextRun::image)) {
+                tl->image_cells.push_back(static_cast<uint32_t>(ci));
+            }
+        }
+    }
     // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。行の復元は次の計測パスに任せる。
     MeasureTableCells(node, *tl, entry.pending_inline);
-    const float height = FinalizeTableLayout(*tbl, *tl, max_width);
+    const float height = FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
     entry.set_table_layout(std::move(tl));
     return height;
 }

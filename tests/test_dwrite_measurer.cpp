@@ -584,21 +584,23 @@ TEST_F(DWriteInlineImageTest, AdjacentImagesStaySeparate)
     EXPECT_FLOAT_EQ(InlineRangeWidth(layout, 2, 3), 50.0f) << "\"c d\" で 1 枚";
 }
 
-// 読めない画像は alt を文字で出し、alt が空なら壊れた画像の枠の大きさにする。
-TEST_F(DWriteInlineImageTest, UnavailableImageShowsAltOrBrokenBox)
+// 読めない画像は Chrome と同じく、壊れた画像のアイコンの右に alt を並べた 1 つの箱にする。alt が空なら何も出さない。
+TEST_F(DWriteInlineImageTest, UnavailableImageShowsIconAndAlt)
 {
     table_.Set(InlineImageKey("x.png"), { .state = InlineImageState::Unavailable });
     table_.Set(InlineImageKey("y.png"), { .state = InlineImageState::Unavailable });
-    auto [nodes, cache] = ParseAndLayout("![alt](x.png) ![](y.png)");
+    auto [nodes, cache] = ParseAndLayout("alt ![alt](x.png) ![](y.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_FALSE(cache[0].pending_inline);
     auto* layout = cache[0].text_layout();
     ASSERT_NE(layout, nullptr);
-    EXPECT_GT(InlineRangeWidth(layout, 0, 3), 10.0f) << "alt の文字の幅";
-    EXPECT_FLOAT_EQ(InlineRangeWidth(layout, 4, 1), kBrokenInlineImageSize.width);
+    const float text_width = InlineRangeWidth(layout, 0, 3);
+    ASSERT_GT(text_width, 10.0f);
+    EXPECT_NEAR(InlineRangeWidth(layout, 4, 3), BrokenImageAltLeft(theme_.font_size_body) + text_width, 0.5f);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(layout, 8, 1), 0.0f);
 }
 
-// 表のセルの画像は縮めずに置き、列の自然幅に入る。寸法を待つ表も組み直す印を付ける。
+// 表のセルの画像は、収まれば原寸で列の自然幅に入る。寸法を待つ表も組み直す印を付ける。
 TEST_F(DWriteInlineImageTest, ImageInTableCellWidensColumn)
 {
     auto [nodes, cache] = ParseAndLayout("| h |\n|---|\n| ![i](i.png) |\n");
@@ -611,6 +613,28 @@ TEST_F(DWriteInlineImageTest, ImageInTableCellWidensColumn)
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
     EXPECT_GE(tl->natural_col_widths[0], 300.0f);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 0)].Get(), 0, 1), 300.0f);
+}
+
+// 表に収まらない画像は、GitHub (max-width: 100%) と同じく最小幅に効かず、列幅まで縮んで表を本文の幅に収める。
+// 幅が変われば縮め直す。
+TEST_F(DWriteInlineImageTest, WideImageInTableCellShrinksToColumn)
+{
+    SetReady("w.png", 2000.0f, 500.0f);
+    auto [nodes, cache] = ParseAndLayout("| name | shot |\n|---|---|\n| first | ![w](w.png) |\n");
+    ASSERT_EQ(nodes.size(), 1u);
+    for (const float viewport : { 800.0f, 600.0f }) {
+        SCOPED_TRACE(viewport);
+        ComputeLayout(engine_, nodes, cache, viewport);
+        const auto* tl = cache[0].table_layout();
+        ASSERT_NE(tl, nullptr);
+        EXPECT_LT(tl->min_col_widths[1], 100.0f) << "画像は最小幅に効かない";
+        const float content_width = theme_.ContentWidth(viewport);
+        EXPECT_LE(tl->col_cum_x.back(), content_width + 0.5f) << "表は本文の幅に収まる";
+        const float image_width = InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 1)].Get(), 0, 1);
+        EXPECT_NEAR(image_width, tl->col_widths[1], 0.5f);
+        EXPECT_LT(image_width, 2000.0f);
+    }
 }
 
 
