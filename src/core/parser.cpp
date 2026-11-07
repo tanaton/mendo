@@ -170,7 +170,6 @@ struct ParseContext : NodeStorage {
                     indices.math_indices.push_back(CurrentNodeIndex());
                 }
             }
-            // 表の run は NodeTableData にあるので、画像の有無は src の登録で見る。
             if (!current_image_srcs.empty()) {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
@@ -768,21 +767,12 @@ void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::spa
     std::string text;
     std::vector<TextRun> runs;
     std::vector<std::string_view> urls;
-    std::vector<std::string_view> image_srcs;
     for (size_t i = 0; i < def_indices.size() && i < ref_counts.size(); ++i) {
         const auto id = static_cast<uint32_t>(i + 1);
         auto& node = nodes[static_cast<size_t>(def_indices[i])];
         text = node.GetText();
         runs.assign_range(node.runs());
         urls.assign_range(node.view_link_urls());
-        // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。数は持たないので使っている image_slot から求める。
-        image_srcs.clear();
-        for (const auto& r : runs) {
-            if (r.image()) {
-                image_srcs.resize(std::max<size_t>(image_srcs.size(), r.image_slot + 1u));
-                image_srcs[r.image_slot] = node.image_src(r);
-            }
-        }
         for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
             if (!text.empty()) {
                 text += ' ';
@@ -801,8 +791,9 @@ void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::spa
         }
         node.SetText(arena.CopyText(text));
         node.SetRuns(arena.Copy(runs));
+        // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
         const size_t link_count = urls.size();
-        urls.append_range(image_srcs);
+        urls.append_range(node.image_srcs());
         node.SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
     }
 }

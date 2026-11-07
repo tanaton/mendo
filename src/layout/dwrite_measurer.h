@@ -84,11 +84,20 @@ private:
         // > 0 なら、それより広い画像をその幅に縮める。
         float image_fit_width = 0.0f;
     };
-    // 戻り値: 寸法がまだ無いインライン数式か画像があり、仮に組んだ (InvalidatePendingInlineLayouts で組み直す)。
-    bool ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, const RunFormat& format) const;
+    struct RunFormatResult {
+        // 寸法がまだ無いインライン数式か画像があり、仮に組んだ (InvalidatePendingInlineLayouts で組み直す)。
+        bool pending = false;
+        // NodeLayoutEntry::image_min_width。
+        float image_min_width = 0.0f;
+    };
+    RunFormatResult ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, const RunFormat& format) const;
     // MeasureTableCells と RestoreEvictedTableRows で共通。空セルは null。仮に組んだ数式か画像があれば pending_inline を立てる。
-    // image_fit_width > 0 なら、それより広い画像をその幅に縮める (列幅を決めた後)。
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c, float image_fit_width) const;
+    // image_fit_width > 0 なら、それより広い画像をその幅に縮める (列幅を決めた後)。image_min_width があれば
+    // NodeLayoutEntry::image_min_width と同じ値を書く。
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c,
+                                                               float image_fit_width, float* image_min_width = nullptr) const;
+    // セル ci の tl.image_cell_min_widths の要素。画像を含まないセルなら null。
+    static float* ImageCellMinWidth(TableLayoutData& tl, size_t ci) noexcept;
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅と最小幅を tl.natural_col_widths・tl.min_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
     void MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline) const;

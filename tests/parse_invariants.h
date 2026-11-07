@@ -76,7 +76,10 @@ inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view w
             sink.Add("node {} {} run {}: link_url_index {} >= urls {}", node_index, where, k, r.link_url_index, link_url_count);
         }
         if (r.image()) {
-            if (owner.image_src(r).empty()) {
+            if (r.image_slot >= owner.image_srcs().size()) {
+                sink.Add("node {} {} run {}: image_slot {} >= srcs {}", node_index, where, k, r.image_slot, owner.image_srcs().size());
+            }
+            else if (owner.image_src(r).empty()) {
                 sink.Add("node {} {} run {}: image without src", node_index, where, k);
             }
             // alt の中の数式は run を分けない (alt は平文)。

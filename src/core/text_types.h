@@ -66,8 +66,8 @@ struct TextRun {
 // 文書の run は数百万になるので、image_slot は詰め物の中に置いて大きさを変えない。
 static_assert(sizeof(TextRun) == 12);
 
-// 1 ノードの画像の src の数 (TextRun::image_slot で引ける数)。超えた画像は alt を文字のまま出す。
-inline constexpr size_t kMaxImageSlots = 256;
+// 1 ノードの画像の src の数。Node が数を 1 バイトで持つので 255 まで。超えた画像は alt を文字のまま出す。
+inline constexpr size_t kMaxImageSlots = 255;
 // alt の空な画像の範囲に置く文字 (U+FFFC OBJECT REPLACEMENT CHARACTER)。レイアウトで画像に置き換え、コピーと目次では外す。
 inline constexpr std::string_view kImagePlaceholder = "\xEF\xBF\xBC";
 

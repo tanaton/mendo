@@ -132,13 +132,12 @@ const TextRun* RunContaining(std::span<const TextRun> runs, uint32_t pos) noexce
 template <class Append>
 bool ForEachTextOutsideImages(const Node& heading, Append&& append)
 {
-    const std::string_view text = heading.GetText();
-    const auto runs = heading.runs();
-    if (std::ranges::none_of(runs, &TextRun::image)) {
+    if (!heading.has_images()) {
         return false;
     }
+    const std::string_view text = heading.GetText();
     uint32_t pos = 0;
-    for (const auto& r : runs) {
+    for (const auto& r : heading.runs()) {
         if (r.image()) {
             append(text.substr(pos, r.start - pos));
             pos = r.start + r.length;
@@ -229,12 +228,6 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
 
 namespace {
 
-// run の並びが同じ 2 つのノードで、画像の src も同じか。src は run の image_slot で引く。
-bool SameImageSrcs(const Node& a, const Node& b, std::span<const TextRun> runs) noexcept
-{
-    return std::ranges::all_of(runs, [&](const TextRun& r) { return !r.image() || a.image_src(r) == b.image_src(r); });
-}
-
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
     // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
@@ -248,11 +241,8 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     const auto* at = a.table_data();
     // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
-    if ((!at && a.GetText() != b.GetText()) || !std::ranges::equal(a.runs(), b.runs()) ||
-        !std::ranges::equal(a.view_link_urls(), b.view_link_urls()) || (at && !(*at == *b.table_data()))) {
-        return false;
-    }
-    return SameImageSrcs(a, b, at ? std::span<const TextRun>{ at->all_runs } : a.runs());
+    return (at ? *at == *b.table_data() : a.GetText() == b.GetText()) && std::ranges::equal(a.runs(), b.runs()) &&
+           std::ranges::equal(a.view_link_urls(), b.view_link_urls()) && std::ranges::equal(a.image_srcs(), b.image_srcs());
 }
 
 } // namespace

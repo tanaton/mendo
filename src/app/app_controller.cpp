@@ -400,7 +400,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
     if (node_index >= 0) {
         const auto& doc = state.document.doc;
         const Node& node = doc.GetNodes()[node_index];
-        const bool has_images = std::ranges::binary_search(doc.GetImageNodeIndices(), static_cast<size_t>(node_index));
+        const bool has_images = node.has_images();
         if (!node.view_link_urls().empty() || has_images) {
             const auto hit = hit_test::HitTest(hit_ctx);
             link = LinkAtHit(state, hit);

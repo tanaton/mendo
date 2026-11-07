@@ -1573,4 +1573,98 @@ BENCHMARK_CAPTURE(BM_ReduceEvents, wheel, ReduceEvent::Wheel)->Unit(benchmark::k
 BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag, ReduceEvent::SelectDrag)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag, ReduceEvent::ScrollbarDrag)->Unit(benchmark::kMicrosecond);
 
+// ===== 本文中の画像 =====
+
+// 文書の画像の寸法を表に入れる。http(s) の src は読めない (リモートは読まない)。
+void ResolveImages(InlineImageTable& table, const Document& doc, InlineImageSize local)
+{
+    for (const auto& node : doc.GetNodes()) {
+        for (const std::string_view src : node.image_srcs()) {
+            table.Exchange(InlineImageKey(src), src.starts_with("http") ? InlineImageEntry{ .state = InlineImageState::Unavailable }
+                                                                        : InlineImageEntry{ .state = InlineImageState::Ready, .size = local });
+        }
+    }
+}
+
+// GitHub の README によくある、バッジ 10 個の段落を頭に足した README。README のスクリーンショットは 4 枚。
+std::string BadgeReadmeMd(benchmark::State& state)
+{
+    std::string md;
+    for (int i = 0; i < 10; ++i) {
+        std::format_to(std::back_inserter(md), "[![badge {}](https://img.shields.io/badge/b{}-passing-green)](https://example.com/{}) ", i, i, i);
+    }
+    md += "\n\n";
+    md += ReadOrSkip(state, "../README.md");
+    return md;
+}
+
+// 段落ごとに文の中のアイコンを 1 つ。
+std::string InlineIconMd(int paragraphs)
+{
+    std::string md;
+    for (int i = 0; i < paragraphs; ++i) {
+        std::format_to(std::back_inserter(md), "Some text ![icon](icons/i{}.png) about item {} which wraps over the width of the pane "
+                                               "when the window is narrow enough to need it.\n\n",
+                       i % 8, i);
+    }
+    return md;
+}
+
+// 行ごとにアイコンとバッジのある表。
+std::string ImageTableMd(int rows)
+{
+    std::string md = "| icon | name | description | status |\n|---|---|---|---|\n";
+    for (int i = 0; i < rows; ++i) {
+        std::format_to(std::back_inserter(md), "| ![ok](icons/ok.png) | item {} | some description of item {} | [![s](https://img.shields.io/badge/s{}-ok-green)](https://example.com) |\n",
+                       i, i, i % 4);
+    }
+    return md;
+}
+
+// 画像を 16x16 で読めた (リモートは読めない) 文書の、全ノードを組んだあと幅を変えたときの再計測 (直列)。
+void BM_ImageResizeRemeasure(benchmark::State& state, bool badge_readme)
+{
+    const auto opened = OpenDoc(state, badge_readme ? BadgeReadmeMd(state) : InlineIconMd(2000), 0);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    InlineImageTable table;
+    ResolveImages(table, doc, { 16.0f, 16.0f });
+    l.measurer.SetInlineImages(&table);
+    LayoutCache cache(doc.GetNodes().size());
+    ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
+    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
+    size_t k = 0;
+    for (auto _ : state) {
+        ComputeLayout(l.engine, doc.GetNodes(), cache, kWidths[k++ % kWidths.size()]);
+    }
+    l.measurer.SetInlineImages(nullptr);
+}
+BENCHMARK_CAPTURE(BM_ImageResizeRemeasure, badge_readme, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ImageResizeRemeasure, inline_icons, false)->Unit(benchmark::kMicrosecond);
+
+// 画像のある表を組んだあと幅を変えたときの計測。列幅は変わらない。range(0) は行数 (2000 行はセル layout を残さない)。
+void BM_ImageTableResize(benchmark::State& state)
+{
+    const auto [opened, table_node] = OpenTableOrSkip(state, ImageTableMd(static_cast<int>(state.range(0))), 8);
+    if (!table_node) {
+        return;
+    }
+    auto& l = opened->l;
+    InlineImageTable table;
+    ResolveImages(table, opened->doc, { 16.0f, 16.0f });
+    l.measurer.SetInlineImages(&table);
+    NodeLayoutEntry entry;
+    MeasureEntry(l.measurer, *table_node, entry, 1200.0f, nullptr);
+    constexpr std::array kWidths{ 700.0f, 600.0f, 800.0f };
+    size_t k = 0;
+    for (auto _ : state) {
+        entry.layout_dirty = true;
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(l.measurer, *table_node, entry, kWidths[k++ % kWidths.size()], nullptr); }));
+    }
+    l.measurer.SetInlineImages(nullptr);
+}
+BENCHMARK(BM_ImageTableResize)->Arg(100)->Arg(2000)->ArgName("rows")->UseManualTime()->Iterations(30)->Unit(benchmark::kMicrosecond);
+
 } // namespace

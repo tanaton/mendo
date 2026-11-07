@@ -12,7 +12,6 @@
 #include "theme.h"
 #include "viewport_manager.h"
 #include <algorithm>
-#include <bitset>
 #include <cmath>
 #include <ranges>
 #include <utility>
@@ -24,21 +23,6 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     const auto b = std::ranges::lower_bound(sorted_indices, range.begin);
     const auto e = std::ranges::lower_bound(b, sorted_indices.end(), range.end);
     return { b, e };
-}
-
-// node の画像の src を、同じ src (image_slot) ごとに 1 回ずつ fn へ渡す。
-template <class Fn>
-void ForEachImageSrc(const Node& node, Fn&& fn)
-{
-    const auto* tbl = node.table_data();
-    const std::span<const TextRun> runs = tbl ? std::span<const TextRun>{ tbl->all_runs } : node.runs();
-    std::bitset<kMaxImageSlots> seen;
-    for (const auto& r : runs) {
-        if (r.image() && !seen.test(r.image_slot)) {
-            seen.set(r.image_slot);
-            fn(node.image_src(r));
-        }
-    }
 }
 
 } // namespace
@@ -128,12 +112,12 @@ void ResourceManager::EvictOffscreenBitmaps()
     FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> kept;
     const auto& nodes = state_.document.doc.GetNodes();
     for (const size_t i : VisibleSlice(state_.document.doc.GetImageNodeIndices(), keep->range)) {
-        ForEachImageSrc(nodes[i], [&](std::string_view src) {
+        for (const std::string_view src : nodes[i].image_srcs()) {
             const uint64_t key = InlineImageKey(src);
             if (const auto* bitmap = inline_drawings_.images.Find(key)) {
                 *kept.TryEmplace(key).first = *bitmap;
             }
-        });
+        }
     }
     inline_drawings_.images = std::move(kept);
 }
@@ -203,7 +187,9 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         const auto& node = nodes[i];
         // 表のセルの画像は列幅に縮めて出し、表は本文の幅に収めるので、表も本文の幅でデコードする。
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        ForEachImageSrc(node, [&](std::string_view src) { ApplyCachedImage(src, doc_dir, max_width, start_loads, update); });
+        for (const std::string_view src : node.image_srcs()) {
+            ApplyCachedImage(src, doc_dir, max_width, start_loads, update);
+        }
     }
 }
 

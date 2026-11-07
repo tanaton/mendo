@@ -213,6 +213,8 @@ struct Node {
     int8_t heading_level = 0;
     SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
+    // link_urls_ のリンク URL の後ろに続く画像の src の数。
+    uint8_t image_src_count_ = 0;
 
     // DocumentData::raw 起算の UTF-8 byte オフセット。文書順で単調非減少で、本文の位置を持たないノード
     // (HorizontalRule、空の LI、原文の途中から文書末尾へ移る脚注定義など) は前のノードの位置を受け継ぐ。
@@ -274,8 +276,17 @@ struct Node {
     // 読み込んだ画像の寸法はパース結果ではないので持たない (InlineImageTable が持つ)。
     constexpr std::string_view image_src(const TextRun& run) const noexcept
     {
-        assert(run.image());
+        assert(run.image() && run.image_slot < image_src_count_);
         return link_urls_[link_url_count_ + run.image_slot];
+    }
+    // 画像の src を image_slot の順に重複なく (表はセル全体の分)。
+    constexpr std::span<const std::string_view> image_srcs() const noexcept
+    {
+        return { link_urls_ + link_url_count_, image_src_count_ };
+    }
+    constexpr bool has_images() const noexcept
+    {
+        return image_src_count_ != 0;
     }
 
     // table はノードより長く生きる領域を指すこと。
@@ -390,6 +401,7 @@ struct Node {
         assert(link_count <= kMaxLinkUrls && link_count <= urls.size() && urls.size() - link_count <= kMaxImageSlots);
         link_urls_ = urls.data();
         link_url_count_ = static_cast<uint16_t>(link_count);
+        image_src_count_ = static_cast<uint8_t>(urls.size() - link_count);
     }
 
 private:

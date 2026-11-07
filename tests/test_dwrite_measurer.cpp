@@ -571,7 +571,7 @@ TEST_F(DWriteInlineImageTest, WideImageShrinksToLineWidth)
     }
 }
 
-// 同じ src の画像が隣り合っても 1 つにまとめず、1 枚ずつ置く。alt の装飾で分かれた run は 1 枚にまとめる。
+// 同じ src の画像が隣り合っても 1 つにまとめず、1 枚ずつ置く。装飾のある alt も 1 枚。
 TEST_F(DWriteInlineImageTest, AdjacentImagesStaySeparate)
 {
     SetReady("s.png", 50.0f, 20.0f);
@@ -635,6 +635,54 @@ TEST_F(DWriteInlineImageTest, WideImageInTableCellShrinksToColumn)
         EXPECT_NEAR(image_width, tl->col_widths[1], 0.5f);
         EXPECT_LT(image_width, 2000.0f);
     }
+}
+
+// 画像を縮めずに置ける幅の間は、幅を変えても段落を組み直さない。置けない幅になったら縮めて組み直し、縮めて組んだ段落は
+// 幅が変わるたびに組み直す。
+TEST_F(DWriteInlineImageTest, UnshrunkImageKeepsLayoutUntilItMustShrink)
+{
+    SetReady("p.png", 600.0f, 300.0f);
+    auto [nodes, cache] = ParseAndLayout("a ![x](p.png) b");
+    ASSERT_EQ(nodes.size(), 1u);
+    ComputeLayout(engine_, nodes, cache, 1400.0f);
+    auto* const wide = cache[0].text_layout();
+    ASSERT_NE(wide, nullptr);
+    EXPECT_FLOAT_EQ(cache[0].image_min_width, 600.0f);
+
+    ComputeLayout(engine_, nodes, cache, 1200.0f);
+    EXPECT_EQ(cache[0].text_layout(), wide) << "組み直さない";
+    EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 600.0f);
+
+    ComputeLayout(engine_, nodes, cache, 500.0f);
+    auto* const narrow = cache[0].text_layout();
+    ASSERT_NE(narrow, nullptr);
+    EXPECT_NE(narrow, wide);
+    EXPECT_LT(InlineRangeWidth(narrow, 2, 1), 600.0f);
+    EXPECT_GT(cache[0].image_min_width, 1.0e30f);
+
+    ComputeLayout(engine_, nodes, cache, 1400.0f);
+    EXPECT_NE(cache[0].text_layout(), narrow);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 600.0f);
+}
+
+// 表のセルも、画像を縮めずに置ける列幅の間は組み直さない。
+TEST_F(DWriteInlineImageTest, UnshrunkImageCellKeepsLayoutAcrossWidths)
+{
+    SetReady("i.png", 40.0f, 20.0f);
+    auto [nodes, cache] = ParseAndLayout("| icon | name |\n|---|---|\n| ![i](i.png) | first |\n");
+    ASSERT_EQ(nodes.size(), 1u);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
+    const auto* tl = cache[0].table_layout();
+    ASSERT_NE(tl, nullptr);
+    const size_t ci = tl->CellIndex(1, 0);
+    auto* const before = tl->cell_layouts[ci].Get();
+    ASSERT_NE(before, nullptr);
+
+    ComputeLayout(engine_, nodes, cache, 700.0f);
+    tl = cache[0].table_layout();
+    ASSERT_NE(tl, nullptr);
+    EXPECT_EQ(tl->cell_layouts[ci].Get(), before);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[ci].Get(), 0, 1), 40.0f);
 }
 
 

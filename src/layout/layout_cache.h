@@ -87,6 +87,8 @@ struct TableLayoutData {
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     // 画像を含むセルの番号 (昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。
     std::vector<uint32_t> image_cells;
+    // image_cells の各セルの layout の NodeLayoutEntry::image_min_width。列幅がこれ以上なら組み直さない。
+    std::vector<float> image_cell_min_widths;
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -257,6 +259,9 @@ struct NodeLayoutEntry {
     // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_inline = false;
+    // text_layout の画像を縮めずに置ける最小の幅 (画像が無ければ 0、縮めて組んだら無限大)。この幅以上なら、幅を変えても
+    // 画像の組み方は同じなので組み直さない。表はセルごとに TableLayoutData::image_cell_min_widths に持つ。
+    float image_min_width = 0.0f;
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
     constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
