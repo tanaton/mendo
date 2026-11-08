@@ -37,35 +37,7 @@ constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
     return dark_mode ? theme_palette::kDark : theme_palette::kLight;
 }
 
-constexpr std::string_view kHtmlEscapeChars = "&<>\"'";
-
-constexpr std::string_view HtmlEscapeOf(char c) noexcept
-{
-    switch (c) {
-    case '&':
-        return "&amp;";
-    case '<':
-        return "&lt;";
-    case '>':
-        return "&gt;";
-    case '"':
-        return "&quot;";
-    case '\'':
-        return "&#39;";
-    default:
-        return {};
-    }
-}
-
-// エスケープ不要な区間をまとめて append する。数文字の find_first_of は STL がベクトル化している。
-void AppendHtmlEscaped(std::string& out, std::string_view text)
-{
-    for (size_t p; (p = text.find_first_of(kHtmlEscapeChars)) != std::string_view::npos; text.remove_prefix(p + 1)) {
-        out.append(text.substr(0, p));
-        out.append(HtmlEscapeOf(text[p]));
-    }
-    out.append(text);
-}
+using ascii_util::AppendHtmlEscaped;
 
 struct InlineState {
     uint8_t flags = 0;

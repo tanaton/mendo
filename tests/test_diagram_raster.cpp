@@ -312,6 +312,18 @@ TEST_F(PeleSvgTest, TextDecorationLinesPropagate)
     EXPECT_NE(svg.find(R"svg(text-decoration="underline line-through")svg"), std::string::npos) << svg;
 }
 
+// クリップボードの SVG は文字参照を解いた文字を書き直す。XML は本文に "]]>" を書けないので > も変える。
+TEST_F(PeleSvgTest, WritesDecodedLabelsEscaped)
+{
+    const auto drawing = Resolve(R"svg(<text x="0" y="20">a]]&gt;b&apos;c&amp;</text>)svg");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers.size(), 1u);
+    ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
+    EXPECT_EQ(drawing->layers[0].texts[0].text, L"a]]>b'c&");
+    const auto svg = DrawingToSvg(*drawing);
+    EXPECT_NE(svg.find(R"svg(xml:space="preserve">a]]&gt;b&#39;c&amp;</text>)svg"), std::string::npos) << svg;
+}
+
 // pele は px 以外の線の太さの縁取りを calc(<太さ> + 4px) と書く。足し算と引き算を読み、読めない項があれば宣言ごと無効にする。
 TEST_F(PeleSvgTest, ReadsCalcSumsOfLengths)
 {

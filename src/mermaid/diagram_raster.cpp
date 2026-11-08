@@ -1483,26 +1483,6 @@ void AppendNum(std::string& out, double v)
     out.append(buf, ec == std::errc{} ? ptr : buf);
 }
 
-// 二重引用符で囲む属性値に書く。
-void AppendEscaped(std::string& out, std::string_view s)
-{
-    for (const char c : s) {
-        switch (c) {
-        case '&':
-            out += "&amp;";
-            break;
-        case '<':
-            out += "&lt;";
-            break;
-        case '"':
-            out += "&quot;";
-            break;
-        default:
-            out += c;
-        }
-    }
-}
-
 template <class F>
 void AppendAttrWith(std::string& out, std::string_view name, F&& write_value)
 {
@@ -1520,7 +1500,7 @@ void AppendAttr(std::string& out, std::string_view name, double v)
 
 void AppendAttr(std::string& out, std::string_view name, std::string_view v)
 {
-    AppendAttrWith(out, name, [&] { AppendEscaped(out, v); });
+    AppendAttrWith(out, name, [&] { ascii_util::AppendHtmlEscaped(out, v); });
 }
 
 void AppendAttr(std::string& out, std::string_view name, const Rgba& c)
@@ -4716,7 +4696,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
                 AppendAttr(out, "text-decoration", kLines[t.decoration & mermaid_util::kTextDecorationBits]);
             }
             fill(t.at);
-            AppendEscaped(out, string_convert::WideToUtf8(t.text));
+            ascii_util::AppendHtmlEscaped(out, string_convert::WideToUtf8(t.text));
             out += "</text>";
         }
         // 数式は Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ にする。書体は総称の読み替えと同じ本文の書体。
@@ -4724,7 +4704,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             open_text(m.at, kDefaultFamilyUtf8);
             fill(m.at);
             out += "$$";
-            AppendEscaped(out, m.tex);
+            ascii_util::AppendHtmlEscaped(out, m.tex);
             out += "$$</text>";
         }
     }
