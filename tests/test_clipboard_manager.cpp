@@ -3,8 +3,10 @@
 #include "document.h"
 #include "document_test_helpers.h"
 #include "mermaid_renderer_interface.h"
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -23,15 +25,16 @@ public:
         last_code.assign(code);
         last_width = max_width;
         last_dark = dark_mode;
-        last_callback = std::move(cb);
+        callbacks.push_back(std::move(cb));
     }
 
-    void FireCallback(std::string_view svg)
+    // index 番目 (既定は最後) の要求の結果を返す。結果は 1 回だけ返す。
+    void FireCallback(std::string_view svg, std::optional<size_t> index = {})
     {
-        if (last_callback) {
-            // SvgCallback は move_only_function なので 1 回実行後は破棄。
-            auto cb = std::move(last_callback);
-            last_callback = {};
+        if (callbacks.empty()) {
+            return;
+        }
+        if (auto cb = std::exchange(callbacks[index.value_or(callbacks.size() - 1)], {})) {
             cb(svg);
         }
     }
@@ -40,7 +43,7 @@ public:
     std::string last_code;
     float last_width = 0.0f;
     bool last_dark = false;
-    SvgCallback last_callback;
+    std::vector<SvgCallback> callbacks;
 };
 
 constexpr float kDefaultMdWidth = 800.0f;
@@ -124,7 +127,7 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeWidthAndDarkModeToR
     renderer_.FireCallback({});
 }
 
-// 待っている間の再入は弾く。弾いた再入で世代を進めると、待っている要求の結果が古い扱いになりトーストが出ない。
+// 同じ図を待っている間に押し直しても頼み直さない。頼み直すと、待っている要求の結果が古い扱いになりトーストが出ない。
 // 結果 (描けなかったときも) が届いたら次の要求を受け付ける。
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
 {
@@ -144,3 +147,21 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     EXPECT_EQ(renderer_.request_count, 2);
 }
 
+// 待っている間に別の図をコピーしたら、後から押した方に置き換える。先に頼んだ結果は書かず、トーストも出さない。
+TEST_F(ClipboardManagerTest, CopyOfAnotherDiagramReplacesPending)
+{
+    Load("```mermaid\ngraph TD; A-->B\n```\n\n```mermaid\ngraph TD; C-->D\n```\n");
+    const auto& diagrams = doc_.GetDiagramNodeIndices();
+    ASSERT_EQ(diagrams.size(), 2u);
+
+    CopyDiagram(static_cast<int>(diagrams[0]));
+    CopyDiagram(static_cast<int>(diagrams[1]));
+    ASSERT_EQ(renderer_.request_count, 2);
+    EXPECT_EQ(renderer_.last_code, "graph TD; C-->D");
+
+    const auto before = toasts_.size();
+    renderer_.FireCallback({}, 0);
+    EXPECT_EQ(toasts_.size(), before) << "置き換えた要求の結果";
+    renderer_.FireCallback({}, 1);
+    EXPECT_EQ(toasts_.size(), before + 1);
+}
