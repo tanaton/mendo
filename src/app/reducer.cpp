@@ -7,6 +7,7 @@
 #include "selection_html.h"
 #include "string_convert.h"
 #include "ui_constants.h"
+#include "utility.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -279,25 +280,24 @@ void On(ReduceContext& c, const BlockHScrollDragStartedAction& a)
     if (!geom.can_scroll()) {
         return;
     }
-    c.state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = c.state.view.GetBlockScrollX(geom) };
+    c.state.view.drag = left_drag::BlockHScroll{ .node = a.node_index, .start_x = a.dip_x, .start_scroll = c.state.view.GetBlockScrollX(geom) };
     Invalidate(c);
 }
 
-void MoveBlockHScrollDrag(ReduceContext& c, float dip_x)
+void MoveBlockHScrollDrag(ReduceContext& c, const left_drag::BlockHScroll& drag, float dip_x)
 {
-    auto& sv = c.state.view;
-    const auto geom = ResolveBlockHScrollGeometry(c.state, sv.drag.block_node);
+    const auto geom = ResolveBlockHScrollGeometry(c.state, drag.node);
     if (!geom.can_scroll()) {
         return;
     }
     // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
     // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
     // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
-    const float dip_delta = dip_x - sv.drag.start_x;
+    const float dip_delta = dip_x - drag.start_x;
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (SetBlockScrollX(c.state, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
+    if (SetBlockScrollX(c.state, drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
         Invalidate(c);
     }
 }
@@ -493,7 +493,7 @@ void On(ReduceContext& c, const LoadingShownAction& a)
     if (!a.shown) {
         return;
     }
-    if (IsMdPaneDrag(view.drag.kind)) {
+    if (IsMdPaneDrag(view.drag)) {
         view.drag = {};
     }
     // 見えたままのタイトルバーとサイドペインのホバーは残す。
@@ -515,28 +515,28 @@ void On(ReduceContext& c, const CaptureChangedAction&)
 
 void On(ReduceContext& c, const SplitterDragStartedAction& a)
 {
-    c.state.view.drag = { .kind = LeftDrag::Splitter, .pane = a.edge };
+    c.state.view.drag = left_drag::Splitter{ a.edge };
 }
 
-void MoveSplitterDrag(ReduceContext& c, float dip_x)
+void MoveSplitterDrag(ReduceContext& c, PaneTarget pane, float dip_x)
 {
     const float splitter_w = c.state.theme->splitter_width;
     const float before_file = c.state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = c.state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    c.state.view.panes.DragSplitterTo(c.state.view.drag.pane, dip_x, c.state.window.WidthDip(), splitter_w);
+    c.state.view.panes.DragSplitterTo(pane, dip_x, c.state.window.WidthDip(), splitter_w);
     if (c.state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && c.state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
     Invalidate(c);
 }
 
-void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
+void MoveTextSelectionDrag(ReduceContext& c, const left_drag::TextSelect& drag, int node_index, uint32_t text_pos)
 {
     if (node_index < 0) {
         return;
     }
     // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
-    const auto next = c.state.view.drag.SelectionTo(node_index, text_pos);
+    const auto next = drag.SelectionTo(node_index, text_pos);
     if (next == c.state.view.viewport.GetSelection()) {
         return;
     }
@@ -546,30 +546,28 @@ void MoveTextSelectionDrag(ReduceContext& c, int node_index, uint32_t text_pos)
 
 void On(ReduceContext& c, const LeftDragEndedAction& a)
 {
-    const LeftDrag drag = c.state.view.drag.kind;
+    const LeftDragState drag = std::exchange(c.state.view.drag, left_drag::None{});
     // 選択の無いクリックなど、見た目が変わらないなら再描画しない。
-    if (drag == LeftDrag::TextSelect) {
-        MoveTextSelectionDrag(c, a.node_index, a.text_pos);
+    if (const auto* select = std::get_if<left_drag::TextSelect>(&drag)) {
+        MoveTextSelectionDrag(c, *select, a.node_index, a.text_pos);
     }
-    c.state.view.drag = {};
-    if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
+    else if (std::holds_alternative<left_drag::Splitter>(drag) || std::holds_alternative<left_drag::MdScrollbar>(drag)) {
         PushEffect(c.effects, effect::SettleViewport{});
     }
-    else if (drag == LeftDrag::BlockHScroll) {
+    else if (std::holds_alternative<left_drag::BlockHScroll>(drag)) {
         Invalidate(c);
     }
 }
 
 void On(ReduceContext& c, const SearchInputDragStartedAction& a)
 {
-    c.state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
+    c.state.view.drag = left_drag::SearchInput{ a.caret_pos };
     PushEffect(c.effects, effect::SearchFocus{ a.caret_pos, a.caret_pos });
 }
 
-void MoveSearchInputDrag(ReduceContext& c, int caret)
+void MoveSearchInputDrag(ReduceContext& c, int anchor, int caret)
 {
     const auto& sg = c.state.search;
-    const int anchor = c.state.view.drag.search_anchor;
     if (caret == sg.caret_pos && anchor == sg.selection_start) {
         return;
     }
@@ -581,16 +579,16 @@ void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
     const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
     auto& viewport = c.state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
-    c.state.view.drag = { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset };
+    c.state.view.drag = left_drag::MdScrollbar{ grip.drag_offset };
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), info.max_scroll);
     }
 }
 
-void MoveMdScrollbarDrag(AppState& state, float dip_y)
+void MoveMdScrollbarDrag(AppState& state, float grip_offset, float dip_y)
 {
-    const float new_thumb_y = dip_y - state.view.drag.grip_offset;
+    const float new_thumb_y = dip_y - grip_offset;
     const auto info = MdScrollInfo(state, ComputePaneLayout(state));
     state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y), info.max_scroll);
 }
@@ -602,17 +600,17 @@ void On(ReduceContext& c, const PaneScrollbarDragStartedAction& a)
         return;
     }
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll_y), ctx.info.thumb_height, a.dip_y);
-    c.state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset };
+    c.state.view.drag = left_drag::PaneScrollbar{ a.pane, grip.drag_offset };
     if (!grip.inside_thumb) {
         ctx.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
         Invalidate(c);
     }
 }
 
-void MovePaneScrollbarDrag(ReduceContext& c, float dip_y)
+void MovePaneScrollbarDrag(ReduceContext& c, const left_drag::PaneScrollbar& drag, float dip_y)
 {
-    const auto ctx = GetSidePaneContext(c.state, c.state.view.drag.pane);
-    const float new_thumb_y = dip_y - c.state.view.drag.grip_offset;
+    const auto ctx = GetSidePaneContext(c.state, drag.pane);
+    const float new_thumb_y = dip_y - drag.grip_offset;
     ctx.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     Invalidate(c);
 }
@@ -625,7 +623,7 @@ void On(ReduceContext& c, const TextSelectionStartedAction& a)
     auto& viewport = c.state.view.viewport;
     const bool had_selection = viewport.GetSelection().active();
     viewport.ClearSelection();
-    c.state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
+    c.state.view.drag = left_drag::TextSelect{ .node = a.node_index, .pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
     if (had_selection) {
         Invalidate(c);
     }
@@ -633,29 +631,18 @@ void On(ReduceContext& c, const TextSelectionStartedAction& a)
 
 void On(ReduceContext& c, const LeftDragMovedAction& a)
 {
-    switch (c.state.view.drag.kind) {
-    case LeftDrag::None:
-        return;
-    case LeftDrag::SearchInput:
-        MoveSearchInputDrag(c, a.search_caret);
-        return;
-    case LeftDrag::Splitter:
-        MoveSplitterDrag(c, a.dip_x);
-        return;
-    case LeftDrag::PaneScrollbar:
-        MovePaneScrollbarDrag(c, a.dip_y);
-        return;
-    case LeftDrag::MdScrollbar:
-        MoveMdScrollbarDrag(c.state, a.dip_y);
-        return;
-    case LeftDrag::BlockHScroll:
-        MoveBlockHScrollDrag(c, a.dip_x);
-        return;
-    case LeftDrag::TextSelect:
-        MoveTextSelectionDrag(c, a.node_index, a.text_pos);
-        return;
-    }
-    std::unreachable();
+    // 動かす処理が c.state を書き換えても参照が浮かないよう、写してから渡す。
+    const LeftDragState drag = c.state.view.drag;
+    std::visit(overloaded{
+                   [](const left_drag::None&) static {},
+                   [&](const left_drag::SearchInput& d) { MoveSearchInputDrag(c, d.anchor, a.search_caret); },
+                   [&](const left_drag::Splitter& d) { MoveSplitterDrag(c, d.pane, a.dip_x); },
+                   [&](const left_drag::PaneScrollbar& d) { MovePaneScrollbarDrag(c, d, a.dip_y); },
+                   [&](const left_drag::MdScrollbar& d) { MoveMdScrollbarDrag(c.state, d.grip_offset, a.dip_y); },
+                   [&](const left_drag::BlockHScroll& d) { MoveBlockHScrollDrag(c, d, a.dip_x); },
+                   [&](const left_drag::TextSelect& d) { MoveTextSelectionDrag(c, d, a.node_index, a.text_pos); },
+               },
+               drag);
 }
 
 void On(ReduceContext& c, const RightClickGestureStartedAction& a)
@@ -913,7 +900,7 @@ void On(ReduceContext& c, const ClearSelectionAction&)
         return;
     }
     auto& viewport = c.state.view.viewport;
-    const bool dragging = c.state.view.drag.kind == LeftDrag::TextSelect;
+    const bool dragging = std::holds_alternative<left_drag::TextSelect>(c.state.view.drag);
     const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
@@ -1098,7 +1085,7 @@ void ResetPerNodeTransientState(ReduceContext& c)
     view.active_toc_index = -1;
     // ツールチップの同一判定は node / TOC の index で行う。
     ClearTooltip(c);
-    if (IsDocumentBoundDrag(view.drag.kind)) {
+    if (IsDocumentBoundDrag(view.drag)) {
         view.drag = {};
     }
 }

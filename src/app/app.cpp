@@ -1176,17 +1176,17 @@ void App::OnMButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
-    const LeftDrag drag = state_.view.drag.kind;
-    if (drag == LeftDrag::None) {
+    if (!state_.view.IsDragging()) {
         return;
     }
-    if (drag != LeftDrag::TextSelect) {
+    const auto* select = std::get_if<left_drag::TextSelect>(&state_.view.drag);
+    if (!select) {
         Dispatch(LeftDragEndedAction{});
         return;
     }
+    const int dx = px - select->click_x;
+    const int dy = py - select->click_y;
     const auto hit = HitTest(px, py);
-    const int dx = px - state_.view.drag.click_x;
-    const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
     Dispatch(LeftDragEndedAction{ hit.node_index, hit.text_pos });
     if (!small_click || state_.view.viewport.GetSelection().active()) {
@@ -1203,23 +1203,17 @@ void App::OnMouseMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     LeftDragMovedAction action{ .dip_x = dip.x, .dip_y = dip.y };
     // 入力欄とテキスト選択だけは、ポインタの位置を文字の位置に直して渡す。
-    switch (state_.view.drag.kind) {
-    case LeftDrag::None:
+    const LeftDragState& drag = state_.view.drag;
+    if (std::holds_alternative<left_drag::None>(drag)) {
         return;
-    case LeftDrag::SearchInput:
+    }
+    if (std::holds_alternative<left_drag::SearchInput>(drag)) {
         action.search_caret = SearchInputPosAt(dip.x);
-        break;
-    case LeftDrag::TextSelect: {
+    }
+    else if (std::holds_alternative<left_drag::TextSelect>(drag)) {
         const auto hit = HitTest(px, py);
         action.node_index = hit.node_index;
         action.text_pos = hit.text_pos;
-        break;
-    }
-    case LeftDrag::Splitter:
-    case LeftDrag::PaneScrollbar:
-    case LeftDrag::MdScrollbar:
-    case LeftDrag::BlockHScroll:
-        break;
     }
     Dispatch(action);
 }
@@ -1233,7 +1227,7 @@ void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 bool App::OnRButtonDown(int px, int py)
 {
     // 左ドラッグ中の移動は OnMouseMove にしか届かずジェスチャが進まない。離すとメニューが出てドラッグも切れる。
-    if (state_.view.drag.kind != LeftDrag::None) {
+    if (state_.view.IsDragging()) {
         return false;
     }
     const auto dip = PixelToDip(px, py);

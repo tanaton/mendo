@@ -6,6 +6,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <variant>
 #include <vector>
 
 // reducer の状態遷移列に対する不変条件テスト。
@@ -210,7 +211,7 @@ INSTANTIATE_TEST_SUITE_P(
     [](const auto& info) static { return std::string(info.param.name); });
 
 // ---- マウスキャプチャ ----
-// 不変条件: 「SetCapture 保持中」⇔「左ドラッグ進行中 (drag.kind != None) または右ジェスチャ進行中」。
+// 不変条件: 「SetCapture 保持中」⇔「左ドラッグ進行中 (drag が None でない) または右ジェスチャ進行中」。
 // 保持したままドラッグ状態だけ消えると、LButtonUp がどの終了経路にも入らずキャプチャが残り、
 // タイトルバーのドラッグやウィンドウ外への MouseLeave 検出が効かなくなる。
 // 逆に、ドラッグ状態が残ったままキャプチャを失うと、ボタンを離しても終了処理が走らない。
@@ -370,52 +371,54 @@ private:
     // App::OnMouseMove の振り分け。
     std::string LMove()
     {
-        switch (h_.state.view.drag.kind) {
-        case LeftDrag::None:
+        const LeftDragState& drag = h_.state.view.drag;
+        if (std::holds_alternative<left_drag::None>(drag)) {
             return "LMove:Nothing";
-        case LeftDrag::SearchInput:
+        }
+        if (std::holds_alternative<left_drag::SearchInput>(drag)) {
             model_.Dispatch(LeftDragMovedAction{ .search_caret = Pick(0, 5) });
             return "LMove:SearchInput";
-        case LeftDrag::Splitter:
+        }
+        if (std::holds_alternative<left_drag::Splitter>(drag)) {
             model_.Dispatch(LeftDragMovedAction{ .dip_x = PickF(50, 900) });
             return "LMove:Splitter";
-        case LeftDrag::PaneScrollbar:
+        }
+        if (std::holds_alternative<left_drag::PaneScrollbar>(drag)) {
             model_.Dispatch(LeftDragMovedAction{ .dip_y = PickF(0, 400) });
             return "LMove:PaneScrollbar";
-        case LeftDrag::MdScrollbar:
+        }
+        if (std::holds_alternative<left_drag::MdScrollbar>(drag)) {
             model_.Dispatch(LeftDragMovedAction{ .dip_y = PickF(0, 400) });
             return "LMove:MdScrollbar";
-        case LeftDrag::BlockHScroll:
+        }
+        if (std::holds_alternative<left_drag::BlockHScroll>(drag)) {
             model_.Dispatch(LeftDragMovedAction{ .dip_x = PickF(300, 900) });
             return "LMove:BlockHScroll";
-        case LeftDrag::TextSelect:
-            model_.Dispatch(LeftDragMovedAction{ .node_index = Pick(0, h_.NodeCount() - 1), .text_pos = static_cast<uint32_t>(Pick(0, 5)) });
-            return "LMove:TextSelection";
         }
-        std::unreachable();
+        model_.Dispatch(LeftDragMovedAction{ .node_index = Pick(0, h_.NodeCount() - 1), .text_pos = static_cast<uint32_t>(Pick(0, 5)) });
+        return "LMove:TextSelection";
     }
 
     // App::OnLButtonUp の振り分け。
     std::string LButtonUp()
     {
         left_down_ = false;
-        switch (h_.state.view.drag.kind) {
-        case LeftDrag::None:
+        if (!h_.state.view.IsDragging()) {
             return "LUp:Nothing";
-        case LeftDrag::TextSelect:
+        }
+        if (std::holds_alternative<left_drag::TextSelect>(h_.state.view.drag)) {
             model_.Dispatch(LeftDragEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
             return "LUp:TextSelection";
-        default:
-            model_.Dispatch(LeftDragEndedAction{});
-            return "LUp:Drag";
         }
+        model_.Dispatch(LeftDragEndedAction{});
+        return "LUp:Drag";
     }
 
     // App::OnRButtonDown: 左ドラッグ中はジェスチャを開始しない。
     std::string RButtonDown()
     {
         right_down_ = true;
-        if (h_.state.view.drag.kind != LeftDrag::None) {
+        if (h_.state.view.IsDragging()) {
             return "RDown:Ignored";
         }
         model_.Dispatch(RightClickGestureStartedAction{ 300.0f, 300.0f });
@@ -491,7 +494,7 @@ TEST(ReducerCaptureInvariant, CaptureHeldIffDragOrGestureActive)
             history += " " + label;
             SCOPED_TRACE(std::format("seed={} step={} event={}", seed, step, label));
             ASSERT_EQ(driver.Model().Held(), CaptureRequired(h.state))
-                << "left_drag=" << static_cast<int>(h.state.view.drag.kind)
+                << "left_drag=" << h.state.view.drag.index()
                 << " gesture=" << static_cast<int>(h.state.interaction.gesture.GetPhase())
                 << "\nhistory:" << history;
         }
@@ -508,7 +511,7 @@ TEST(ReducerCaptureInvariant, EscDuringTextDragReleasesCapture)
 
     model.Dispatch(ClearSelectionAction{});
 
-    EXPECT_NE(h.state.view.drag.kind, LeftDrag::TextSelect);
+    EXPECT_FALSE(std::holds_alternative<left_drag::TextSelect>(h.state.view.drag));
     EXPECT_FALSE(model.Held());
 }
 
@@ -523,7 +526,7 @@ TEST(ReducerCaptureInvariant, GestureEndDuringLeftDragKeepsCapture)
 
     model.Dispatch(RightClickGestureCompletedAction{ 0, 0 });
 
-    EXPECT_EQ(h.state.view.drag.kind, LeftDrag::Splitter);
+    EXPECT_TRUE(std::holds_alternative<left_drag::Splitter>(h.state.view.drag));
     EXPECT_TRUE(model.Held());
 
     model.Dispatch(LeftDragEndedAction{});
@@ -590,7 +593,7 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     s.view.nav_history.Push(NavEntry(L"C:\\docs\\b.md", 0, 0.0f));
     s.view.hover.h_block = ResolveNode(h, c.hover);
     if (const int drag_node = ResolveNode(h, c.drag); drag_node >= 0) {
-        s.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = drag_node };
+        s.view.drag = left_drag::BlockHScroll{ .node = drag_node };
     }
     const int target = s.view.HDragNode() >= 0 ? s.view.HDragNode() : s.view.hover.h_block;
     const float block_x_before = BlockScrollX(h, target);

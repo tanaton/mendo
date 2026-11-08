@@ -109,29 +109,6 @@ struct OverlayButtonHit {
     bool operator==(const OverlayButtonHit&) const = default;
 };
 
-// 進行中の左ボタンドラッグの種類。
-enum class LeftDrag : uint8_t {
-    None,
-    TextSelect,
-    Splitter,      // LeftDragState::pane の右端
-    PaneScrollbar, // LeftDragState::pane のスクロールバー
-    MdScrollbar,
-    BlockHScroll,
-    SearchInput,
-};
-
-// ノード番号や検索語に結び付くドラッグ。文書を差し替えると対象を失う。
-constexpr bool IsDocumentBoundDrag(LeftDrag d) noexcept
-{
-    return d == LeftDrag::TextSelect || d == LeftDrag::BlockHScroll || d == LeftDrag::SearchInput;
-}
-
-// 本文ペイン (本文・検索バー・スクロールバー) の上のドラッグ。
-constexpr bool IsMdPaneDrag(LeftDrag d) noexcept
-{
-    return IsDocumentBoundDrag(d) || d == LeftDrag::MdScrollbar;
-}
-
 // 履歴移動の向き。ジェスチャー / 水平スワイプの向きと、ナビボタンのホバー対象を表す。
 enum class NavDirection : uint8_t {
     None,

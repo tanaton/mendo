@@ -1538,10 +1538,10 @@ void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind)
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(200) });
     h.state.view.viewport.ScrollTo(5000.0f, MdMaxScroll(h.state));
     if (kind == ReduceEvent::SelectDrag) {
-        h.state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 5 };
+        h.state.view.drag = left_drag::TextSelect{ .node = 5 };
     }
     else if (kind == ReduceEvent::ScrollbarDrag) {
-        h.state.view.drag = { .kind = LeftDrag::MdScrollbar };
+        h.state.view.drag = left_drag::MdScrollbar{};
     }
     std::vector<AppAction> events;
     events.reserve(kEvents);

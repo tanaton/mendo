@@ -286,8 +286,7 @@ TEST_F(PointerHitTest, BlockHScrollbarHiddenWhileDragging)
     EXPECT_EQ(Hover(x, NodeMidY(code)).hover.h_block, code);
     EXPECT_EQ(Hover(x, NodeMidY(code)).cursor, app_controller::PointerCursor::IBeam);
 
-    h_.state.view.drag.kind = LeftDrag::BlockHScroll;
-    h_.state.view.drag.block_node = code;
+    h_.state.view.drag = left_drag::BlockHScroll{ .node = code };
     EXPECT_EQ(Hover(x, NodeMidY(code)).hover.h_block, -1);
 }
 

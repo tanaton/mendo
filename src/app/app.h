@@ -310,7 +310,7 @@ private:
     // 差し替えると選択の途中でドラッグが終わるので、読み直しを待たせる。
     bool IsSelectingText() const noexcept
     {
-        return state_.view.drag.kind == LeftDrag::TextSelect;
+        return std::holds_alternative<left_drag::TextSelect>(state_.view.drag);
     }
     // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
     void BeginAsyncLoad(std::wstring path, bool show_animation);

@@ -23,30 +23,62 @@ struct DocumentState {
     LayoutCache layout_cache;
 };
 
-// 進行中の左ボタンドラッグ。
-struct LeftDragState {
-    LeftDrag kind = LeftDrag::None;
-    // Splitter / PaneScrollbar: 対象のサイドペイン。
-    PaneTarget pane = PaneTarget::File;
-    // スクロールバー: つまみを掴んだ位置 (つまみ上端から)。
-    float grip_offset = 0.0f;
-    // BlockHScroll: 対象ノードと開始時の x・横スクロール量。
-    int block_node = -1;
-    float start_x = 0.0f;
-    float start_scroll = 0.0f;
-    // SearchInput: 選択の起点 (キャレット位置)。
-    int search_anchor = 0;
-    // TextSelect: 選択の起点と、押した位置 (px。小さいクリックの判定に使う)。
-    int select_node = -1;
-    uint32_t select_pos = 0;
+// 進行中の左ボタンドラッグ。種類ごとに、そのドラッグで使う値だけを持つ。
+namespace left_drag {
+
+struct None {};
+// 選択の起点と、押した位置 (px。小さいクリックの判定に使う)。
+struct TextSelect {
+    int node = -1;
+    uint32_t pos = 0;
     int click_x = 0;
     int click_y = 0;
 
-    constexpr TextSelection SelectionTo(int node, uint32_t pos) const noexcept
+    constexpr TextSelection SelectionTo(int to_node, uint32_t to_pos) const noexcept
     {
-        return TextSelection::MakeOrdered(select_node, select_pos, node, pos);
+        return TextSelection::MakeOrdered(node, pos, to_node, to_pos);
     }
 };
+// pane の右端。
+struct Splitter {
+    PaneTarget pane = PaneTarget::File;
+};
+// grip_offset はつまみを掴んだ位置 (つまみ上端から)。
+struct PaneScrollbar {
+    PaneTarget pane = PaneTarget::File;
+    float grip_offset = 0.0f;
+};
+struct MdScrollbar {
+    float grip_offset = 0.0f;
+};
+// 対象ノードと、開始時の x・横スクロール量。
+struct BlockHScroll {
+    int node = -1;
+    float start_x = 0.0f;
+    float start_scroll = 0.0f;
+};
+// 入力欄の選択の起点 (キャレット位置)。
+struct SearchInput {
+    int anchor = 0;
+};
+
+} // namespace left_drag
+
+using LeftDragState = std::variant<left_drag::None, left_drag::TextSelect, left_drag::Splitter, left_drag::PaneScrollbar,
+                                   left_drag::MdScrollbar, left_drag::BlockHScroll, left_drag::SearchInput>;
+
+// ノード番号や検索語に結び付くドラッグ。文書を差し替えると対象を失う。
+inline bool IsDocumentBoundDrag(const LeftDragState& drag) noexcept
+{
+    return std::holds_alternative<left_drag::TextSelect>(drag) || std::holds_alternative<left_drag::BlockHScroll>(drag) ||
+           std::holds_alternative<left_drag::SearchInput>(drag);
+}
+
+// 本文ペイン (本文・検索バー・スクロールバー) の上のドラッグ。
+inline bool IsMdPaneDrag(const LeftDragState& drag) noexcept
+{
+    return IsDocumentBoundDrag(drag) || std::holds_alternative<left_drag::MdScrollbar>(drag);
+}
 
 struct ViewState {
     ViewportManager viewport;
@@ -76,10 +108,15 @@ struct ViewState {
         return !std::holds_alternative<std::monostate>(pending_scroll);
     }
 
-    // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
-    constexpr int HDragNode() const noexcept
+    bool IsDragging() const noexcept
     {
-        return drag.kind == LeftDrag::BlockHScroll ? drag.block_node : -1;
+        return !std::holds_alternative<left_drag::None>(drag);
+    }
+    // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
+    int HDragNode() const noexcept
+    {
+        const auto* h = std::get_if<left_drag::BlockHScroll>(&drag);
+        return h ? h->node : -1;
     }
 
     float GetBlockScrollX(const BlockHScrollGeometry& geom) const noexcept
@@ -162,7 +199,7 @@ struct AppState {
 // マウスキャプチャを持つ条件。Reduce が前後を比べて取得と解放を決めるので、個々の処理では指示しない。
 inline bool CaptureRequired(const AppState& state) noexcept
 {
-    return state.view.drag.kind != LeftDrag::None || state.interaction.gesture.GetPhase() != GesturePhase::Idle;
+    return state.view.IsDragging() || state.interaction.gesture.GetPhase() != GesturePhase::Idle;
 }
 
 inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
