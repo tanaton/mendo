@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 namespace i18n {
 struct Strings;
@@ -373,8 +374,19 @@ private:
     ThemeService theme_service_;
     // 起動時の読み込み (preload) も Init より前にここで始め、通知先は LoadInitialDocument の Attach で渡す。
     AsyncLoadCoordinator load_coordinator_{ scheduler_ };
-    // スピナー (ViewState::loading_shown) は読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。
-    float spinner_angle_ = 0.0f;
+    // 読み込みのスピナー。読み込みが長引いたときだけ出し (ViewState::loading_shown)、出ている間はタイマーごとに回す。
+    // LOADING_ANIM のタイマーは Delayed (出すまでの遅延) と Spinning (コマ送り) の間だけ掛かっている。
+    struct SpinnerOff {};
+    struct SpinnerDelayed {};
+    struct SpinnerSpinning {
+        float angle = 0.0f;
+    };
+    std::variant<SpinnerOff, SpinnerDelayed, SpinnerSpinning> spinner_;
+    std::optional<float> SpinnerAngle() const noexcept
+    {
+        const auto* spinning = std::get_if<SpinnerSpinning>(&spinner_);
+        return spinning ? std::optional{ spinning->angle } : std::nullopt;
+    }
     // 表示中のファイルの読み直し。読み込みを始める・取り消す・結果を取り出すたびに知らせる。
     ReloadScheduler reload_;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。

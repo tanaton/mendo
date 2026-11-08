@@ -300,8 +300,7 @@ void App::OnPaint()
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
-        .loading_angle = show_loading ? std::optional{ spinner_angle_ }
-          : std::nullopt,
+        .loading_angle = SpinnerAngle(),
     });
 
     EndPaint(hwnd_, &ps);
@@ -547,21 +546,20 @@ void App::HandleTimer(UINT_PTR timer_id)
         tooltip_.OnTimer();
         return;
     case LOADING_ANIM:
-        // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
-        if (!state_.view.loading_shown) {
-            if (load_coordinator_.IsActive()) {
-                StartLoadingAnimation();
+        if (auto* spinning = std::get_if<SpinnerSpinning>(&spinner_)) {
+            spinning->angle += SPINNER_ROTATION_INCREMENT;
+            if (spinning->angle > TWO_PI) {
+                spinning->angle -= TWO_PI;
             }
-            else {
-                KillTimer(id);
-            }
-            return;
+            Invalidate();
         }
-        spinner_angle_ += SPINNER_ROTATION_INCREMENT;
-        if (spinner_angle_ > TWO_PI) {
-            spinner_angle_ -= TWO_PI;
+        else if (std::holds_alternative<SpinnerDelayed>(spinner_) && load_coordinator_.IsActive()) {
+            StartLoadingAnimation();
         }
-        Invalidate();
+        else {
+            spinner_ = SpinnerOff{};
+            KillTimer(id);
+        }
         return;
     case BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
@@ -620,7 +618,7 @@ void App::CancelPendingResources()
 
 void App::StartLoadingAnimation()
 {
-    spinner_angle_ = 0.0f;
+    spinner_ = SpinnerSpinning{};
     SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
     Dispatch(LoadingShownAction{ true });
 }
@@ -628,7 +626,8 @@ void App::StartLoadingAnimation()
 void App::ScheduleLoadingAnimation()
 {
     // 回っている最中に次の読み込みが始まったら、そのまま回し続ける。
-    if (!state_.view.loading_shown) {
+    if (!std::holds_alternative<SpinnerSpinning>(spinner_)) {
+        spinner_ = SpinnerDelayed{};
         SetTimer(app_timer::Id::LOADING_ANIM, app_timer::LOADING_SPINNER_DELAY_MS);
     }
 }
@@ -636,7 +635,9 @@ void App::ScheduleLoadingAnimation()
 void App::StopLoadingAnimation()
 {
     // 出す前のスピナーの遅延もここで止める。
-    KillTimer(app_timer::Id::LOADING_ANIM);
+    if (!std::holds_alternative<SpinnerOff>(std::exchange(spinner_, SpinnerOff{}))) {
+        KillTimer(app_timer::Id::LOADING_ANIM);
+    }
     // 出ていれば消すために描き直させる。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
     Dispatch(LoadingShownAction{ false });
 }
