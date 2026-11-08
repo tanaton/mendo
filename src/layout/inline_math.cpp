@@ -182,23 +182,30 @@ void InlineMathTable::Clear()
 
 namespace {
 
-// 描画に届いたインラインオブジェクトが数式かを QueryInterface で見分ける。
+// 描画に届いたインラインオブジェクトが数式か画像かを QueryInterface で見分ける。
 MIDL_INTERFACE("5b3f8c1e-9d47-4a26-8e1b-7c2d4f60a913")
 IInlineMathRef : public IUnknown
 {
     virtual InlineMathObjectRef STDMETHODCALLTYPE Ref() const noexcept = 0;
 };
+MIDL_INTERFACE("0f8d2a64-37c1-4b9e-a5d3-6e21c9b47f08")
+IInlineImageRef : public IUnknown
+{
+    virtual InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept = 0;
+};
 
-// 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
-class InlineMathObject final
-    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineMathRef> {
+// 寸法と ref を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
+// 読めない画像は alt の layout を持ち、描く側に渡す。
+template <class IRef, class RefT>
+class RefInlineObject final
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IRef> {
 public:
-    InlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale) noexcept
-        : ref_{ key, scale }, metrics_{ metrics.width * scale, metrics.height * scale, metrics.baseline * scale }
+    RefInlineObject(const RefT& ref, const DWRITE_INLINE_OBJECT_METRICS& metrics, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt) noexcept
+        : ref_(ref), metrics_(metrics), alt_(std::move(alt))
     {
     }
 
-    InlineMathObjectRef STDMETHODCALLTYPE Ref() const noexcept override
+    RefT STDMETHODCALLTYPE Ref() const noexcept override
     {
         return ref_;
     }
@@ -209,7 +216,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE GetMetrics(DWRITE_INLINE_OBJECT_METRICS* metrics) noexcept override
     {
-        *metrics = { metrics_.width, metrics_.height, metrics_.baseline, FALSE };
+        *metrics = metrics_;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetOverhangMetrics(DWRITE_OVERHANG_METRICS* overhangs) noexcept override
@@ -217,7 +224,7 @@ public:
         *overhangs = {};
         return S_OK;
     }
-    // 前後で折り返せるかは隣の文字に任せる (数式を 1 つの語のように扱う)。
+    // 前後で折り返せるかは隣の文字に任せる。数式は 1 つの語のように扱い、画像はブラウザの img と同じく隣が空白なら折り返せる。
     HRESULT STDMETHODCALLTYPE GetBreakConditions(DWRITE_BREAK_CONDITION* before, DWRITE_BREAK_CONDITION* after) noexcept override
     {
         *before = DWRITE_BREAK_CONDITION_NEUTRAL;
@@ -226,24 +233,36 @@ public:
     }
 
 private:
-    InlineMathObjectRef ref_;
-    InlineMathMetrics metrics_;
+    RefT ref_;
+    DWRITE_INLINE_OBJECT_METRICS metrics_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> alt_;
 };
+
+using InlineMathObject = RefInlineObject<IInlineMathRef, InlineMathObjectRef>;
+using InlineImageObject = RefInlineObject<IInlineImageRef, InlineImageObjectRef>;
+
+template <class IRef>
+auto RefOf(IDWriteInlineObject* object) noexcept -> std::optional<decltype(std::declval<const IRef&>().Ref())>
+{
+    Microsoft::WRL::ComPtr<IRef> ref;
+    if (FAILED(object->QueryInterface(IID_PPV_ARGS(&ref)))) {
+        return std::nullopt;
+    }
+    return ref->Ref();
+}
 
 } // namespace
 
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale)
 {
-    return Microsoft::WRL::Make<InlineMathObject>(key, metrics, scale);
+    return Microsoft::WRL::Make<InlineMathObject>(
+        InlineMathObjectRef{ key, scale },
+        DWRITE_INLINE_OBJECT_METRICS{ metrics.width * scale, metrics.height * scale, metrics.baseline * scale, FALSE }, nullptr);
 }
 
 std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* object) noexcept
 {
-    Microsoft::WRL::ComPtr<IInlineMathRef> math;
-    if (FAILED(object->QueryInterface(IID_PPV_ARGS(&math)))) {
-        return std::nullopt;
-    }
-    return math->Ref();
+    return RefOf<IInlineMathRef>(object);
 }
 
 // ---- 画像 ----
@@ -272,65 +291,11 @@ void InlineImageTable::Clear()
     entries_.clear();
 }
 
-namespace {
-
-// 描画に届いたインラインオブジェクトが画像かを QueryInterface で見分ける。
-MIDL_INTERFACE("0f8d2a64-37c1-4b9e-a5d3-6e21c9b47f08")
-IInlineImageRef : public IUnknown
-{
-    virtual InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept = 0;
-};
-
-// 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
-// 読めない画像は alt の layout を持ち、描く側に渡す。
-class InlineImageObject final
-    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineImageRef> {
-public:
-    InlineImageObject(const InlineImageObjectRef& ref, float baseline, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt) noexcept
-        : ref_(ref), baseline_(baseline), alt_(std::move(alt))
-    {
-        ref_.alt = alt_.Get();
-    }
-
-    InlineImageObjectRef STDMETHODCALLTYPE Ref() const noexcept override
-    {
-        return ref_;
-    }
-
-    HRESULT STDMETHODCALLTYPE Draw(void*, IDWriteTextRenderer*, FLOAT, FLOAT, BOOL, BOOL, IUnknown*) noexcept override
-    {
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetMetrics(DWRITE_INLINE_OBJECT_METRICS* metrics) noexcept override
-    {
-        *metrics = { ref_.size.width, ref_.size.height, baseline_, FALSE };
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetOverhangMetrics(DWRITE_OVERHANG_METRICS* overhangs) noexcept override
-    {
-        *overhangs = {};
-        return S_OK;
-    }
-    // 前後で折り返せるかは隣の文字に任せる (ブラウザの img と同じく、隣が空白なら折り返せる)。
-    HRESULT STDMETHODCALLTYPE GetBreakConditions(DWRITE_BREAK_CONDITION* before, DWRITE_BREAK_CONDITION* after) noexcept override
-    {
-        *before = DWRITE_BREAK_CONDITION_NEUTRAL;
-        *after = DWRITE_BREAK_CONDITION_NEUTRAL;
-        return S_OK;
-    }
-
-private:
-    InlineImageObjectRef ref_;
-    float baseline_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> alt_;
-};
-
-} // namespace
-
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size)
 {
     // 下端をベースラインに置く。
-    return Microsoft::WRL::Make<InlineImageObject>(InlineImageObjectRef{ .key = key, .size = size }, size.height, nullptr);
+    return Microsoft::WRL::Make<InlineImageObject>(InlineImageObjectRef{ .key = key, .size = size },
+                                                   DWRITE_INLINE_OBJECT_METRICS{ size.width, size.height, size.height, FALSE }, nullptr);
 }
 
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeBrokenImageObject(uint64_t key, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt, float icon_size)
@@ -346,20 +311,17 @@ Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeBrokenImageObject(uint64_t key, 
     const float baseline = std::max(alt_baseline, icon_size);
     InlineImageObjectRef ref{
         .key = key,
+        .alt = alt.Get(),
         .icon_size = icon_size,
         .icon_top = baseline - icon_size,
         .alt_left = BrokenImageAltLeft(icon_size),
         .alt_top = baseline - alt_baseline,
     };
     ref.size = { ref.alt_left + m.width, std::max(ref.alt_top + m.height, baseline) };
-    return Microsoft::WRL::Make<InlineImageObject>(ref, baseline, std::move(alt));
+    return Microsoft::WRL::Make<InlineImageObject>(ref, DWRITE_INLINE_OBJECT_METRICS{ ref.size.width, ref.size.height, baseline, FALSE }, std::move(alt));
 }
 
 std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept
 {
-    Microsoft::WRL::ComPtr<IInlineImageRef> image;
-    if (FAILED(object->QueryInterface(IID_PPV_ARGS(&image)))) {
-        return std::nullopt;
-    }
-    return image->Ref();
+    return RefOf<IInlineImageRef>(object);
 }
