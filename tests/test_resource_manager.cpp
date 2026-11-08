@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -98,11 +99,16 @@ struct TestResourceManagerHost final : ResourceManagerHost {
     int inline_updates = 0;
     bool last_pending_resolved = false;
     bool last_sizes_changed = false;
+    // App の組み直しの代わり。
+    std::function<void(bool pending_resolved)> on_inline_update;
     void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override
     {
         inline_updates++;
         last_pending_resolved = pending_resolved;
         last_sizes_changed = sizes_changed;
+        if (on_inline_update) {
+            on_inline_update(pending_resolved);
+        }
     }
 };
 
@@ -158,6 +164,31 @@ protected:
     InlineImageEntry Entry(std::string_view src)
     {
         return inline_images_.Find(InlineImageKey(src));
+    }
+
+    bool HasBitmap(std::string_view src)
+    {
+        return inline_drawings_.FindImage(InlineImageKey(src)) != nullptr;
+    }
+    // 描く側に、読んだことにしたビットマップを持たせる。
+    void GiveBitmaps(std::initializer_list<std::string_view> srcs)
+    {
+        for (const std::string_view src : srcs) {
+            *inline_drawings_.images.TryEmplace(InlineImageKey(src)).first = &SharedStubBitmap();
+        }
+    }
+
+    // 文書の最初の表を、どの行も高さ row_height で組んだことにする。表のノードの高さも合わせ、後ろのノードをずらす。
+    void SeedTableLayout(float row_height)
+    {
+        const size_t i = doc_.GetTableNodeIndices().front();
+        const NodeTableData& tbl = *doc_.GetNodes()[i].table_data();
+        auto& tl = cache_[i].set_table_layout(std::make_unique<TableLayoutData>(tbl.row_count, tbl.col_count, false));
+        std::ranges::fill(tl.row_heights, row_height);
+        std::ranges::fill(tl.col_widths, 100.0f);
+        tl.CommitGeometry(kContentWidth);
+        cache_.ShiftTops(i + 1, tl.TotalHeight() - cache_[i].height);
+        cache_[i].height = tl.TotalHeight();
     }
 
     Theme theme_{};
@@ -232,6 +263,42 @@ protected:
         ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng), false));
     }
 
+    // LoadImageTable の image 枚目の画像。
+    static std::string Src(int image)
+    {
+        return std::format("i{}.png", image);
+    }
+    std::wstring ImagePath(int image) const
+    {
+        return (dir_.path() / std::format(L"i{}.png", image)).wstring();
+    }
+
+    // 1 行に 1 枚ずつ、別のファイルの画像を置いた表。
+    void LoadImageTable(int rows)
+    {
+        std::string md = "| i |\n|---|\n";
+        for (int i = 0; i < rows; ++i) {
+            WritePng(ImagePath(i));
+            md += std::format("| ![i]({}) |\n", Src(i));
+        }
+        LoadMarkdown(md, 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    }
+
+    // 読み込みが止まるまで、要求と取り込みを繰り返す。止まれば true。
+    bool SettleLoads()
+    {
+        for (int rounds = 0; rounds < 10; ++rounds) {
+            rm_.LoadImages();
+            if (!DrainScheduler(scheduler_)) {
+                return false;
+            }
+            if (!image_loader_.ProcessCompletedDecodes(kNoDeadline)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     ScopedTempDir dir_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
     Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt_;
@@ -243,29 +310,122 @@ protected:
 TEST_F(ResourceManagerImageFileTest, ManyImagesInTableSettle)
 {
     constexpr int kImages = 140;
-    std::string md = "| i |\n|---|\n";
-    for (int i = 0; i < kImages; ++i) {
-        WritePng(dir_.path() / std::format(L"i{}.png", i));
-        md += std::format("| ![i](i{}.png) |\n", i);
-    }
-    const std::wstring doc_path = (dir_.path() / L"test.md").wstring();
-    LoadMarkdown(md, 100.0f, doc_path.c_str());
+    LoadImageTable(kImages);
+    // 全部の行を先読み範囲 (y < 1800) に入れる。
+    SeedTableLayout(10.0f);
 
-    int rounds = 0;
-    for (; rounds < 10; ++rounds) {
-        rm_.LoadImages();
-        ASSERT_TRUE(DrainScheduler(scheduler_));
-        if (!image_loader_.ProcessCompletedDecodes(kNoDeadline)) {
-            break;
-        }
-    }
-    EXPECT_LT(rounds, 10) << "読み込みが止まらない";
+    EXPECT_TRUE(SettleLoads()) << "読み込みが止まらない";
     for (int i = 0; i < kImages; ++i) {
-        const std::string src = std::format("i{}.png", i);
-        EXPECT_EQ(Entry(src).state, InlineImageState::Ready) << src;
-        EXPECT_NE(inline_drawings_.FindImage(InlineImageKey(src)), nullptr) << src;
+        EXPECT_EQ(Entry(Src(i)).state, InlineImageState::Ready) << i;
+        EXPECT_TRUE(HasBitmap(Src(i))) << i;
     }
-    EXPECT_EQ(image_loader_.TakeDelivered().Find((dir_.path() / L"i0.png").wstring()), nullptr);
+    EXPECT_EQ(image_loader_.TakeDelivered().Find(ImagePath(0)), nullptr);
+}
+
+// 表は 1 ノードなので、先読み範囲の行の画像だけビットマップを読み、ほかの行の画像は寸法だけ読んで組めるようにする
+// (表全体だと、スクリーンショット 40 枚の表で 1 行が範囲にかかるだけで全部を持った)。スクロールで範囲に入った行は読み、
+// 外れた行のビットマップは捨てる。寸法は残るので組み直さない。
+TEST_F(ResourceManagerImageFileTest, TableReadsBitmapsOnlyForRowsInRange)
+{
+    constexpr int kRows = 40;
+    LoadImageTable(kRows);
+    // 行の間隔は罫線込みで 251。先読み範囲は y < 1800 なので、ヘッダと画像の 7 行 (i0〜i6) が入る。
+    SeedTableLayout(250.0f);
+
+    ASSERT_TRUE(SettleLoads());
+    for (int i = 0; i < kRows; ++i) {
+        EXPECT_EQ(Entry(Src(i)).state, InlineImageState::Ready) << i;
+        EXPECT_EQ(HasBitmap(Src(i)), i < 7) << i;
+    }
+
+    // 範囲は [3800, 6800)。ヘッダを除く 15〜27 行目 (i14〜i26) が入る。
+    viewport_.SetScrollY(5000.0f);
+    rm_.EvictOffscreenBitmaps();
+    const int updates = host_.inline_updates;
+    ASSERT_TRUE(SettleLoads());
+    for (int i = 0; i < kRows; ++i) {
+        EXPECT_EQ(HasBitmap(Src(i)), i >= 14 && i <= 26) << i;
+    }
+    EXPECT_GT(host_.inline_updates, updates);
+    EXPECT_FALSE(host_.last_pending_resolved) << "寸法は変わらないので組み直さない";
+    EXPECT_FALSE(host_.last_sizes_changed);
+}
+
+// 寸法が揃って組み直した表は、同じ取り込みの中で範囲の行の画像を頼む (BITMAP_MANAGE を待たない)。
+TEST_F(ResourceManagerImageFileTest, TableSettledBySizesRequestsBitmapsRightAway)
+{
+    constexpr int kRows = 3;
+    LoadImageTable(kRows);
+    rm_.LoadImages();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    ASSERT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline));
+
+    host_.on_inline_update = [&](bool pending_resolved) {
+        if (pending_resolved) {
+            SeedTableLayout(100.0f);
+        }
+    };
+    rm_.LoadImages();
+    ASSERT_TRUE(host_.last_pending_resolved);
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline)) << "ビットマップを頼んである";
+    rm_.LoadImages();
+    for (int i = 0; i < kRows; ++i) {
+        EXPECT_TRUE(HasBitmap(Src(i))) << i;
+    }
+}
+
+// 範囲を出た行の画像は、読み始める前なら要求を取り消す (速いスクロールで溜まった要求を読み続けない)。
+TEST_F(ResourceManagerImageFileTest, RowsLeavingRangeCancelPendingBitmaps)
+{
+    LoadImageTable(40);
+    // 行の間隔は罫線込みで 41。全部の行が先読み範囲 (y < 1800) に入る。
+    SeedTableLayout(40.0f);
+    // 保持範囲より短い移動なので、待ちをまとめて捨てない (DropQueuesIfJumped)。先読み範囲の上端が 150 になり、
+    // i0 (41〜82) と i1 (82〜123) の行が外れる。
+    constexpr float kScroll = kViewportHeight * (ResourceManager::PREFETCH_BUFFER_SCREENS + ResourceManager::EVICT_BUFFER_SCREENS) / 2.0f;
+    static_assert(kScroll - kViewportHeight * ResourceManager::PREFETCH_BUFFER_SCREENS > 123.0f);
+    {
+        WorkerGate gate(scheduler_, 2);
+        rm_.LoadImages();
+        viewport_.SetScrollY(kScroll);
+        rm_.LoadImages();
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    ASSERT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline));
+    const auto delivered = image_loader_.TakeDelivered();
+    EXPECT_EQ(delivered.Find(ImagePath(0)), nullptr);
+    EXPECT_EQ(delivered.Find(ImagePath(1)), nullptr);
+    EXPECT_NE(delivered.Find(ImagePath(2)), nullptr);
+}
+
+// 組む前の表と、寸法を待って仮に組んだ表は、行の位置が決まらない (画像を幅 0 で組んで行が詰まっている) ので寸法だけ読む。
+// 組み終えたら範囲の行の画像を読む。
+TEST_F(ResourceManagerImageFileTest, UnsettledTableReadsOnlySizes)
+{
+    constexpr int kRows = 3;
+    LoadImageTable(kRows);
+
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_TRUE(host_.last_pending_resolved);
+    const InlineImageEntry ready{
+        InlineImageState::Ready, { 1.0f, 1.0f }
+    };
+    for (int i = 0; i < kRows; ++i) {
+        EXPECT_EQ(Entry(Src(i)), ready) << i;
+        EXPECT_FALSE(HasBitmap(Src(i))) << i;
+    }
+
+    SeedTableLayout(100.0f);
+    cache_[0].pending_inline = true;
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_FALSE(HasBitmap(Src(0)));
+
+    cache_[0].pending_inline = false;
+    ASSERT_TRUE(SettleLoads());
+    for (int i = 0; i < kRows; ++i) {
+        EXPECT_TRUE(HasBitmap(Src(i))) << i;
+    }
 }
 
 // 別の文書を開いて戻っても、読んだ画像の寸法はパスで引けるので、組む前に入れられる。ビットマップは持たないので読み直す。
@@ -490,19 +650,49 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesOnlyGivenRange)
 // ビットマップは保持範囲の画像の分だけ残す。寸法は残すので、戻ってきても組み直さない。
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
 {
-    auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
-    for (const char* src : { "one.png", "two.png" }) {
-        *inline_drawings_.images.TryEmplace(InlineImageKey(src)).first = &bitmap;
-    }
+    GiveBitmaps({ "one.png", "two.png" });
 
     rm_.EvictOffscreenBitmaps();
-    EXPECT_NE(inline_drawings_.FindImage(InlineImageKey("one.png")), nullptr);
-    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("two.png")), nullptr);
+    EXPECT_TRUE(HasBitmap("one.png"));
+    EXPECT_FALSE(HasBitmap("two.png"));
     EXPECT_EQ(Entry("two.png").state, InlineImageState::Ready);
+}
+
+// 先読み範囲を出ても、保持範囲の中の画像は捨てない。境目の画像を小刻みなスクロールのたびに読み直さない。
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsBitmapsBeyondPrefetchRange)
+{
+    // two は先読み範囲の下端と保持範囲の下端の間から始まる。
+    constexpr float kBlockHeight = kViewportHeight * (1.0f + (ResourceManager::PREFETCH_BUFFER_SCREENS + ResourceManager::EVICT_BUFFER_SCREENS) / 2.0f);
+    LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", kBlockHeight);
+    GiveBitmaps({ "one.png", "two.png" });
+
+    rm_.EvictOffscreenBitmaps();
+    EXPECT_TRUE(HasBitmap("one.png"));
+    EXPECT_TRUE(HasBitmap("two.png"));
+}
+
+// 表は保持範囲の行の画像の分だけ残す。行の位置が決まらない間は、読んだ行を見分けられないので全部残す。
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsTableRowsInRange)
+{
+    LoadMarkdown("| i |\n|---|\n| ![a](a.png) |\n| ![b](b.png) |\n");
+    // a の行は保持範囲の下端の 6 割、b の行は 12 割の位置から。
+    constexpr float kKeepBottom = kViewportHeight * (1.0f + ResourceManager::EVICT_BUFFER_SCREENS);
+    SeedTableLayout(kKeepBottom * 0.6f);
+    GiveBitmaps({ "a.png", "b.png" });
+
+    cache_[0].pending_inline = true;
+    rm_.EvictOffscreenBitmaps();
+    EXPECT_TRUE(HasBitmap("a.png"));
+    EXPECT_TRUE(HasBitmap("b.png"));
+
+    cache_[0].pending_inline = false;
+    rm_.EvictOffscreenBitmaps();
+    EXPECT_TRUE(HasBitmap("a.png"));
+    EXPECT_FALSE(HasBitmap("b.png"));
 }
 
 // ---- Mermaid 経路 ----

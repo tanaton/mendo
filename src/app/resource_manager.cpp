@@ -12,6 +12,7 @@
 #include "theme.h"
 #include "viewport_manager.h"
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <ranges>
 #include <utility>
@@ -23,6 +24,37 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     const auto b = std::ranges::lower_bound(sorted_indices, range.begin);
     const auto e = std::ranges::lower_bound(b, sorted_indices.end(), range.end);
     return { b, e };
+}
+
+using ImageSlots = std::bitset<kMaxImageSlots>;
+
+// ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする。
+// 表全体にすると、1 行が範囲にかかるだけで表の全画像を持つ (1705x1056 のスクリーンショットを 1 行 1 枚置いた 40 行の表を
+// 1200x900 の窓で最後までめくって戻ると private 98MB・GPU 55MB、行ごとだと 57MB・42MB。2026-11-08)。
+// 表の行の位置が決まらない間 (組む前・keep が無い・数式か画像の寸法を待って仮に組んだ間) は nullopt。仮に組んだ表は
+// 画像を幅 0 で組んで行が詰まっているので、範囲の行が実際よりずっと多い。
+std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep)
+{
+    if (!node.has_table()) {
+        return ImageSlots{}.set();
+    }
+    const auto& entry = cache[i];
+    const auto* tl = entry.table_layout();
+    if (!keep || !tl || entry.pending_inline) {
+        return std::nullopt;
+    }
+    const auto local = keep->ToLocal(cache.Top(i));
+    const auto [r_begin, r_end] = tl->VisibleRowRange(local.top, local.bottom);
+    const NodeTableData& tbl = *node.table_data();
+    ImageSlots slots;
+    for (size_t ci = tl->CellIndex(r_begin, 0); ci < tl->CellIndex(r_end, 0); ++ci) {
+        for (const TextRun& run : tbl.CellRuns(ci)) {
+            if (run.image()) {
+                slots.set(run.image_slot);
+            }
+        }
+    }
+    return slots;
 }
 
 } // namespace
@@ -72,10 +104,20 @@ void ResourceManager::LoadImages()
 {
     DropQueuesIfJumped();
     // 受け取ったビットマップは描く側へ渡す。先読み範囲の外へ出た画像の分は捨て、戻ったら読み直す。
-    const DeliveredImages delivered = image_loader_.TakeDelivered();
-    InlineImageUpdate update;
-    ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), &delivered, update);
+    const auto request = [this](const DeliveredImages& delivered) {
+        InlineImageUpdate update;
+        ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), &delivered, update);
+        image_loader_.CancelStaleBitmapRequests();
+        return update;
+    };
+    const InlineImageUpdate update = request(image_loader_.TakeDelivered());
     NotifyInlineImages(update);
+    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む。BITMAP_MANAGE を待つと、初めて開いた
+    // 写真の表の最初の画像が 275ms、すぐ頼むと 123ms (行ごとに読む前は 96ms。2026-11-08)。受け取ったものは無いので、
+    // 表は変わらない。
+    if (update.pending_resolved && update.unsettled_tables) {
+        request({});
+    }
 }
 
 void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point deadline)
@@ -114,8 +156,14 @@ void ResourceManager::EvictOffscreenBitmaps()
     FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> kept;
     const auto& nodes = state_.document.doc.GetNodes();
     for (const size_t i : VisibleSlice(state_.document.doc.GetImageNodeIndices(), keep->range)) {
-        for (const std::string_view src : nodes[i].image_srcs()) {
-            const uint64_t key = InlineImageKey(src);
+        // 行の位置が決まらない表は、読んだ行を見分けられないので全部残す。その間は表の画像を新たに読まないので増えない。
+        const ImageSlots slots = ImageSlotsIn(nodes[i], state_.document.layout_cache, i, &keep->keep).value_or(ImageSlots{}.set());
+        const auto srcs = nodes[i].image_srcs();
+        for (size_t slot = 0; slot < srcs.size(); ++slot) {
+            if (!slots.test(slot)) {
+                continue;
+            }
+            const uint64_t key = InlineImageKey(srcs[slot]);
             if (const auto* bitmap = inline_drawings_.images.Find(key)) {
                 *kept.TryEmplace(key).first = *bitmap;
             }
@@ -180,17 +228,23 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
 
     const Theme& theme = *state_.theme;
     const auto& nodes = state_.document.doc.GetNodes();
+    const auto prefetch = ComputeBufferedRange(PREFETCH_BUFFER_SCREENS);
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
         // 表のセルの画像は列幅に縮めて出し、表は本文の幅に収めるので、表も本文の幅でデコードする。
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        for (const std::string_view src : node.image_srcs()) {
-            ApplyCachedImage(src, doc_dir, max_width, delivered, update);
+        const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr);
+        update.unsettled_tables |= !slots;
+        const ImageSlots needs_bitmap = slots.value_or(ImageSlots{});
+        const auto srcs = node.image_srcs();
+        for (size_t slot = 0; slot < srcs.size(); ++slot) {
+            ApplyCachedImage(srcs[slot], doc_dir, max_width, delivered, needs_bitmap.test(slot), update);
         }
     }
 }
 
-void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered, InlineImageUpdate& update)
+void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered,
+                                       bool needs_bitmap, InlineImageUpdate& update)
 {
     const uint64_t key = InlineImageKey(src);
     const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
@@ -212,6 +266,13 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!delivered) {
         return;
     }
+    if (!needs_bitmap) {
+        // 届いたビットマップも捨て、範囲に入ったら読み直す。
+        if (!info) {
+            image_loader_.RequestSizeAsync(*abs_path);
+        }
+        return;
+    }
     if (ID2D1Bitmap* const received = delivered->Find(*abs_path)) {
         auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
         if (bitmap.Get() != received) {
@@ -221,8 +282,8 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
         return;
     }
     // 描くビットマップが無ければ読む (保持範囲の外や別の文書から戻ったときは寸法が残っているので組み直さない)。
-    // 持っている間は読み直さない。表は 1 ノードで全部の画像を読むので、件数に上限のあるキャッシュに置いていた頃は
-    // 画像が 128 種類を超えると読み込みが互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた。
+    // 持っている間は読み直さない。件数に上限のあるキャッシュに置いていた頃は、表の画像が 128 種類を超えると読み込みが
+    // 互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた (4db8079b)。
     // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
     if (!inline_drawings_.FindImage(key) || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);

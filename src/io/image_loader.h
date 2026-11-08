@@ -9,6 +9,7 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -47,6 +48,7 @@ public:
         float pixel_width = 0.0f;
         float pixel_height = 0.0f;
         // 最後に読んだビットマップは、この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
+        // 寸法だけを読んだ (RequestSizeAsync) なら 0。
         UINT sharp_width_px = UINT_MAX;
     };
     // 次に寸法の表を変える (ProcessCompletedDecodes) まで有効。
@@ -65,7 +67,11 @@ public:
     // 今の DPI での表示寸法 (画像の 1 px を物理 1 px で描く)。
     D2D1_SIZE_F DipSize(const ImageInfo& image) const noexcept;
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
+    // 結果を待つ間は、取り込みのたびに頼み直さないと CancelStaleBitmapRequests で取り消される。
     void RequestLoadAsync(const std::wstring& abs_path, float max_width_dip);
+    // 寸法だけを読む (ピクセルはデコードせず、ビットマップも作らない)。保持範囲の外の画像を、ビットマップを持たずに組めるようにする。
+    // 待つ間に RequestLoadAsync が来たら、届いたときに読み直させる (ProcessCompletedDecodes の戻り値)。
+    void RequestSizeAsync(const std::wstring& abs_path);
     // 読み込みに kMaxImageRetries 回失敗し、もう読まない (ResetFailedPaths まで)。
     bool HasGivenUp(const std::wstring& abs_path) const noexcept
     {
@@ -80,6 +86,11 @@ public:
     // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
     // 戻り値: 見えている画像を要求し直すべきか。結果を 1 件以上取り込んだ (失敗も含む) か、捨てた要求が待ちの間に要求し直されていた。
     bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // 前に呼んでから RequestLoadAsync で頼み直されなかったビットマップの要求 (範囲を出た画像) を取り消す。取り込みのたびに、
+    // まだ要るビットマップを頼み直させてから呼ぶ。取り消した要求は、worker が始める前なら読まずに返し、デコードの後なら GPU に
+    // 載せず寸法だけを入れる。速いスクロールで待ち行列に溜まった要求を読み続けると、止まった位置の画像が後回しになる
+    // (写真 200 枚の表を 16ms おきにめくると、止まってから画像が揃うまで 404 → 283ms、GPU への転送 133 → 76 回。2026-11-08)。
+    void CancelStaleBitmapRequests() noexcept;
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
@@ -113,9 +124,11 @@ public:
 private:
     struct DecodeResult {
         std::wstring path;
-        // worker でデコード確定・縮小済み (失敗時は null)。
+        // worker でデコード確定・縮小済み (失敗時と寸法だけの要求では null)。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        // 寸法だけの要求で読めなければ pixel_width が 0。
         ImageInfo info;
+        bool size_only = false;
         // 始まる前に捨てられた。読まずに返す。
         bool dropped = false;
     };
@@ -124,7 +137,8 @@ private:
     float DpiScale() const noexcept;
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
     UINT DecodeWidthPx(float width_dip) const noexcept;
-    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
+    void QueueDecode(const std::wstring& abs_path, UINT max_width_px, bool size_only);
+    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。result.size_only なら寸法だけを読む。
     void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
 
     static constexpr uint32_t kMaxImageRetries = 3;
@@ -145,9 +159,17 @@ private:
     TaskScheduler* scheduler_ = nullptr;
     // DropQueued で進める。投入時の値から変わっていたら worker は読まずに dropped で返す (Mermaid の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
-    // 結果を待っているパス -> 待つ間に要求し直されたか。要求は必ず結果を 1 回返すので、届いたら外す。
-    // 文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、要求し直されたものだけ読み直させる。
-    std::unordered_map<std::wstring, bool> pending_paths_;
+    struct PendingDecode {
+        // 待つ間に要求し直された。文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、
+        // 要求し直されたものだけ読み直させる。
+        bool requested_again = false;
+        // 前の CancelStaleBitmapRequests の後に頼み直された。
+        bool renewed = false;
+        // ビットマップの要求の取り消し。worker が始める前に見る。寸法だけの要求は取り消さないので null。
+        std::shared_ptr<std::atomic<bool>> cancelled;
+    };
+    // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。
+    std::unordered_map<std::wstring, PendingDecode> pending_paths_;
     std::unordered_map<std::wstring, uint32_t> failed_paths_;
 
     PostedInbox<DecodeResult> completed_;

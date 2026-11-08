@@ -40,11 +40,17 @@ protected:
 // Appから画像読み込み、Mermaidの要求、ビットマップ解放の責務を分離する。
 class ResourceManager {
 public:
-    // 画像のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
-    static constexpr float EVICT_BUFFER_SCREENS = 2.0f;
-    // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像を毎回読み直す。
+    // 遅延レイアウトで計測する範囲。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
+    static constexpr float DEFERRED_LAYOUT_BUFFER_SCREENS = 2.0f;
+    // 画像を読む範囲。遅延レイアウトの範囲より広くしても、組んでいない表は行の位置が分からず寸法しか読めない。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
-    static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
+    static_assert(PREFETCH_BUFFER_SCREENS <= DEFERRED_LAYOUT_BUFFER_SCREENS);
+    // 画像のビットマップを残す範囲。読む範囲より狭いと、evict 直後の flush で範囲外の画像を毎回読み直す。
+    // 読む範囲と同じ 2 画面だと、境目の画像を小刻みなスクロールのたびに捨てて読み直す。写真 40 枚の表で矢印キー 5 回の
+    // 上下を 8 か所で 3 往復ずつすると、デコードが 76 → 35 回 (2.5 でも 3 でも同じ)。最後までめくって戻ったときの
+    // 増え分は、2.5 で private +2%・GPU +2〜10%、3 ではもう少し増える (2026-11-08)。
+    static constexpr float EVICT_BUFFER_SCREENS = 2.5f;
+    static_assert(PREFETCH_BUFFER_SCREENS < EVICT_BUFFER_SCREENS);
     // text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
     // 文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。1MB の文書を最後まで読んで測ると、
     // 8 画面と 2 画面ではメモリに差が出なかった (プライベートワーキングセット 63〜84MB)。
@@ -88,13 +94,17 @@ private:
         bool pending_resolved = false;
         bool sizes_changed = false;
         bool bitmaps_changed = false;
+        // 行の位置が決まらないので、寸法だけを読んだ表があった。
+        bool unsettled_tables = false;
     };
     // 以下の適用と要求は再レイアウトしない。画像は update に、高さが変わった図のノードは changed に積む。
     // slices は走査する画像を持つノードの範囲の並び。delivered があれば受け取ったビットマップを描く側へ渡し、描くビットマップの
-    // 無い画像の読み込みを起動する。無ければ寸法だけを入れる。
+    // 無い画像の読み込みを起動する。表は先読み範囲の行の画像だけビットマップを読み、ほかの行の画像は寸法だけを読む。
+    // delivered が無ければ寸法だけを入れる。
     void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, const DeliveredImages* delivered, InlineImageUpdate& update);
-    // max_width はデコードする幅 (0 は原寸)。
-    void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered, InlineImageUpdate& update);
+    // max_width はデコードする幅 (0 は原寸)。needs_bitmap が偽なら、寸法が無いときに寸法だけを読む。
+    void ApplyCachedImage(std::string_view src, const std::wstring& doc_dir, float max_width, const DeliveredImages* delivered, bool needs_bitmap,
+                          InlineImageUpdate& update);
     void SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update);
     void NotifyInlineImages(const InlineImageUpdate& update);
     void RequestVisibleDiagrams(IndexRange& changed);

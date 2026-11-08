@@ -688,6 +688,26 @@ TEST_F(WicDecodeTest, AlphaImageScalesAfterConversion)
     ExpectPbgraOfSize(wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { 100, 75 }).Get(), 100, 75);
 }
 
+// 寸法はヘッダだけで読め、ヘッダが足りなければ違う寸法を返さずに読めないとする。
+TEST_F(WicDecodeTest, ReadImageFileSizeFromMemoryNeedsHeader)
+{
+    struct Case {
+        const wchar_t* name;
+        const GUID& format;
+    };
+    const Case kCases[] = {
+        { L"head.png", GUID_ContainerFormatPng  },
+        { L"head.jpg", GUID_ContainerFormatJpeg },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.name }));
+        ASSERT_TRUE(CreateTestImage(c.name, c.format, 64, 48));
+        const auto bytes = ReadAllBytes(GetTestImagePath(c.name).c_str());
+        EXPECT_EQ(wic_util::ReadImageFileSizeFromMemory(wic_factory_.Get(), bytes), (wic_util::PixelSize{ 64, 48 }));
+        EXPECT_EQ(wic_util::ReadImageFileSizeFromMemory(wic_factory_.Get(), std::span(bytes).first(12)), std::nullopt);
+    }
+}
+
 TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
 {
     ASSERT_TRUE(CreateTestImage(L"keep.jpg", GUID_ContainerFormatJpeg, 64, 32));
@@ -743,11 +763,16 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
 
 class ImageLoaderAsyncTest : public ImageLoaderTest {
 protected:
-    // path の非同期ロードを 1 件ずつ完了させながら times 回失敗させる。
-    bool FailLoads(const std::wstring& path, int times)
+    // path の非同期ロード (size_only なら寸法だけ) を 1 件ずつ完了させながら times 回失敗させる。
+    bool FailLoads(const std::wstring& path, int times, bool size_only = false)
     {
         for (int i = 0; i < times; ++i) {
-            loader_.RequestLoadAsync(path, 0.0f);
+            if (size_only) {
+                loader_.RequestSizeAsync(path);
+            }
+            else {
+                loader_.RequestLoadAsync(path, 0.0f);
+            }
             if (!DrainDecodes()) {
                 return false;
             }
@@ -1009,6 +1034,123 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     ASSERT_NE(info, nullptr);
     EXPECT_EQ(loader_.TakeDelivered().Find(path)->GetPixelSize().width, 768u);
     EXPECT_EQ(info->sharp_width_px, 768u);
+}
+
+// 寸法だけの要求はビットマップを作らない。前に読んだビットマップの解像度は消さない。
+TEST_F(ImageLoaderAsyncTest, SizeOnlyRequestReadsSizeWithoutBitmap)
+{
+    ASSERT_TRUE(CreateTestImage(L"size_only.png", GUID_ContainerFormatPng, 1000, 20));
+    const auto path = GetTestImagePath(L"size_only.png");
+
+    loader_.RequestSizeAsync(path);
+    ASSERT_TRUE(DrainDecodes());
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_FLOAT_EQ(info->pixel_width, 1000.0f);
+    EXPECT_FLOAT_EQ(info->pixel_height, 20.0f);
+    EXPECT_TRUE(loader_.NeedsSharperDecode(*info, 100.0f)) << "ビットマップはまだ読んでいない";
+    EXPECT_EQ(loader_.TakeDelivered().Find(path), nullptr);
+
+    loader_.RequestLoadAsync(path, 300.0f);
+    ASSERT_TRUE(DrainDecodes());
+    EXPECT_NE(loader_.TakeDelivered().Find(path), nullptr);
+    loader_.RequestSizeAsync(path);
+    ASSERT_TRUE(DrainDecodes());
+    EXPECT_EQ(loader_.FindImageInfo(path)->sharp_width_px, 512u);
+    EXPECT_EQ(loader_.TakeDelivered().Find(path), nullptr);
+}
+
+// 寸法は先頭だけ読んで取り、足りない (先頭で寸法を読めない BMP) なら全体を読む。
+TEST_F(ImageLoaderAsyncTest, SizeOnlyRequestReadsWholeFileWhenHeadIsShort)
+{
+    ASSERT_TRUE(CreateTestImage(L"size_only.bmp", GUID_ContainerFormatBmp, 300, 200));
+    const auto path = GetTestImagePath(L"size_only.bmp");
+    ASSERT_GT(std::filesystem::file_size(path), 64u * 1024u);
+
+    loader_.RequestSizeAsync(path);
+    ASSERT_TRUE(DrainDecodes());
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_FLOAT_EQ(info->pixel_width, 300.0f);
+    EXPECT_FLOAT_EQ(info->pixel_height, 200.0f);
+}
+
+// 取り込みの間に頼み直されなかったビットマップの要求は取り消し、worker が始める前なら読まずに返す。頼み直されたものは読む。
+// 取り込みごとに、まだ要る要求を頼み直してから CancelStaleBitmapRequests を呼ぶ。
+TEST_F(ImageLoaderAsyncTest, BitmapRequestNotRenewedIsCancelled)
+{
+    ASSERT_TRUE(CreateTestImage(L"kept.png", GUID_ContainerFormatPng, 40, 30));
+    ASSERT_TRUE(CreateTestImage(L"left.png", GUID_ContainerFormatPng, 40, 30));
+    const auto kept = GetTestImagePath(L"kept.png");
+    const auto left = GetTestImagePath(L"left.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(kept, 0.0f);
+        loader_.RequestLoadAsync(left, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.RequestLoadAsync(kept, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_TRUE(DrainDecodes());
+    const auto delivered = loader_.TakeDelivered();
+    EXPECT_NE(delivered.Find(kept), nullptr);
+    EXPECT_EQ(delivered.Find(left), nullptr);
+    EXPECT_EQ(loader_.FindImageInfo(left), nullptr) << "読まずに返す";
+
+    // 取り消した後にまた頼めば読む。
+    loader_.RequestLoadAsync(left, 0.0f);
+    loader_.CancelStaleBitmapRequests();
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_NE(loader_.TakeDelivered().Find(left), nullptr);
+}
+
+// 取り消す前に頼み直されれば、取り消しを取り下げて読む。
+TEST_F(ImageLoaderAsyncTest, CancelledBitmapRequestIsRevivedByRerequest)
+{
+    ASSERT_TRUE(CreateTestImage(L"revive.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"revive.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_NE(loader_.TakeDelivered().Find(path), nullptr);
+}
+
+// デコードの後で取り消した要求は、GPU に載せず寸法だけを入れる。
+TEST_F(ImageLoaderAsyncTest, BitmapRequestCancelledAfterDecodeKeepsSizeOnly)
+{
+    ASSERT_TRUE(CreateTestImage(L"late.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"late.png");
+
+    loader_.RequestLoadAsync(path, 0.0f);
+    loader_.CancelStaleBitmapRequests();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    loader_.CancelStaleBitmapRequests();
+
+    EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
+    EXPECT_EQ(loader_.TakeDelivered().Find(path), nullptr);
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_FLOAT_EQ(info->pixel_width, 40.0f);
+    EXPECT_EQ(info->sharp_width_px, 0u) << "ビットマップは読んでいない";
+}
+
+// 読めない画像は、寸法だけの要求でも失敗に数えてあきらめる。
+TEST_F(ImageLoaderAsyncTest, SizeOnlyFailureCountsTowardGivingUp)
+{
+    const auto path = GetTestImagePath(L"size_missing.png");
+    ASSERT_TRUE(FailLoads(path, 2, /*size_only=*/true));
+    EXPECT_FALSE(loader_.HasGivenUp(path));
+    ASSERT_TRUE(FailLoads(path, 1, /*size_only=*/true));
+    EXPECT_TRUE(loader_.HasGivenUp(path));
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
 }
 
 TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)

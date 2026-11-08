@@ -1786,7 +1786,7 @@ void App::OnDeferredLayout()
     const PaneRect md = ComputePaneLayout(state_).md_rect;
     const bool more = layout_service_.ProcessDirtyBatch(
         state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
-        md.height, ResourceManager::EVICT_BUFFER_SCREENS);
+        md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
 
     // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
@@ -1816,7 +1816,7 @@ void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
     if (relayout) {
         // 取り込みの中なので RelayoutViewport (FlushPendingResources) を呼ばない。入り直すと届いたデコード結果の転送が
         // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った画像と図は、残った dirty を
-        // 組み終えたとき (OnDeferredLayout) か BITMAP_MANAGE で取り込む。
+        // 組み終えたとき (OnDeferredLayout) か BITMAP_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。
         LayoutViewport();
         SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
     }
