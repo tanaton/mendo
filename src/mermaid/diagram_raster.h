@@ -209,7 +209,45 @@ private:
 // KaTeX の renderToString (output: 'html'、displayMode) の結果を配置する。font_size は数式を置く場所の文字の大きさ (CSS px) で、
 // KaTeX の CSS と同じく 1.21 倍して組む。align などの自動の式番号は数式ごとに (1) から振る。解釈できない要素があれば nullopt。
 std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_size, KatexAssets& assets);
+
+struct ID2D1Device;
+
+// 数式の SVG の形 (\sqrt・矢印・大きな括弧) を A8 のマスクに一度描いて覚え、以後は FillOpacityMask で塗る。
+// 形の箱は左上を装置の画素に合わせて描くので、拡大率が同じなら画素は置く位置に依らず、同じ形の数式の間で共有する。毎フレーム形を塗ると、右下が
+// 画素に合わない clip と塗りの作り直しで、形の多い数式の画面の 1 フレームが 1.3ms かかった (マスクで 0.44ms、グリフの run も
+// まとめて 0.34ms。BM_MathFrameDraw/shapes)。画素の差は最大 14 階調で、ほぼ 1 階調。ID2D1GeometryRealization は
+// 細い矢印の軸が濃くなる (DPI 96 で 113 階調) ので使わない。
+// 描く先のデバイスのビットマップを持つ。UI スレッドだけで使う。
+class MathMaskCache {
+public:
+    // 1 画面ぶんは形の多い文書でも数枚から数十枚 (BM_MathFrameDraw/shapes で 5 枚)。予算はスクロールで戻ったときに作り直さない分で、
+    // 旧版の数式の型 (A8 のページ) と同じ 8MB。
+    static constexpr size_t kBudgetBytes = 8u * 1024 * 1024;
+
+    MathMaskCache();
+    ~MathMaskCache();
+    MathMaskCache(const MathMaskCache&) = delete;
+    MathMaskCache& operator=(const MathMaskCache&) = delete;
+
+    // 覚えたマスクを捨て、以後は device の描画先に描く。null なら Fill は描かない。
+    void Reset(ID2D1Device* device) noexcept;
+    // 1 フレームを描き終えたら呼ぶ。合計が budget_bytes を超えていたら、このフレームで描かなかったマスクを古い順に捨てる。
+    void EndFrame(size_t budget_bytes);
+    // path の箱の左上を rt の今の座標の (left, top) に、装置の画素が 1 単位あたり scale_x x scale_y の拡大で描く。
+    // rt は Reset で渡したデバイスの描画先。描けなければ false で、呼び出し側が形を塗る。
+    bool Fill(ID2D1RenderTarget* rt, const MathDrawing::Path& path, ID2D1PathGeometry* geometry, float left, float top, float scale_x,
+              float scale_y, ID2D1Brush* brush);
+
+    size_t Count() const noexcept;
+    size_t Bytes() const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // (x, y) を数式のベースラインの左端として、色の指定の無い部分を brush で描く。指定した色には brush の不透明度を掛ける。
 // 罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から
 // 装置の画素に合わせる (変換は拡大と平行移動だけとみなす)。
-void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush);
+// masks があれば SVG の形をマスクで塗る。図のラベルは記録した後で拡大・縮小して描くので渡さない。
+void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush, MathMaskCache* masks = nullptr);

@@ -8,6 +8,7 @@
 #include <dwrite.h>
 #include <windows.h>
 #include <wrl/client.h>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -18,6 +19,7 @@ struct ID3D11Device;
 struct IDXGISwapChain2;
 struct IWICImagingFactory;
 struct IWICBitmap;
+class MathMaskCache;
 
 // D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
 void PrefetchD3DDevice();
@@ -171,6 +173,8 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
     FixedBrushArray brushes_;
+    // インライン数式の SVG の形のマスク。デバイスごとに作り直す。
+    std::unique_ptr<MathMaskCache> math_masks_;
 
     void RecreateAllTextFormats();
     void CreateTextFormats(bool zoomed_only = false);

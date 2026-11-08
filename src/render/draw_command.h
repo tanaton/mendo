@@ -109,6 +109,7 @@ using DrawCommandList = std::vector<DrawCommand>;
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 
 struct MathDrawing;
+class MathMaskCache;
 
 // 本文中のインラインオブジェクトの描画に使うもの。
 struct InlineDrawings {
@@ -130,5 +131,6 @@ struct InlineDrawings {
     }
 };
 
-// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings);
+// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。math_masks があればインライン数式の SVG の形をマスクで塗る。
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
+                         MathMaskCache* math_masks = nullptr);

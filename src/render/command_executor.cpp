@@ -60,8 +60,9 @@ private:
 // スタック上でのみ使うので参照カウントは持たない。
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings) noexcept
-        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings)
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
+                       MathMaskCache* math_masks) noexcept
+        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings), math_masks_(math_masks)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -147,7 +148,7 @@ public:
         }
         const float s = math->scale;
         rt_->SetTransform(D2D1::Matrix3x2F::Scale(s, s) * D2D1::Matrix3x2F::Translation(x, y) * *D2D1::Matrix3x2F::ReinterpretBaseType(&transform_));
-        DrawMath(rt_, *drawing, 0.0f, drawing->height, BrushOr(BrushEffect::IdOf(effect)));
+        DrawMath(rt_, *drawing, 0.0f, drawing->height, BrushOr(BrushEffect::IdOf(effect)), math_masks_);
         rt_->SetTransform(transform_);
         return S_OK;
     }
@@ -260,11 +261,13 @@ private:
     float pixels_per_dip_ = 1.0f;
     const FixedBrushArray& brushes_;
     const InlineDrawings& inline_;
+    MathMaskCache* math_masks_;
 };
 
 } // namespace
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
+                         MathMaskCache* math_masks)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
     // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。
@@ -297,7 +300,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings };
+                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings, math_masks };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },

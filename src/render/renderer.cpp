@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "diagram_raster.h"
 #include "d2d_util.h"
 #include "i18n.h"
 #include "profiler.h"
@@ -32,6 +33,7 @@ constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 bool Renderer::Init(HWND hwnd, const Theme& theme)
 {
     theme_ = &theme;
+    math_masks_ = std::make_unique<MathMaskCache>();
 
     if (!CreateFactories(hwnd)) {
         return false;
@@ -91,9 +93,10 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
     AcquireFrame();
     rt()->BeginDraw();
     rt()->Clear(theme_->Color(BrushId::Background));
-    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_drawings);
+    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_drawings, math_masks_.get());
 
     const HRESULT hr = rt()->EndDraw();
+    math_masks_->EndFrame(MathMaskCache::kBudgetBytes);
     if (hr == D2DERR_RECREATE_TARGET) {
         device_lost_ = true;
     }

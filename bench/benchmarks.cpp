@@ -9,12 +9,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <format>
 #include <iterator>
 #include <memory>
 #include <memory_resource>
 #include <numeric>
 #include <optional>
+#include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 #include "block_h_scroll.h"
@@ -34,6 +37,7 @@
 #include "layout_computer.h"
 #include "mock_text_measurer.h"
 #include "parsed_layout.h"
+#include "pele_engine.h"
 #include "render_params.h"
 #include "reducer_harness.h"
 #include "task_scheduler.h"
@@ -1135,6 +1139,80 @@ BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_80, JsonCodeBlock(60, 80))->Unit(benchm
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_2kb, JsonCodeBlock(60, 2 * 1024))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, json_12kb, JsonCodeBlock(60, 12 * 1024))->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_CodeBlockDraw, plain_12kb, JsonCodeBlock(60, 12 * 1024, ""))->Unit(benchmark::kMicrosecond);
+
+// 根号・括弧・行列・矢印など、SVG の形を使う数式の段落。
+std::string ShapeMathMd(int paragraphs)
+{
+    std::string md;
+    for (int i = 0; i < paragraphs; ++i) {
+        const std::string n = std::to_string(i);
+        md += "Text $\\sqrt{\\frac{a_{" + n + "}+b}{c}}$ and $\\left(\\sum_{k=0}^{" + n + "} \\binom{n}{k}\\right)$ then ";
+        md += "$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$ with $\\int_0^\\infty e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}$ ";
+        md += "and $\\overrightarrow{AB} + \\widehat{xyz}$.\n\n";
+    }
+    return md;
+}
+
+// 数式の多い画面の 1 フレーム。数式は KaTeX で描いた本物の描画命令で、SVG の形はアプリと同じくマスクで塗る。
+// shapes が false なら分数と Σ だけ (SVG の形が無い)。
+void BM_MathFrameDraw(benchmark::State& state, bool shapes)
+{
+    const auto opened = OpenDoc(state, shapes ? ShapeMathMd(300) : InlineMathMd(300), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    OffscreenTarget target;
+    if (!target.Init(l.theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    const std::filesystem::path bytecode(MENDO_JS_BYTECODE_DIR);
+    const std::filesystem::path third_party(MENDO_THIRD_PARTY_DIR);
+    const std::string pele = ReadFileBytes(bytecode / "pele.qbc");
+    const std::string katex = ReadFileBytes(bytecode / "katex.qbc");
+    const auto font_bytes = kKatexFontFiles | std::views::transform([&](std::wstring_view name) {
+        return ReadFileBytes(third_party / "katex" / "fonts" / (std::wstring{ name } + L".woff2"));
+    }) | std::ranges::to<std::vector>();
+    auto fonts = font_bytes | std::views::transform([](const std::string& f) { return std::as_bytes(std::span{ f }); }) | std::ranges::to<std::vector>();
+    PeleEngine engine(std::as_bytes(std::span{ pele }), std::as_bytes(std::span{ katex }), std::move(fonts), l.factory.Get(), L"ja-jp");
+    InlineMathPlan plan;
+    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
+    InlineMathTable table;
+    InlineDrawings drawings;
+    for (const auto& chunk : plan.Chunks()) {
+        const auto sources = chunk.items | std::views::transform([](const InlineMathItem& item) {
+            return PeleEngine::MathSource{ item.tex, item.font_size };
+        }) | std::ranges::to<std::vector>();
+        table.MarkRequested(chunk.items);
+        auto results = engine.RenderMaths(sources);
+        for (auto&& [item, drawing] : std::views::zip(chunk.items, results)) {
+            if (drawing) {
+                table.Resolve(item.key, { drawing->width, drawing->height + drawing->depth, drawing->height });
+                *drawings.math.TryEmplace(item.key).first = std::move(drawing);
+            }
+        }
+    }
+    l.measurer.SetInlineMath(&table);
+    MathMaskCache masks;
+    masks.Reset(target.device.Get());
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
+    service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+    generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane }, 1.0f);
+    for (auto _ : state) {
+        target.context->BeginDraw();
+        target.context->Clear(l.theme.Color(BrushId::Background));
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, drawings, &masks);
+        target.context->EndDraw();
+        masks.EndFrame(MathMaskCache::kBudgetBytes);
+    }
+    state.counters["masks"] = static_cast<double>(masks.Count());
+    state.counters["mask_bytes"] = static_cast<double>(masks.Bytes());
+    l.measurer.SetInlineMath(nullptr);
+}
+BENCHMARK_CAPTURE(BM_MathFrameDraw, fractions, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_MathFrameDraw, shapes, true)->Unit(benchmark::kMicrosecond);
 
 // 大きな表 (evict 前提) の計測。ワーカー 8 本。
 class TableMeasure : public benchmark::Fixture {
