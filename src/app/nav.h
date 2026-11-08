@@ -1,9 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <deque>
-#include <optional>
 #include <string>
-#include <utility>
+#include <variant>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
@@ -55,8 +54,21 @@ private:
 
     std::deque<NavEntry> back_stack_;
     std::deque<NavEntry> forward_stack_;
+
     // 確定待ちの最初の操作の直前の両スタック。取り消しでそのまま戻す (上限で押し出した分も戻る)。
-    std::optional<std::pair<std::deque<NavEntry>, std::deque<NavEntry>>> saved_;
-    // 確定待ちの戻る/進むの移動先。続く戻る/進むの起点になる。
-    std::optional<NavEntry> chained_from_;
+    struct Stacks {
+        std::deque<NavEntry> back;
+        std::deque<NavEntry> forward;
+    };
+    struct Settled {};
+    // 別のファイルを開いている (PushPending)。
+    struct PendingOpen {
+        Stacks saved;
+    };
+    // 戻る/進むで移動している。to は確定待ちの移動先で、続く戻る/進むの起点になる。
+    struct PendingTraverse {
+        Stacks saved;
+        NavEntry to;
+    };
+    std::variant<Settled, PendingOpen, PendingTraverse> pending_;
 };
