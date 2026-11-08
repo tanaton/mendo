@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <windows.h>
 
 // 同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針と差分位置 (UTF-8 byte オフセット) を決める。
@@ -190,12 +191,12 @@ enum class ParseCompleteStep : uint8_t {
     // 結果もエラーも無い = Start の ResetSinks か Cancel で捨てた読み込みの古い通知。後始末は捨てた側
     // (Start は次の読み込み、Cancel の呼び出し元) が済ませているので、アニメーションや FileWatcher に触らない。
     IgnoreStale,
-    // 読み込みに失敗した。paused の FileWatcher を必ず再開させる。
+    // 読み込みに失敗した。
     Fail,
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
     Retry,
-    // 共有を許さずに書き込んでいる間で開けなかった。開けるまで読み直し、長引けば知らせる (App::kLockedRetriesBeforeNotice)。
+    // 共有を許さずに書き込んでいる間で開けなかった。開けるまで読み直し、長引けば知らせる (ReloadScheduler::kLockedRetriesBeforeNotice)。
     RetryLocked,
     // 同一ファイルを読み直したが中身が変わっていなかった。
     ReloadUnchanged,
@@ -242,3 +243,102 @@ enum class ParseCompleteStep : uint8_t {
     }
     return ParseCompleteStep::ReplaceWithResult;
 }
+
+// ReloadScheduler の遷移に伴って App が行うこと。
+struct ReloadCommand {
+    // 0 でなければ FILE_RELOAD タイマーをこの間隔で掛け直す。
+    UINT set_timer_ms = 0;
+    bool kill_timer = false;
+    // 表示中のファイルを読み直す。
+    bool start_reload = false;
+    // 読み直した結果で文書を差し替える。
+    bool apply_result = false;
+    // 開けない状態が長引いていることを一度だけ知らせる。
+    bool notify_locked = false;
+};
+
+// 表示中のファイルの読み直しを、変更の通知・FILE_RELOAD タイマー・読み込みの開始と結果で進める。
+// FILE_RELOAD タイマーは Waiting の間だけ掛かっている。読み込み中 (Reloading / LoadingOther) は AsyncLoadCoordinator が
+// 読み込み中なのと一致する。
+class ReloadScheduler {
+public:
+    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
+    // 超えたら縮んだ内容を確定版として受け入れる。
+    static constexpr int kMaxPrefixShrinkDefers = 10;
+    // 共有を許さずに開かれている間は開けるまで読み直す。諦めると、最後の変更通知を読み直しの前に捨てているので
+    // 次の保存まで古い内容のままになる。短い間隔で 50 回 (約 3 秒) 開けなければ一度知らせ、以後は間隔を空ける。
+    static constexpr int kLockedRetriesBeforeNotice = 50;
+
+    enum class Wait : uint8_t {
+        // 変更の通知を受けた。続けて保存されても最初の通知から数える。
+        Debounce,
+        // 書き込みの途中を読んだか、テキスト選択のドラッグの途中。差し替えると選択の途中でドラッグが終わる。
+        Retry,
+        // 共有を許さずに開かれたまま長引いている。
+        Locked,
+    };
+    // 読み直しを続ける間 (Waiting と Reloading) だけ持ち越す回数。
+    struct Attempts {
+        int prefix_shrink_defers = 0;
+        // 続けて開けなかった回数。
+        int locked_retries = 0;
+    };
+    struct Idle {};
+    struct Waiting {
+        Wait wait = Wait::Debounce;
+        Attempts attempts;
+    };
+    // changed: 読み始めた後に変更が届いた。読み終えたら読み直す。
+    struct Reloading {
+        Attempts attempts;
+        bool changed = false;
+    };
+    // 文書を差し替えずに終わったら (失敗・取り消し)、changed (表示中のファイルの変更か、取りやめた読み直し) を読み直す。
+    struct LoadingOther {
+        bool changed = false;
+    };
+    using State = std::variant<Idle, Waiting, Reloading, LoadingOther>;
+
+    [[nodiscard]] ReloadCommand OnFileChanged();
+    // selecting はテキスト選択のドラッグ中。LButtonUp の処理中に文書を差し替えないよう、終わった直後も次のタイマーまで待つ。
+    [[nodiscard]] ReloadCommand OnTimer(bool selecting);
+    // F5。読み込み中なら何もしない (読み終えた後の変更は通知で届く)。
+    [[nodiscard]] ReloadCommand OnReloadRequested(bool selecting);
+    // ファイルを開き始めた (起動時の読み込みを含む)。表示中のファイルの開き直し (same_file) は読み直しとして進む。
+    [[nodiscard]] ReloadCommand OnLoadStarted(bool same_file);
+    // 読み込みの結果を取り出した。IgnoreStale では呼ばない。
+    [[nodiscard]] ReloadCommand OnLoadFinished(ParseCompleteStep step, bool selecting);
+    [[nodiscard]] ReloadCommand OnOtherLoadCancelled();
+    // 別の文書 (ヘルプを含む) を開いた。監視は新しい文書で始め直すので、前の文書の読み直しはやめる。
+    [[nodiscard]] ReloadCommand OnDocumentReplaced()
+    {
+        return Enter(Idle{});
+    }
+
+    const State& GetState() const noexcept
+    {
+        return state_;
+    }
+    bool IsLoadingOther() const noexcept
+    {
+        return std::holds_alternative<LoadingOther>(state_);
+    }
+    // 次の読み直しで、縮んだ内容を defer せずに受け入れる。
+    bool AcceptPrefixShrink() const noexcept
+    {
+        const auto* r = std::get_if<Reloading>(&state_);
+        return r && r->attempts.prefix_shrink_defers >= kMaxPrefixShrinkDefers;
+    }
+
+private:
+    // タイマーは前後の段階の待ち時間から決める (Win32 のタイマーは繰り返すので、同じ間隔で待ち続けるなら掛け直さない)。
+    ReloadCommand Enter(State next);
+    // 読み終えた。読み始めた後の変更があれば最初の通知として待ち直す。
+    ReloadCommand Settle(bool changed)
+    {
+        return changed ? Enter(Waiting{}) : Enter(Idle{});
+    }
+    ReloadCommand StartReload(Attempts attempts);
+
+    State state_;
+};

@@ -1,10 +1,12 @@
 #include "async_load_coordinator.h"
+#include "app_constants.h"
 #include "file_io.h"
 #include "layout_computer.h"
 #include "profiler.h"
 #include "task_scheduler.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <cassert>
 #include <limits>
 #include <new>
 #include <string_view>
@@ -231,4 +233,157 @@ std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept
     // race になるため、coordinator の責務に閉じる。
     in_flight_ = false;
     return std::exchange(outcome_, std::nullopt);
+}
+
+namespace {
+
+// 待っている間に掛けるタイマーの間隔。待っていなければ 0。
+UINT WaitInterval(const ReloadScheduler::State& state) noexcept
+{
+    const auto* w = std::get_if<ReloadScheduler::Waiting>(&state);
+    if (!w) {
+        return 0;
+    }
+    switch (w->wait) {
+    case ReloadScheduler::Wait::Debounce:
+        return app_timer::FILE_RELOAD_DEBOUNCE_MS;
+    case ReloadScheduler::Wait::Retry:
+        return app_timer::FILE_RELOAD_RETRY_MS;
+    case ReloadScheduler::Wait::Locked:
+        return app_timer::FILE_RELOAD_LOCKED_RETRY_MS;
+    }
+    std::unreachable();
+}
+
+} // namespace
+
+ReloadCommand ReloadScheduler::Enter(State next)
+{
+    const UINT before = WaitInterval(state_);
+    state_ = std::move(next);
+    const UINT after = WaitInterval(state_);
+    if (after == before) {
+        return {};
+    }
+    if (after == 0) {
+        return { .kill_timer = true };
+    }
+    return { .set_timer_ms = after };
+}
+
+ReloadCommand ReloadScheduler::StartReload(Attempts attempts)
+{
+    ReloadCommand cmd = Enter(Reloading{ attempts });
+    cmd.start_reload = true;
+    return cmd;
+}
+
+ReloadCommand ReloadScheduler::OnFileChanged()
+{
+    if (std::holds_alternative<Idle>(state_)) {
+        return Enter(Waiting{});
+    }
+    // 待っている間の変更は、待ち終えて読む内容に含まれる。
+    if (auto* r = std::get_if<Reloading>(&state_)) {
+        r->changed = true;
+    }
+    else if (auto* o = std::get_if<LoadingOther>(&state_)) {
+        o->changed = true;
+    }
+    return {};
+}
+
+ReloadCommand ReloadScheduler::OnTimer(bool selecting)
+{
+    const auto* w = std::get_if<Waiting>(&state_);
+    if (!w) {
+        return { .kill_timer = true };
+    }
+    if (selecting) {
+        return Enter(Waiting{ Wait::Retry, w->attempts });
+    }
+    return StartReload(w->attempts);
+}
+
+ReloadCommand ReloadScheduler::OnReloadRequested(bool selecting)
+{
+    if (std::holds_alternative<Reloading>(state_) || std::holds_alternative<LoadingOther>(state_)) {
+        return {};
+    }
+    if (selecting) {
+        return Enter(Waiting{ Wait::Retry });
+    }
+    return StartReload({});
+}
+
+ReloadCommand ReloadScheduler::OnLoadStarted(bool same_file)
+{
+    // 進行中の読み込みは置き換わる。
+    if (same_file) {
+        return Enter(Reloading{});
+    }
+    // 待っていた読み直しと、取り消される読み直しは、差し替えずに終わったときに読み直す。
+    bool changed = true;
+    if (std::holds_alternative<Idle>(state_)) {
+        changed = false;
+    }
+    else if (const auto* o = std::get_if<LoadingOther>(&state_)) {
+        changed = o->changed;
+    }
+    return Enter(LoadingOther{ changed });
+}
+
+ReloadCommand ReloadScheduler::OnLoadFinished(ParseCompleteStep step, bool selecting)
+{
+    if (const auto* o = std::get_if<LoadingOther>(&state_)) {
+        return step == ParseCompleteStep::ReplaceWithResult ? Enter(Idle{}) : Settle(o->changed);
+    }
+    const auto* r = std::get_if<Reloading>(&state_);
+    // 読み込みは必ず OnLoadStarted か start_reload で始まるので、ほかの段階で結果は来ない。
+    assert(r);
+    if (!r) {
+        return {};
+    }
+    Attempts attempts = r->attempts;
+    switch (step) {
+    case ParseCompleteStep::IgnoreStale:
+        return {};
+    case ParseCompleteStep::Fail:
+    case ParseCompleteStep::ReloadUnchanged:
+        return Settle(r->changed);
+    case ParseCompleteStep::ReplaceWithResult:
+        return Enter(Idle{});
+    case ParseCompleteStep::Retry:
+        attempts.locked_retries = 0;
+        return Enter(Waiting{ Wait::Retry, attempts });
+    case ParseCompleteStep::RetryLocked: {
+        ++attempts.locked_retries;
+        ReloadCommand cmd = Enter(Waiting{ attempts.locked_retries < kLockedRetriesBeforeNotice ? Wait::Retry : Wait::Locked, attempts });
+        cmd.notify_locked = attempts.locked_retries == kLockedRetriesBeforeNotice;
+        return cmd;
+    }
+    case ParseCompleteStep::DeferPrefixShrink:
+        // 正確な差分を取り直す。上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (AcceptPrefixShrink)。
+        ++attempts.prefix_shrink_defers;
+        attempts.locked_retries = 0;
+        return Enter(Waiting{ Wait::Retry, attempts });
+    case ParseCompleteStep::ApplyReload: {
+        // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの後に回す。
+        if (selecting) {
+            return Enter(Waiting{ Wait::Retry });
+        }
+        ReloadCommand cmd = Settle(r->changed);
+        cmd.apply_result = true;
+        return cmd;
+    }
+    }
+    std::unreachable();
+}
+
+ReloadCommand ReloadScheduler::OnOtherLoadCancelled()
+{
+    if (const auto* o = std::get_if<LoadingOther>(&state_)) {
+        return Settle(o->changed);
+    }
+    return {};
 }

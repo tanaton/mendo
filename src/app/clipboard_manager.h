@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 class Document;
@@ -49,8 +50,7 @@ private:
 
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
     TranspositionCache<uint64_t, std::string, MAX_SVG_CACHE_ENTRIES> svg_cache_;
-    bool copy_in_flight_ = false;
-    // 書き込みを行う(または開始する)コピーごとに増やす世代。保留中の非同期 SVG コールバックが
-    // 後発コピーを上書きしないよう、コールバックは捕捉した世代と現在値が一致する時のみ書き込む。
-    uint64_t copy_generation_ = 0;
+    // SVG を待っているコピーの図 (NodeDiagramHash)。届いた結果は、この図を待っているときだけ書く (待つ間に別のコピーが
+    // 書き込むか、置き換えた)。同じ図を待っている間に押し直しても頼み直さない。同じ図の結果は同じなので、どの要求の結果でもよい。
+    std::optional<uint64_t> pending_copy_;
 };

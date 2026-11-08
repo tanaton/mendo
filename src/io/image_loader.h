@@ -13,6 +13,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 class TaskScheduler;
 
@@ -122,15 +123,20 @@ public:
     }
 
 private:
+    // 始まる前に捨てたか取り消したので、読まずに返した。
+    struct Skipped {};
+    // 寸法だけを読んだ。読めなければ pixel_width が 0。
+    struct SizeRead {
+        ImageInfo info;
+    };
+    // デコードし、縮小まで済ませた。読めなければ bitmap が null。
+    struct Decoded {
+        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        ImageInfo info;
+    };
     struct DecodeResult {
         std::wstring path;
-        // worker でデコード確定・縮小済み (失敗時と寸法だけの要求では null)。
-        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-        // 寸法だけの要求で読めなければ pixel_width が 0。
-        ImageInfo info;
-        bool size_only = false;
-        // 始まる前に捨てられた。読まずに返す。
-        bool dropped = false;
+        std::variant<Skipped, SizeRead, Decoded> outcome;
     };
 
     void StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
@@ -138,8 +144,9 @@ private:
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
     UINT DecodeWidthPx(float width_dip) const noexcept;
     void QueueDecode(const std::wstring& abs_path, UINT max_width_px, bool size_only);
-    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。result.size_only なら寸法だけを読む。
-    void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
+    // worker で、EnsureWorkerCom の後に呼ぶ。
+    SizeRead ReadSize(const std::wstring& path) const;
+    Decoded DecodeForDisplay(const std::wstring& path, UINT max_width_px) const;
 
     static constexpr uint32_t kMaxImageRetries = 3;
     // 圧縮済み画像のファイルサイズ上限。デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB だと
@@ -157,16 +164,25 @@ private:
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
-    // DropQueued で進める。投入時の値から変わっていたら worker は読まずに dropped で返す (Mermaid の drop_gen_ と同じ)。
+    // DropQueued で進める。投入時の値から変わっていたら worker は読まずに Skipped で返す (Mermaid の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
-    struct PendingDecode {
-        // 待つ間に要求し直された。文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、
-        // 要求し直されたものだけ読み直させる。
-        bool requested_again = false;
+    // 寸法だけを読んでいる。取り消さない。
+    struct ReadingSize {};
+    // ビットマップを読んでいる。
+    struct ReadingBitmap {
+        // worker が始める前に見る取り消し。
+        std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);
         // 前の CancelStaleBitmapRequests の後に頼み直された。
-        bool renewed = false;
-        // ビットマップの要求の取り消し。worker が始める前に見る。寸法だけの要求は取り消さないので null。
-        std::shared_ptr<std::atomic<bool>> cancelled;
+        bool renewed = true;
+        // 前の CancelStaleBitmapRequests の後に寸法だけを頼まれた (範囲を出た)。取り消しても寸法を待つ側が残る。
+        bool size_wanted = false;
+    };
+    struct PendingDecode {
+        // 始めた要求の種類。待つ間に別の種類を頼まれても変えない (寸法を待つ間のビットマップは、届いてから頼み直させる)。
+        std::variant<ReadingSize, ReadingBitmap> reading;
+        // 待つ間に要求し直された。読まずに返ったら要求し直させる。文書を切り替えて捨てた要求の結果で旧文書の画像を
+        // 読み直さないよう、要求し直されたものだけ読み直させる。取り消したら、寸法だけを頼まれていたときだけ残す。
+        bool requested_again = false;
     };
     // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。
     std::unordered_map<std::wstring, PendingDecode> pending_paths_;

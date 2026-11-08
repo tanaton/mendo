@@ -61,6 +61,7 @@ inline TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zon
     return MakeTooltip(current, zone, key, [text](std::wstring& out) { out = text; });
 }
 
+// ホバーしてから遅れて出すツールチップ。待ちには parent の timer_id のタイマーを使う。
 class Tooltip {
 public:
     Tooltip() = default;
@@ -68,19 +69,35 @@ public:
     Tooltip(const Tooltip&) = delete;
     Tooltip& operator=(const Tooltip&) = delete;
 
-    void Init(HWND parent_hwnd);
-    // 隠して、次の Show で出す文言にする。空なら Show しても出さない。
-    void SetText(std::wstring_view text);
-    void Show();
+    void Init(HWND parent_hwnd, UINT_PTR timer_id);
+    // 出ていれば隠し、text を TOOLTIP_DELAY_MS 後に出す。空なら隠すだけ。
+    void Arm(std::wstring_view text);
+    // 次に Arm されるまで出さない。
+    void Dismiss()
+    {
+        Arm({});
+    }
+    // parent が timer_id の WM_TIMER を受けたら呼ぶ。
+    void OnTimer();
     void ApplyDarkMode(bool dark);
 
 private:
+    enum class Phase : uint8_t {
+        Hidden,
+        // タイマーを掛けて、出すのを待っている。
+        Armed,
+        Shown,
+    };
+
+    void Show();
     void Hide();
     bool EnsureWindow();
 
     HWND hwnd_ = nullptr;
     HWND parent_ = nullptr;
+    UINT_PTR timer_id_ = 0;
+    // Armed と Shown の間の文言。
     std::wstring text_;
-    bool visible_ = false;
+    Phase phase_ = Phase::Hidden;
     bool dark_ = false;
 };

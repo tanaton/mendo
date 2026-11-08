@@ -55,36 +55,19 @@ public:
     FileWatcher(const FileWatcher&) = delete;
     FileWatcher& operator=(const FileWatcher&) = delete;
 
+    // 変更のたびに呼ぶ。読み直しの最中かどうかは呼ばれた側 (ReloadScheduler) が見る。
     using ChangeCallback = std::move_only_function<void()>;
     // 今の監視をやめ、target を監視する。target.read が無ければ監視しない。
     void StartWatching(FileWatchTarget target, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
 
-    void ResumeWatching();
-    // paused 中に溜めた通知を捨てる。読み直しを始める直前に呼び、その読み込みに含まれる変更で再発火させない。
-    constexpr void DiscardPendingChange() noexcept
-    {
-        pending_change_ = false;
-    }
-    // 通知済みの変更を読まずに取りやめたときに呼び、次の ResumeWatching で通知し直させる。
-    constexpr void RequeueIfPaused() noexcept
-    {
-        if (paused_) {
-            pending_change_ = true;
-        }
-    }
     HANDLE GetEventHandle() const noexcept
     {
         return target_.read && target_.read->pending ? target_.read->event.get() : nullptr;
     }
 
 private:
-    // 通知後は ResumeWatching まで paused_ で後続通知を pending_change_ に溜める。
-    void FireChange();
-
     FileWatchTarget target_;
     ChangeCallback on_change_;
-    bool paused_ = false;
-    bool pending_change_ = false;
 };

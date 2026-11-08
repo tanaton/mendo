@@ -281,11 +281,7 @@ bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
     if (it == src.diagrams_.end() || !it->second.HasImage()) {
         return false;
     }
-    auto& d = diagrams_.insert_or_assign(to, std::move(it->second)).first->second;
-    d.MarkStale();
-    // コードのハッシュは新しいノードのテキストで計算し直させる。
-    d.code_hash = 0;
-    d.drawing.reset();
+    diagrams_.insert_or_assign(to, std::move(it->second)).first->second.MarkCodeReplaced();
     entries_[to].height = src.entries_[from].height;
     return true;
 }

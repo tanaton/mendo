@@ -118,7 +118,7 @@ bool App::Init(HWND hwnd)
         state_.file_explorer.EnsureListed();
     }
 
-    tooltip_.Init(hwnd_);
+    tooltip_.Init(hwnd_, std::to_underlying(app_timer::Id::TOOLTIP));
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
     initialized_ = true;
@@ -300,8 +300,7 @@ void App::OnPaint()
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
-        .loading_angle = show_loading ? std::optional{ spinner_angle_ }
-          : std::nullopt,
+        .loading_angle = SpinnerAngle(),
     });
 
     EndPaint(hwnd_, &ps);
@@ -544,25 +543,23 @@ void App::HandleTimer(UINT_PTR timer_id)
         Invalidate();
         return;
     case TOOLTIP:
-        KillTimer(id);
-        tooltip_.Show();
+        tooltip_.OnTimer();
         return;
     case LOADING_ANIM:
-        // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
-        if (!state_.view.loading_shown) {
-            if (load_coordinator_.IsActive()) {
-                StartLoadingAnimation();
+        if (auto* spinning = std::get_if<SpinnerSpinning>(&spinner_)) {
+            spinning->angle += SPINNER_ROTATION_INCREMENT;
+            if (spinning->angle > TWO_PI) {
+                spinning->angle -= TWO_PI;
             }
-            else {
-                KillTimer(id);
-            }
-            return;
+            Invalidate();
         }
-        spinner_angle_ += SPINNER_ROTATION_INCREMENT;
-        if (spinner_angle_ > TWO_PI) {
-            spinner_angle_ -= TWO_PI;
+        else if (std::holds_alternative<SpinnerDelayed>(spinner_) && load_coordinator_.IsActive()) {
+            StartLoadingAnimation();
         }
-        Invalidate();
+        else {
+            spinner_ = SpinnerOff{};
+            KillTimer(id);
+        }
         return;
     case BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
@@ -577,9 +574,8 @@ void App::HandleTimer(UINT_PTR timer_id)
     case INLINE_TABLES:
         RelayoutPendingInline(/*force_tables=*/true);
         return;
-    case FILE_RELOAD_DEBOUNCE:
-        KillTimer(id);
-        ReloadCurrentFile();
+    case FILE_RELOAD:
+        RunReloadCommand(reload_.OnTimer(state_.view.IsSelectingText()));
         return;
     }
 }
@@ -622,7 +618,7 @@ void App::CancelPendingResources()
 
 void App::StartLoadingAnimation()
 {
-    spinner_angle_ = 0.0f;
+    spinner_ = SpinnerSpinning{};
     SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
     Dispatch(LoadingShownAction{ true });
 }
@@ -630,7 +626,8 @@ void App::StartLoadingAnimation()
 void App::ScheduleLoadingAnimation()
 {
     // 回っている最中に次の読み込みが始まったら、そのまま回し続ける。
-    if (!state_.view.loading_shown) {
+    if (!std::holds_alternative<SpinnerSpinning>(spinner_)) {
+        spinner_ = SpinnerDelayed{};
         SetTimer(app_timer::Id::LOADING_ANIM, app_timer::LOADING_SPINNER_DELAY_MS);
     }
 }
@@ -638,6 +635,7 @@ void App::ScheduleLoadingAnimation()
 void App::StopLoadingAnimation()
 {
     // 出す前のスピナーの遅延もここで止める。
+    spinner_ = SpinnerOff{};
     KillTimer(app_timer::Id::LOADING_ANIM);
     // 出ていれば消すために描き直させる。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
     Dispatch(LoadingShownAction{ false });
@@ -688,27 +686,32 @@ void App::BeginAsyncLoad(std::wstring path, bool show_animation)
     if (show_animation) {
         ScheduleLoadingAnimation();
     }
-    ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, prefix_shrink_defers_ >= kMaxPrefixShrinkDefers);
+    ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, reload_.AcceptPrefixShrink());
     // 進行中の読み込み (preload を含む) は置き換える。
     load_coordinator_.Start(std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
 }
 
-void App::DeferReloadRetry(UINT delay_ms)
+void App::RunReloadCommand(const ReloadCommand& cmd)
 {
-    // FileWatcher は paused のまま維持する。resume すると待機中の変更通知が
-    // FILE_RELOAD_DEBOUNCE を 200ms に上書きし、短縮リトライが効かなくなる。
-    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, delay_ms);
+    if (cmd.kill_timer) {
+        KillTimer(app_timer::Id::FILE_RELOAD);
+    }
+    if (cmd.set_timer_ms != 0) {
+        SetTimer(app_timer::Id::FILE_RELOAD, cmd.set_timer_ms);
+    }
+    if (cmd.notify_locked) {
+        ShowToast(FileLoadErrorMessage(FileLoadError::Locked, i18n::S()));
+    }
+    if (cmd.start_reload) {
+        // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
+        BeginAsyncLoad(state_.document.doc.GetFilePath(), /*show_animation=*/false);
+    }
 }
 
 // 読み込みとパースは大きさによらず worker で行い、UI スレッドではファイルに触れない (ネットワーク上のファイルで止まらない)。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     MENDO_PROFILE("App::LoadMarkdownFile");
-    KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
-    // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
-    file_watcher_.RequeueIfPaused();
-    prefix_shrink_defers_ = 0;
-    locked_retries_ = 0;
     // 仮想パスはファイルとして読めないので、埋め込みリソースから開く。
     if (IsEmbeddedPath(path)) {
         ShowEmbeddedResource(path);
@@ -717,22 +720,23 @@ void App::LoadMarkdownFile(std::wstring_view path)
     // 旧文書の画像・図の待ちはもう要らない。文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す
     // (OnParseComplete・CancelOtherFileLoad)。開いている文書を開き直すとリロードとして扱われ、
     // 図と画像はコードやパスがキーなので待ちをそのまま使える。
-    if (!path_util::iequal(path, state_.document.doc.GetFilePath())) {
+    const bool same_file = path_util::iequal(path, state_.document.doc.GetFilePath());
+    if (!same_file) {
         CancelPendingResources();
     }
+    RunReloadCommand(reload_.OnLoadStarted(same_file));
     BeginAsyncLoad(std::wstring{ path }, /*show_animation=*/true);
 }
 
-// 同じファイルの再読み込みは FileWatcher を paused にしたまま進んでいるので止めない。
+// 同じファイルの再読み込みは止めない。
 void App::CancelOtherFileLoad()
 {
-    if (!load_coordinator_.IsActive() ||
-        path_util::iequal(load_coordinator_.LoadingPath(), state_.document.doc.GetFilePath())) {
+    if (!reload_.IsLoadingOther()) {
         return;
     }
     StopLoadingAnimation();
     load_coordinator_.Cancel();
-    file_watcher_.ResumeWatching();
+    RunReloadCommand(reload_.OnOtherLoadCancelled());
     resource_manager_.ScheduleBitmapManage();
 }
 
@@ -740,6 +744,8 @@ void App::CancelOtherFileLoad()
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::wstring path)
 {
+    // 文書もタイマーもまだ無いので、指示は空。
+    RunReloadCommand(reload_.OnLoadStarted(/*same_file=*/false));
     load_coordinator_.Start(std::move(path), theme_service_.CreateTheme(session::LoadZoomLevel(config_)));
 }
 
@@ -769,12 +775,6 @@ void App::OnParseComplete()
     }
 
     StopLoadingAnimation();
-    if (step != ParseCompleteStep::RetryLocked) {
-        locked_retries_ = 0;
-    }
-
-    // Fail のときだけ結果が無い。
-    AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
 
     // 読み始めに捨てた画像・図の待ちを、文書を差し替えずに終わるなら要求し直す。ApplyReload は ReloadDocument が要求する
     // (ドラッグの後に回すときも、読み直しの結果でここか ReloadDocument を通る)。
@@ -782,62 +782,54 @@ void App::OnParseComplete()
         resource_manager_.ScheduleBitmapManage();
     }
 
-    // 読み直しを予約した分岐は FileWatcher を paused のまま残して return する (DeferReloadRetry)。
+    const ReloadCommand reload = reload_.OnLoadFinished(step, state_.view.IsSelectingText());
+    RunReloadCommand(reload);
+
+    // Fail のときだけ結果が無い。
+    AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
+    // 差し替えに使わない文書を捨てる。worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
+    const auto dispose_result = [&] {
+        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+    };
     switch (step) {
     case ParseCompleteStep::IgnoreStale:
-        return;
+    case ParseCompleteStep::RetryLocked:
+    case ParseCompleteStep::ReloadUnchanged:
+    case ParseCompleteStep::DeferPrefixShrink:
+        break;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: load failed");
         HandleLoadFailureFallback(outcome->error());
         break;
     case ParseCompleteStep::Retry:
-        // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
-        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
-        DeferReloadRetry();
-        return;
-    case ParseCompleteStep::RetryLocked:
-        if (++locked_retries_ == kLockedRetriesBeforeNotice) {
-            ShowToast(FileLoadErrorMessage(FileLoadError::Locked, i18n::S()));
-        }
-        DeferReloadRetry(locked_retries_ < kLockedRetriesBeforeNotice ? app_timer::FILE_RELOAD_RETRY_MS : app_timer::FILE_RELOAD_LOCKED_RETRY_MS);
-        return;
-    case ParseCompleteStep::ReloadUnchanged:
-        prefix_shrink_defers_ = 0;
+        dispose_result();
         break;
-    case ParseCompleteStep::DeferPrefixShrink:
-        // 正確な差分を取り直す。上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
-        ++prefix_shrink_defers_;
-        DeferReloadRetry();
-        return;
     case ParseCompleteStep::ApplyReload: {
-        const ReloadCheck& reload = *result->reload;
-        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={}", result->doc.GetNodes().size(),
-                     reload.decision.diff_pos, result->doc.GetRawText().size());
-        prefix_shrink_defers_ = 0;
-        // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの後に回す。
-        if (DeferReloadWhileSelecting()) {
-            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
-            return;
+        if (!reload.apply_result) {
+            dispose_result();
+            break;
         }
-        ReloadDocument(std::move(result->doc), std::move(result->cache), reload.ends, reload.decision.diff_pos);
+        const ReloadCheck& check = *result->reload;
+        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={}", result->doc.GetNodes().size(),
+                     check.decision.diff_pos, result->doc.GetRawText().size());
+        ReloadDocument(std::move(result->doc), std::move(result->cache), check.ends, check.decision.diff_pos);
         break;
     }
     case ParseCompleteStep::ReplaceWithResult: {
         // 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
         // 同じ文書の開き直しはリロードになるのでここへ来ず (ReloadBaseFor)、ユーザーがペインで移動した先は保たれる。
         const bool follow_file_pane = !state_.document.doc.GetFilePath().empty();
-        // 監視は新しい文書で始め直す (StartWatching が paused を落とす) ので、下の再開は何もしない。
         OpenDocument(std::move(result->doc), std::move(result->cache), follow_file_pane, std::move(result->watch));
         break;
     }
     }
-    file_watcher_.ResumeWatching();
 }
 
 void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch)
 {
     MENDO_PROFILE("OpenDocument");
 
+    NavEntry left = CurrentNavEntry(state_);
     ReplaceDocument(std::move(next), std::move(estimated));
     CancelPendingResources();
     // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
@@ -854,7 +846,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
             layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
         }
     }
-    Dispatch(DocumentOpenedAction{ follow_file_pane });
+    Dispatch(DocumentOpenedAction{ follow_file_pane, std::move(left) });
 
     RelayoutViewport();
 
@@ -862,40 +854,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
-}
-
-void App::ReloadCurrentFile()
-{
-    MENDO_PROFILE("ReloadCurrentFile");
-
-    if (!state_.document.doc.HasBackingFile()) {
-        return;
-    }
-    if (DeferReloadWhileSelecting()) {
-        return;
-    }
-    // FileWatcher のバーストで重複スケジュールされないよう、進行中のロードがあれば即 return する。
-    if (load_coordinator_.IsActive()) {
-        // 別ファイルのロード中なら、それが取り消し・失敗で終わったときの Resume で読み直す。
-        file_watcher_.RequeueIfPaused();
-        return;
-    }
-    // ここまでに届いた通知の変更はこれから読む内容に含まれる。残すと Resume で同じ保存をもう一度読み直す。
-    file_watcher_.DiscardPendingChange();
-
-    // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
-    BeginAsyncLoad(state_.document.doc.GetFilePath(), /*show_animation=*/false);
-}
-
-// 差し替えると選択の途中でドラッグが終わる。FileWatcher は paused のまま残し、終わるまで短い間隔で確かめ直す。
-// LButtonUp の処理中に文書を差し替えないよう、終わった直後も次のタイマーまで待つ。
-bool App::DeferReloadWhileSelecting()
-{
-    if (state_.view.drag.kind != LeftDrag::TextSelect) {
-        return false;
-    }
-    DeferReloadRetry();
-    return true;
+    RunReloadCommand(reload_.OnDocumentReplaced());
 }
 
 void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos)
@@ -967,8 +926,7 @@ void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
 void App::StartFileWatch(FileWatchTarget target)
 {
     file_watcher_.StartWatching(std::move(target), [this] {
-        // 通知の後は読み直すまで監視を止めているので、続けて保存されても最初の通知から数える。
-        SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+        RunReloadCommand(reload_.OnFileChanged());
     });
 }
 
@@ -998,13 +956,7 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::ClipboardWrite& ev) { WriteClipboardHtml(hwnd_, ev.html, ev.text); },
         [this](const effect::SetTooltip& ev) {
-            tooltip_.SetText(ev.text);
-            if (ev.text.empty()) {
-                KillTimer(app_timer::Id::TOOLTIP);
-            }
-            else {
-                SetTimer(app_timer::Id::TOOLTIP, app_timer::TOOLTIP_DELAY_MS);
-            }
+            tooltip_.Arm(ev.text);
         },
         [this](const effect::ShowContextMenu& ev) {
             OnContextMenu(ev.screen_x, ev.screen_y);
@@ -1041,7 +993,9 @@ void App::Execute(const SideEffect& effect)
             LoadMarkdownFile(ev.path);
         },
         [this](const effect::ReloadFile&) {
-            ReloadCurrentFile();
+            if (state_.document.doc.HasBackingFile()) {
+                RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
+            }
         },
         [this](const effect::OpenFileDialog&) {
             OpenFileDialog();
@@ -1223,17 +1177,17 @@ void App::OnMButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
-    const LeftDrag drag = state_.view.drag.kind;
-    if (drag == LeftDrag::None) {
+    if (!state_.view.IsDragging()) {
         return;
     }
-    if (drag != LeftDrag::TextSelect) {
+    const auto* select = std::get_if<left_drag::TextSelect>(&state_.view.drag);
+    if (!select) {
         Dispatch(LeftDragEndedAction{});
         return;
     }
+    const int dx = px - select->click_x;
+    const int dy = py - select->click_y;
     const auto hit = HitTest(px, py);
-    const int dx = px - state_.view.drag.click_x;
-    const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
     Dispatch(LeftDragEndedAction{ hit.node_index, hit.text_pos });
     if (!small_click || state_.view.viewport.GetSelection().active()) {
@@ -1250,23 +1204,16 @@ void App::OnMouseMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     LeftDragMovedAction action{ .dip_x = dip.x, .dip_y = dip.y };
     // 入力欄とテキスト選択だけは、ポインタの位置を文字の位置に直して渡す。
-    switch (state_.view.drag.kind) {
-    case LeftDrag::None:
+    if (!state_.view.IsDragging()) {
         return;
-    case LeftDrag::SearchInput:
+    }
+    if (std::holds_alternative<left_drag::SearchInput>(state_.view.drag)) {
         action.search_caret = SearchInputPosAt(dip.x);
-        break;
-    case LeftDrag::TextSelect: {
+    }
+    else if (state_.view.IsSelectingText()) {
         const auto hit = HitTest(px, py);
         action.node_index = hit.node_index;
         action.text_pos = hit.text_pos;
-        break;
-    }
-    case LeftDrag::Splitter:
-    case LeftDrag::PaneScrollbar:
-    case LeftDrag::MdScrollbar:
-    case LeftDrag::BlockHScroll:
-        break;
     }
     Dispatch(action);
 }
@@ -1280,7 +1227,7 @@ void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 bool App::OnRButtonDown(int px, int py)
 {
     // 左ドラッグ中の移動は OnMouseMove にしか届かずジェスチャが進まない。離すとメニューが出てドラッグも切れる。
-    if (state_.view.drag.kind != LeftDrag::None) {
+    if (state_.view.IsDragging()) {
         return false;
     }
     const auto dip = PixelToDip(px, py);

@@ -153,26 +153,38 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
     }
     const auto [it, inserted] = pending_paths_.try_emplace(abs_path);
     auto& pending = it->second;
-    if (!size_only) {
-        pending.renewed = true;
-        if (pending.cancelled) {
-            pending.cancelled->store(false, std::memory_order_relaxed);
-        }
-        else if (inserted) {
-            pending.cancelled = std::make_shared<std::atomic<bool>>(false);
-        }
-    }
     if (!inserted) {
         pending.requested_again = true;
+        if (auto* bitmap = std::get_if<ReadingBitmap>(&pending.reading)) {
+            if (size_only) {
+                bitmap->size_wanted = true;
+            }
+            else {
+                bitmap->renewed = true;
+                bitmap->cancelled->store(false, std::memory_order_relaxed);
+            }
+        }
         return;
     }
+    std::shared_ptr<std::atomic<bool>> cancelled;
+    if (!size_only) {
+        cancelled = pending.reading.emplace<ReadingBitmap>().cancelled;
+    }
 
-    scheduler_->Post([this, path = abs_path, drop_gen = drop_gen_.load(), cancelled = pending.cancelled, max_width_px, size_only,
+    scheduler_->Post([this, path = abs_path, drop_gen = drop_gen_.load(), cancelled = std::move(cancelled), max_width_px, size_only,
                       guard = latch_.Acquire()]() mutable {
-        DecodeResult result{ .size_only = size_only };
-        result.dropped = drop_gen_.load() != drop_gen || (cancelled && cancelled->load(std::memory_order_relaxed));
-        if (!result.dropped) {
-            DecodeForDisplay(path, max_width_px, result);
+        DecodeResult result;
+        if (drop_gen_.load() != drop_gen || (cancelled && cancelled->load(std::memory_order_relaxed))) {
+            result.outcome = Skipped{};
+        }
+        else {
+            TaskScheduler::EnsureWorkerCom();
+            if (size_only) {
+                result.outcome = ReadSize(path);
+            }
+            else {
+                result.outcome = DecodeForDisplay(path, max_width_px);
+            }
         }
         result.path = std::move(path);
 
@@ -182,26 +194,30 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
     });
 }
 
-void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const
+ImageLoader::SizeRead ImageLoader::ReadSize(const std::wstring& path) const
 {
-    TaskScheduler::EnsureWorkerCom();
-    if (result.size_only) {
-        if (const auto size = ReadImageSize(wic_factory_.Get(), path, MAX_IMAGE_FILE_SIZE)) {
-            result.info = { static_cast<float>(size->width), static_cast<float>(size->height), 0 };
-        }
-        return;
+    SizeRead out;
+    if (const auto size = ReadImageSize(wic_factory_.Get(), path, MAX_IMAGE_FILE_SIZE)) {
+        out.info = { static_cast<float>(size->width), static_cast<float>(size->height), 0 };
     }
+    return out;
+}
+
+ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px) const
+{
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
     const auto bytes = ReadAllBytes(path.c_str(), nullptr, path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
     const auto decoded = wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     if (!decoded) {
-        return;
+        return {};
     }
     const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, max_width_px, max_bitmap_dim_.load());
-    result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target);
     // GPU の最大辺で縮んだ場合は幅を広げて読み直しても変わらないので上限なし扱いにする。
     const bool width_limited = target.width < decoded->pixel_width && target.width == max_width_px;
-    result.info = { static_cast<float>(decoded->pixel_width), static_cast<float>(decoded->pixel_height), width_limited ? target.width : UINT_MAX };
+    return {
+        .bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target),
+        .info = { static_cast<float>(decoded->pixel_width), static_cast<float>(decoded->pixel_height), width_limited ? target.width : UINT_MAX },
+    };
 }
 
 bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
@@ -214,22 +230,25 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
     bool request_again = false;
     completed_.Drain(deadline, [&](DecodeResult& r) {
         const auto pending = pending_paths_.extract(r.path);
-        if (r.dropped) {
+        if (std::holds_alternative<Skipped>(r.outcome)) {
             request_again |= pending && pending.mapped().requested_again;
             return;
         }
         request_again = true;
-        const auto* cancelled = pending ? pending.mapped().cancelled.get() : nullptr;
-        if ((r.size_only || (cancelled && cancelled->load(std::memory_order_relaxed))) && r.info.pixel_width > 0) {
+        auto* const decoded = std::get_if<Decoded>(&r.outcome);
+        const ImageInfo& info = decoded ? decoded->info : std::get<SizeRead>(r.outcome).info;
+        const auto* bitmap_request = pending ? std::get_if<ReadingBitmap>(&pending.mapped().reading) : nullptr;
+        const bool cancelled = bitmap_request && bitmap_request->cancelled->load(std::memory_order_relaxed);
+        if ((!decoded || cancelled) && info.pixel_width > 0) {
             // 寸法だけの要求と、デコードの後で取り消した要求。ビットマップは載せず、前に読んだ解像度 (sharp_width_px) も消さない。
             if (!FindImageInfo(r.path)) {
-                StoreResult(r.path, { r.info.pixel_width, r.info.pixel_height, 0 }, nullptr);
+                StoreResult(r.path, { info.pixel_width, info.pixel_height, 0 }, nullptr);
             }
             return;
         }
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        if (r.bitmap && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
-            StoreResult(r.path, r.info, std::move(bitmap));
+        if (decoded && decoded->bitmap && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(decoded->bitmap.Get(), &bitmap)) && bitmap) {
+            StoreResult(r.path, info, std::move(bitmap));
             return;
         }
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
@@ -241,9 +260,14 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
 void ImageLoader::CancelStaleBitmapRequests() noexcept
 {
     for (auto& pending : pending_paths_ | std::views::values) {
-        if (!std::exchange(pending.renewed, false) && pending.cancelled) {
-            pending.cancelled->store(true, std::memory_order_relaxed);
-            pending.requested_again = false;
+        auto* const bitmap = std::get_if<ReadingBitmap>(&pending.reading);
+        if (!bitmap) {
+            continue;
+        }
+        const bool size_wanted = std::exchange(bitmap->size_wanted, false);
+        if (!std::exchange(bitmap->renewed, false)) {
+            bitmap->cancelled->store(true, std::memory_order_relaxed);
+            pending.requested_again = size_wanted;
         }
     }
 }

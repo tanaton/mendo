@@ -1153,6 +1153,132 @@ TEST_F(ImageLoaderAsyncTest, SizeOnlyFailureCountsTowardGivingUp)
     EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
 }
 
+// 寸法だけを待つ間にビットマップを頼むと、届いた寸法を入れて要求し直させる。ビットマップは要求し直しで読む。
+TEST_F(ImageLoaderAsyncTest, BitmapRequestWhileReadingSizeAsksToRequestAgain)
+{
+    ASSERT_TRUE(CreateTestImage(L"upgrade.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"upgrade.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestSizeAsync(path);
+        loader_.RequestLoadAsync(path, 0.0f);
+    }
+    EXPECT_TRUE(DrainDecodes());
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(info->sharp_width_px, 0u);
+    EXPECT_EQ(loader_.TakeDelivered().Find(path), nullptr);
+
+    loader_.RequestLoadAsync(path, 0.0f);
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_NE(loader_.TakeDelivered().Find(path), nullptr);
+}
+
+// 寸法だけの要求は、頼み直されなくても取り消さない。
+TEST_F(ImageLoaderAsyncTest, SizeRequestIsNotCancelled)
+{
+    ASSERT_TRUE(CreateTestImage(L"size_kept.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"size_kept.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestSizeAsync(path);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_TRUE(DrainDecodes());
+    ASSERT_NE(loader_.FindImageInfo(path), nullptr);
+    EXPECT_FLOAT_EQ(loader_.FindImageInfo(path)->pixel_width, 40.0f);
+}
+
+// 取り消して読まずに返った結果では、要求し直させない (誰も待っていない)。
+TEST_F(ImageLoaderAsyncTest, CancelledRequestDoesNotAskToRequestAgain)
+{
+    ASSERT_TRUE(CreateTestImage(L"gone.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"gone.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_FALSE(DrainDecodes());
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
+}
+
+// ビットマップを待つ間に範囲を出て寸法だけを頼まれたら、ビットマップを取り消しても寸法を待つ側が残る。
+// 読まずに返ったら要求し直させ、寸法を読む。
+TEST_F(ImageLoaderAsyncTest, SizeRequestMergedIntoCancelledBitmapRequestIsNotLost)
+{
+    ASSERT_TRUE(CreateTestImage(L"left_range.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"left_range.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.RequestSizeAsync(path);
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr) << "ビットマップの要求は読まずに返る";
+
+    loader_.RequestSizeAsync(path);
+    loader_.CancelStaleBitmapRequests();
+    EXPECT_TRUE(DrainDecodes());
+    ASSERT_NE(loader_.FindImageInfo(path), nullptr);
+    EXPECT_FLOAT_EQ(loader_.FindImageInfo(path)->pixel_width, 40.0f);
+
+    // 寸法を頼んだのが前の取り込みなら、今は誰も待っていない。
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.RequestSizeAsync(path);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_FALSE(DrainDecodes());
+}
+
+// 読まずに返った後で頼み直されたら、届いたときに要求し直させる (取り消しの取り下げは worker に間に合っていない)。
+TEST_F(ImageLoaderAsyncTest, RerequestAfterCancelledRequestReturnedAsksAgain)
+{
+    ASSERT_TRUE(CreateTestImage(L"late_again.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"late_again.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    loader_.RequestLoadAsync(path, 0.0f);
+    EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
+
+    loader_.RequestLoadAsync(path, 0.0f);
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_NE(loader_.TakeDelivered().Find(path), nullptr);
+}
+
+// デコードの後で取り消した要求も、読めなければ失敗に数える。
+TEST_F(ImageLoaderAsyncTest, RequestCancelledAfterFailedDecodeCountsAsFailure)
+{
+    const auto path = GetTestImagePath(L"late_missing.png");
+    for (int i = 0; i < 3; ++i) {
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        ASSERT_TRUE(DrainScheduler(scheduler_));
+        loader_.CancelStaleBitmapRequests();
+        EXPECT_TRUE(loader_.ProcessCompletedDecodes(kNoDeadline));
+    }
+    EXPECT_TRUE(loader_.HasGivenUp(path));
+}
+
 TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
 {
     ASSERT_TRUE(CreateTestImage(L"narrow.png", GUID_ContainerFormatPng, 100, 50));

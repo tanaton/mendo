@@ -126,23 +126,19 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     const auto& node = *node_ptr;
     const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
 
-    // 世代は「実際に書き込む経路」でのみ進める。in-flight で弾く再入では進めないことで、
-    // 進行中リクエストのコールバックを誤って stale 化しない。同期コピー (SVG キャッシュヒット) は
-    // 保留中の非同期コールバックの上書きを防ぐため世代を進める。
-
     // SVG + 画像。SVG は bg のワーカーで描く非同期の取得なのでキャッシュ優先。
     if (const auto* hit = svg_cache_.Find(key)) {
-        ++copy_generation_;
+        // 待っているコピーの結果で、後から押したこのコピーを上書きさせない。
+        pending_copy_.reset();
         EmitCopyResult(WriteClipboardDiagram(hwnd_, build_dib(), *hit));
         return;
     }
-    if (copy_in_flight_) {
+    if (pending_copy_ == key) {
         return;
     }
-
-    const uint64_t gen = ++copy_generation_;
+    // 別の図を待っていたら、後から押したこちらに置き換える。
+    pending_copy_ = key;
     show_toast_(i18n::S().toast_diagram_copying);
-    copy_in_flight_ = true;
 
     // 画像は同期で確定し、SVG が届くまで dib で持つ。
     UniqueGlobalMem dib = build_dib();
@@ -152,11 +148,11 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         node.GetText(),
         md_width,
         dark,
-        [this, key, gen, dib = std::move(dib)](std::string_view svg) mutable {
-            copy_in_flight_ = false;
-            if (gen != copy_generation_) {
+        [this, key, dib = std::move(dib)](std::string_view svg) mutable {
+            if (pending_copy_ != key) {
                 return;
             }
+            pending_copy_.reset();
             const bool ok = WriteClipboardDiagram(hwnd_, std::move(dib), svg);
             if (ok && !svg.empty()) {
                 svg_cache_.Insert(key, std::string{ svg });

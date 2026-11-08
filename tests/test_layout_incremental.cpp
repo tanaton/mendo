@@ -586,7 +586,7 @@ TEST(CarryOverUnchangedTest, KeepsEditedDiagramAsStale)
     EXPECT_TRUE(d->HasImage());
     EXPECT_TRUE(d->stale);
     EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
-    EXPECT_EQ(d->drawing, nullptr) << "前のコードの絵をコピー・保存させない";
+    EXPECT_FALSE(d->CanExport()) << "前のコードの絵をコピー・保存させない";
     EXPECT_FLOAT_EQ(next_cache[new_index].height, 321.0f);
 }
 

@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <variant>
 
 struct ID2D1DeviceContext5;
 
@@ -86,13 +87,20 @@ private:
     void Scroll(int bar, WORD request);
     void Step(int dir);
     void Fit();
+    float Zoom() const noexcept
+    {
+        return manual_zoom_.value_or(fit_zoom_);
+    }
     // 窓の中央に見えている点を動かさずに倍率を変える。
     void SetZoom(float zoom);
     Button HitButton(float x, float y) const noexcept;
     D2D1_RECT_F ButtonRect(Button button) const noexcept;
     D2D1_RECT_F BarRect() const noexcept;
     bool IsEnabled(Button button) const noexcept;
-    void SetHover(Button button);
+    // 押していない間に、ポインタの下のボタンを button にする。
+    void HoverAt(Button button);
+    // 塗るボタン (ポインタの下か、押している)。
+    Button HighlightedButton() const noexcept;
     void Invalidate() const noexcept
     {
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -121,19 +129,34 @@ private:
     // 大きさと位置は DIP。
     float view_width_ = 0.0f;
     float view_height_ = 0.0f;
-    float zoom_ = 1.0f;
     float fit_zoom_ = 1.0f;
-    // 全体表示のままなら窓の大きさに追従する。ボタンで倍率を変えたら追従をやめる。
-    bool fitting_ = true;
+    // ボタンやキーで変えた倍率。無ければ全体表示で、窓の大きさに追従する。
+    std::optional<float> manual_zoom_;
     // 図を余白込みで並べた面の、窓の左上が指す位置。
     float scroll_x_ = 0.0f;
     float scroll_y_ = 0.0f;
     // スクロールバーの出し入れで WM_SIZE から Layout に戻ってくる間は、外側の Layout に任せる。
     bool laying_out_ = false;
 
-    Button hover_ = Button::None;
-    Button pressed_ = Button::None;
+    // ポインタの段階。押している間 (Pressing / Dragging) はキャプチャを持つ。
+    struct PointerIdle {};
+    // 押した後も同じボタンの上ならツールチップを出し直さない (HoverAt は同じボタンでは何もしない)。
+    struct PointerOver {
+        Button button = Button::None;
+    };
+    // 離したときに同じボタンの上なら押したことにする。
+    struct PointerPressing {
+        Button button = Button::None;
+    };
+    // 図をつかんで動かしている。last は直前のポインタの位置で、動いた分だけスクロールする
+    // (ドラッグ中にホイール・キー・倍率の変更・保存で動いた位置を、次の移動で戻さない)。
+    struct PointerDragging {
+        D2D1_POINT_2F last{};
+    };
+    std::variant<PointerIdle, PointerOver, PointerPressing, PointerDragging> pointer_;
+    bool PointerDown() const noexcept
+    {
+        return std::holds_alternative<PointerPressing>(pointer_) || std::holds_alternative<PointerDragging>(pointer_);
+    }
     bool tracking_leave_ = false;
-    // ドラッグ中は、押した位置にスクロール位置を足したもの。ここからポインタの位置を引けば新しいスクロール位置になる。
-    std::optional<D2D1_POINT_2F> drag_anchor_;
 };

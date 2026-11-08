@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include "nav.h"
+#include <algorithm>
 #include <format>
 #include <optional>
 #include <random>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 class NavHistoryTest : public ::testing::Test {
 protected:
@@ -34,6 +36,7 @@ TEST_F(NavHistoryTest, PushClearsForwardStack)
 
     NavEntry out;
     hist_.GoBack({ L"b.md", 0, 0.0f }, out);
+    hist_.CommitOpened({ L"b.md", 0, 0.0f });
     EXPECT_TRUE(hist_.CanGoForward());
 
     // 新規ナビゲーションは進むスタックをクリアすべき
@@ -59,12 +62,14 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_EQ(out.node, 3);
     EXPECT_FLOAT_EQ(out.offset, 4.0f);
     EXPECT_TRUE(hist_.CanGoForward());
+    hist_.CommitOpened({ L"c.md", 5, 6.0f });
 
     // BからAへ戻る
     EXPECT_TRUE(hist_.GoBack({ L"b.md", 3, 4.0f }, out));
     EXPECT_EQ(out.file_path, L"a.md");
     EXPECT_EQ(out.node, 1);
     EXPECT_FLOAT_EQ(out.offset, 2.0f);
+    hist_.CommitOpened({ L"b.md", 3, 4.0f });
 
     EXPECT_FALSE(hist_.CanGoBack());
     EXPECT_EQ(hist_.ForwardSize(), 2u);
@@ -72,6 +77,7 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     // AからBへ進む
     EXPECT_TRUE(hist_.GoForward({ L"a.md", 1, 2.0f }, out));
     EXPECT_EQ(out.file_path, L"b.md");
+    hist_.CommitOpened({ L"a.md", 1, 2.0f });
 
     // BからCへ進む
     EXPECT_TRUE(hist_.GoForward({ L"b.md", 3, 4.0f }, out));
@@ -130,6 +136,119 @@ TEST_F(NavHistoryTest, ChainedGoBackRollsBackTogether)
     hist_.RollbackPending();
 
     EXPECT_EQ(hist_.BackSize(), 2u);
+    EXPECT_FALSE(hist_.CanGoForward());
+}
+
+// ─── ロード中に表示中の文書の中で移動 ───
+
+namespace {
+
+// 戻るを続けて押し、たどった位置を新しい順に返す。
+std::vector<NavEntry> DrainBack(NavHistory& hist, NavEntry current)
+{
+    std::vector<NavEntry> out;
+    NavEntry e;
+    while (hist.GoBack(current, e)) {
+        hist.CommitOpened(current);
+        out.push_back(e);
+        current = e;
+    }
+    return out;
+}
+
+} // namespace
+
+// B を開いている間に A の中で 1 → 5 へ飛ぶと、A@1 は飛ぶ前の位置、A@5 は B に差し替えた時点の位置として 1 回ずつ入る。
+TEST_F(NavHistoryTest, PushWhileOpeningKeepsJumpBeforeOpen)
+{
+    hist_.Push({ L"z.md", 0, 0.0f });
+    hist_.PushPending({ L"a.md", 1, 0.0f });
+    hist_.Push({ L"a.md", 1, 0.0f });
+    hist_.CommitOpened({ L"a.md", 5, 0.0f });
+
+    const auto back = DrainBack(hist_, { L"b.md", 0, 0.0f });
+    ASSERT_EQ(back.size(), 3u);
+    EXPECT_EQ(back[0].node, 5);
+    EXPECT_EQ(back[1].node, 1);
+    EXPECT_EQ(back[2].file_path, L"z.md");
+}
+
+// 開けなかったら開く分だけを取り消し、表示中の文書の中の移動は残す。
+TEST_F(NavHistoryTest, RollbackAfterPushWhileOpeningKeepsJump)
+{
+    hist_.PushPending({ L"a.md", 1, 0.0f });
+    hist_.Push({ L"a.md", 1, 0.0f });
+    hist_.RollbackPending();
+
+    EXPECT_EQ(hist_.BackSize(), 1u);
+    EXPECT_FALSE(hist_.CanGoForward());
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 5, 0.0f }, out));
+    EXPECT_EQ(out.node, 1);
+}
+
+// 戻るの読み込み中にスクロールしても、表示していた文書は差し替えた時点の位置で進む履歴に入る。
+TEST_F(NavHistoryTest, CommitOpenedRecordsPositionAtReplacement)
+{
+    hist_.Push({ L"x.md", 0, 0.0f });
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 1, 0.0f }, out));
+    hist_.CommitOpened({ L"a.md", 7, 0.0f });
+
+    ASSERT_TRUE(hist_.GoForward({ L"x.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"a.md");
+    EXPECT_EQ(out.node, 7);
+}
+
+// 戻るの読み込み中に A の中で 1 → 5 へ飛ぶと、飛んだ移動は戻るより前の移動になる。移動先 Y の先には A@1、A@5 の順に並ぶ。
+TEST_F(NavHistoryTest, PushWhileGoingBackInsertsJumpAfterTarget)
+{
+    hist_.Push({ L"x.md", 0, 0.0f });
+    hist_.Push({ L"y.md", 0, 0.0f });
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 1, 0.0f }, out));
+    ASSERT_EQ(out.file_path, L"y.md");
+    hist_.Push({ L"a.md", 1, 0.0f });
+    hist_.CommitOpened({ L"a.md", 5, 0.0f });
+
+    ASSERT_EQ(hist_.BackSize(), 1u);
+    ASSERT_EQ(hist_.ForwardSize(), 2u);
+    ASSERT_TRUE(hist_.GoForward({ L"y.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.node, 1);
+    hist_.CommitOpened({ L"y.md", 0, 0.0f });
+    ASSERT_TRUE(hist_.GoForward(NavEntry{ out }, out));
+    EXPECT_EQ(out.node, 5);
+}
+
+// 進むの読み込み中に表示中の文書の中で飛ぶと、進む履歴は消え、移動先は開くのと同じになる。
+TEST_F(NavHistoryTest, PushWhileGoingForwardBecomesOpen)
+{
+    hist_.Push({ L"a.md", 0, 0.0f });
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"g.md", 0, 0.0f }, out));
+    hist_.CommitOpened({ L"g.md", 0, 0.0f });
+    ASSERT_TRUE(hist_.GoForward({ L"a.md", 1, 0.0f }, out));
+    ASSERT_EQ(out.file_path, L"g.md");
+    hist_.Push({ L"a.md", 1, 0.0f });
+    hist_.CommitOpened({ L"a.md", 5, 0.0f });
+
+    EXPECT_FALSE(hist_.CanGoForward());
+    const auto back = DrainBack(hist_, { L"g.md", 0, 0.0f });
+    ASSERT_EQ(back.size(), 2u);
+    EXPECT_EQ(back[0].node, 5);
+    EXPECT_EQ(back[1].node, 1);
+}
+
+// 戻るの読み込み中に進むで表示中の文書へ戻ったら、読み込まずに確定し、今の位置に留まる。
+TEST_F(NavHistoryTest, ReturningToShownDocumentSettlesAtCurrentPosition)
+{
+    hist_.Push({ L"x.md", 0, 0.0f });
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 1, 0.0f }, out));
+    ASSERT_TRUE(hist_.GoForward({ L"a.md", 9, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"a.md");
+    EXPECT_EQ(out.node, 9);
+    EXPECT_EQ(hist_.BackSize(), 1u);
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
@@ -197,8 +316,7 @@ void RunNavHistoryProperties(uint32_t seed)
     bool reached_max = false;
     int next_node = 0;
 
-    // 時間の大半は確定待ちの操作が両スタックを写す分 (上限近くで 1 回約 40µs)。上限に届くのは seed あたり 2〜7 回
-    // (seed=1 の最初は 14145 歩目) なので、歩数は減らさない。
+    // 上限に届くのは seed あたり 2〜4 回 (seed=1 の最初は 17020 歩目) なので、歩数は減らさない。
     for (int step = 0; step < 30000; ++step) {
         if (segment_left-- == 0) {
             op_range = kOpRanges[pick(0, 3)];
@@ -212,8 +330,13 @@ void RunNavHistoryProperties(uint32_t seed)
         if (op < 25) {
             label = "Push";
             hist.Push(cur);
-            before_pending.reset();
-            ASSERT_FALSE(hist.CanGoForward()) << ctx();
+            // 確定待ちの間は、取り消しても残る移動として積む。
+            if (before_pending) {
+                *before_pending = { std::min(before_pending->first + 1, max), 0 };
+            }
+            else {
+                ASSERT_FALSE(hist.CanGoForward()) << ctx();
+            }
         }
         else if (op < 35) {
             label = "PushPending";
@@ -224,10 +347,17 @@ void RunNavHistoryProperties(uint32_t seed)
             hist.PushPending(cur);
             ASSERT_FALSE(hist.CanGoForward()) << ctx();
         }
-        else if (op < 41) {
+        else if (op < 38) {
             label = "CommitPending";
             hist.CommitPending();
             before_pending.reset();
+        }
+        else if (op < 41) {
+            label = "CommitOpened";
+            const auto sizes = std::pair(hist.BackSize(), hist.ForwardSize());
+            hist.CommitOpened(cur);
+            before_pending.reset();
+            ASSERT_EQ(std::pair(hist.BackSize(), hist.ForwardSize()), sizes) << ctx();
         }
         else if (op < 49) {
             label = "RollbackPending";

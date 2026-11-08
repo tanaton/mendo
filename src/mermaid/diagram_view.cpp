@@ -1,5 +1,4 @@
 #include "diagram_view.h"
-#include "app_constants.h"
 #include "d2d_util.h"
 #include "diagram_raster.h"
 #include "i18n.h"
@@ -131,7 +130,7 @@ std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, ID2D1Factory* d2d, ID
         return nullptr;
     }
     view->hwnd_ = hwnd;
-    view->tooltip_.Init(hwnd);
+    view->tooltip_.Init(hwnd, kTooltipTimer);
     // 表示する前に整え、最初の描画から背景を塗る。
     view->SetDarkMode(dark);
     view->ApplyLanguage();
@@ -147,7 +146,6 @@ DiagramView::~DiagramView()
     if (!hwnd_) {
         return;
     }
-    KillTimer(hwnd_, kTooltipTimer);
     // 窓を壊す間のメッセージは、壊しかけのこのオブジェクトに回さない (非表示の cloak は WndProc がオブジェクト無しで行う)。
     // ツールチップの窓はこの窓が所有するので一緒に壊れる。
     SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
@@ -225,7 +223,7 @@ void DiagramView::ApplyLanguage()
     };
     fmt_label_ = make(13.0f);
     fmt_symbol_ = make(16.0f);
-    SetHover(Button::None);
+    HoverAt(Button::None);
     Invalidate();
 }
 
@@ -241,7 +239,7 @@ void DiagramView::ShowLoading()
 {
     drawing_.reset();
     commands_.Reset();
-    SetHover(Button::None);
+    HoverAt(Button::None);
     Layout();
 }
 
@@ -291,8 +289,9 @@ bool DiagramView::EnsureTarget()
 
 D2D1_POINT_2F DiagramView::Origin() const noexcept
 {
-    const auto place = [this](float size, float view, float scroll) {
-        return ContentExtent(size, zoom_) <= view ? (view - size * zoom_) / 2.0f : kPadding - scroll;
+    const float zoom = Zoom();
+    const auto place = [zoom](float size, float view, float scroll) {
+        return ContentExtent(size, zoom) <= view ? (view - size * zoom) / 2.0f : kPadding - scroll;
     };
     return { place(drawing_->width, view_width_, scroll_x_), place(drawing_->height, view_height_, scroll_y_) };
 }
@@ -316,7 +315,7 @@ void DiagramView::Paint()
         ComPtr<ID2D1DeviceContext> dc;
         if (commands_ && SUCCEEDED(rt_.As(&dc))) {
             const D2D1_POINT_2F origin = Origin();
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(zoom_, zoom_) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
+            dc->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
             dc->DrawImage(commands_.Get());
             dc->SetTransform(D2D1::Matrix3x2F::Identity());
         }
@@ -369,9 +368,9 @@ bool DiagramView::IsEnabled(Button button) const noexcept
 {
     switch (button) {
     case Button::ZoomIn:
-        return diagram_view::NextZoom(zoom_, fit_zoom_, 1).has_value();
+        return diagram_view::NextZoom(Zoom(), fit_zoom_, 1).has_value();
     case Button::ZoomOut:
-        return diagram_view::NextZoom(zoom_, fit_zoom_, -1).has_value();
+        return diagram_view::NextZoom(Zoom(), fit_zoom_, -1).has_value();
     case Button::Fit:
         return true;
     case Button::None:
@@ -402,10 +401,11 @@ void DiagramView::PaintBar()
     rt_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bar.left, bar.top + 1.0f, bar.right, bar.bottom + 1.5f), kBarCorner, kBarCorner), brush);
     brush->SetColor(palette.bar);
     rt_->FillRoundedRectangle(D2D1::RoundedRect(bar, kBarCorner, kBarCorner), brush);
+    const Button highlighted = HighlightedButton();
     for (const Button b : { Button::ZoomOut, Button::ZoomIn, Button::Fit }) {
         const D2D1_RECT_F r = ButtonRect(b);
         const bool enabled = IsEnabled(b);
-        if ((hover_ == b || pressed_ == b) && enabled) {
+        if (highlighted == b && enabled) {
             brush->SetColor(palette.hover);
             rt_->FillRoundedRectangle(D2D1::RoundedRect(r, kButtonCorner, kButtonCorner), brush);
         }
@@ -435,7 +435,7 @@ void DiagramView::PaintBar()
     }
     if (fmt_label_) {
         const D2D1_RECT_F out = ButtonRect(Button::ZoomOut);
-        const std::wstring zoom = std::format(L"{}%", std::lround(zoom_ * 100.0f));
+        const std::wstring zoom = std::format(L"{}%", std::lround(Zoom() * 100.0f));
         brush->SetColor(palette.text);
         rt_->DrawTextW(zoom.data(), static_cast<UINT32>(zoom.size()), fmt_label_.Get(),
                        D2D1::RectF(out.right + kBarGap, out.top, out.right + kBarGap + kLabelWidth, out.bottom), brush);
@@ -461,9 +461,6 @@ void DiagramView::Layout()
         }
         if (drawing_) {
             fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->width, drawing_->height);
-            if (fitting_) {
-                zoom_ = fit_zoom_;
-            }
         }
         UpdateScrollBars();
         RECT after{};
@@ -490,8 +487,8 @@ void DiagramView::UpdateScrollBars()
         }
         SetScrollInfo(hwnd_, bar, &si, TRUE);
     };
-    apply(SB_HORZ, drawing_ ? ContentExtent(drawing_->width, zoom_) : 0.0f, view_width_, scroll_x_);
-    apply(SB_VERT, drawing_ ? ContentExtent(drawing_->height, zoom_) : 0.0f, view_height_, scroll_y_);
+    apply(SB_HORZ, drawing_ ? ContentExtent(drawing_->width, Zoom()) : 0.0f, view_width_, scroll_x_);
+    apply(SB_VERT, drawing_ ? ContentExtent(drawing_->height, Zoom()) : 0.0f, view_height_, scroll_y_);
 }
 
 void DiagramView::ScrollTo(float x, float y)
@@ -499,8 +496,8 @@ void DiagramView::ScrollTo(float x, float y)
     if (!drawing_) {
         return;
     }
-    x = std::clamp(x, 0.0f, MaxScroll(ContentExtent(drawing_->width, zoom_), view_width_));
-    y = std::clamp(y, 0.0f, MaxScroll(ContentExtent(drawing_->height, zoom_), view_height_));
+    x = std::clamp(x, 0.0f, MaxScroll(ContentExtent(drawing_->width, Zoom()), view_width_));
+    y = std::clamp(y, 0.0f, MaxScroll(ContentExtent(drawing_->height, Zoom()), view_height_));
     // 端を越えて送っても描き直さない。
     if (x == scroll_x_ && y == scroll_y_) {
         return;
@@ -552,17 +549,17 @@ void DiagramView::SetZoom(float zoom)
 {
     const D2D1_POINT_2F before = Origin();
     // 窓の中央にある図の上の点 (倍率 1 の座標)。
-    const float ax = (view_width_ / 2.0f - before.x) / zoom_;
-    const float ay = (view_height_ / 2.0f - before.y) / zoom_;
-    zoom_ = zoom;
+    const float ax = (view_width_ / 2.0f - before.x) / Zoom();
+    const float ay = (view_height_ / 2.0f - before.y) / Zoom();
+    manual_zoom_ = zoom;
     Layout();
     // 新しい倍率で同じ点が中央に来るスクロール位置。余白込みの面では図の左上が kPadding にある。
-    ScrollTo(kPadding + ax * zoom_ - view_width_ / 2.0f, kPadding + ay * zoom_ - view_height_ / 2.0f);
+    ScrollTo(kPadding + ax * zoom - view_width_ / 2.0f, kPadding + ay * zoom - view_height_ / 2.0f);
 }
 
 void DiagramView::Fit()
 {
-    fitting_ = true;
+    manual_zoom_.reset();
     scroll_x_ = 0.0f;
     scroll_y_ = 0.0f;
     Layout();
@@ -570,30 +567,46 @@ void DiagramView::Fit()
 
 void DiagramView::Step(int dir)
 {
-    if (const auto next = drawing_ ? diagram_view::NextZoom(zoom_, fit_zoom_, dir) : std::nullopt) {
-        fitting_ = false;
+    if (const auto next = drawing_ ? diagram_view::NextZoom(Zoom(), fit_zoom_, dir) : std::nullopt) {
         SetZoom(*next);
     }
 }
 
-void DiagramView::SetHover(Button button)
+void DiagramView::HoverAt(Button button)
 {
-    if (hover_ == button) {
+    Button current = Button::None;
+    if (const auto* over = std::get_if<PointerOver>(&pointer_)) {
+        current = over->button;
+    }
+    else if (!std::holds_alternative<PointerIdle>(pointer_)) {
         return;
     }
-    hover_ = button;
-    const auto& s = i18n::S();
-    tooltip_.SetText(button == Button::ZoomIn    ? s.viewer_zoom_in
-                     : button == Button::ZoomOut ? s.viewer_zoom_out
-                     : button == Button::Fit     ? s.viewer_fit
-                                                 : std::wstring_view{});
+    if (current == button) {
+        return;
+    }
     if (button == Button::None) {
-        KillTimer(hwnd_, kTooltipTimer);
+        pointer_ = PointerIdle{};
     }
     else {
-        SetTimer(hwnd_, kTooltipTimer, app_timer::TOOLTIP_DELAY_MS, nullptr);
+        pointer_ = PointerOver{ button };
     }
+    const auto& s = i18n::S();
+    tooltip_.Arm(button == Button::ZoomIn    ? s.viewer_zoom_in
+                 : button == Button::ZoomOut ? s.viewer_zoom_out
+                 : button == Button::Fit     ? s.viewer_fit
+                                             : std::wstring_view{});
     Invalidate();
+}
+
+DiagramView::Button DiagramView::HighlightedButton() const noexcept
+{
+    if (const auto* over = std::get_if<PointerOver>(&pointer_)) {
+        return over->button;
+    }
+    if (const auto* press = std::get_if<PointerPressing>(&pointer_)) {
+        return press->button;
+    }
+    return Button::None;
 }
 
 bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result)
@@ -618,10 +631,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
         if (wparam != kTooltipTimer) {
             return false;
         }
-        KillTimer(hwnd_, kTooltipTimer);
-        if (hover_ != Button::None) {
-            tooltip_.Show();
-        }
+        tooltip_.OnTimer();
         return true;
 
     case WM_HSCROLL:
@@ -647,19 +657,22 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
         SetFocus(hwnd_);
         const auto p = ToDip(lparam);
         const Button b = HitButton(p.x, p.y);
+        tooltip_.Dismiss();
         if (b != Button::None) {
             if (IsEnabled(b)) {
-                pressed_ = b;
+                pointer_ = PointerPressing{ b };
                 SetCapture(hwnd_);
-                Invalidate();
             }
+            else {
+                pointer_ = PointerOver{ b };
+            }
+            Invalidate();
         }
         else if (drawing_) {
-            drag_anchor_ = D2D1::Point2F(p.x + scroll_x_, p.y + scroll_y_);
+            pointer_ = PointerDragging{ p };
             SetCapture(hwnd_);
             SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
         }
-        tooltip_.SetText({});
         return true;
     }
 
@@ -669,23 +682,31 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             TRACKMOUSEEVENT tme{ .cbSize = sizeof(tme), .dwFlags = TME_LEAVE, .hwndTrack = hwnd_ };
             tracking_leave_ = TrackMouseEvent(&tme) != FALSE;
         }
-        if (drag_anchor_) {
-            ScrollTo(drag_anchor_->x - p.x, drag_anchor_->y - p.y);
+        if (auto* drag = std::get_if<PointerDragging>(&pointer_)) {
+            const D2D1_POINT_2F last = std::exchange(drag->last, p);
+            ScrollBy(last.x - p.x, last.y - p.y);
         }
-        else if (pressed_ == Button::None) {
-            SetHover(HitButton(p.x, p.y));
+        else {
+            HoverAt(HitButton(p.x, p.y));
         }
         return true;
     }
 
     case WM_LBUTTONUP: {
+        if (!PointerDown()) {
+            return true;
+        }
+        const auto* press = std::get_if<PointerPressing>(&pointer_);
+        const Button pressed = press ? press->button : Button::None;
         const auto p = ToDip(lparam);
-        const Button pressed = std::exchange(pressed_, Button::None);
-        drag_anchor_.reset();
+        const Button hit = HitButton(p.x, p.y);
+        // 段階を移してから外すので、WM_CAPTURECHANGED は何もしない。
+        pointer_ = PointerIdle{};
         if (GetCapture() == hwnd_) {
             ReleaseCapture();
         }
-        if (pressed != Button::None && HitButton(p.x, p.y) == pressed) {
+        if (pressed != Button::None && hit == pressed) {
+            pointer_ = PointerOver{ pressed };
             if (pressed == Button::Fit) {
                 Fit();
             }
@@ -693,26 +714,31 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
                 Step(pressed == Button::ZoomIn ? 1 : -1);
             }
         }
+        else {
+            HoverAt(hit);
+        }
         Invalidate();
         return true;
     }
 
+    // ほかの窓にキャプチャを取られたら、押したボタンもドラッグも取り消す。
     case WM_CAPTURECHANGED:
-        drag_anchor_.reset();
-        pressed_ = Button::None;
-        Invalidate();
+        if (PointerDown()) {
+            pointer_ = PointerIdle{};
+            Invalidate();
+        }
         return true;
 
     case WM_MOUSELEAVE:
         tracking_leave_ = false;
-        SetHover(Button::None);
+        HoverAt(Button::None);
         return true;
 
     case WM_SETCURSOR:
         if (LOWORD(lparam) != HTCLIENT) {
             return false;
         }
-        SetCursor(LoadCursorW(nullptr, drag_anchor_ ? IDC_SIZEALL : IDC_ARROW));
+        SetCursor(LoadCursorW(nullptr, std::holds_alternative<PointerDragging>(pointer_) ? IDC_SIZEALL : IDC_ARROW));
         result = TRUE;
         return true;
 
