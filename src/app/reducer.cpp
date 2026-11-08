@@ -1083,6 +1083,8 @@ void ResetPerNodeTransientState(ReduceContext& c)
     view.block_scroll_x.clear();
     view.hover = {};
     view.active_toc_index = -1;
+    // スピナーを出している間は描画が同期しないので、クリックした文書の分が残っていることがある。
+    view.keep_toc_pane_once = false;
     // ツールチップの同一判定は node / TOC の index で行う。
     ClearTooltip(c);
     if (IsDocumentBoundDrag(view.drag)) {

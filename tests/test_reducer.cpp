@@ -1569,6 +1569,20 @@ TEST_F(ReducerTest, SyncActiveToc_TocClickKeepsTocPaneOnce)
     EXPECT_GT(TocPaneScroll(state), 0.0f);
 }
 
+// スピナーを出している間は描画が同期しない。その間の目次のクリックを、開き終えた文書の最初の同期に持ち越さない。
+TEST_F(ReducerTest, SyncActiveToc_TocClickDoesNotCarryOverToNextDocument)
+{
+    SetupTocFollow(state);
+    const auto& toc = state.document.doc.GetToc();
+    Reduce(state, TocItemClickedAction{ toc[20].node_index });
+
+    state.view.pending_scroll = ScrollTarget{ toc[25].node_index, 0.0f };
+    Reduce(state, DocumentOpenedAction{});
+    SyncActiveTocIndex(state);
+    EXPECT_EQ(state.view.active_toc_index, 25);
+    EXPECT_GT(TocPaneScroll(state), 0.0f);
+}
+
 // スクロールしなくても、計測などで見出しの Y が動けば次の描画で決め直す。
 TEST_F(ReducerTest, SyncActiveToc_FollowsLayoutChangeWithoutScroll)
 {
