@@ -29,7 +29,6 @@ bool TakePosted(HWND hwnd, UINT msg_id)
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
 constexpr UINT SC_RESET_WINDOW = 0x0010;
 
-// デフォルトウィンドウサイズ（ピクセル）
 constexpr int DEFAULT_WINDOW_WIDTH = 1600;
 constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 
@@ -655,7 +654,9 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DESTROY:
-        SaveWindowPlacement();
+        if (app_->IsInitialized()) {
+            SaveWindowPlacement();
+        }
         // dwRefData=this を渡しているので、Win32Window 破棄前に subclass を外さないと
         // 破棄後の SearchEditProc 呼び出しで dangling pointer を踏む。
         if (search_edit_) {
@@ -702,7 +703,6 @@ void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
     }
 }
 
-// システムメニュー（タスクバー右クリック）
 void Win32Window::InitSystemMenu()
 {
     MENDO_PROFILE("Win32Window::InitSystemMenu");

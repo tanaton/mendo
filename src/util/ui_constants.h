@@ -31,7 +31,7 @@ inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 inline constexpr float TABLE_CELL_PADDING = 8.0f;
 inline constexpr float TABLE_BORDER_WIDTH = 1.0f;
 
-// 画像/ダイアグラム未デコード時の placeholder 最小高さ (DIP)。
+// 図を描き終えるまでの placeholder 最小高さ (DIP)。
 inline constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 // 深いネストでもノードに残す本文幅 (DIP)。
 inline constexpr float MIN_NODE_CONTENT_WIDTH = 64.0f;

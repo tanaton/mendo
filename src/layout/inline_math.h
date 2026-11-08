@@ -124,3 +124,73 @@ struct InlineMathObjectRef {
 };
 // MakeInlineMathObject で作ったものなら key と倍率。書式の省略記号 (CreateEllipsisTrimmingSign) などは nullopt。
 std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* object) noexcept;
+
+// ---- 画像 ----
+
+// 本文中の画像 (TextRun::kImage)。GitHub と同じく行の中に置き、下端を本文のベースラインに揃え (vertical-align: baseline)、
+// 行より広い画像は行の幅に縮める (max-width: 100%)。
+
+// 表示寸法 (DIP)。
+struct InlineImageSize {
+    float width = 0.0f;
+    float height = 0.0f;
+
+    constexpr bool operator==(const InlineImageSize&) const noexcept = default;
+};
+
+enum class InlineImageState : uint8_t {
+    // 寸法をまだ知らない。何も描かない幅 0 の箱で組み、寸法が分かったら組み直す。
+    Loading,
+    Ready,
+    // 読めない。Chrome と同じく壊れた画像のアイコンと alt を並べる。alt が空なら何も出さない。
+    Unavailable,
+};
+
+struct InlineImageEntry {
+    InlineImageState state = InlineImageState::Loading;
+    InlineImageSize size;
+
+    constexpr bool operator==(const InlineImageEntry&) const noexcept = default;
+};
+
+// 文書の中の記述どおりの src で決まる。画像の場所は文書のフォルダで決まるので、文書を替えたら表を空にする。
+uint64_t InlineImageKey(std::string_view src) noexcept;
+
+// 画像の寸法表。計測ワーカーが引き、UI スレッド (ResourceManager) が読み込みの結果を書く。
+class InlineImageTable {
+public:
+    // 無ければ Loading。
+    InlineImageEntry Find(uint64_t key);
+    // 戻り値: 前の値 (無ければ Loading)。
+    InlineImageEntry Exchange(uint64_t key, const InlineImageEntry& entry);
+    void Clear();
+
+private:
+    std::mutex mutex_;
+    std::unordered_map<uint64_t, InlineImageEntry> entries_;
+};
+
+// 画像の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
+// InlineImageObjectOf で引いた key のビットマップを箱いっぱいに描く。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineImageObject(uint64_t key, InlineImageSize size);
+// 読めない画像のアイコンの左端から alt の左端まで (アイコンと隙間)。
+constexpr float BrokenImageAltLeft(float icon_size) noexcept
+{
+    return icon_size * 1.25f;
+}
+// 読めない画像。壊れた画像のアイコン (一辺 icon_size) の右に alt を組んだ layout を並べ、alt のベースラインを本文に揃える。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeBrokenImageObject(uint64_t key, Microsoft::WRL::ComPtr<IDWriteTextLayout> alt, float icon_size);
+struct InlineImageObjectRef {
+    uint64_t key = 0;
+    // 箱の大きさ。読めない画像はアイコンと alt を並べた大きさ。
+    InlineImageSize size;
+    // 読めない画像の alt。null なら画像を描く。
+    IDWriteTextLayout* alt = nullptr;
+    // 読めない画像のアイコンの大きさと位置、alt の位置 (どれも箱の左上から)。
+    float icon_size = 0.0f;
+    float icon_top = 0.0f;
+    float alt_left = 0.0f;
+    float alt_top = 0.0f;
+};
+// MakeInlineImageObject / MakeBrokenImageObject で作ったものなら key と寸法。ほかのインラインオブジェクトは nullopt。
+std::optional<InlineImageObjectRef> InlineImageObjectOf(IDWriteInlineObject* object) noexcept;

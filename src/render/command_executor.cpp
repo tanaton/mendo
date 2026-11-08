@@ -60,8 +60,8 @@ private:
 // スタック上でのみ使うので参照カウントは持たない。
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineMathDrawings& math) noexcept
-        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), math_(math)
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings) noexcept
+        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -122,7 +122,8 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インライン数式は描画命令を周りの文字の色で描く。ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
+    // インライン数式は描画命令を周りの文字の色で描き、画像はビットマップを箱いっぱいに描く。
+    // ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void* context, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL sideways, BOOL rtl, IUnknown* effect) noexcept override
     {
         // 見えない行のものは数式か見分ける (QueryInterface の参照カウントの往復) 前に飛ばす。積分記号の端などのインクは
@@ -132,11 +133,15 @@ public:
         if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cmd_.cull_top || y - kInkPad > cmd_.cull_bottom) {
             return S_OK;
         }
+        if (const auto image = InlineImageObjectOf(object)) {
+            DrawImage(*image, context, x, y);
+            return S_OK;
+        }
         const auto math = InlineMathObjectOf(object);
         if (!math) {
             return object->Draw(context, this, x, y, sideways, rtl, effect);
         }
-        const MathDrawing* drawing = math_.Find(math->key);
+        const MathDrawing* drawing = inline_.FindMath(math->key);
         if (!drawing) {
             return S_OK;
         }
@@ -152,6 +157,35 @@ private:
     {
         auto* brush = FixedBrush(brushes_, id);
         return brush ? brush : default_brush_;
+    }
+
+    // 読み込み中 (ビットマップがまだ無い) は何も描かない。読めない画像はアイコンと alt を描く。alt はこのレンダラで描き、
+    // alt に付けたリンクの色を使う。
+    void DrawImage(const InlineImageObjectRef& image, void* context, float x, float y) noexcept
+    {
+        if (image.alt) {
+            DrawBrokenImageIcon(x, y + image.icon_top, image.icon_size);
+            image.alt->Draw(context, this, x + image.alt_left, y + image.alt_top);
+            return;
+        }
+        if (auto* bitmap = inline_.FindImage(image.key)) {
+            rt_->DrawBitmap(bitmap, D2D1::RectF(x, y, x + image.size.width, y + image.size.height));
+        }
+    }
+
+    // 一辺 size の正方形に、枠と山と太陽の絵 (画像のアイコン) を描く。寸法は一辺 16 の格子で決める。
+    void DrawBrokenImageIcon(float x, float y, float size) const noexcept
+    {
+        auto* b = BrushOr(BrushId::BlockquoteText);
+        const float k = size / 16.0f;
+        const float stroke = std::max(1.2f * k, 1.0f);
+        const auto at = [&](float px, float py) { return D2D1::Point2F(x + px * k, y + py * k); };
+        rt_->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x + 1.5f * k, y + 2.5f * k, x + 14.5f * k, y + 13.5f * k), 1.5f * k, 1.5f * k), b, stroke);
+        const D2D1_POINT_2F mountain[] = { at(3.5f, 11.5f), at(7.0f, 7.5f), at(9.5f, 10.0f), at(11.0f, 8.5f), at(12.5f, 11.5f) };
+        for (size_t i = 0; i + 1 < std::size(mountain); ++i) {
+            rt_->DrawLine(mountain[i], mountain[i + 1], b, stroke);
+        }
+        rt_->DrawEllipse(D2D1::Ellipse(at(10.5f, 5.5f), 1.2f * k, 1.2f * k), b, stroke);
     }
 
     // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばして描く。
@@ -225,12 +259,12 @@ private:
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
     const FixedBrushArray& brushes_;
-    const InlineMathDrawings& math_;
+    const InlineDrawings& inline_;
 };
 
 } // namespace
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathDrawings& math)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
     // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。
@@ -263,7 +297,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c, brushes, math };
+                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },

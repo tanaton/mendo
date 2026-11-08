@@ -37,7 +37,7 @@ hit_test::HitResult ClampToNearestTextNode(const std::vector<Node>& nodes, int c
             return { i, static_cast<uint32_t>(text.size()) };
         }
     }
-    // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
+    // candidate より前に非空ノードが無い場合 (文頭が HR/図 等) も含め、
     // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (!node.GetText().empty()) {
@@ -47,9 +47,8 @@ hit_test::HitResult ClampToNearestTextNode(const std::vector<Node>& nodes, int c
     return {};
 }
 
-// dip_y を含むノード。表・画像・テキストレイアウトを持つノードだけ返し、
+// dip_y を含むノード。表とテキストレイアウトを持つノードだけ返し、
 // 余白や水平線の上などでは -1 を返して ClampToNearestTextNode に委ねる。
-// 画像は alt が空でも src のツールチップを出すため、前のノードへ寄せずに返す。
 struct DirectHit {
     int node_index = -1;
     // ClampToNearestTextNode に渡す候補 (dip_y 以下に上端がある最後のノード)。
@@ -71,7 +70,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     // ホバーが切れないようにする。
     const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
     const NodeType type = ctx.nodes[c].type;
-    if (inside && (type == NodeType::Table || type == NodeType::Image || ctx.cache[c].text_layout())) {
+    if (inside && (type == NodeType::Table || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
     }
     return hit;

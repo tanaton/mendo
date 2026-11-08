@@ -57,6 +57,12 @@ public:
     App(ConfigService& config, Win32Window& window) noexcept : config_(config), window_(window)
     {}
     bool Init(HWND hwnd);
+    // Init が保存済みの設定 (ペインなど) を読み終えた。終える前に閉じるなら、窓の配置もセッションも保存しない。
+    // 読んでいない既定値で保存済みの設定を上書きしてしまう。
+    bool IsInitialized() const noexcept
+    {
+        return initialized_;
+    }
 
     // ウィンドウを保存済みの配置で表示した後、初回描画の前に呼ぶ。
     // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
@@ -257,22 +263,29 @@ private:
     void SettleLayout();
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウトを追従させる (目次は描画の SyncActiveTocIndex)。
     void RelayoutViewport();
+    // RelayoutViewport のうち、可視範囲の計測とスクロールの収め直しだけ。
+    void LayoutViewport();
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
-    // 寸法を待って原文のまま組んだ段落を組み直す。tables が false なら表は待たせたままにする。
-    void RelayoutPendingInlineMath(bool tables);
+    // 数式か画像の寸法を待って組んだレイアウトを捨てる。表は force_tables でなければ間引く。捨てたら true。
+    bool InvalidatePendingInline(bool force_tables);
+    // InvalidatePendingInline で捨てた分を組み直す。
+    void RelayoutPendingInline(bool force_tables);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
+    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
+    void ForgetInlineImages();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
     void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
+    // 図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(IndexRange changed) override;
+    void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override;
     void EnsureNodeLayout(int node_index) override;
 
     // ---- ファイル読み込み ----
@@ -305,7 +318,7 @@ private:
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
-    void DeferReloadRetry();
+    void DeferReloadRetry(UINT delay_ms = app_timer::FILE_RELOAD_RETRY_MS);
     // テキスト選択のドラッグ中なら、リロードをドラッグの終わりまで待たせて true。
     bool DeferReloadWhileSelecting();
 
@@ -330,6 +343,7 @@ private:
     SystemCursors cursors_;
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
+    bool initialized_ = false;
     Win32Window& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
     std::wstring title_text_ = L"mendo";
@@ -344,13 +358,15 @@ private:
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の Shutdown が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
-    // インライン数式の描画命令。描画が読む。
-    InlineMathDrawings math_drawings_;
+    // 本文中の画像の寸法表。計測ワーカーが引き、ResourceManager が読み込みの結果を書く。
+    InlineImageTable inline_images_;
+    // インライン数式の描画命令と画像のビットマップ。描画が読む。
+    InlineDrawings inline_drawings_;
     // 文書の数式の組。組ごとに bg のワーカーで描く。
     InlineMathPlan inline_math_plan_;
-    // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
-    static constexpr std::chrono::milliseconds kMathTableRelayoutInterval{ 1000 };
-    std::chrono::steady_clock::time_point last_math_table_relayout_{};
+    // 数式か画像を待つ表を組み直した時刻と、その間隔 (InvalidatePendingInline)。
+    static constexpr std::chrono::milliseconds kInlineTableRelayoutInterval{ 1000 };
+    std::chrono::steady_clock::time_point last_inline_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
@@ -364,6 +380,10 @@ private:
     // 超えたら縮んだ内容を確定版として受け入れる。
     static constexpr int kMaxPrefixShrinkDefers = 10;
     int prefix_shrink_defers_ = 0;
+    // 共有を許さずに開かれている間は開けるまで読み直す。諦めると、最後の変更通知を読み直しの前に捨てているので
+    // 次の保存まで古い内容のままになる。短い間隔で 50 回 (約 3 秒) 開けなければ一度知らせ、以後は間隔を空ける。
+    static constexpr int kLockedRetriesBeforeNotice = 50;
+    int locked_retries_ = 0;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
@@ -377,5 +397,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, *this };
+    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, inline_images_, inline_drawings_, *this };
 };

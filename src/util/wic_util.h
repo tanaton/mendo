@@ -99,16 +99,13 @@ inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
     return nullptr;
 }
 
-// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter と
-// ピクセルサイズを返す。bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は
-// ConvertBitmapSource を参照)。形式の判定を WIC に任せるとインストール済みのどのデコーダも
-// 動きうるので、container の形式に限る。
-inline std::optional<DecodeResult> DecodeFromMemory(
-    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
+// bytes をコピーせずに参照して container 形式の画像の最初のフレームを開く。ピクセルはまだデコードしない。
+// bytes はフレームを使い終えるまで生かすこと。
+inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
 {
     const auto stream = CreateStreamOnMemory(wic, bytes);
     if (!stream) {
-        return std::nullopt;
+        return nullptr;
     }
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
@@ -117,6 +114,20 @@ inline std::optional<DecodeResult> DecodeFromMemory(
         hr = decoder->Initialize(stream.Get(), WICDecodeMetadataCacheOnDemand);
     }
     if (FAILED(hr) || FAILED(decoder->GetFrame(0, &frame))) {
+        return nullptr;
+    }
+    return frame;
+}
+
+// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter と
+// ピクセルサイズを返す。bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は
+// ConvertBitmapSource を参照)。形式の判定を WIC に任せるとインストール済みのどのデコーダも
+// 動きうるので、container の形式に限る。
+inline std::optional<DecodeResult> DecodeFromMemory(
+    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
+{
+    const auto frame = DecodeFirstFrame(wic, bytes, container);
+    if (!frame) {
         return std::nullopt;
     }
 
@@ -152,6 +163,22 @@ struct PixelSize {
     UINT height = 0;
     constexpr bool operator==(const PixelSize&) const = default;
 };
+
+// 文書から指定された画像ファイルの寸法。ピクセルはデコードしない。bytes はファイルの先頭だけでもよく、寸法までの
+// ヘッダが足りなければ nullopt (足りないときに違う寸法を返すことはない。2026-11-08 に JPEG・PNG・GIF・ICO で確認)。
+inline std::optional<PixelSize> ReadImageFileSizeFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
+{
+    const GUID* container = SniffImageContainer(bytes);
+    if (!container) {
+        return std::nullopt;
+    }
+    const auto frame = DecodeFirstFrame(wic, bytes, *container);
+    PixelSize size;
+    if (!frame || FAILED(frame->GetSize(&size.width, &size.height))) {
+        return std::nullopt;
+    }
+    return size;
+}
 
 // 表示に要る解像度までアスペクト比を保って縮小したサイズ。拡大はしない。
 // max_width: 表示で使われうる最大幅 (px)、max_dim: GPU ビットマップの最大辺 (px)。0 は無制限。

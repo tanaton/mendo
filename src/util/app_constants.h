@@ -13,14 +13,15 @@ enum class Id : UINT_PTR {
     FILE_RELOAD_DEBOUNCE,
     PELE_TRIM,
     DEVICE_RECREATE_RETRY,
-    INLINE_MATH_TABLES,
+    INLINE_TABLES,
 };
 
-inline constexpr UINT FRAME_INTERVAL_MS = 16;         // ~60fps アニメーション用
-inline constexpr UINT LOADING_SPINNER_DELAY_MS = 150; // 読み込みがこれより長引いたらスピナーを出す (すぐ終わる読み込みでちらつかせない)
-inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;  // ファイル変更通知のデバウンス
-inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;      // truncate→rewrite 検出後の短縮リトライ
-inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;   // スクロール停止後のビットマップ解放/再構築
+inline constexpr UINT FRAME_INTERVAL_MS = 16;             // ~60fps アニメーション用
+inline constexpr UINT LOADING_SPINNER_DELAY_MS = 150;     // 読み込みがこれより長引いたらスピナーを出す (すぐ終わる読み込みでちらつかせない)
+inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200;      // ファイル変更通知のデバウンス
+inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;          // truncate→rewrite 検出後の短縮リトライ
+inline constexpr UINT FILE_RELOAD_LOCKED_RETRY_MS = 1000; // 共有なしで開かれたまま長引いているファイルの読み直し間隔
+inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;       // スクロール停止後のビットマップ解放/再構築
 inline constexpr UINT TOAST_DURATION_MS = 1300;
 inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS = 500; // 描画デバイスの作り直しに失敗した後の再試行間隔

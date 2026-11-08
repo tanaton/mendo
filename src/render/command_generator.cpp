@@ -1,6 +1,7 @@
 #include "command_generator.h"
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
+#include "document_utils.h"
 #include "i18n.h"
 #include "layout_computer.h"
 #include "pane_layout.h"
@@ -175,8 +176,6 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
         return error.message.empty() ? i18n::S().diagram_error : std::wstring_view{ error.message };
     case DiagramError::Kind::Unsupported:
         return i18n::S().diagram_unsupported;
-    case DiagramError::Kind::ImageUnavailable:
-        return error.message;
     }
     return {};
 }
@@ -660,6 +659,7 @@ void EmitToc(CmdWriter w, const SidePaneFormats& fmts, float header_h, const Sid
     const auto& entries = sp.toc_entries;
     const int active_index = sp.active_toc_index;
     std::wstring title;
+    std::string heading_text;
     EmitSidePane(w, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const Node& heading = sp.nodes[entries[i].node_index];
 
@@ -670,7 +670,7 @@ void EmitToc(CmdWriter w, const SidePaneFormats& fmts, float header_h, const Sid
 
         const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         // 項目の文字列は持たない。見えている 40 行を描くたびに変換して 1 フレーム約 4µs (BM_TocFrame)。
-        DecodeForDWrite(TocItemText(heading.GetText()), title);
+        DecodeForDWrite(TocItemText(TocHeadingText(heading, heading_text)), title);
         EmitLeftText(w, fmts.toc_item, title, text_left, row.top, pane.item_height, fmts.item_fonts);
 
         if (i == active_index) {
@@ -721,7 +721,6 @@ BrushId GetNodeBaseBrush(const Node& node) noexcept
     case NodeType::ListItem:
     case NodeType::Table:
     case NodeType::TaskListItem:
-    case NodeType::Image:
     case NodeType::Diagram:
         return BrushId::Text;
     }
@@ -804,20 +803,6 @@ struct MdPaneEmitter : CmdWriter {
         switch (node.type) {
         case NodeType::HorizontalRule:
             GenHorizontalRule(x, cw, entry_text_top);
-            return;
-
-        case NodeType::Image:
-            if (diagram && diagram->bitmap) {
-                const float draw_h = entry.height;
-                const float draw_w = (diagram->height > 0) ? diagram->width * (draw_h / diagram->height) : diagram->width;
-                out.emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), D2D1::RectF(x, entry_text_top, x + draw_w, entry_text_top + draw_h) });
-            }
-            else if (diagram && diagram->error.kind == DiagramError::Kind::ImageUnavailable) {
-                GenImageAlt(x, entry_text_top, cw, entry.height, diagram->error.message);
-            }
-            else {
-                GenDiagramPlaceholder(x, entry_text_top, cw, entry.height);
-            }
             return;
 
         case NodeType::Table:
@@ -1140,24 +1125,6 @@ struct MdPaneEmitter : CmdWriter {
             if (in_region) {
                 emit_bar(region_top, region_bottom);
             }
-        }
-    }
-
-    // 読めない画像は alt を枠で囲んで出す。ブラウザの壊れた画像と同じく枠は文字に合わせ、内容幅に収まらない分は省略記号で切る。
-    void GenImageAlt(float x, float y, float cw, float h, std::wstring_view alt)
-    {
-        const float pad = layout::ImageAltPadding(theme);
-        auto* const layout = text_layouts.Get(formats.image_alt.Get(), alt, D2D1::SizeF(std::max(cw - 2.0f * pad, 0.0f), h));
-        DWRITE_TEXT_METRICS m{};
-        if (layout) {
-            layout->GetMetrics(&m);
-        }
-        const float w = std::min(m.width + 2.0f * pad, cw);
-        constexpr float kStroke = 1.0f;
-        constexpr float kHalf = kStroke * 0.5f;
-        out.emplace_back(DrawRoundedRectCmd{ D2D1::RectF(x + kHalf, y + kHalf, x + w - kHalf, y + h - kHalf), CODE_BLOCK_CORNER, kStroke, BrushId::Hr });
-        if (layout) {
-            out.push_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(x + pad - m.left, y), .layout = layout, .brush_id = BrushId::BlockquoteText });
         }
     }
 

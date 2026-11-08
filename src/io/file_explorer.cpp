@@ -77,8 +77,8 @@ std::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
 {
     std::vector<FileEntry> entries;
     const std::filesystem::path dir_base{ dir };
-    // ルートでは ".." を出さない
-    if (auto parent = dir_base.parent_path(); parent != dir_base) {
+    // ドライブと UNC の共有のルートでは ".." を出さない。
+    if (auto parent = dir_base.parent_path(); parent != dir_base && !path_util::IsUncShareRoot(dir)) {
         entries.push_back({ .full_path = parent.native(), .is_directory = true, .is_parent = true });
     }
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。

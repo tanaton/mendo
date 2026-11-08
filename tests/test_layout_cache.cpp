@@ -35,31 +35,25 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
     empty.InvalidateAllLayouts({});
 }
 
-// 画像・図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
+// 図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
 TEST(LayoutCacheTest, InvalidateAllLayoutsKeepsBitmapNodes)
 {
-    LayoutCache cache(3);
-    std::vector<Node> nodes(3);
-    nodes[1].type = NodeType::Image;
-    nodes[2].type = NodeType::Diagram;
-    nodes[2].code_language = SyntaxLanguage::Mermaid;
-    for (size_t i = 0; i < 3; i++) {
+    LayoutCache cache(2);
+    std::vector<Node> nodes(2);
+    nodes[1].type = NodeType::Diagram;
+    nodes[1].code_language = SyntaxLanguage::Mermaid;
+    for (size_t i = 0; i < 2; i++) {
         cache[i].height = 500.0f;
     }
     cache.EnsureDiagram(1).width = 400.0f;
     cache.EnsureDiagram(1).height = 300.0f;
-    cache.EnsureDiagram(2).width = 500.0f;
-    cache.EnsureDiagram(2).height = 250.0f;
 
     cache.InvalidateAllLayouts(nodes);
 
     EXPECT_FLOAT_EQ(cache[0].height, 0.0f);
     EXPECT_FLOAT_EQ(cache[1].height, 500.0f);
-    EXPECT_FLOAT_EQ(cache[2].height, 500.0f);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 400.0f);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 300.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->width, 500.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(2)->height, 250.0f);
 }
 
 TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
@@ -357,7 +351,7 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     EXPECT_EQ(entry.table_layout(), &tl);
 }
 
-// 画像・図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。
+// 図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。
 TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
 {
     const auto& theme = GetLightTheme();
@@ -373,27 +367,19 @@ TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
 
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
-
-    // 読めない画像は alt の 1 行を囲む枠の高さ。
-    DiagramEntry unavailable;
-    unavailable.error = { DiagramError::Kind::ImageUnavailable, L"alt" };
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&unavailable, 600.0f, 80.0f, theme), layout::ImageAltHeight(theme));
-    EXPECT_GT(layout::ImageAltHeight(theme), theme.font_size_body * BODY_LINE_HEIGHT_FACTOR);
 }
 
-// デバイスロストで捨てるのはデバイスで決まる結果だけ。読めない画像は残し、読み直す間も alt の枠を出す。
-TEST(DiagramEntryTest, EvictForRetryKeepsUnavailableImage)
+// デバイスロストで捨てるのはデバイスで決まる結果。寸法はレイアウトを保つため残す。
+TEST(DiagramEntryTest, EvictForRetryKeepsOnlySize)
 {
-    DiagramEntry image;
-    image.error = { DiagramError::Kind::ImageUnavailable, L"alt" };
-    image.EvictForRetry();
-    EXPECT_EQ(image.error.kind, DiagramError::Kind::ImageUnavailable);
-    EXPECT_EQ(image.error.message, L"alt");
-
     DiagramEntry diagram;
+    diagram.width = 300.0f;
+    diagram.height = 200.0f;
     diagram.error = { DiagramError::Kind::Render, L"x" };
     diagram.EvictForRetry();
     EXPECT_TRUE(diagram.error.empty());
+    EXPECT_FLOAT_EQ(diagram.width, 300.0f);
+    EXPECT_FLOAT_EQ(diagram.height, 200.0f);
 }
 
 // 描けなかった図は、推定が 1 行ぶんでも文言を数行見せる高さにする。高い推定はそのまま保つ。

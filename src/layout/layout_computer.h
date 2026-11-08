@@ -56,7 +56,7 @@ inline float NodeBoxPadBottom(const Node& node, const Theme& theme) noexcept
     return (node.type == NodeType::CodeBlock && !node.continues_next()) ? theme.code_block_padding : 0.0f;
 }
 
-// ダイアグラム/画像ノードのビットマップ未確定時に使うプレースホルダー高さ。
+// 図を描き終えるまで使うプレースホルダー高さ。
 inline float PlaceholderHeight(const Theme& theme) noexcept
 {
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
@@ -67,18 +67,6 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
 inline float ErrorPlaceholderHeight(const Theme& theme) noexcept
 {
     return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR * 3.0f;
-}
-
-// 読めない画像の alt を囲む枠の余白 (上下左右)。
-inline float ImageAltPadding(const Theme& theme) noexcept
-{
-    return theme.font_size_body * 0.5f;
-}
-
-// 読めない画像の alt の枠の高さ。alt は 1 行に収め、収まらない分は省略記号で切る。
-inline float ImageAltHeight(const Theme& theme) noexcept
-{
-    return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR + 2.0f * ImageAltPadding(theme);
 }
 
 // 子ブロックも無い空 LI は bullet / checkbox だけの 1 行。
@@ -146,12 +134,9 @@ void ForEachOverlayButton(const Node& node, const LayoutCache& cache, size_t i, 
 }
 
 // ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
-// 描けなかった図は ErrorPlaceholderHeight 以上にし、読めない画像は alt の枠の高さにする。
+// 描けなかった図は ErrorPlaceholderHeight 以上にする。
 inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
 {
-    if (bitmap && bitmap->error.kind == DiagramError::Kind::ImageUnavailable) {
-        return ImageAltHeight(theme);
-    }
     if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
         return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
     }
@@ -191,7 +176,7 @@ size_t CarryOverUnchanged(
 LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme,
                                      float content_width = 0.0f, std::stop_token stop_token = {});
 
-// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。画像・図は触らない。
+// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。図は触らない。
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
 // safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むため、再計算を先頭からの全件ではなく

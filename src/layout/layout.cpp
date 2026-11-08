@@ -236,7 +236,7 @@ bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, fl
 
 void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept
 {
-    // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
+    // 画面より上の図の高さが変わっても、見ている内容が動かないようにする。
     KeepingAnchor(cache, [&] {
         RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
         return true;

@@ -14,6 +14,7 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <stop_token>
 #include <string>
@@ -130,8 +131,12 @@ struct ParseContext : NodeStorage {
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;
-    // 現在ノードの最後の画像の src。段落の終わりで Image ノードへ昇格するときに Node へ移す。
-    std::string_view image_src;
+    // 現在ノードの画像の src (image_slot の順)。FinalizeCurrentNode でリンク URL の後ろに続けて arena へコピーする。
+    std::vector<std::string_view> current_image_srcs;
+    // 開いている最外側の画像の image_slot と、その範囲の始まり (active_text_buffer での位置)。
+    // 画像の範囲は current_run_flags の kImage で示す。
+    uint8_t current_image_slot = 0;
+    size_t open_image_start = 0;
 
     // md_parse() に渡した入力バッファ。source_offset 計算と、md4c が渡すポインタが原文を指すかの判定に使う。
     std::string_view markdown;
@@ -165,13 +170,19 @@ struct ParseContext : NodeStorage {
                     indices.math_indices.push_back(CurrentNodeIndex());
                 }
             }
-            if (!current_link_urls.empty()) {
-                current_node->SetLinkUrls(arena.Copy(current_link_urls));
+            if (!current_image_srcs.empty()) {
+                indices.image_indices.push_back(CurrentNodeIndex());
+            }
+            if (!current_link_urls.empty() || !current_image_srcs.empty()) {
+                const size_t link_count = current_link_urls.size();
+                current_link_urls.append_range(current_image_srcs);
+                current_node->SetLinkUrlsAndImageSrcs(arena.Copy(current_link_urls), link_count);
             }
         }
         current_text.clear();
         current_runs.clear();
         current_link_urls.clear();
+        current_image_srcs.clear();
         link_url_lookup.clear();
     }
 
@@ -212,7 +223,6 @@ struct ParseContext : NodeStorage {
         nodes.emplace_back();
         current_node = &nodes.back();
         active_text_buffer = &current_text;
-        image_src = {};
         current_node->type = type;
         current_node->indent_level = SaturateToInt8(indent_level);
         if (blockquote_depth > 0) {
@@ -228,7 +238,8 @@ struct ParseContext : NodeStorage {
     // 図と数式は 1 つのコードから描く。
     bool CanSplitCurrentNode() const noexcept
     {
-        if (active_text_buffer != &current_text) {
+        // 画像の途中で区切ると、1 つの画像が前後のノードに 1 つずつ出る。
+        if (active_text_buffer != &current_text || InImageRun()) {
             return false;
         }
         switch (current_node->type) {
@@ -453,7 +464,7 @@ struct ParseContext : NodeStorage {
 
     TextRun MakeRun(uint32_t start, uint32_t length) const noexcept
     {
-        return { .start = start, .length = length, .link_url_index = current_link_url_index, .flags = current_run_flags };
+        return { .start = start, .length = length, .link_url_index = current_link_url_index, .flags = current_run_flags, .image_slot = current_image_slot };
     }
 
     // ノードを閉じても続きのノードへ登録し直せるよう、開いているリンクの URL を返す。無ければ空。
@@ -506,6 +517,55 @@ struct ParseContext : NodeStorage {
     std::string_view InternUrl(std::string_view url)
     {
         return IsSubrangeOf(url, markdown) ? url : arena.CopyText(url);
+    }
+
+    // 同じ src は 1 つの image_slot にまとめる (表のアイコンなど)。kMaxImageSlots を超えたら nullopt。
+    std::optional<uint8_t> FindOrAddImageSrc(std::string_view src)
+    {
+        if (const auto it = std::ranges::find(current_image_srcs, src); it != current_image_srcs.end()) {
+            return static_cast<uint8_t>(it - current_image_srcs.begin());
+        }
+        if (current_image_srcs.size() >= kMaxImageSlots) {
+            return std::nullopt;
+        }
+        current_image_srcs.push_back(InternUrl(src));
+        return static_cast<uint8_t>(current_image_srcs.size() - 1);
+    }
+
+    // 最外側の画像に入る。中の文字 (alt) を画像の範囲にする。src が空か登録できない画像は alt を文字のまま出す。
+    void BeginImage(const MD_SPAN_IMG_DETAIL& img)
+    {
+        const std::string_view src = AttributeText(img.src);
+        if (src.empty()) {
+            return;
+        }
+        const auto slot = FindOrAddImageSrc(src);
+        if (!slot) {
+            return;
+        }
+        current_image_slot = *slot;
+        open_image_start = active_text_buffer->size();
+        current_run_flags |= TextRun::kImage;
+    }
+
+    // alt を画像の run にしている最中か。src の無い画像の中は含まない (alt を装飾付きの文字として出す)。
+    bool InImageRun() const noexcept
+    {
+        return current_run_flags & TextRun::kImage;
+    }
+
+    // 画像の範囲を閉じる前に呼ぶ。alt が空なら置き換える文字を置き、範囲を空にしない (空の範囲には画像を置けない)。
+    void EndImageText()
+    {
+        if (InImageRun() && active_text_buffer->size() == open_image_start) {
+            AppendDoc(kImagePlaceholder);
+        }
+    }
+
+    void EndImage() noexcept
+    {
+        current_run_flags &= static_cast<uint8_t>(~TextRun::kImage);
+        current_image_slot = 0;
     }
 
     // md4c は属性 (href / src / コードブロックの言語) の中の文字参照を解かずに MD_TEXT_ENTITY の部分として渡すので、ここで解く
@@ -604,20 +664,6 @@ struct ParseContext : NodeStorage {
         tbl.cell_run_starts.resize(tbl.cell_text_starts.size(), 0);
     }
 };
-
-// MD_BLOCK_P 終了時、画像 span を含む段落を Image ノードへ昇格させる。
-void TryPromoteParagraphToImage(ParseContext* ctx)
-{
-    auto* const cn = ctx->current_node;
-    assert(cn && cn->type == NodeType::Paragraph);
-    // 区切った段落の続きを画像にすると、前の部分だけが本文として残る。
-    if (ctx->image_src.empty() || cn->continues_prev()) {
-        return;
-    }
-    cn->set_image_src(ctx->arena.Copy(std::span{ &ctx->image_src, 1 }).data());
-    cn->type = NodeType::Image;
-    ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
-}
 
 void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
 {
@@ -745,7 +791,10 @@ void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::spa
         }
         node.SetText(arena.CopyText(text));
         node.SetRuns(arena.Copy(runs));
-        node.SetLinkUrls(arena.Copy(urls));
+        // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
+        const size_t link_count = urls.size();
+        urls.append_range(node.image_srcs());
+        node.SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
     }
 }
 
@@ -1043,10 +1092,6 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_P:
-        TryPromoteParagraphToImage(ctx);
-        ctx->EndNode();
-        break;
-
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
     case MD_BLOCK_FOOTNOTE_DEF:
@@ -1074,21 +1119,6 @@ bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
     return type != AlertType::None && end == ctx->current_text.size();
 }
 
-// "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
-// Alert 判定の対象 (引用の段落) が消える。マーカーだけのノードをここで閉じ、画像は同じ引用グループの
-// 次の段落で受けて、マーカーと画像が別段落の場合と同じ構造にする (Alert は後続ノードへ伝播する)。
-void SplitAlertMarkerBeforeImage(ParseContext* ctx)
-{
-    if (!IsAlertMarkerOnlyHead(ctx)) {
-        return;
-    }
-    // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
-    const std::string_view link_url = ctx->OpenLinkUrl();
-    ctx->EndNode();
-    ctx->BeginNode(NodeType::Paragraph);
-    ctx->ResolveLinkUrlIndex(link_url);
-}
-
 // 元の "$" / "$$" を戻して数式の run (kMath / kMathDoubleDollar) に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
 constexpr std::string_view MathDelimiterOf(MD_SPANTYPE type) noexcept
 {
@@ -1104,15 +1134,18 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
 
     ctx->EnsureNodeForListItemText();
-    ctx->FlushPendingRun();
-    // span が自分で足す文字 ("$" や脚注番号) は、待っている区切りの後ろに入れる。
-    const std::string_view math_delimiter = MathDelimiterOf(type);
-    if (!math_delimiter.empty() || type == MD_SPAN_FOOTNOTE_REF) {
-        ctx->ApplyPendingSplit();
+    // 入れ子の画像は alt の文字になるので深さだけ数える。
+    const bool enters_image = type == MD_SPAN_IMG && ctx->image_span_depth++ == 0;
+    // Chrome と同じく alt は平文にし、画像 1 つを run 1 つにする。
+    if (ctx->InImageRun()) {
+        return 0;
     }
-    // src が空の画像は Image ノードに昇格しないので、分割せず Alert 本文のままにする。
-    if (type == MD_SPAN_IMG && ctx->image_span_depth == 0 && static_cast<const MD_SPAN_IMG_DETAIL*>(detail)->src.size > 0) {
-        SplitAlertMarkerBeforeImage(ctx);
+    ctx->FlushPendingRun();
+    // span が自分で足す文字 ("$" や脚注番号、画像の置き換え文字) は、待っている区切りの後ろに入れる。
+    // 画像は src を今のノードに登録するので、入る前に区切る (画像の中では区切らない)。
+    const std::string_view math_delimiter = MathDelimiterOf(type);
+    if (!math_delimiter.empty() || type == MD_SPAN_FOOTNOTE_REF || enters_image) {
+        ctx->ApplyPendingSplit();
     }
 
     if (const uint8_t flag = RunFlagOf(type); flag != 0) {
@@ -1126,7 +1159,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     }
     case MD_SPAN_IMG:
-        ++ctx->image_span_depth;
+        if (enters_image) {
+            ctx->BeginImage(*static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
+        }
         break;
     case MD_SPAN_LATEXMATH:
     case MD_SPAN_LATEXMATH_DISPLAY:
@@ -1142,29 +1177,23 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     return 0;
 }
 
-// md4c は leave でも enter と同じ src を渡すので、最外側の leave で受け取る。
-void LeaveImageSpan(ParseContext* ctx, const MD_SPAN_IMG_DETAIL* img)
-{
-    if (--ctx->image_span_depth != 0 || img->src.size == 0) {
-        return;
-    }
-    assert(ctx->current_node);
-    // Image ノードへ昇格できるのは段落だけ。他の種別は payload を別の用途に使うため、昇格すると壊れる (issue#298)。
-    if (ctx->current_node->type == NodeType::Paragraph) {
-        ctx->image_src = ctx->InternUrl(ctx->AttributeText(img->src));
-    }
-}
-
-int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
+int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
     if (ctx->ShouldCancel()) {
         return 1;
     }
 
-    // 閉じの "$" / "$$" も数式の run に含めるため、run を確定する前に足す。
+    const bool leaves_image = type == MD_SPAN_IMG && --ctx->image_span_depth == 0;
+    if (ctx->InImageRun() && !leaves_image) {
+        return 0;
+    }
+    // 閉じの "$" / "$$" や画像の置き換え文字も、その run に含めるため run を確定する前に足す。
     if (const std::string_view d = MathDelimiterOf(type); !d.empty()) {
         ctx->AppendDoc(d);
+    }
+    if (leaves_image) {
+        ctx->EndImageText();
     }
     ctx->FlushPendingRun();
 
@@ -1177,7 +1206,9 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
-        LeaveImageSpan(ctx, static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
+        if (leaves_image) {
+            ctx->EndImage();
+        }
         break;
     default:
         break;

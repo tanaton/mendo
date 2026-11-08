@@ -559,7 +559,7 @@ LayoutCache CacheWithDiagramResult(const Document& doc)
 {
     auto cache = MakeUniformCache(static_cast<int>(doc.GetNodes().size()));
     auto& diagram = cache.EnsureDiagram(doc.GetDiagramNodeIndices()[0]);
-    diagram.bitmap = &SharedStubBitmap();
+    diagram.commands = &SharedStubCommandList();
     diagram.width = 100.0f;
     diagram.height = 50.0f;
     return cache;
@@ -583,7 +583,7 @@ TEST(CarryOverUnchangedTest, KeepsEditedDiagramAsStale)
     EXPECT_EQ(layout::CarryOverUnchanged(doc.GetNodes(), cache, next.GetNodes(), next_cache, FindUnchangedEnds(doc.GetNodes(), next.GetNodes())), next.GetNodes().size());
     const auto* d = next_cache.FindDiagram(new_index);
     ASSERT_NE(d, nullptr);
-    EXPECT_TRUE(d->bitmap);
+    EXPECT_TRUE(d->HasImage());
     EXPECT_TRUE(d->stale);
     EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
     EXPECT_EQ(d->drawing, nullptr) << "前のコードの絵をコピー・保存させない";

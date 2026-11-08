@@ -50,9 +50,12 @@ private:
 // runs は start 昇順・非重複で text_size 以内 (AppendInlineHtml / レイアウトの二分探索の前提)。
 // 利用側は runs の隙間を既定スタイルとして扱うので、装飾もリンクも無い run と空の run は作らない
 // (4096 個の上限を無駄に消費し、レイアウト時に run ごとの UTF-16 位置の数え直しが走る)。
+// 画像の run は src を持ち、画像の最初の run には始まりの印がある (印の無い run は直前の同じ画像の run に続く)。
+// owner はリンク URL と画像の src を引くノード (表のセルは表のノード)。
 inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view where,
-                      std::span<const TextRun> runs, size_t text_size, size_t link_url_count)
+                      std::span<const TextRun> runs, size_t text_size, const Node& owner)
 {
+    const size_t link_url_count = owner.view_link_urls().size();
     size_t prev_end = 0;
     for (size_t k = 0; k < runs.size(); ++k) {
         const auto& r = runs[k];
@@ -71,6 +74,18 @@ inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view w
         }
         if (r.link_url_index >= 0 && static_cast<size_t>(r.link_url_index) >= link_url_count) {
             sink.Add("node {} {} run {}: link_url_index {} >= urls {}", node_index, where, k, r.link_url_index, link_url_count);
+        }
+        if (r.image()) {
+            if (r.image_slot >= owner.image_srcs().size()) {
+                sink.Add("node {} {} run {}: image_slot {} >= srcs {}", node_index, where, k, r.image_slot, owner.image_srcs().size());
+            }
+            else if (owner.image_src(r).empty()) {
+                sink.Add("node {} {} run {}: image without src", node_index, where, k);
+            }
+            // alt の中の数式は run を分けない (alt は平文)。
+            if (r.math()) {
+                sink.Add("node {} {} run {}: math inside image", node_index, where, k);
+            }
         }
         prev_end = std::max(prev_end, end);
     }
@@ -113,12 +128,11 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
     if (tbl->aligns.size() != tbl->col_count) {
         sink.Add("node {}: aligns {} vs C={}", i, tbl->aligns.size(), tbl->col_count);
     }
-    const size_t url_count = node.view_link_urls().size();
     for (size_t r = 0; r < tbl->row_count; ++r) {
         for (size_t c = 0; c < tbl->col_count; ++c) {
             const auto cell_text = tbl->GetCellText(r, c);
             const auto where = std::format("cell({},{})", r, c);
-            CheckRuns(sink, i, where, tbl->GetCellRuns(r, c), cell_text.size(), url_count);
+            CheckRuns(sink, i, where, tbl->GetCellRuns(r, c), cell_text.size(), node);
         }
     }
 }
@@ -170,7 +184,7 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
             continue;
         }
         const auto text = node.GetText();
-        CheckRuns(sink, i, "text", node.runs(), text.size(), node.view_link_urls().size());
+        CheckRuns(sink, i, "text", node.runs(), text.size(), node);
         const auto newlines = std::ranges::count(text, '\n');
         if (node.line_count != newlines) {
             sink.Add("node {} (type {}): line_count {} != newlines {}", i, static_cast<int>(node.type), node.line_count, newlines);

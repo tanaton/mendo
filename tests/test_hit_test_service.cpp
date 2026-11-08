@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "hit_test_service.h"
+#include "selection_html.h"
 #include "mock_text_measurer.h"
 #include "syntax.h"
 #include "ui_constants.h"
@@ -171,16 +172,18 @@ TEST_F(HitTestTest, HitTest_InsideEmptyAltImageHitsImage)
 {
     auto pr = ParseAndLayout("Before\n\n![](x.png)\n\nAfter");
     ASSERT_EQ(pr.nodes.size(), 3u);
-    ASSERT_EQ(pr.nodes[1].type, NodeType::Image);
-    ASSERT_TRUE(pr.nodes[1].GetText().empty());
+    ASSERT_EQ(pr.nodes[1].GetText(), kImagePlaceholder);
     ASSERT_GT(pr.cache[1].height, 0.0f);
 
     const float mid_y = pr.cache.Top(1) + pr.cache[1].height * 0.5f;
     const auto ctx = Ctx(pr, mid_y, 50, 0);
     const auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
-    EXPECT_EQ(r.text_pos, 0u);
     EXPECT_EQ(hit_test::HitNode(ctx), 1);
+    const auto image = FindImageHitAtPosition(pr.nodes[1], 0);
+    ASSERT_TRUE(image.has_value());
+    EXPECT_EQ(image->src, "x.png");
+    EXPECT_TRUE(image->alt.empty());
 }
 
 // ホバーは HitNode でノードだけ求めるので、HitTest と同じノードを返すこと。
@@ -263,13 +266,13 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 
 TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
-    // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）なのでボタンは無い
+    // Mermaid ブロックはあるが図を描いていない（未ロード）のでボタンは無い
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
     const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
     ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language));
     const auto* diagram = pr.cache.FindDiagram(static_cast<size_t>(mermaid_idx));
-    ASSERT_TRUE(diagram == nullptr || !diagram->bitmap);
+    ASSERT_TRUE(diagram == nullptr || !diagram->HasImage());
 
     const float content_width = theme_.ContentWidth(800.0f);
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));

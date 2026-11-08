@@ -877,6 +877,15 @@ void On(ReduceContext& c, const TogglePaneAction& a)
     PushEffect(c.effects, effect::SettleViewport{});
 }
 
+void On(ReduceContext& c, const OpenDirectoryAction& a)
+{
+    // 一覧を隠していると、ドロップしても何も起きないように見える。
+    if (!c.state.view.panes.IsSidePaneVisible(PaneTarget::File)) {
+        On(c, TogglePaneAction{ PaneTarget::File });
+    }
+    On(c, FilePaneDirectoryClickedAction{ a.path });
+}
+
 void On(ReduceContext& c, const SelectAllAction&)
 {
     c.state.view.viewport.SelectAll(c.state.document.doc.GetNodes());

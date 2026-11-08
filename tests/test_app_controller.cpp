@@ -340,7 +340,7 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
     auto& diagram = cache.EnsureDiagram(static_cast<size_t>(index));
     diagram.width = 40.0f;
     diagram.height = 40.0f;
-    diagram.bitmap = &SharedStubBitmap();
+    diagram.commands = &SharedStubCommandList();
     diagram.drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
 
     const auto& node = h.state.document.doc.GetNodes()[static_cast<size_t>(index)];

@@ -409,7 +409,8 @@ TEST(Parser, NonCharacterReferenceInImageSrcBecomesReplacement)
 {
     const auto nodes = ParseNodes("![a](x&#0;y.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].image_src(), "x\xEF\xBF\xBDy.png");
+    ASSERT_EQ(nodes[0].runs().size(), 1u);
+    EXPECT_EQ(nodes[0].image_src(nodes[0].runs()[0]), "x\xEF\xBF\xBDy.png");
 }
 
 // ---- リスト ----
@@ -1133,62 +1134,62 @@ TEST(Parser, AlertMarkerAfterLeadingContentIsPlainQuote)
     }
 }
 
-// マーカー直後の画像は md4c では同じ段落になる。マーカーと画像が別段落の場合と同じく、
-// マーカーの引用ノード (Alert ラベル) と、Alert を引き継いだ Image ノードに分かれる。
+// マーカー直後の画像は md4c では同じ段落になる。画像は段落の中の run なので、マーカーの段落がそのまま Alert になり、
+// 画像はラベルの後ろに残る (GitHub と同じ)。別の段落の画像は Alert を引き継ぐ。
 TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
 {
     for (const char* md : { "> [!NOTE]\n> ![img](p.png)", "> [!NOTE]\n>\n> ![img](p.png)" }) {
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
-        ASSERT_EQ(nodes.size(), 2u);
+        ASSERT_FALSE(nodes.empty());
         EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
-        EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-        EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
-        ASSERT_EQ(nodes[1].type, NodeType::Image);
-        EXPECT_EQ(nodes[1].image_src(), "p.png");
-        EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
-        EXPECT_EQ(nodes[1].blockquote_group, nodes[0].blockquote_group);
+        EXPECT_TRUE(nodes[0].GetText().starts_with(AlertHeadText(AlertType::Note)));
+        for (const auto& node : nodes) {
+            EXPECT_EQ(node.alert_type, AlertType::Note);
+            EXPECT_EQ(node.blockquote_group, nodes[0].blockquote_group);
+        }
+        EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "img", "p.png" } }));
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
 }
 
-// 分割はマーカーだけの先頭段落に限る。Alert でない引用や、先頭段落でないマーカーの画像は従来どおり。
-TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsNotSplit)
+// マーカーは先頭段落のものだけ。Alert でない引用や、先頭段落でないマーカーの画像は普通の引用の中の画像。
+TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsPlainQuote)
 {
     for (const char* md : { "> ![img](p.png)", "> [!NOTX]\n> ![img](p.png)", "> note ![img](p.png)", "> intro\n>\n> [!NOTE]\n> ![img](p.png)", "> [!NOTE] ![img](p.png)" }) {
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_FALSE(nodes.empty());
-        EXPECT_EQ(nodes.back().type, NodeType::Image);
+        EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "img", "p.png" } }));
         for (const auto& node : nodes) {
             EXPECT_EQ(node.alert_type, AlertType::None);
         }
     }
 }
 
-// リンク付き画像は MD_SPAN_A が画像より先に来る。分割後の Image ノードでリンク URL が解決できること。
+// リンク付き画像も、Alert のラベルを付けた後でリンク URL と src を引ける。
 TEST(Parser, AlertMarkerFollowedByLinkedImageKeepsLinkOnImage)
 {
     const char* md = "> [!NOTE]\n> [![badge](b.svg)](https://x.example)";
     const auto nodes = ParseNodes(md);
-    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-    ASSERT_EQ(nodes[1].type, NodeType::Image);
-    EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
-    const auto urls = nodes[1].view_link_urls();
-    bool has_link = false;
-    for (const auto& run : nodes[1].runs()) {
-        if (run.has_link()) {
-            has_link = true;
+    const auto urls = nodes[0].view_link_urls();
+    bool has_image = false;
+    for (const auto& run : nodes[0].runs()) {
+        if (run.image()) {
+            has_image = true;
+            ASSERT_TRUE(run.has_link());
             ASSERT_LT(static_cast<size_t>(run.link_url_index), urls.size());
             EXPECT_EQ(urls[static_cast<size_t>(run.link_url_index)], "https://x.example");
+            EXPECT_EQ(nodes[0].image_src(run), "b.svg");
         }
     }
-    EXPECT_TRUE(has_link);
+    EXPECT_TRUE(has_image);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
-// src が空の画像は Image に昇格しないので、分割せず Alert の本文として残す。
+// src が空の画像は alt を文字のまま Alert の本文に残す。
 TEST(Parser, AlertMarkerFollowedByImageWithoutSrcStaysOneAlertNode)
 {
     const auto nodes = ParseNodes("> [!NOTE]\n> ![alt]()");
@@ -1532,7 +1533,8 @@ TEST(Parser, ImageSrcResolvesCharacterReferences)
 {
     const auto nodes = ParseNodes("![a](img/a&amp;b.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].image_src(), "img/a&b.png");
+    ASSERT_EQ(nodes[0].runs().size(), 1u);
+    EXPECT_EQ(nodes[0].image_src(nodes[0].runs()[0]), "img/a&b.png");
 }
 
 // ---- 長いテキストの区切り ----
@@ -1724,16 +1726,14 @@ TEST(ParserChunks, OtherBlocksAreNotSplit)
     }
 }
 
-// 区切った段落の続きは、画像を含んでいても画像ノードにしない (前の部分だけが本文として残るため)。
-TEST(ParserChunks, ContinuationIsNotPromotedToImage)
+// 区切った段落の続きの画像は、続きのノードの run になる。
+TEST(ParserChunks, ContinuationKeepsImageRun)
 {
     const std::string md = MakeNumberedLines(2000) + "![alt](a.png)";
     const auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 1u);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-    for (const auto& node : nodes) {
-        EXPECT_EQ(node.type, NodeType::Paragraph);
-    }
+    EXPECT_EQ(ImagesOf(nodes.back()), (ImageList{ { "alt", "a.png" } }));
 }
 
 // 区切りを待つ間に空行が目安の長さを超えて続いても、順序を保って区切る。

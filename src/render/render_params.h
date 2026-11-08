@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-struct InlineMathDrawings;
+struct InlineDrawings;
 
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
@@ -93,7 +93,7 @@ struct MdPaneParams {
 
 struct RenderParams {
     MdPaneParams md;
-    const InlineMathDrawings& inline_math;
+    const InlineDrawings& inline_drawings;
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
     const GestureRenderState& gesture;

@@ -64,6 +64,7 @@ bool App::Init(HWND hwnd)
     }
     measurer_.SetFactory(renderer_.GetDWriteFactory());
     measurer_.SetInlineMath(&inline_math_);
+    measurer_.SetInlineImages(&inline_images_);
     inline_math_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::INLINE_MATH_REQUESTED, 0, 0); });
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
@@ -120,6 +121,7 @@ bool App::Init(HWND hwnd)
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
+    initialized_ = true;
     return true;
 }
 
@@ -149,9 +151,10 @@ void App::ShareRenderTarget()
 void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
-    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。ApplyCachedImages は
-    // ビットマップの残るノードを飛ばすため、FlushPendingResources の前に破棄する必要がある。
+    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
+    // 新しい RT で読み直したビットマップに差し替える。
     state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    inline_drawings_.images = {};
     // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
     resource_manager_.FlushPendingResources();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
@@ -288,7 +291,7 @@ void App::OnPaint()
                .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
                .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
                },
-        .inline_math = math_drawings_,
+        .inline_drawings = inline_drawings_,
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
@@ -400,33 +403,39 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
             continue;
         }
-        *math_drawings_.drawings.TryEmplace(item.key).first = std::move(item.drawing);
+        *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
-    state_.view.viewport.EnsureScrollTarget(cache);
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
     // 1 件あたり 1ms 以下、全部で約 4ms (12 件が続けて届く場合)。
+    RelayoutPendingInline(/*force_tables=*/false);
+}
+
+bool App::InvalidatePendingInline(bool force_tables)
+{
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
     // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
     // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
-    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。
-    const auto since = std::chrono::steady_clock::now() - last_math_table_relayout_;
-    const bool tables = !inline_math_.HasUnresolved() || since >= kMathTableRelayoutInterval;
-    if (!tables) {
-        SetTimer(app_timer::Id::INLINE_MATH_TABLES,
-                 static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kMathTableRelayoutInterval - since).count()));
+    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。数式を待っている間は画像の結果でも表を組み直さない。
+    // 画像だけなら組み直しの間に残りのデコードが終わり、結果は 1〜2 回にまとまる (アイコン 120 種類の 5000 行の表で 2 回・計 63ms)。
+    const auto now = std::chrono::steady_clock::now();
+    const auto since = now - last_inline_table_relayout_;
+    const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
+    if (tables) {
+        KillTimer(app_timer::Id::INLINE_TABLES);
+        last_inline_table_relayout_ = now;
     }
-    RelayoutPendingInlineMath(tables);
+    else {
+        SetTimer(app_timer::Id::INLINE_TABLES,
+                 static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kInlineTableRelayoutInterval - since).count()));
+    }
+    return state_.document.layout_cache.InvalidatePendingInlineLayouts(tables);
 }
 
-void App::RelayoutPendingInlineMath(bool tables)
+void App::RelayoutPendingInline(bool force_tables)
 {
-    if (tables) {
-        KillTimer(app_timer::Id::INLINE_MATH_TABLES);
-        last_math_table_relayout_ = std::chrono::steady_clock::now();
-    }
-    if (state_.document.layout_cache.InvalidatePendingMathLayouts(tables)) {
+    if (InvalidatePendingInline(force_tables)) {
         RelayoutViewport();
     }
     else {
@@ -434,10 +443,16 @@ void App::RelayoutPendingInlineMath(bool tables)
     }
 }
 
+void App::ForgetInlineImages()
+{
+    inline_images_.Clear();
+    inline_drawings_.images = {};
+}
+
 void App::ForgetInlineMath()
 {
     inline_math_.Clear();
-    math_drawings_ = {};
+    inline_drawings_.math = {};
     mermaid_renderer_.DropQueuedMath();
     // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
     RebuildInlineMathPlan();
@@ -495,7 +510,15 @@ void App::OnDropFiles(HDROP hDrop)
     if (required > 0) {
         std::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
-            Dispatch(OpenPathAction{ std::move(path) });
+            // フォルダは読み込みに回すとファイルとして開けずに失敗する。ドロップした項目はエクスプローラーが触ったばかりなので、
+            // ネットワーク上でも UI スレッドで確かめてよい。
+            const DWORD attrs = GetFileAttributesW(path.c_str());
+            if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                Dispatch(OpenDirectoryAction{ std::move(path) });
+            }
+            else {
+                Dispatch(OpenPathAction{ std::move(path) });
+            }
         }
     }
     DragFinish(hDrop);
@@ -551,8 +574,8 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(id);
         Invalidate();
         return;
-    case INLINE_MATH_TABLES:
-        RelayoutPendingInlineMath(true);
+    case INLINE_TABLES:
+        RelayoutPendingInline(/*force_tables=*/true);
         return;
     case FILE_RELOAD_DEBOUNCE:
         KillTimer(id);
@@ -670,11 +693,11 @@ void App::BeginAsyncLoad(std::wstring path, bool show_animation)
     load_coordinator_.Start(std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
 }
 
-void App::DeferReloadRetry()
+void App::DeferReloadRetry(UINT delay_ms)
 {
     // FileWatcher は paused のまま維持する。resume すると待機中の変更通知が
     // FILE_RELOAD_DEBOUNCE を 200ms に上書きし、短縮リトライが効かなくなる。
-    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS);
+    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, delay_ms);
 }
 
 // 読み込みとパースは大きさによらず worker で行い、UI スレッドではファイルに触れない (ネットワーク上のファイルで止まらない)。
@@ -685,6 +708,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
     file_watcher_.RequeueIfPaused();
     prefix_shrink_defers_ = 0;
+    locked_retries_ = 0;
     // 仮想パスはファイルとして読めないので、埋め込みリソースから開く。
     if (IsEmbeddedPath(path)) {
         ShowEmbeddedResource(path);
@@ -745,6 +769,9 @@ void App::OnParseComplete()
     }
 
     StopLoadingAnimation();
+    if (step != ParseCompleteStep::RetryLocked) {
+        locked_retries_ = 0;
+    }
 
     // Fail のときだけ結果が無い。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
@@ -767,6 +794,12 @@ void App::OnParseComplete()
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
         DeferReloadRetry();
+        return;
+    case ParseCompleteStep::RetryLocked:
+        if (++locked_retries_ == kLockedRetriesBeforeNotice) {
+            ShowToast(FileLoadErrorMessage(FileLoadError::Locked, i18n::S()));
+        }
+        DeferReloadRetry(locked_retries_ < kLockedRetriesBeforeNotice ? app_timer::FILE_RELOAD_RETRY_MS : app_timer::FILE_RELOAD_LOCKED_RETRY_MS);
         return;
     case ParseCompleteStep::ReloadUnchanged:
         prefix_shrink_defers_ = 0;
@@ -812,8 +845,9 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
+    ForgetInlineImages();
 
-    // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
+    // スクロール復元先の Y がずれないよう、推定高さを図のキャッシュの実測値で補正し、画像の寸法も入れてから reducer に渡す。
     if (state_.view.HasPendingScroll()) {
         MENDO_TRACE("FinishLoad: pending scroll");
         if (resource_manager_.ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
@@ -881,9 +915,9 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
 
-    // Mermaid の図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
-    // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。引き継いだノードは実測の高さを持っているので、
-    // 当てるのは変わった範囲だけでよい。引き継いだ高さと合わせて Y を 1 回で組み直す。
+    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。image_loader が
+    // 覚えている画像の寸法も入れる。引き継いだノードは実測の高さを持っているので、当てるのは変わった範囲だけでよい。
+    // 引き継いだ高さと合わせて Y を 1 回で組み直す。
     const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
@@ -1042,9 +1076,9 @@ void App::SaveSession()
     const auto& doc = state_.document.doc;
     if (doc.HasBackingFile()) {
         session::SaveLastFilePath(config_, doc.GetFilePath());
-        if (const auto t = SnapshotVisibleTarget(state_); t.IsValid()) {
-            session::SaveScrollPosition(config_, t.node, t.offset);
-        }
+        // ノードの無い文書でも書く。残すと前のファイルの位置がこのファイルの位置として復元される。
+        const auto t = SnapshotVisibleTarget(state_);
+        session::SaveScrollPosition(config_, t.IsValid() ? t.node : -1, t.IsValid() ? t.offset : 0.0f);
     }
 
     session::SavePanes(config_, state_.view.panes);
@@ -1057,7 +1091,9 @@ void App::SaveSession()
 void App::OnDestroy()
 {
     // ログオフ時は OS に打ち切られる前に済ませたいので、スレッドの join より先に保存する。
-    SaveSession();
+    if (initialized_) {
+        SaveSession();
+    }
 
     mermaid_renderer_.Shutdown();
     // 計測ワーカーが measurer_ を参照したまま走らないよう、参照を外してから join する。
@@ -1716,13 +1752,18 @@ void App::SettleLayout()
 void App::RelayoutViewport()
 {
     MENDO_PROFILE("RelayoutViewport");
+    LayoutViewport();
+    resource_manager_.FlushPendingResources();
+    Invalidate();
+    SettleLayout();
+}
+
+void App::LayoutViewport()
+{
     const PaneRect md = ComputePaneLayout(state_).md_rect;
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
     layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     ClampScrollToContent();
-    resource_manager_.FlushPendingResources();
-    Invalidate();
-    SettleLayout();
 }
 
 void App::SettleViewport()
@@ -1745,7 +1786,7 @@ void App::OnDeferredLayout()
     const PaneRect md = ComputePaneLayout(state_).md_rect;
     const bool more = layout_service_.ProcessDirtyBatch(
         state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
-        md.height, ResourceManager::EVICT_BUFFER_SCREENS);
+        md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
 
     // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
@@ -1763,6 +1804,23 @@ void App::OnDeferredLayout()
 void App::EnsureNodeLayout(int node_index)
 {
     layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, ComputePaneLayout(state_).md_rect.width, node_index);
+}
+
+void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
+{
+    auto& cache = state_.document.layout_cache;
+    // 画像の寸法で見ている段落の高さが変わっても、見ている位置を動かさない。
+    state_.view.viewport.EnsureScrollTarget(cache);
+    bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
+    relayout |= pending_resolved && InvalidatePendingInline(/*force_tables=*/false);
+    if (relayout) {
+        // 取り込みの中なので RelayoutViewport (FlushPendingResources) を呼ばない。入り直すと届いたデコード結果の転送が
+        // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った画像と図は、残った dirty を
+        // 組み終えたとき (OnDeferredLayout) か BITMAP_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。
+        LayoutViewport();
+        SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+    }
+    Invalidate();
 }
 
 void App::RecomputeLayout(IndexRange changed)

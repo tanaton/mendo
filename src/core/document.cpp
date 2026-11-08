@@ -5,6 +5,7 @@
 #include "profiler.h"
 #include <cassert>
 #include <cstring>
+#include <string>
 
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {
@@ -51,9 +52,10 @@ int Document::FindAnchorIndex(std::string_view anchor)
     }
     // 割り当て済みのアンカーは後の見出しで変わらないので、前回の続きから延ばせばよい。
     index.Reserve(indices.toc_entries.size());
+    std::string scratch;
     for (size_t i = index.heading_count(); i < indices.toc_entries.size(); ++i) {
         const int node_index = indices.toc_entries[i].node_index;
-        if (index.Add(GetNodes()[node_index].GetText(), node_index) == key) {
+        if (index.Add(TextWithoutImages(GetNodes()[node_index], scratch), node_index) == key) {
             return node_index;
         }
     }

@@ -669,14 +669,6 @@ TEST(EstimateNodeHeightsTest, HorizontalRuleHasFixedHeight)
     EXPECT_FLOAT_EQ(cache[0].height, theme.paragraph_spacing + theme.hr_thickness);
 }
 
-TEST(EstimateNodeHeightsTest, ImageHasMinimumHeight)
-{
-    const auto nodes = MakeNodes({ { .type = NodeType::Image } });
-    const auto cache = EstimateHeights(nodes, GetLightTheme());
-
-    EXPECT_GE(cache[0].height, 60.0f);
-}
-
 TEST(EstimateNodeHeightsTest, EmptyTextNodeUsesSpacing)
 {
     const Theme theme = GetLightTheme();
@@ -732,7 +724,6 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
         { NodeType::Paragraph, "content", 0, 0, 1 },
         { NodeType::Table, "content", 0, 1 },
         { NodeType::TaskListItem, "content" },
-        { NodeType::Image },
     });
     const Theme theme = GetLightTheme();
     const auto cache = EstimateHeights(nodes, theme);

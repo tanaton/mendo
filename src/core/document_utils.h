@@ -69,6 +69,12 @@ struct NodeRunHit {
 };
 NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept;
 
+// 見出しの文字から画像 (alt) を除いたもの。GitHub はアンカーも目次も見出しの文字 (textContent) から作り、alt は属性なので入らない。
+// 画像が無ければ GetText() をそのまま返し、あれば scratch に組んで返す。アンカーは除いた跡の空白もそのまま使う (GitHub と同じ)。
+std::string_view TextWithoutImages(const Node& heading, std::string& scratch);
+// 目次に出す見出しの文字。画像を除き、HTML の表示と同じく除いた跡で並んだ空白を 1 つにし、前後の空白を落とす。
+std::string_view TocHeadingText(const Node& heading, std::string& scratch);
+
 // パースの前の原文の正規化 (in-place)。CRLF / 旧式 CR を LF に、NUL を U+FFFD にする。
 // 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、
 // 大半の code block が DocumentData::raw をそのまま指せる (arena へのコピーが要らない)。

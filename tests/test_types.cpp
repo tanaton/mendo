@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -163,14 +165,22 @@ TEST(NodeTest, TableDataRequiresTableType)
     EXPECT_EQ(std::as_const(node).table_data(), &table);
 }
 
-TEST(NodeTest, ImageSrcRequiresImageType)
+// 画像の src はリンク URL の後ろに続けて置き、image_slot で引く。リンク URL の数には含めない。
+TEST(NodeTest, ImageSrcFollowsLinkUrls)
 {
-    static constexpr std::string_view kSrc = "a.png";
+    static constexpr std::string_view kUrls[] = { "https://a.example", "a.png", "b.png" };
     Node node;
-    node.set_image_src(&kSrc);
-    EXPECT_TRUE(node.image_src().empty());
-    node.type = NodeType::Image;
-    EXPECT_EQ(node.image_src(), "a.png");
+    EXPECT_FALSE(node.has_images());
+    EXPECT_TRUE(node.image_srcs().empty());
+    node.SetLinkUrlsAndImageSrcs(kUrls, 1);
+    EXPECT_EQ(node.view_link_urls().size(), 1u);
+    EXPECT_TRUE(node.has_images());
+    EXPECT_TRUE(std::ranges::equal(node.image_srcs(), std::span{ kUrls }.subspan(1)));
+    EXPECT_EQ(node.image_src(TextRun{ .flags = TextRun::kImage, .image_slot = 0 }), "a.png");
+    EXPECT_EQ(node.image_src(TextRun{ .flags = TextRun::kImage, .image_slot = 1 }), "b.png");
+
+    node.SetLinkUrlsAndImageSrcs(kUrls, 3);
+    EXPECT_FALSE(node.has_images());
 }
 
 // テキストの置き場所は種別や言語に依存しない。

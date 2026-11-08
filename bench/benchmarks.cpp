@@ -583,20 +583,24 @@ BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Un
 BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
+void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, const std::vector<Node>& nodes)
+{
+    LayoutCache cache(nodes.size());
+    ComputeLayout(engine, nodes, cache, 1200.0f);
+    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
+    size_t k = 0;
+    for (auto _ : state) {
+        ComputeLayout(engine, nodes, cache, kWidths[k++ % kWidths.size()]);
+    }
+}
+
 void BM_ResizeRemeasure(benchmark::State& state, const char* path)
 {
     const auto opened = OpenDoc(state, ReadOrSkip(state, path), 0);
     if (!opened) {
         return;
     }
-    auto& [doc, l] = *opened;
-    LayoutCache cache(doc.GetNodes().size());
-    ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
-    constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
-    size_t k = 0;
-    for (auto _ : state) {
-        ComputeLayout(l.engine, doc.GetNodes(), cache, kWidths[k++ % kWidths.size()]);
-    }
+    RemeasureAcrossWidths(state, opened->l.engine, opened->doc.GetNodes());
 }
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, test_md, "example/test.md")->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, readme, "../README.md")->Unit(benchmark::kMicrosecond);
@@ -1004,17 +1008,17 @@ BENCHMARK_CAPTURE(BM_TocColdFrame, explicit_fonts, true)->Unit(benchmark::kMicro
 // 数式 10000 個の描画命令から、画面の 200 個を引く。描画はインラインオブジェクトごとに 1 回引く。
 void BM_InlineMathDrawingFind(benchmark::State& state)
 {
-    InlineMathDrawings math;
+    InlineDrawings drawings;
     const auto drawing = std::make_shared<const MathDrawing>();
     std::vector<uint64_t> keys;
     for (int i = 0; i < 10000; ++i) {
         keys.push_back(InlineMathKey(std::to_string(i), 16.0f));
-        *math.drawings.TryEmplace(keys.back()).first = drawing;
+        *drawings.math.TryEmplace(keys.back()).first = drawing;
     }
     size_t at = 0;
     for (auto _ : state) {
         for (int k = 0; k < 200; ++k) {
-            benchmark::DoNotOptimize(math.Find(keys[at]));
+            benchmark::DoNotOptimize(drawings.FindMath(keys[at]));
             at = (at + 3779) % keys.size();
         }
     }
@@ -1106,11 +1110,11 @@ void BM_CodeBlockDraw(benchmark::State& state, std::string md)
     auto& [cache, viewport, service, generator, cmds] = frame;
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = MdPaneFrame::kPane }, 1.0f);
-    InlineMathDrawings math;
+    InlineDrawings drawings;
     for (auto _ : state) {
         target.context->BeginDraw();
         target.context->Clear(l.theme.Color(BrushId::Background));
-        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, math);
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, drawings);
         target.context->EndDraw();
     }
     state.counters["cmds"] = static_cast<double>(cmds.size());
@@ -1572,5 +1576,93 @@ BENCHMARK_CAPTURE(BM_ReduceEvents, hover_same, ReduceEvent::HoverSame)->Unit(ben
 BENCHMARK_CAPTURE(BM_ReduceEvents, wheel, ReduceEvent::Wheel)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag, ReduceEvent::SelectDrag)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag, ReduceEvent::ScrollbarDrag)->Unit(benchmark::kMicrosecond);
+
+// ===== 本文中の画像 =====
+
+// 文書の画像の寸法を表に入れる。http(s) の src は読めない (リモートは読まない)。
+void ResolveImages(InlineImageTable& table, const Document& doc, InlineImageSize local)
+{
+    for (const auto& node : doc.GetNodes()) {
+        for (const std::string_view src : node.image_srcs()) {
+            table.Exchange(InlineImageKey(src), src.starts_with("http") ? InlineImageEntry{ .state = InlineImageState::Unavailable }
+                                                                        : InlineImageEntry{ .state = InlineImageState::Ready, .size = local });
+        }
+    }
+}
+
+// GitHub の README によくある、バッジ 10 個の段落を頭に足した README。README のスクリーンショットは 4 枚。
+std::string BadgeReadmeMd(benchmark::State& state)
+{
+    std::string md;
+    for (int i = 0; i < 10; ++i) {
+        std::format_to(std::back_inserter(md), "[![badge {}](https://img.shields.io/badge/b{}-passing-green)](https://example.com/{}) ", i, i, i);
+    }
+    md += "\n\n";
+    md += ReadOrSkip(state, "../README.md");
+    return md;
+}
+
+// 段落ごとに文の中のアイコンを 1 つ。
+std::string InlineIconMd(int paragraphs)
+{
+    std::string md;
+    for (int i = 0; i < paragraphs; ++i) {
+        std::format_to(std::back_inserter(md), "Some text ![icon](icons/i{}.png) about item {} which wraps over the width of the pane "
+                                               "when the window is narrow enough to need it.\n\n",
+                       i % 8, i);
+    }
+    return md;
+}
+
+// 行ごとにアイコンとバッジのある表。
+std::string ImageTableMd(int rows)
+{
+    std::string md = "| icon | name | description | status |\n|---|---|---|---|\n";
+    for (int i = 0; i < rows; ++i) {
+        std::format_to(std::back_inserter(md), "| ![ok](icons/ok.png) | item {} | some description of item {} | [![s](https://img.shields.io/badge/s{}-ok-green)](https://example.com) |\n",
+                       i, i, i % 4);
+    }
+    return md;
+}
+
+// 画像を 16x16 で読めた (リモートは読めない) 文書の RemeasureAcrossWidths。
+void BM_ImageResizeRemeasure(benchmark::State& state, bool badge_readme)
+{
+    const auto opened = OpenDoc(state, badge_readme ? BadgeReadmeMd(state) : InlineIconMd(2000), 0);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    InlineImageTable table;
+    ResolveImages(table, doc, { 16.0f, 16.0f });
+    l.measurer.SetInlineImages(&table);
+    RemeasureAcrossWidths(state, l.engine, doc.GetNodes());
+    l.measurer.SetInlineImages(nullptr);
+}
+BENCHMARK_CAPTURE(BM_ImageResizeRemeasure, badge_readme, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ImageResizeRemeasure, inline_icons, false)->Unit(benchmark::kMicrosecond);
+
+// 画像のある表を組んだあと幅を変えたときの計測。列幅は変わらない。range(0) は行数 (2000 行はセル layout を残さない)。
+void BM_ImageTableResize(benchmark::State& state)
+{
+    const auto [opened, table_node] = OpenTableOrSkip(state, ImageTableMd(static_cast<int>(state.range(0))), 8);
+    if (!table_node) {
+        return;
+    }
+    auto& l = opened->l;
+    InlineImageTable table;
+    ResolveImages(table, opened->doc, { 16.0f, 16.0f });
+    l.measurer.SetInlineImages(&table);
+    NodeLayoutEntry entry;
+    MeasureEntry(l.measurer, *table_node, entry, 1200.0f, nullptr);
+    constexpr std::array kWidths{ 700.0f, 600.0f, 800.0f };
+    size_t k = 0;
+    for (auto _ : state) {
+        entry.layout_dirty = true;
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(l.measurer, *table_node, entry, kWidths[k++ % kWidths.size()], nullptr); }));
+    }
+    l.measurer.SetInlineImages(nullptr);
+}
+BENCHMARK(BM_ImageTableResize)->Arg(100)->Arg(2000)->ArgName("rows")->UseManualTime()->Iterations(30)->Unit(benchmark::kMicrosecond);
 
 } // namespace

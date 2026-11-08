@@ -132,10 +132,10 @@ bool IsSafeImageSrc(std::string_view src)
     return p == std::string::npos || s[p] != ':';
 }
 
-// 範囲外の番号と危険なスキームのリンクは外す。
+// 範囲外の番号と危険なスキームのリンクは外す。画像の印はタグにならないので比べない (画像の前後でリンクを閉じない)。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
-    InlineState s{ r.flags, r.link_url_index };
+    InlineState s{ static_cast<uint8_t>(r.flags & ~TextRun::kImage), r.link_url_index };
     if (s.link_url_index >= 0 &&
         (static_cast<size_t>(s.link_url_index) >= link_urls.size() || !IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]))) {
         s.link_url_index = -1;
@@ -143,19 +143,37 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> li
     return s;
 }
 
+// src は外部へのアクセスにならないものだけ記述値のまま出す (相対パスは貼付先で解決できないが仕様上の限界)。
+// alt は image の alt のうち [start, end) にかかる文字。
+void AppendImageTag(std::string& out, std::string_view src, std::string_view text, const TextRun& image, uint32_t start, uint32_t end)
+{
+    out.append("<img");
+    if (IsSafeImageSrc(src)) {
+        out.append(" src=\"");
+        AppendHtmlEscaped(out, src);
+        out.append("\"");
+    }
+    out.append(" alt=\"");
+    if (const uint32_t b = std::max(start, image.start), e = std::min(end, image.start + image.length); b < e && !ImageAlt(text, image).empty()) {
+        AppendHtmlEscaped(out, text.substr(b, e - b));
+    }
+    out.append("\">");
+}
+
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
-// 同一 state 区間の比較を run あたり 1 回に抑える。
+// 同一 state 区間の比較を run あたり 1 回に抑える。owner はリンク URL と画像の src を引くノード (表のセルは表のノード)。
 void AppendInlineHtml(
     std::string& out,
+    const Node& owner,
     std::string_view text,
     std::span<const TextRun> runs,
-    std::span<const std::string_view> link_urls,
     uint32_t start, uint32_t end)
 {
     assert(end <= text.size());
     if (start >= end) {
         return;
     }
+    const auto link_urls = owner.view_link_urls();
 
     InlineState current;
     // current のタグを開いている。例外で抜けると書きかけの out は捨てられるので、閉じるのは正常に書き終えたときだけでよい。
@@ -189,6 +207,20 @@ void AppendInlineHtml(
         else {
             const auto& r = runs[run_idx];
             s = InlineStateOf(r, link_urls);
+            if (r.image()) {
+                // alt でなく <img> を 1 つ出す。
+                if (s != current) {
+                    close();
+                    current = s;
+                }
+                if (!opened) {
+                    open();
+                }
+                AppendImageTag(out, owner.image_src(r), text, r, pos, end);
+                pos = std::min(end, r.start + r.length);
+                ++run_idx;
+                continue;
+            }
             segment_end = std::min(end, r.start + r.length);
             const uint32_t delim = MathDelimiterLength(text, r);
             text_begin = std::max(pos, r.start + delim);
@@ -231,7 +263,7 @@ void AppendInlineHtml(
 
 void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
 {
-    AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
+    AppendInlineHtml(out, node, node.GetText(), node.runs(), start, end);
 }
 
 // 添字は SyntaxTokenType。Plain は span を付けない。
@@ -365,7 +397,6 @@ void AppendTableHtml(std::string& out, const Node& node, uint32_t start, uint32_
         return;
     }
     const auto col_count = static_cast<size_t>(tbl->col_count);
-    const auto link_urls = node.view_link_urls();
 
     // 行のセル文字範囲 [行頭セルの開始, 行末セルの終端] は読み順で単調なので、範囲にかかりうる行帯を二分探索で求める。
     const auto row_begin = [&](size_t r) {
@@ -424,7 +455,7 @@ void AppendTableHtml(std::string& out, const Node& node, uint32_t start, uint32_
             out.append(open_tags[c * 2 + header_row]);
             const uint32_t cell_start = tbl->CellTextStart(r, c);
             const uint32_t cell_end = tbl->CellTextEnd(r, c);
-            AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls,
+            AppendInlineHtml(out, node, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c),
                              std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
             out.append(close_tag);
         }
@@ -507,7 +538,8 @@ private:
     std::vector<Level> levels_;
 };
 
-// node の [start, end) を、数式の区切り ($ / $$) を除いた断片に分けて順に fn へ渡す。
+// node の [start, end) を、数式の区切り ($ / $$) と画像の置き換え文字を除いた断片に分けて順に fn へ渡す。
+// 画像の alt は残す (alt を文字として写す)。
 template <class Fn>
 void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
 {
@@ -532,15 +564,18 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
             if (run_start >= end) {
                 break;
             }
-            if (const uint32_t delim = MathDelimiterLength(local, r); delim > 0) {
+            if (r.image() && ImageAlt(local, r).empty()) {
+                skip(run_start, run_start + r.length);
+            }
+            else if (const uint32_t delim = MathDelimiterLength(local, r); delim > 0) {
                 skip(run_start, run_start + delim);
                 skip(run_start + r.length - delim, run_start + r.length);
             }
         }
     };
     if (const auto* tbl = node.table_data()) {
-        // 数式の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
-        if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
+        // 数式と画像の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
+        if (std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept { return r.math() || r.image(); })) {
             const size_t cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
             for (size_t idx = tbl->CellIndexAt(start); idx < cells && tbl->cell_text_starts[idx] < end; ++idx) {
                 if (tbl->cell_run_starts[idx] == tbl->cell_run_starts[idx + 1]) {
@@ -556,23 +591,6 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
     if (pos < end) {
         fn(text.substr(pos, end - pos));
     }
-}
-
-// src は外部へのアクセスにならないものだけ記述値のまま出す (相対パスは貼付先で解決できないが仕様上の限界)。
-// alt は選択範囲内のノード線形化テキスト。[start, end) は呼び出し側でテキスト長にクランプ済み。
-void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
-{
-    out.append("<img");
-    if (const auto src = node.image_src(); IsSafeImageSrc(src)) {
-        out.append(" src=\"");
-        AppendHtmlEscaped(out, src);
-        out.append("\"");
-    }
-    out.append(" alt=\"");
-    if (start < end) {
-        ForEachCopiedSlice(node, start, end, [&out](std::string_view slice) { AppendHtmlEscaped(out, slice); });
-    }
-    out.append("\">");
 }
 
 } // namespace
@@ -705,9 +723,6 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
         case NodeType::Table:
             AppendTableHtml(out, node, start, end, dark_mode);
             break;
-        case NodeType::Image:
-            AppendImageHtml(out, node, start, end);
-            break;
         }
     });
     lists.CloseAll();
@@ -723,4 +738,13 @@ std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos
     }
     const auto index = static_cast<uint32_t>(run->link_url_index);
     return LinkHit{ link_urls[index], index };
+}
+
+std::optional<ImageHit> FindImageHitAtPosition(const Node& node, uint32_t text_pos)
+{
+    const auto [run, base] = FindRunAt(node, text_pos);
+    if (!run || !run->image()) {
+        return std::nullopt;
+    }
+    return ImageHit{ node.image_src(*run), ImageAlt(node.GetText().substr(base), *run), base + run->start };
 }

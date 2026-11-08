@@ -29,6 +29,7 @@ enum class ReloadOp : uint8_t {
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
     Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
     StillGrowing,      // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。読み直す。
+    Locked,            // 共有を許さずに書き込んでいる間で開けなかった (FileLoadError::Locked)。読み直す。
 };
 
 struct ReloadDecision {
@@ -69,7 +70,7 @@ struct ReloadBase {
 inline constexpr size_t kDisposeMinNodes = 4096;
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / DeferPrefixShrink / StillGrowing はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
+// NoChange / DeferPrefixShrink / StillGrowing / Locked はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
 struct ReloadCheck {
     // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、書き込み途中かは結果を出す直前に worker で確かめる。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
@@ -194,6 +195,8 @@ enum class ParseCompleteStep : uint8_t {
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
     Retry,
+    // 共有を許さずに書き込んでいる間で開けなかった。開けるまで読み直し、長引けば知らせる (App::kLockedRetriesBeforeNotice)。
+    RetryLocked,
     // 同一ファイルを読み直したが中身が変わっていなかった。
     ReloadUnchanged,
     // エディタの保存途中 (truncate→rewrite の前半) を読んだ。文書はそのままにして読み直す。
@@ -232,6 +235,8 @@ enum class ParseCompleteStep : uint8_t {
             return ParseCompleteStep::ApplyReload;
         case ReloadOp::StillGrowing:
             return ParseCompleteStep::Retry;
+        case ReloadOp::Locked:
+            return ParseCompleteStep::RetryLocked;
         }
         std::unreachable();
     }

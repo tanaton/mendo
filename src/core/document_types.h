@@ -20,7 +20,6 @@ enum class NodeType : uint8_t {
     ListItem,
     Table,
     TaskListItem,
-    Image,
     // Mermaid の図。テキストではなくビットマップで描画するコードブロック。
     Diagram
 };
@@ -184,9 +183,8 @@ struct Node {
 
     // ノード種別ごとのデータ。どれを使うかは type (list_number は flags_) で決まる。
     union Payload {
-        NodeTableData* table = nullptr;    // Table
-        const std::string_view* image_src; // Image
-        int32_t list_number;               // 順序付きの ListItem / TaskListItem (0 始まりも可)
+        NodeTableData* table = nullptr; // Table
+        int32_t list_number;            // 順序付きの ListItem / TaskListItem (0 始まりも可)
         struct CodeLead {
             uint32_t length;
             SyntaxTokenType type;
@@ -215,6 +213,8 @@ struct Node {
     int8_t heading_level = 0;
     SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
+    // link_urls_ のリンク URL の後ろに続く画像の src の数。
+    uint8_t image_src_count_ = 0;
 
     // DocumentData::raw 起算の UTF-8 byte オフセット。文書順で単調非減少で、本文の位置を持たないノード
     // (HorizontalRule、空の LI、原文の途中から文書末尾へ移る脚注定義など) は前のノードの位置を受け継ぐ。
@@ -272,21 +272,27 @@ struct Node {
     {
         return type == NodeType::Table;
     }
-    // 画像の記述どおりのパス。画像でなければ空 (パーサは src が空の段落を画像にしない)。
-    // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
-    constexpr std::string_view image_src() const noexcept
+    // kImage の run の画像の記述どおりのパス。src はリンク URL の配列の後ろに続けて置く (Node を 64B に収める)。
+    // 読み込んだ画像の寸法はパース結果ではないので持たない (InlineImageTable が持つ)。
+    constexpr std::string_view image_src(const TextRun& run) const noexcept
     {
-        return type == NodeType::Image && payload_.image_src ? *payload_.image_src : std::string_view{};
+        assert(run.image() && run.image_slot < image_src_count_);
+        return link_urls_[link_url_count_ + run.image_slot];
+    }
+    // 画像の src を image_slot の順に重複なく (表はセル全体の分)。
+    constexpr std::span<const std::string_view> image_srcs() const noexcept
+    {
+        return { link_urls_ + link_url_count_, image_src_count_ };
+    }
+    constexpr bool has_images() const noexcept
+    {
+        return image_src_count_ != 0;
     }
 
-    // table / src はノードより長く生きる領域を指すこと。src の文字列も同じ。
+    // table はノードより長く生きる領域を指すこと。
     constexpr void set_table_data(NodeTableData* table) noexcept
     {
         payload_.table = table;
-    }
-    constexpr void set_image_src(const std::string_view* src) noexcept
-    {
-        payload_.image_src = src;
     }
 
     // 該当しないノードでは黙ってデフォルト値 (0 / false) を返す。
@@ -387,9 +393,15 @@ struct Node {
     // urls も各 URL 文字列も、SetText と同じくノードより長く生きる領域を指すこと。
     constexpr void SetLinkUrls(std::span<const std::string_view> urls) noexcept
     {
-        assert(urls.size() <= kMaxLinkUrls);
+        SetLinkUrlsAndImageSrcs(urls, urls.size());
+    }
+    // 先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。
+    constexpr void SetLinkUrlsAndImageSrcs(std::span<const std::string_view> urls, size_t link_count) noexcept
+    {
+        assert(link_count <= kMaxLinkUrls && link_count <= urls.size() && urls.size() - link_count <= kMaxImageSlots);
         link_urls_ = urls.data();
-        link_url_count_ = static_cast<uint16_t>(urls.size());
+        link_url_count_ = static_cast<uint16_t>(link_count);
+        image_src_count_ = static_cast<uint8_t>(urls.size() - link_count);
     }
 
 private:
@@ -452,10 +464,10 @@ constexpr bool JoinsNextInline(std::span<const Node> nodes, size_t i) noexcept
     return i + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
 }
 
-// テキストではなくビットマップを描くノード。
+// テキストではなく図を描くノード。
 constexpr bool IsBitmapDrawNode(const Node& node) noexcept
 {
-    return node.type == NodeType::Image || node.type == NodeType::Diagram;
+    return node.type == NodeType::Diagram;
 }
 
 constexpr bool IsListItem(const Node& node) noexcept

@@ -1,6 +1,5 @@
 #pragma once
 #include "utility.h"
-#include "transposition_cache.h"
 #include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -10,11 +9,23 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 class TaskScheduler;
+
+// ImageLoader::ProcessCompletedDecodes で GPU に載せたビットマップ。TakeDelivered で受け取った側が描く側へ渡す。
+class DeliveredImages {
+public:
+    ID2D1Bitmap* Find(const std::wstring& abs_path) const noexcept;
+
+private:
+    friend class ImageLoader;
+    // キーはパスのハッシュ。
+    FlatHashMap<Microsoft::WRL::ComPtr<ID2D1Bitmap>> bitmaps_;
+};
 
 class ImageLoader {
 public:
@@ -28,87 +39,108 @@ public:
     // (縮める上限 max_bitmap_dim_ は始めるときに読む)、待ちのものも受け箱の結果も新しい rt に載せる。
     void SetRenderTarget(ID2D1RenderTarget* rt);
 
-    struct CachedImage {
-        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    // 読み込んだ画像の寸法。ビットマップはここに残さず、描く側 (InlineDrawings) が保持範囲の画像の分だけ持つ。
+    // 外れた画像は戻ったときにファイルから読み直す。ネットワークは読まないので、1705x1056 の PNG を 1024px で 5〜9ms、
+    // 頼んでから出るまで 6〜7ms (1 フレーム以内)。ビットマップを 128 件・128MB まで残すキャッシュがあった頃は、
+    // スクリーンショット 40 枚の文書を最後まで見ると private 130MB・GPU 110MB で、残さないと 52MB・30MB (2026-11-07)。
+    struct ImageInfo {
         // 縮小前の原寸 (物理 px)。表示の DIP は DPI で変わるので DipSize で求める。
         float pixel_width = 0.0f;
         float pixel_height = 0.0f;
-        // この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
+        // 最後に読んだビットマップは、この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
+        // 寸法だけを読んだ (RequestSizeAsync) なら 0。
         UINT sharp_width_px = UINT_MAX;
     };
-    // ヒットしたら順位を上げる。次の挿入・Clear まで有効。
-    const CachedImage* FindCachedImage(const std::wstring& abs_path);
+    // 次に寸法の表を変える (ProcessCompletedDecodes) まで有効。
+    const ImageInfo* FindImageInfo(const std::wstring& abs_path) const noexcept;
+    size_t ImageInfoCount() const noexcept
+    {
+        return infos_.size();
+    }
+    // 寸法の表の件数の上限。1 枠 24 バイト (4096 件で 200KB ほど) なので大きく取り、超えたら空にして数え直す。
+    static constexpr size_t kMaxImageInfos = 4096;
+    // 受け取ったビットマップを渡し、ImageLoader には残さない。
+    DeliveredImages TakeDelivered() noexcept
+    {
+        return std::exchange(delivered_, {});
+    }
     // 今の DPI での表示寸法 (画像の 1 px を物理 1 px で描く)。
-    D2D1_SIZE_F DipSize(const CachedImage& image) const noexcept;
+    D2D1_SIZE_F DipSize(const ImageInfo& image) const noexcept;
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
+    // 結果を待つ間は、取り込みのたびに頼み直さないと CancelStaleBitmapRequests で取り消される。
     void RequestLoadAsync(const std::wstring& abs_path, float max_width_dip);
+    // 寸法だけを読む (ピクセルはデコードせず、ビットマップも作らない)。保持範囲の外の画像を、ビットマップを持たずに組めるようにする。
+    // 待つ間に RequestLoadAsync が来たら、届いたときに読み直させる (ProcessCompletedDecodes の戻り値)。
+    void RequestSizeAsync(const std::wstring& abs_path);
     // 読み込みに kMaxImageRetries 回失敗し、もう読まない (ResetFailedPaths まで)。
     bool HasGivenUp(const std::wstring& abs_path) const noexcept
     {
         const auto it = failed_paths_.find(abs_path);
         return it != failed_paths_.end() && it->second >= kMaxImageRetries;
     }
-    // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
-    bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept
+    // 表示幅が広がり、最後に読んだ解像度では足りなくなったか。
+    bool NeedsSharperDecode(const ImageInfo& image, float max_width_dip) const noexcept
     {
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
     // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
     // 戻り値: 見えている画像を要求し直すべきか。結果を 1 件以上取り込んだ (失敗も含む) か、捨てた要求が待ちの間に要求し直されていた。
     bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // 前に呼んでから RequestLoadAsync で頼み直されなかったビットマップの要求 (範囲を出た画像) を取り消す。取り込みのたびに、
+    // まだ要るビットマップを頼み直させてから呼ぶ。取り消した要求は、worker が始める前なら読まずに返し、デコードの後なら GPU に
+    // 載せず寸法だけを入れる。速いスクロールで待ち行列に溜まった要求を読み続けると、止まった位置の画像が後回しになる
+    // (写真 200 枚の表を 16ms おきにめくると、止まってから画像が揃うまで 404 → 283ms、GPU への転送 133 → 76 回。2026-11-08)。
+    void CancelStaleBitmapRequests() noexcept;
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
         return render_target_ && completed_.HasLeftover();
     }
-    // 始まっていないデコードを worker に空振りさせる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
+    // 始まっていないデコードを worker に空振りさせる。始まったものの結果は寸法の表に入れる (パスがキーなので文書をまたいでも使える)。
     // どちらも結果が届くまで要求中のまま残し、同じパスを二重に読まない。
     void DropQueued();
     // DropQueued に加え、届いている結果と失敗の記録も捨てる。
     void CancelPending();
 
-    void ClearCache()
-    {
-        cache_.Clear();
-        ResetFailedPaths();
-    }
     void ResetFailedPaths()
     {
         failed_paths_.clear();
     }
-    size_t CacheSize() const noexcept
-    {
-        return cache_.Size();
-    }
 
     void Shutdown();
 
-    // 寸法 (と任意の bitmap) だけの項目を入れる。キャッシュ動作のテスト専用。
-    void InsertCacheEntryForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr)
+    // 寸法の表と受け取ったビットマップを空にする。テスト専用。
+    void ClearImagesForTest() noexcept
     {
-        cache_.Insert(path, CachedImage{ .bitmap = bitmap, .pixel_width = pixel_width, .pixel_height = pixel_height });
+        infos_.Clear();
+        delivered_ = {};
+    }
+    // 読み込んだ結果として寸法 (と bitmap があれば受け取ったビットマップ) を入れる。テスト専用。
+    void InsertImageForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr)
+    {
+        StoreResult(path, { .pixel_width = pixel_width, .pixel_height = pixel_height }, bitmap);
     }
 
 private:
     struct DecodeResult {
         std::wstring path;
-        // worker でデコード確定・縮小済み (失敗時は null)。width/height は縮小前の原寸 (レイアウトは原寸基準)。
+        // worker でデコード確定・縮小済み (失敗時と寸法だけの要求では null)。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-        float width = 0.0f;
-        float height = 0.0f;
-        UINT sharp_width_px = UINT_MAX;
+        // 寸法だけの要求で読めなければ pixel_width が 0。
+        ImageInfo info;
+        bool size_only = false;
         // 始まる前に捨てられた。読まずに返す。
         bool dropped = false;
     };
 
+    void StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
     float DpiScale() const noexcept;
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
     UINT DecodeWidthPx(float width_dip) const noexcept;
-    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
+    void QueueDecode(const std::wstring& abs_path, UINT max_width_px, bool size_only);
+    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。result.size_only なら寸法だけを読む。
     void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
 
-    static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;
     static constexpr uint32_t kMaxImageRetries = 3;
     // 圧縮済み画像のファイルサイズ上限。デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB だと
     // 同時に数 GB を読み込ませられる。
@@ -118,16 +150,26 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
     std::atomic<UINT> max_bitmap_dim_;
-    TranspositionCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
+    // キーはパスのハッシュ。
+    FlatHashMap<ImageInfo> infos_;
+    DeliveredImages delivered_;
 
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
     // DropQueued で進める。投入時の値から変わっていたら worker は読まずに dropped で返す (Mermaid の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
-    // 結果を待っているパス -> 待つ間に要求し直されたか。要求は必ず結果を 1 回返すので、届いたら外す。
-    // 文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、要求し直されたものだけ読み直させる。
-    std::unordered_map<std::wstring, bool> pending_paths_;
+    struct PendingDecode {
+        // 待つ間に要求し直された。文書を切り替えて捨てた要求の結果で旧文書の画像を読み直さないよう、
+        // 要求し直されたものだけ読み直させる。
+        bool requested_again = false;
+        // 前の CancelStaleBitmapRequests の後に頼み直された。
+        bool renewed = false;
+        // ビットマップの要求の取り消し。worker が始める前に見る。寸法だけの要求は取り消さないので null。
+        std::shared_ptr<std::atomic<bool>> cancelled;
+    };
+    // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。
+    std::unordered_map<std::wstring, PendingDecode> pending_paths_;
     std::unordered_map<std::wstring, uint32_t> failed_paths_;
 
     PostedInbox<DecodeResult> completed_;

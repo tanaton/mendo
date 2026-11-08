@@ -85,6 +85,22 @@ struct TableLayoutData {
     std::vector<float> min_col_widths;      // 列ごとの最小幅 (最も長い単語、DetermineMinWidth)。リサイズ高速パス用
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
+    // 画像を含むセル (index の昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。min_width はそのセルの layout の
+    // NodeLayoutEntry::image_min_width で、列幅がこれ以上なら組み直さない。image_width は読めた画像のうち最も幅の広いものの
+    // 原寸の幅で、evict 中の行の高さを見積もるときに列幅まで縮むかを見る。
+    struct ImageCell {
+        uint32_t index = 0;
+        float min_width = 0.0f;
+        float image_width = 0.0f;
+    };
+    std::vector<ImageCell> image_cells;
+    // セル ci が画像を含めば、その項目。
+    template <class Self>
+    auto* FindImageCell(this Self& self, size_t ci) noexcept
+    {
+        const auto it = std::ranges::lower_bound(self.image_cells, ci, {}, &ImageCell::index);
+        return it != self.image_cells.end() && it->index == ci ? std::to_address(it) : nullptr;
+    }
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -252,9 +268,9 @@ struct NodeLayoutEntry {
         return cached_width > 0.0f;
     }
     bool layout_dirty = true;
-    // 寸法がまだ無いインライン数式を原文のまま組んだ。描画の結果が出たら組み直す (LayoutCache::InvalidatePendingMathLayouts)。
+    // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
-    bool pending_math = false;
+    bool pending_inline = false;
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
     constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
@@ -305,6 +321,14 @@ struct NodeLayoutEntry {
     constexpr void set_natural_code_width(float w)
     {
         SetAux(&Aux::natural_code_width, w);
+    }
+    constexpr float image_min_width() const noexcept
+    {
+        return GetAux(&Aux::image_min_width);
+    }
+    constexpr void set_image_min_width(float w)
+    {
+        SetAux(&Aux::image_min_width, w);
     }
 
     // テーブルのみ確保。未確保なら nullptr。
@@ -366,6 +390,9 @@ private:
         // クランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
         // CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
+        // text_layout の画像を縮めずに置ける最小の幅 (画像が無ければ 0、縮めて組んだら無限大)。この幅以上なら、幅を変えても
+        // 画像の組み方は同じなので組み直さない。表はセルごとに TableLayoutData::ImageCell に持つ。
+        float image_min_width = 0.0f;
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::vector<InlineCodeBg> inline_code_bgs;
         std::vector<SyntaxToken> syntax_tokens;
@@ -408,8 +435,6 @@ struct DiagramError {
         Render,
         // 描画命令にできない要素がある。
         Unsupported,
-        // 画像を読めない (リモート・UNC・見つからない・壊れている)。message は代わりに枠で囲んで出す alt (空なら src)。
-        ImageUnavailable,
     };
     Kind kind = Kind::None;
     // pele が返した文言 (表示用に整形済み)。pele の文言は訳さないのでそのまま持つ。
@@ -431,8 +456,7 @@ struct DiagramDrawing;
 }
 
 struct DiagramResult {
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    // 画像はビットマップを描く。図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
+    // 図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
     // 1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
@@ -442,7 +466,7 @@ struct DiagramResult {
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
     // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
-    // クリアされ再試行の契機になる。オフスクリーン evict では保持する。
+    // クリアされ再試行の契機になる。
     DiagramError error;
 };
 
@@ -450,13 +474,13 @@ struct DiagramEntry : DiagramResult {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
-    // 絵 (bitmap / commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
+    // 絵 (commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
 
     bool HasImage() const noexcept
     {
-        return bitmap || commands;
+        return commands != nullptr;
     }
     void SetResult(DiagramResult r) noexcept
     {
@@ -475,20 +499,11 @@ struct DiagramEntry : DiagramResult {
         return (!HasImage() || stale) && error.empty();
     }
 
-    // オフスクリーン evict 用。画像のビットマップだけ捨て、寸法とエラーはレイアウト維持/再試行抑止のため残す。
-    // 図はビットマップを持たない。描画命令は小さい (30 図で 4MB ほど) ので残し、見えたときに描き直させない。
-    void EvictBitmap() noexcept
-    {
-        bitmap.Reset();
-    }
-
-    // デバイスロスト用。旧デバイスのビットマップ・コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
-    // 寸法はレイアウト維持のため残す。読めない画像はデバイスに依らないので残し、読み直す間も alt の枠のまま出す。
+    // デバイスロスト用。旧デバイスのコマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
+    // 寸法はレイアウト維持のため残す。
     void EvictForRetry() noexcept
     {
-        SetResult({ .width = width,
-                    .height = height,
-                    .error = error.kind == DiagramError::Kind::ImageUnavailable ? std::move(error) : DiagramError{} });
+        SetResult({ .width = width, .height = height });
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
@@ -556,7 +571,7 @@ public:
         }
     }
 
-    // 画像/図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
+    // 図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
     // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
     // 要素は node-based のマップに置くので、Mermaid の処理待ちが持つポインタは他ノードの追加で動かない。
     DiagramEntry& EnsureDiagram(size_t i)
@@ -573,17 +588,16 @@ public:
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
 
-    // インライン数式の寸法を待って原文のまま組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
+    // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
     // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
-    bool InvalidatePendingMathLayouts(bool tables) noexcept;
+    bool InvalidatePendingInlineLayouts(bool tables) noexcept;
+    // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
+    bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
-    // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
+    // デバイスロスト時用。旧デバイス上の描画命令は新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramBitmaps() noexcept;
-
-    // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
-    void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
     // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を
     // 破棄し、layout_dirty=true で再生成させる。text_top と height は維持する。

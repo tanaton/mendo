@@ -205,9 +205,9 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
         return table;
     }
     if (bucket < 19) {
-        static constexpr std::string_view kImageSrc = "img.png";
-        n.type = NodeType::Image;
-        n.set_image_src(&kImageSrc);
+        n.type = NodeType::Diagram;
+        n.code_language = SyntaxLanguage::Mermaid;
+        SetTestText(n, "graph TD; A-->B", 0);
         return n;
     }
     n.type = NodeType::Paragraph;
@@ -227,7 +227,7 @@ struct StressFixture {
         }
         cache = MakeUniformCache(static_cast<int>(n), 80.0f);
         for (size_t i = 0; i < n; ++i) {
-            if (nodes[i].type == NodeType::Image) {
+            if (IsBitmapDrawNode(nodes[i])) {
                 auto& d = cache.EnsureDiagram(i);
                 d.width = 100.0f + static_cast<float>(i % 50);
                 d.height = 50.0f + static_cast<float>(i % 30);
@@ -419,7 +419,7 @@ private:
     return scheduler.WorkerCount() > 0 && gate.ready();
 }
 
-// 同期キャッシュヒットをシミュレートするための最小 ID2D1Bitmap スタブ。
+// 読み込んだ画像を装う最小 ID2D1Bitmap スタブ。描画はしない。
 // AddRef/Release は no-op (static instance で寿命管理は不要)。
 class StubD2D1Bitmap : public ID2D1Bitmap {
 public:
@@ -482,6 +482,45 @@ public:
 inline StubD2D1Bitmap& SharedStubBitmap() noexcept
 {
     static StubD2D1Bitmap instance;
+    return instance;
+}
+
+// 描き終えた図 (DiagramResult::commands) を装う最小 ID2D1CommandList スタブ。描画はしない。
+class StubD2D1CommandList : public ID2D1CommandList {
+public:
+    STDMETHODIMP QueryInterface(REFIID, void**) override
+    {
+        return E_NOTIMPL;
+    }
+    STDMETHODIMP_(ULONG)
+    AddRef() override
+    {
+        return 1;
+    }
+    STDMETHODIMP_(ULONG)
+    Release() override
+    {
+        return 1;
+    }
+    void STDMETHODCALLTYPE GetFactory(ID2D1Factory** factory) const override
+    {
+        if (factory) {
+            *factory = nullptr;
+        }
+    }
+    HRESULT STDMETHODCALLTYPE Stream(ID2D1CommandSink*) override
+    {
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE Close() override
+    {
+        return S_OK;
+    }
+};
+
+inline StubD2D1CommandList& SharedStubCommandList() noexcept
+{
+    static StubD2D1CommandList instance;
     return instance;
 }
 

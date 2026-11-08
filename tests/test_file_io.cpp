@@ -4,6 +4,7 @@
 #include "test_helpers.h"
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <numeric>
 #include <string>
 #include <string_view>
@@ -58,6 +59,43 @@ TEST(IsLocalPathTest, RejectsNetworkAndDevicePaths)
         SCOPED_TRACE(testing::PrintToString(std::wstring(c.path)));
         EXPECT_EQ(path_util::IsLocalPath(c.path), c.local);
     }
+}
+
+// 共有のルートの親 (\\server) は列挙できないので、ファイル一覧はそこへ上がらない。
+TEST(IsUncShareRootTest, DetectsOnlyServerAndShare)
+{
+    struct Case {
+        std::wstring_view path;
+        bool root;
+    };
+    constexpr Case kCases[] = {
+        { L"\\\\srv\\share", true },
+        { L"\\\\srv\\share\\", true },
+        { L"//srv/share", true },
+        { L"\\\\srv\\share\\sub", false },
+        { L"\\\\srv", false },
+        { L"\\\\srv\\", false },
+        { L"\\\\?\\C:\\a", false },
+        { L"\\\\.\\pipe", false },
+        { L"C:\\", false },
+        { L"C:\\dir", false },
+        { L"", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(path_util::IsUncShareRoot(c.path), c.root);
+    }
+}
+
+// ドライブ文字の無いパスは見ない。ローカルのドライブは割り当てたネットワークドライブではない。
+TEST(IsOnNetworkDriveTest, LocalAndNonDrivePathsAreNotNetwork)
+{
+    wchar_t windows_dir[MAX_PATH]{};
+    ASSERT_GT(GetWindowsDirectoryW(windows_dir, MAX_PATH), 0u);
+    EXPECT_FALSE(path_util::IsOnNetworkDrive(windows_dir));
+    EXPECT_FALSE(path_util::IsOnNetworkDrive(L"relative\\a.md"));
+    EXPECT_FALSE(path_util::IsOnNetworkDrive(L"\\\\srv\\share\\a.md"));
+    EXPECT_FALSE(path_util::IsOnNetworkDrive(L""));
 }
 
 // ドライブと UNC のデバイスパスは Win32 形式に直す。直せないデバイスパスは相対パスの基準にしない。
@@ -207,6 +245,54 @@ TEST_F(FileIoTest, AtomicWrite_ToInvalidPath_FailsAndLeavesNoTmp)
     EXPECT_FALSE(fs::exists(TmpOf(path)));
 }
 
+// 共有を許さずに開かれているファイルは、無いファイルと分けて Locked にする (読み直しで待つ)。
+TEST_F(FileIoTest, OpenFileForReadShared_ReportsLockedWhileOpenedExclusively)
+{
+    const auto path = temp_dir_ / L"locked.md";
+    ASSERT_TRUE(Write(path, "body"));
+    {
+        UniqueHandle exclusive(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        ASSERT_TRUE(exclusive);
+        const auto r = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, 1024);
+        ASSERT_FALSE(r);
+        EXPECT_EQ(r.error(), FileLoadError::Locked);
+    }
+    EXPECT_TRUE(OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, 1024));
+    const auto missing = OpenFileForReadShared((temp_dir_ / L"missing.md").c_str(), path_util::kFileShareRWDelete, 1024);
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(missing.error(), FileLoadError::NotFound);
+}
+
+// 利用者が選んだ保存先では、同じフォルダにある `<path>.tmp` や一時ファイルと同じ名前のファイルに触れない。
+TEST_F(FileIoTest, AtomicWriteUserFile_LeavesUnrelatedFilesAlone)
+{
+    const auto path = temp_dir_ / L"diagram.png";
+    const auto first_tmp = [&] {
+        auto p = path;
+        p += std::format(L".{}-0.tmp", GetCurrentProcessId());
+        return p;
+    }();
+    ASSERT_TRUE(Write(TmpOf(path), "user-file"));
+    ASSERT_TRUE(Write(first_tmp, "user-file-2"));
+
+    for (const std::string_view payload : { "first-content", "second", "" }) {
+        SCOPED_TRACE(payload);
+        ASSERT_TRUE(AtomicWriteUserFile(path, payload.data(), payload.size()));
+        EXPECT_EQ(ReadAsString(path), payload);
+    }
+    EXPECT_EQ(ReadAsString(TmpOf(path)), "user-file");
+    EXPECT_EQ(ReadAsString(first_tmp), "user-file-2");
+    // 消費された一時ファイル以外は残らない。
+    EXPECT_EQ(std::distance(fs::directory_iterator(temp_dir_), fs::directory_iterator{}), 3);
+}
+
+TEST_F(FileIoTest, AtomicWriteUserFile_ToInvalidPath_Fails)
+{
+    const auto path = temp_dir_ / L"no_such_dir" / L"diagram.png";
+    EXPECT_FALSE(AtomicWriteUserFile(path, "data", 4));
+    EXPECT_FALSE(fs::exists(path));
+}
+
 TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
 {
     // 既存の `<path>.tmp` がたとえ残っていても、新しい AtomicWriteAllBytes は
@@ -250,6 +336,7 @@ TEST(FileLoadErrorMessageTest, MapsEachErrorToToastText)
 {
     const auto& s = i18n::kJa;
     EXPECT_EQ(FileLoadErrorMessage(FileLoadError::NotFound, s), s.toast_file_not_found);
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::Locked, s), s.toast_file_locked);
     EXPECT_EQ(FileLoadErrorMessage(FileLoadError::TooLarge, s), s.toast_file_too_large);
     EXPECT_EQ(FileLoadErrorMessage(FileLoadError::ReadFailed, s), s.toast_file_read_failed);
 }

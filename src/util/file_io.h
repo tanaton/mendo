@@ -104,6 +104,32 @@ constexpr bool StartsWithDrive(std::wstring_view path) noexcept
     return path.size() >= 2 && ascii_util::IsAsciiAlpha(path[0]) && path[1] == L':' && (path.size() == 2 || IsPathSlash(path[2]));
 }
 
+// 割り当てたネットワークドライブ上のパスか。切断されたドライブは、存在の確認や開くだけでウィンドウを出す前に数秒止まる。
+// ドライブ文字の種類だけを見て、ドライブには触れない。
+inline bool IsOnNetworkDrive(std::wstring_view path) noexcept
+{
+    if (!StartsWithDrive(path)) {
+        return false;
+    }
+    const wchar_t root[] = { path[0], L':', L'\\', L'\0' };
+    return GetDriveTypeW(root) == DRIVE_REMOTE;
+}
+
+// UNC の共有のルート (\\server\share) か。親の \\server はフォルダとして列挙できない。
+constexpr bool IsUncShareRoot(std::wstring_view path) noexcept
+{
+    if (path.size() < 3 || !IsPathSlash(path[0]) || !IsPathSlash(path[1]) || path[2] == L'?' || path[2] == L'.') {
+        return false;
+    }
+    path = TrimTrailingSeparators(path).substr(2);
+    const auto sep = std::ranges::find_if(path, IsPathSlash);
+    if (sep == path.begin() || sep == path.end()) {
+        return false;
+    }
+    const std::wstring_view share{ sep + 1, path.end() };
+    return !share.empty() && std::ranges::none_of(share, IsPathSlash);
+}
+
 // \\?\C:\a・\\.\C:\a を C:\a に、\\?\UNC\host\share を \\host\share に直す。
 // デバイス名前空間では .. がドライブや共有を越えて \\?\UNC\host へ届くが、Win32 形式ならルートで止まる。
 // ドライブでも UNC でもないデバイスパス (\\.\pipe\x 等) は nullopt。それ以外のパスはそのまま返す。
@@ -126,7 +152,8 @@ inline std::optional<std::wstring> ToWin32Path(std::wstring_view path)
 } // namespace path_util
 
 enum class FileLoadError : uint8_t {
-    NotFound,   // ファイルが見つからない、またはアクセス拒否 (CreateFileW の失敗)
+    NotFound,   // ファイルが見つからない、またはアクセス拒否 (Locked 以外の CreateFileW の失敗)
+    Locked,     // 他のプロセスが共有を許さずに開いている (エディタの保存中など)。時間をおけば読める
     TooLarge,   // ファイルサイズが上限を超過
     ReadFailed, // サイズの取得や読み込み中のI/Oエラー
 };
@@ -136,6 +163,8 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
     switch (e) {
     case FileLoadError::NotFound:
         return strings.toast_file_not_found;
+    case FileLoadError::Locked:
+        return strings.toast_file_locked;
     case FileLoadError::TooLarge:
         return strings.toast_file_too_large;
     case FileLoadError::ReadFailed:
@@ -201,6 +230,10 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 // durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
 // キャッシュ向け (同期書き込みで終了が遅れないようにする)。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);
+
+// 利用者が選んだ保存先を AtomicWriteAllBytes と同じく置き換える。一時ファイルは固定の `<path>.tmp` でなく、
+// 既存のファイルと重ならない名前で新しく作る。固定の名前では、同じ名前の利用者のファイルを切り詰めたうえ置き換えで消してしまう。
+bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, size_t size);
 
 // 複数のプロセスが同じファイルを読み書きするのを重ねない。後から書く方が先の内容を知らずに消すうえ、
 // AtomicWriteAllBytes の一時ファイルの名前が同じなので片方の書き込みが失敗する。読んでいる間の置き換え (MoveFileExW) も、

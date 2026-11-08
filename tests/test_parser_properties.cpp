@@ -269,11 +269,6 @@ TEST(ParserProperty, AlertTransformKeepsBodyTextAndStyles)
         for (int i = 0; i < lines; ++i) {
             body += "\n> " + gen.InlineLine();
         }
-        // 画像を含む引用は Image ノードへ昇格する (マーカー直後の画像はマーカーと画像のノードに分かれる) ため、
-        // マーカー置換前後をノード単位で比べるこのテストからは除く。
-        if (body.contains("![")) {
-            continue;
-        }
         const std::string alert_md = "> [!" + type + "]" + body;
         type.back() = (type.back() == 'X') ? 'Y' : 'X';
         const std::string plain_md = "> [!" + type + "]" + body;

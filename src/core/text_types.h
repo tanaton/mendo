@@ -1,5 +1,7 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <utility>
 
 // テキストラン: 同一スタイル（太字/斜体/コード/取り消し線/リンク）を持つ連続テキスト範囲。
@@ -14,11 +16,16 @@ struct TextRun {
     static constexpr uint8_t kMath = 0x10;
     // $$...$$ と ```math。範囲は前後の "$$" を含む (```math はパーサが "$$" で囲む)。
     static constexpr uint8_t kMathDoubleDollar = 0x20;
+    // 画像。範囲は alt (空ならパーサが置く kImagePlaceholder) で、レイアウトで画像に置き換える。
+    // 画像 1 つが run 1 つで、alt は平文 (中の装飾・リンク・数式は run を分けない)。
+    static constexpr uint8_t kImage = 0x40;
 
     uint32_t start = 0;
     uint32_t length = 0;
     int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::view_link_urls() へのインデックス
     uint8_t flags = 0;
+    // kImage の run の src。Node::image_src で引く。TextRun の詰め物の 1 バイトを使うので、1 ノードの画像は kMaxImageSlots まで。
+    uint8_t image_slot = 0;
 
     constexpr bool bold() const noexcept
     {
@@ -45,6 +52,10 @@ struct TextRun {
     {
         return flags & kMathDoubleDollar;
     }
+    constexpr bool image() const noexcept
+    {
+        return flags & kImage;
+    }
     constexpr bool has_link() const noexcept
     {
         return link_url_index >= 0;
@@ -52,6 +63,20 @@ struct TextRun {
 
     bool operator==(const TextRun&) const = default;
 };
+// 文書の run は数百万になるので、image_slot は詰め物の中に置いて大きさを変えない。
+static_assert(sizeof(TextRun) == 12);
+
+// 1 ノードの画像の src の数。Node が数を 1 バイトで持つので 255 まで。超えた画像は alt を文字のまま出す。
+inline constexpr size_t kMaxImageSlots = 255;
+// alt の空な画像の範囲に置く文字 (U+FFFC OBJECT REPLACEMENT CHARACTER)。レイアウトで画像に置き換え、コピーと目次では外す。
+inline constexpr std::string_view kImagePlaceholder = "\xEF\xBF\xBC";
+
+// 画像の run の alt。置き換え文字なら空。
+constexpr std::string_view ImageAlt(std::string_view text, const TextRun& image) noexcept
+{
+    const std::string_view alt = text.substr(image.start, image.length);
+    return alt == kImagePlaceholder ? std::string_view{} : alt;
+}
 
 // テキスト選択: 位置は (node_index, char_offset) のペアで表す。
 struct TextSelection {

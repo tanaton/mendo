@@ -126,6 +126,8 @@ INSTANTIATE_TEST_SUITE_P(
         Case{ .label = "DroppedResultIsStale", .step = ParseCompleteStep::IgnoreStale },
         Case{ .label = "ErrorNotFound", .error = FileLoadError::NotFound, .step = ParseCompleteStep::Fail },
         Case{ .label = "ErrorTooLarge", .error = FileLoadError::TooLarge, .step = ParseCompleteStep::Fail },
+        // 表示中でないファイルが使用中なら、読み直さずに知らせる (表示中のファイルは worker が Locked の判定にする)。
+        Case{ .label = "ErrorLocked", .error = FileLoadError::Locked, .step = ParseCompleteStep::Fail },
 
         // ---- worker 差分判定済みのリロード ----
         Case{ .label = "ReloadNoChange", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
@@ -135,6 +137,10 @@ INSTANTIATE_TEST_SUITE_P(
         Case{ .label = "ReloadReplace", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
               .step = ParseCompleteStep::ApplyReload },
         Case{ .label = "ReloadStillGrowingRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::StillGrowing,
+              .step = ParseCompleteStep::Retry },
+        Case{ .label = "ReloadLockedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Locked,
+              .step = ParseCompleteStep::RetryLocked },
+        Case{ .label = "ReloadLockedAfterBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Locked, .base = BaseRef::Other,
               .step = ParseCompleteStep::Retry },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
               .step = ParseCompleteStep::Retry },

@@ -127,7 +127,51 @@ const TextRun* RunContaining(std::span<const TextRun> runs, uint32_t pos) noexce
     const TextRun& run = *std::prev(it);
     return pos < run.start + run.length ? &run : nullptr;
 }
+
+// heading の文字を画像の範囲で区切り、画像でない部分を順に append へ渡す。
+template <class Append>
+void ForEachTextOutsideImages(const Node& heading, Append&& append)
+{
+    const std::string_view text = heading.GetText();
+    uint32_t pos = 0;
+    for (const auto& r : heading.runs()) {
+        if (r.image()) {
+            append(text.substr(pos, r.start - pos));
+            pos = r.start + r.length;
+        }
+    }
+    append(text.substr(pos));
+}
+
 } // namespace
+
+std::string_view TextWithoutImages(const Node& heading, std::string& scratch)
+{
+    if (!heading.has_images()) {
+        return heading.GetText();
+    }
+    scratch.clear();
+    ForEachTextOutsideImages(heading, [&](std::string_view part) { scratch.append(part); });
+    return scratch;
+}
+
+std::string_view TocHeadingText(const Node& heading, std::string& scratch)
+{
+    if (!heading.has_images()) {
+        return heading.GetText();
+    }
+    scratch.clear();
+    ForEachTextOutsideImages(heading, [&](std::string_view part) {
+        if (scratch.empty() || scratch.back() == ' ') {
+            part.remove_prefix(std::min(part.find_first_not_of(' '), part.size()));
+        }
+        scratch.append(part);
+    });
+    while (!scratch.empty() && scratch.back() == ' ') {
+        scratch.pop_back();
+    }
+    return scratch;
+}
 
 NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
 {
@@ -149,8 +193,8 @@ NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
 {
-    // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
-    if (const auto [run, base] = FindRunAt(nodes[node], pos); run && run->math()) {
+    // インライン数式と画像は 1 つの塊として描くので、どこを指しても範囲全体を選ぶ。
+    if (const auto [run, base] = FindRunAt(nodes[node], pos); run && (run->math() || run->image())) {
         const uint32_t start = base + run->start;
         return { node, start, node, start + run->length };
     }
@@ -196,11 +240,8 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     const auto* at = a.table_data();
     // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
-    if ((!at && a.GetText() != b.GetText()) || !std::ranges::equal(a.runs(), b.runs()) ||
-        !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
-        return false;
-    }
-    return a.image_src() == b.image_src() && (!at || *at == *b.table_data());
+    return (at ? *at == *b.table_data() : a.GetText() == b.GetText()) && std::ranges::equal(a.runs(), b.runs()) &&
+           std::ranges::equal(a.view_link_urls(), b.view_link_urls()) && std::ranges::equal(a.image_srcs(), b.image_srcs());
 }
 
 } // namespace

@@ -170,6 +170,10 @@ struct RightClickGestureCompletedAction {
 struct FilePaneDirectoryClickedAction {
     std::wstring full_path;
 };
+// ドロップしたフォルダ。起動引数のフォルダと同じく、文書はそのままでファイル一覧をそのフォルダへ移す。
+struct OpenDirectoryAction {
+    std::wstring path;
+};
 struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
     int node_index;
@@ -180,7 +184,7 @@ struct NavigateAnchorAction {
 
 // 別の文書 (読み込み・ヘルプ) に差し替えた。番号に結び付いた一時状態・サイドペインのスクロール・検索を初めに戻し、
 // ファイル一覧を合わせ、pending_scroll があればそこへ、なければ先頭へスクロールする。
-// App は推定高さを図と画像のキャッシュの実測値で補正してから送る (復元先の Y をずらさない)。
+// App は推定高さを図のキャッシュの実測値で補正し、読んだことのある画像の寸法を入れてから送る (復元先の Y をずらさない)。
 struct DocumentOpenedAction {
     bool follow_file_pane = false;
 };
@@ -281,6 +285,7 @@ using AppAction = std::variant<
     RightClickGestureMovedAction,
     RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction,
+    OpenDirectoryAction,
     FilePaneRevealCurrentFileAction,
     TocItemClickedAction,
     NavigateAnchorAction,

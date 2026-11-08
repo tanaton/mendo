@@ -75,6 +75,11 @@ constexpr std::uint64_t Fnv1a64(std::string_view sv) noexcept
     }
     return h;
 }
+// UTF-16 のバイト列のハッシュ (パスのキーなど)。
+inline std::uint64_t Fnv1a64(std::wstring_view sv) noexcept
+{
+    return Fnv1a64(std::string_view{ reinterpret_cast<const char*>(sv.data()), sv.size() * sizeof(wchar_t) });
+}
 
 // 文字列キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
 // std::equal_to<> と組み合わせて使う。
@@ -103,7 +108,7 @@ public:
             return nullptr;
         }
         const Slot& slot = slots_[Probe(key)];
-        return slot.used ? &slot.value : nullptr;
+        return slot.used ? std::addressof(slot.value) : nullptr;
     }
 
     // key が無ければ既定値で足す。second は足したとき true。
@@ -114,7 +119,7 @@ public:
         }
         size_t i = Probe(key);
         if (slots_[i].used) {
-            return { &slots_[i].value, false };
+            return { std::addressof(slots_[i].value), false };
         }
         // 線形探索は負荷率が 1/2 を超えると急に遅くなる。
         if ((size_ + 1) * 2 > slots_.size()) {
@@ -125,7 +130,7 @@ public:
         slot.key = key;
         slot.used = true;
         ++size_;
-        return { &slot.value, true };
+        return { std::addressof(slot.value), true };
     }
 
     // 次に同じくらい足すときに確保し直さないよう、配列は残す。

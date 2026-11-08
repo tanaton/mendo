@@ -208,10 +208,6 @@ TEST_F(DiagramRasterTest, VectorDiagramSurvivesOffscreenEvictionButNotDeviceLoss
     EXPECT_TRUE(entry.CanExport());
     EXPECT_FALSE(entry.NeedsRender());
 
-    entry.EvictBitmap();
-    EXPECT_TRUE(entry.HasImage());
-    EXPECT_TRUE(entry.CanExport());
-
     entry.EvictForRetry();
     EXPECT_FALSE(entry.HasImage());
     EXPECT_FALSE(entry.CanExport());

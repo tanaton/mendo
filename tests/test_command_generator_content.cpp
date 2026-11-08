@@ -112,7 +112,8 @@ TEST_F(CmdGenContentTest, TransformsArePaired)
 
 // ---- 角丸の背景 ----
 
-// コードブロック・Alert と、ビットマップ未設定の画像・Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
+// コードブロック・Alert と、ビットマップ未設定の Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
+// 本文中の画像は読み込み中は何も描かない (ブラウザと同じ)。
 // プレースホルダーの背景はコードブロックと同じ色。
 TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 {
@@ -125,7 +126,7 @@ TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
         { "CodeBlock",             "```\ncode\n```",                     BrushId::CodeBg         },
         { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```",           BrushId::CodeBg         },
         { "Alert",                 "> [!WARNING]\n> Be careful",         BrushId::AlertWarningBg },
-        { "ImageWithoutBitmap",    "![alt](image.png)",                  BrushId::CodeBg         },
+        { "ImageWithoutBitmap",    "![alt](image.png)",                  BrushId::None           },
         { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```", BrushId::CodeBg         },
         { "Paragraph",             "Hello world",                        BrushId::None           },
     };

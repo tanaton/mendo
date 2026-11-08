@@ -426,9 +426,11 @@ TEST_F(SessionTest, SaveAndLoadScrollPosition)
         float offset;
         int expected_offset;
     };
+    // ノードの無い文書は -1 で書き、前のファイルの位置を消す (App::SaveSession)。
     constexpr Case kCases[] = {
         { 5, 49.6f,   50   },
-        { 3, -150.0f, -150 }
+        { 3, -150.0f, -150 },
+        { -1, 0.0f,   0    },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.offset);
