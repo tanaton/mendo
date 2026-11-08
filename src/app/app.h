@@ -270,14 +270,12 @@ private:
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
-    // 数式か画像の寸法を待って組んだレイアウトを捨てる。表は force_tables でなければ間引く。捨てたら true。
+    // 数式か画像の寸法を待って組んだレイアウトを、見ている位置を保って捨てる。表は force_tables でなければ間引く。捨てたら true。
     bool InvalidatePendingInline(bool force_tables);
     // InvalidatePendingInline で捨てた分を組み直す。
     void RelayoutPendingInline(bool force_tables);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
-    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
-    void ForgetInlineImages();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
     void SettleViewport();
@@ -316,8 +314,6 @@ private:
     void StopLoadingAnimation();
     // 理由をトーストで知らせ、文書が無ければヘルプを出す。
     void HandleLoadFailureFallback(FileLoadError error);
-
-    void CancelPendingResources();
 
     // ---- テーマ ----
     void ApplyZoom();

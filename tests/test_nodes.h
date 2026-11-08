@@ -92,6 +92,6 @@ inline int16_t AddTestLinkUrl(Node& n, std::string_view url)
     auto& arena = test_nodes_detail::Arena();
     std::vector<std::string_view> urls{ n.view_link_urls().begin(), n.view_link_urls().end() };
     urls.push_back(arena.CopyText(url));
-    n.SetLinkUrls(arena.Copy(urls));
+    n.SetLinkUrlsAndImageSrcs(arena.Copy(urls), urls.size());
     return static_cast<int16_t>(urls.size() - 1);
 }

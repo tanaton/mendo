@@ -151,3 +151,25 @@ TEST(ToLowerAsciiCopy, LowersOnlyAsciiLetters)
         EXPECT_EQ(ascii_util::ToLowerAsciiCopy(c.in), c.expected);
     }
 }
+
+// HTML と XML で意味を持つ 5 文字だけを変え、ほかのバイト (UTF-8 を含む) は続けて足す。
+TEST(AppendHtmlEscaped, EscapesOnlyMarkupChars)
+{
+    struct Case {
+        std::string_view in;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "", "" },
+        { "plain 日本語", "plain 日本語" },
+        { "a&b<c>d\"e'f", "a&amp;b&lt;c&gt;d&quot;e&#39;f" },
+        { "&&", "&amp;&amp;" },
+        { "]]>", "]]&gt;" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.in));
+        std::string out = "x";
+        ascii_util::AppendHtmlEscaped(out, c.in);
+        EXPECT_EQ(out, "x" + std::string{ c.expected });
+    }
+}

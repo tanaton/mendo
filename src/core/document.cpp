@@ -1,10 +1,8 @@
 #include "document.h"
 #include "document_utils.h"
 #include "file_io.h"
-#include "parser.h"
 #include "profiler.h"
 #include <cassert>
-#include <cstring>
 #include <string>
 
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)

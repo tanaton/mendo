@@ -157,9 +157,8 @@ protected:
         std::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
-        // 別の文書を開いた App と同じく、画像の表は空にする (App::ForgetInlineImages)。
-        inline_images_.Clear();
-        inline_drawings_.images = {};
+        // 別の文書を開いた App と同じく、画像の表は空にする。
+        rm_.ForgetInlineImages();
     }
 
     InlineImageEntry Entry(std::string_view src)

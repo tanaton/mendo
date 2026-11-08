@@ -602,7 +602,6 @@ TEST_F(AsyncLoadCoordinatorTest, AttachWhenIdleNotifiesLaterStarts)
     AsyncLoadCoordinator c{ scheduler_ };
     ASSERT_FALSE(c.Attach(w.Get(), WM_USER + 1));
     c.Start(tmp.native(), GetLightTheme());
-    EXPECT_EQ(c.LoadingPath(), tmp.native());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
@@ -622,7 +621,6 @@ TEST_F(AsyncLoadCoordinatorTest, StartAfterAttachReplacesPreloadResult)
     ASSERT_TRUE(c.Attach(w.Get(), WM_USER + 1));
 
     c.Start(new_file.native(), GetLightTheme());
-    EXPECT_EQ(c.LoadingPath(), new_file.native());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(WM_USER + 1), 2);

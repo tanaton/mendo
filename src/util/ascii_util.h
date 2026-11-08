@@ -241,4 +241,33 @@ inline void AppendHexColor(std::string& out, uint32_t rgb)
     }
 }
 
+constexpr std::string_view HtmlEscapeOf(char c) noexcept
+{
+    switch (c) {
+    case '&':
+        return "&amp;";
+    case '<':
+        return "&lt;";
+    case '>':
+        return "&gt;";
+    case '"':
+        return "&quot;";
+    case '\'':
+        return "&#39;";
+    default:
+        return {};
+    }
+}
+
+// HTML と XML (SVG) の本文と属性値に書く。XML は本文に "]]>" を書けないので > も変える。
+// エスケープ不要な区間をまとめて append する。数文字の find_first_of は STL がベクトル化している。
+inline void AppendHtmlEscaped(std::string& out, std::string_view text)
+{
+    for (size_t p; (p = text.find_first_of("&<>\"'")) != std::string_view::npos; text.remove_prefix(p + 1)) {
+        out.append(text.substr(0, p));
+        out.append(HtmlEscapeOf(text[p]));
+    }
+    out.append(text);
+}
+
 } // namespace ascii_util

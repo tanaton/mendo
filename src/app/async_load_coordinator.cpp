@@ -109,7 +109,6 @@ void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_w
     Cancel();
     stop_source_ = std::stop_source{};
     in_flight_ = true;
-    loading_path_ = path;
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
     scheduler_.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {

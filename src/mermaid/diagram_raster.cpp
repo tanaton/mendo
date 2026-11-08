@@ -3,6 +3,7 @@
 #include "ascii_util.h"
 #include "string_convert.h"
 #include "theme_palette.h"
+#include "ui_constants.h"
 #include "utf8_codec.h"
 #include "utility.h"
 #include "wic_util.h"
@@ -1482,26 +1483,6 @@ void AppendNum(std::string& out, double v)
     out.append(buf, ec == std::errc{} ? ptr : buf);
 }
 
-// 二重引用符で囲む属性値に書く。
-void AppendEscaped(std::string& out, std::string_view s)
-{
-    for (const char c : s) {
-        switch (c) {
-        case '&':
-            out += "&amp;";
-            break;
-        case '<':
-            out += "&lt;";
-            break;
-        case '"':
-            out += "&quot;";
-            break;
-        default:
-            out += c;
-        }
-    }
-}
-
 template <class F>
 void AppendAttrWith(std::string& out, std::string_view name, F&& write_value)
 {
@@ -1519,7 +1500,7 @@ void AppendAttr(std::string& out, std::string_view name, double v)
 
 void AppendAttr(std::string& out, std::string_view name, std::string_view v)
 {
-    AppendAttrWith(out, name, [&] { AppendEscaped(out, v); });
+    AppendAttrWith(out, name, [&] { ascii_util::AppendHtmlEscaped(out, v); });
 }
 
 void AppendAttr(std::string& out, std::string_view name, const Rgba& c)
@@ -1951,8 +1932,7 @@ private:
     // Apply が持ち続ける view。var() を解いた値 (resolved_) は次の宣言で上書きされるので写す。
     std::string_view Retain(std::string_view v)
     {
-        const bool in_resolved = !v.empty() && v.data() >= resolved_.data() && v.data() < resolved_.data() + resolved_.size();
-        return in_resolved ? Keep(std::string(v)) : v;
+        return !v.empty() && IsSubrangeOf(v, resolved_) ? Keep(std::string(v)) : v;
     }
     Style Compute(const Style& parent, const XmlNode& el, std::string_view extra_style = {});
     // CSS として読めた (正しい値だった) か。読めない値では s を書き換えない。
@@ -4271,7 +4251,7 @@ struct MathMaskCache::Impl {
             dc.Reset();
             return false;
         }
-        dc->SetDpi(96.0f, 96.0f);
+        dc->SetDpi(DEFAULT_DPI, DEFAULT_DPI);
         return true;
     }
 
@@ -4467,10 +4447,10 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
     ComPtr<ID2D1Factory> factory;
     rt->GetFactory(&factory);
     // 装置の画素に合わせる。描く先の変換は拡大と平行移動だけ (図とインライン数式の縮小) とみなす。
-    float dpi_x = 96.0f, dpi_y = 96.0f;
+    float dpi_x = DEFAULT_DPI, dpi_y = DEFAULT_DPI;
     rt->GetDpi(&dpi_x, &dpi_y);
-    const float scale_x = base._11 * dpi_x / 96.0f, scale_y = base._22 * dpi_y / 96.0f;
-    const float offset_x = base._31 * dpi_x / 96.0f, offset_y = base._32 * dpi_y / 96.0f;
+    const float scale_x = base._11 * dpi_x / DEFAULT_DPI, scale_y = base._22 * dpi_y / DEFAULT_DPI;
+    const float offset_x = base._31 * dpi_x / DEFAULT_DPI, offset_y = base._32 * dpi_y / DEFAULT_DPI;
     const auto snap_x = [&](float v) { return scale_x > 0.0f ? (std::round(v * scale_x + offset_x) - offset_x) / scale_x : v; };
     const auto snap_y = [&](float v) { return scale_y > 0.0f ? (std::round(v * scale_y + offset_y) - offset_y) / scale_y : v; };
     // 罫線の太さ。Chrome の border と同じく CSS px に切り捨て、1px 未満は 1px にする (分数の線 0.04em は DPR 1.5 で 1.5 画素)。
@@ -4716,7 +4696,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
                 AppendAttr(out, "text-decoration", kLines[t.decoration & mermaid_util::kTextDecorationBits]);
             }
             fill(t.at);
-            AppendEscaped(out, string_convert::WideToUtf8(t.text));
+            ascii_util::AppendHtmlEscaped(out, string_convert::WideToUtf8(t.text));
             out += "</text>";
         }
         // 数式は Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ にする。書体は総称の読み替えと同じ本文の書体。
@@ -4724,7 +4704,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
             open_text(m.at, kDefaultFamilyUtf8);
             fill(m.at);
             out += "$$";
-            AppendEscaped(out, m.tex);
+            ascii_util::AppendHtmlEscaped(out, m.tex);
             out += "$$</text>";
         }
     }
@@ -4846,7 +4826,7 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
     if (FAILED(wic->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap))) {
         return nullptr;
     }
-    const float dpi = 96.0f * dpr;
+    const float dpi = DEFAULT_DPI * dpr;
     const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                                                     D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi);
     ComPtr<ID2D1RenderTarget> rt;
