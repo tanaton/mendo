@@ -399,8 +399,6 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         }
         *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
-    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
     // 1 件あたり 1ms 以下、全部で約 4ms (12 件が続けて届く場合)。
     RelayoutPendingInline(/*force_tables=*/false);
@@ -408,6 +406,8 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
 
 bool App::InvalidatePendingInline(bool force_tables)
 {
+    // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
     // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
     // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
@@ -1739,7 +1739,7 @@ void App::EnsureNodeLayout(int node_index)
 void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
 {
     auto& cache = state_.document.layout_cache;
-    // 画像の寸法で見ている段落の高さが変わっても、見ている位置を動かさない。
+    // 画像を持つノードも、捨てる前に見ている位置を覚える。寸法だけが変わったときは InvalidatePendingInline を通らない。
     state_.view.viewport.EnsureScrollTarget(cache);
     bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
     relayout |= pending_resolved && InvalidatePendingInline(/*force_tables=*/false);

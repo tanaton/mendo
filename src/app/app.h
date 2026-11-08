@@ -270,7 +270,7 @@ private:
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
-    // 数式か画像の寸法を待って組んだレイアウトを捨てる。表は force_tables でなければ間引く。捨てたら true。
+    // 数式か画像の寸法を待って組んだレイアウトを、見ている位置を保って捨てる。表は force_tables でなければ間引く。捨てたら true。
     bool InvalidatePendingInline(bool force_tables);
     // InvalidatePendingInline で捨てた分を組み直す。
     void RelayoutPendingInline(bool force_tables);
