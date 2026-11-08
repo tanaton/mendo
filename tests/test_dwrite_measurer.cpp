@@ -4,6 +4,7 @@
 #include "inline_math.h"
 #include "syntax.h"
 #include <algorithm>
+#include <array>
 #include <format>
 #include <iterator>
 #include <optional>
@@ -635,6 +636,48 @@ TEST_F(DWriteInlineImageTest, WideImageInTableCellShrinksToColumn)
         EXPECT_NEAR(image_width, tl->col_widths[1], 0.5f);
         EXPECT_LT(image_width, 2000.0f);
     }
+}
+
+// 列幅より広い画像の行は、画面外の行を捨てた後に幅が変わっても、列幅に縮んだ画像の高さで見積もる。折り返しとして
+// 見積もると、写真の行が 1 行 5 万 DIP を超えた。見積もりは行を戻したときの実測に近い。
+TEST_F(DWriteInlineImageTest, EvictedRowWithShrunkImageEstimatesShrunkHeight)
+{
+    SetReady("w.png", 4000.0f, 2500.0f);
+    std::string md = "| n | shot |\n|---|---|\n";
+    for (int i = 0; i < 5; ++i) {
+        md += "| " + std::to_string(i) + " | ![w](w.png) |\n";
+    }
+    auto [nodes, cache] = ParseAndLayout(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    auto& entry = cache[0];
+    const float far_top = cache.Top(0) - 10000.0f;
+    cache.EvictInvisibleTableRows(std::array<size_t, 1>{ 0 }, YRange{ far_top, far_top + 1000.0f });
+    ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
+
+    entry.layout_dirty = true;
+    MeasureEntry(measurer_, nodes[0], entry, layout::NodeContentWidth(nodes[0], theme_, theme_.ContentWidth(600.0f)), nullptr);
+    const auto estimated = entry.table_layout()->row_heights;
+    RestoreEntryTableRows(measurer_, nodes[0], entry, YRange::All());
+    const auto& measured = entry.table_layout()->row_heights;
+    for (size_t r = 1; r < measured.size(); ++r) {
+        EXPECT_NEAR(estimated[r], measured[r], measured[r] * 0.2f) << r;
+    }
+}
+
+// 大きな表は同じ中身のセルを代表だけ組むので、代表の画像の幅を写して同じく見積もる。
+TEST_F(DWriteInlineImageTest, LargeTableEstimatesShrunkImageRowsFromRepresentative)
+{
+    SetReady("w.png", 4000.0f, 2500.0f);
+    std::string md = "| n | shot | x |\n|---|---|---|\n";
+    for (int i = 0; i < 350; ++i) {
+        md += "| " + std::to_string(i) + " | ![w](w.png) | x |\n";
+    }
+    auto [nodes, cache] = ParseAndLayout(md, 800.0f, 0.0f, 600.0f);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto& tl = *cache[0].table_layout();
+    ASSERT_FALSE(tl.IsRowEvicted(1));
+    ASSERT_TRUE(tl.IsRowEvicted(300));
+    EXPECT_NEAR(tl.row_heights[300], tl.row_heights[1], tl.row_heights[1] * 0.2f);
 }
 
 // 画像を縮めずに置ける幅の間は、幅を変えても段落を組み直さない。置けない幅になったら縮めて組み直し、縮めて組んだ段落は

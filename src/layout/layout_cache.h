@@ -86,17 +86,20 @@ struct TableLayoutData {
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     // 画像を含むセル (index の昇順)。画像は列幅に縮めるので、列幅を決めた後で組み直す。min_width はそのセルの layout の
-    // NodeLayoutEntry::image_min_width で、列幅がこれ以上なら組み直さない。
+    // NodeLayoutEntry::image_min_width で、列幅がこれ以上なら組み直さない。image_width は読めた画像のうち最も幅の広いものの
+    // 原寸の幅で、evict 中の行の高さを見積もるときに列幅まで縮むかを見る。
     struct ImageCell {
         uint32_t index = 0;
         float min_width = 0.0f;
+        float image_width = 0.0f;
     };
     std::vector<ImageCell> image_cells;
     // セル ci が画像を含めば、その項目。
-    ImageCell* FindImageCell(size_t ci) noexcept
+    template <class Self>
+    auto* FindImageCell(this Self& self, size_t ci) noexcept
     {
-        const auto it = std::ranges::lower_bound(image_cells, ci, {}, &ImageCell::index);
-        return it != image_cells.end() && it->index == ci ? std::to_address(it) : nullptr;
+        const auto it = std::ranges::lower_bound(self.image_cells, ci, {}, &ImageCell::index);
+        return it != self.image_cells.end() && it->index == ci ? std::to_address(it) : nullptr;
     }
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。

@@ -74,6 +74,12 @@ float EvictedCellHeight(const TableLayoutData& tl, size_t ci, float cw) noexcept
     if (natural <= cw || cw <= 0.0f) {
         return height;
     }
+    // 列幅より広い画像は列幅まで縮み、行の高さも同じ割合で縮む。折り返しとして見積もると、写真を 1 行 1 枚置いた表で
+    // 1 行 5 万 DIP を超え、画面外の行を捨てた後に幅を変えると表が 222 万 DIP になった (2026-11-08)。
+    // 画像の横の文字の行は数えない。
+    if (const auto* image = tl.FindImageCell(ci); image && image->image_width > cw) {
+        return FitBitmapSize(image->image_width, height, cw).height;
+    }
     return height * std::ceil(natural / cw);
 }
 
@@ -388,6 +394,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
     // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
     bool pending = false;
     float image_min_width = 0.0f;
+    float widest_image = 0.0f;
     // 読めない画像の alt。幅が決まっていればアイコンの右に収まる幅で折り返し、リンクの中ならリンクの色にする (下線は引かない)。
     const auto make_alt_layout = [&](std::string_view alt, bool link) -> ComPtr<IDWriteTextLayout> {
         const float icon = format.font_size;
@@ -415,6 +422,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
                                                             : D2D1_SIZE_F{ entry.size.width, entry.size.height };
             layout->SetInlineObject(MakeInlineImageObject(key, { size.width, size.height }).Get(), wr);
             image_min_width = size.width < entry.size.width ? std::numeric_limits<float>::infinity() : std::max(image_min_width, size.width);
+            widest_image = std::max(widest_image, entry.size.width);
             break;
         }
         case InlineImageState::Unavailable: {
@@ -479,7 +487,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
     strike.Flush();
     link.Flush();
     underline.Flush();
-    return { pending, image_min_width };
+    return { pending, image_min_width, widest_image };
 }
 
 std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const
@@ -573,6 +581,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
         }
         if (image_cell) {
             image_cell->min_width = formatted.image_min_width;
+            image_cell->image_width = formatted.widest_image;
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
         if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {
@@ -646,6 +655,10 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
                 tl.cell_nowrap_heights[ci] = tl.cell_nowrap_heights[reps[ci]];
             }
         });
+        // 代表も同じ画像を含むので画像のセル。
+        for (auto& image_cell : tl.image_cells) {
+            image_cell.image_width = tl.FindImageCell(reps[image_cell.index])->image_width;
+        }
     }
     // 列の自然幅を集める。測れなかったセルと空のセルは確保したときの 0 のままなので効かない。
     for (size_t r = 0; r < tbl.row_count; r++) {
