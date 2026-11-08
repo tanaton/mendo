@@ -158,7 +158,7 @@ void EmitScrollChangedSideEffects(ReduceContext& c)
     ClearTooltip(c);
     Invalidate(c);
     // ライブリサイズ中に上限へ収めても図や画像を取りに行かない。幅が決まるのはサイズ変更の終わり。
-    if (!c.state.window.is_sizing) {
+    if (!c.state.window.IsSizing()) {
         PushEffect(c.effects, effect::BitmapManage{});
     }
 }
@@ -1027,10 +1027,10 @@ void On(ReduceContext& c, const ResizeAction& a)
     w.client_width = a.width;
     w.client_height = a.height;
     w.client_dpi_scale = w.cached_dpi_scale;
-    w.size_changed_in_sizing = true;
-    PushEffect(c.effects, effect::RendererResize{ a.width, a.height, w.is_sizing });
+    PushEffect(c.effects, effect::RendererResize{ a.width, a.height, w.IsSizing() });
     w.titlebar.UpdateLayout(w.WidthDip());
-    if (w.is_sizing) {
+    if (w.IsSizing()) {
+        w.size_move = SizeMove::Resized;
         c.state.view.viewport.ClampScroll(MdMaxScroll(c.state));
         Invalidate(c);
     }
@@ -1041,14 +1041,12 @@ void On(ReduceContext& c, const ResizeAction& a)
 
 void On(ReduceContext& c, const EnterSizeMoveAction&)
 {
-    c.state.window.is_sizing = true;
-    c.state.window.size_changed_in_sizing = false;
+    c.state.window.size_move = SizeMove::Moving;
 }
 
 void On(ReduceContext& c, const ExitSizeMoveAction&)
 {
-    c.state.window.is_sizing = false;
-    if (c.state.window.size_changed_in_sizing) {
+    if (std::exchange(c.state.window.size_move, SizeMove::None) == SizeMove::Resized) {
         // ライブリサイズ中に大きめに取った描画面を、実際の大きさに合わせ直す。
         PushEffect(c.effects, effect::RendererResize{ c.state.window.client_width, c.state.window.client_height });
         PushEffect(c.effects, effect::SettleViewport{});
@@ -1059,7 +1057,9 @@ void On(ReduceContext& c, const DpiChangedAction& a)
 {
     c.state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
     // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
-    c.state.window.size_changed_in_sizing = true;
+    if (c.state.window.IsSizing()) {
+        c.state.window.size_move = SizeMove::Resized;
+    }
     PushEffect(c.effects, effect::ApplyDpi{ static_cast<float>(a.dpi), a.suggested });
 }
 

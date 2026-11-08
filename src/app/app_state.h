@@ -158,11 +158,18 @@ struct SearchGroup {
     bool scroll_after_search = false;
 };
 
+// 移動・サイズ変更のモーダルループ (WM_ENTERSIZEMOVE から WM_EXITSIZEMOVE まで)。
+enum class SizeMove : uint8_t {
+    None,
+    // 移動だけ。終了時のレイアウト処理を省く。
+    Moving,
+    // 大きさか DPI が変わった。終了時に描画面とレイアウトを合わせ直す。
+    Resized,
+};
+
 struct WindowState {
     TitleBar titlebar;
-    bool is_sizing = false;
-    // 移動だけのサイズ変更ループでは終了時のレイアウト処理を省くため。
-    bool size_changed_in_sizing = false;
+    SizeMove size_move = SizeMove::None;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
     // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
@@ -171,6 +178,10 @@ struct WindowState {
     // client_width / client_height を処理したときの DPI スケール。DPI が変わると同じピクセル寸法でも DIP 寸法が変わる。
     float client_dpi_scale = 0.0f;
 
+    constexpr bool IsSizing() const noexcept
+    {
+        return size_move != SizeMove::None;
+    }
     constexpr float WidthDip() const noexcept
     {
         return PixelToDip(static_cast<float>(client_width), cached_dpi_scale);

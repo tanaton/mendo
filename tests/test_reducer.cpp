@@ -333,12 +333,11 @@ TEST_F(ReducerTest, Activate_NoChangeWhenSame)
 
 // ---- EnterSizeMoveAction テスト ----
 
-TEST_F(ReducerTest, EnterSizeMove_SetsFlag)
+TEST_F(ReducerTest, EnterSizeMove_StartsMoving)
 {
-    state.window.is_sizing = false;
     Reduce(state, EnterSizeMoveAction{});
 
-    EXPECT_TRUE(state.window.is_sizing);
+    EXPECT_EQ(state.window.size_move, SizeMove::Moving);
 }
 
 TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsSettleViewport)
@@ -346,7 +345,7 @@ TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsSettleViewport)
     Reduce(state, EnterSizeMoveAction{});
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
-    EXPECT_FALSE(state.window.is_sizing);
+    EXPECT_EQ(state.window.size_move, SizeMove::None);
     EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
@@ -735,7 +734,7 @@ TEST_F(ReducerTest, Resize_Normal_SettlesViewport)
 
 TEST_F(ReducerTest, Resize_Sizing_RedrawsWithoutSettling)
 {
-    state.window.is_sizing = true;
+    state.window.size_move = SizeMove::Moving;
     state.window.cached_dpi_scale = 1.0f;
     auto effects = Reduce(state, ResizeAction{ 800, 600 });
 
@@ -747,7 +746,7 @@ TEST_F(ReducerTest, Resize_Sizing_RedrawsWithoutSettling)
 // ライブリサイズ中はスクロールを上限に収めるだけで、幅が決まる前に図や画像を取りに行かない。
 TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutBitmapManage)
 {
-    state.window.is_sizing = true;
+    state.window.size_move = SizeMove::Moving;
     state.window.cached_dpi_scale = 1.0f;
     Reduce(state, ResizeAction{ 800, 600 });
     state.view.viewport.SetScrollY(100000.0f);
