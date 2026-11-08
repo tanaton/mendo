@@ -105,8 +105,6 @@ void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
 void FileWatcher::StopWatching() noexcept
 {
     target_.read.reset();
-    paused_ = false;
-    pending_change_ = false;
     on_change_ = nullptr;
 }
 
@@ -131,30 +129,11 @@ void FileWatcher::CheckForChanges()
     const bool target_changed = NotifyBufferHasTargetChange(
         std::as_bytes(std::span{ read->buf, bytes_returned }), target_.filename, target_.short_filename);
     if (target_changed) {
-        if (paused_) {
-            pending_change_ = true;
-        }
-        else {
-            FireChange();
-        }
+        on_change_();
     }
-    // 通知を受けた側が監視をやめていることがあるので、引き直す。
-    if (target_.read && !target_.read->Begin()) {
+    // 通知を受けた側が監視をやめたか替えたなら引き直さない。替えた対象は読み取りを発行済みで、同じ overlapped に重ねて発行できない
+    // (新しい対象は前の対象が生きている間に作るので、アドレスは重ならない)。
+    if (target_.read.get() == read && !read->Begin()) {
         StopWatching();
-    }
-}
-
-void FileWatcher::FireChange()
-{
-    paused_ = true;
-    on_change_();
-}
-
-void FileWatcher::ResumeWatching()
-{
-    paused_ = false;
-    if (pending_change_) {
-        pending_change_ = false;
-        FireChange();
     }
 }

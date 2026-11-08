@@ -198,7 +198,7 @@ private:
     void ShowToast(std::wstring_view message);
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
     static void ShellOpenAsync(std::wstring target);
-    // 変更通知はデバウンスしてから読み直す。
+    // 変更の通知は reload_ に渡す。
     void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
 
@@ -306,7 +306,12 @@ private:
     void FollowViewerNode(const Document& next, const UnchangedEnds& ends);
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
-    void ReloadCurrentFile();
+    void RunReloadCommand(const ReloadCommand& cmd);
+    // 差し替えると選択の途中でドラッグが終わるので、読み直しを待たせる。
+    bool IsSelectingText() const noexcept
+    {
+        return state_.view.drag.kind == LeftDrag::TextSelect;
+    }
     // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
     void BeginAsyncLoad(std::wstring path, bool show_animation);
     void StartLoadingAnimation();
@@ -315,12 +320,6 @@ private:
     void StopLoadingAnimation();
     // 理由をトーストで知らせ、文書が無ければヘルプを出す。
     void HandleLoadFailureFallback(FileLoadError error);
-
-    // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
-    // partial-read を検出した時に共通で使う。
-    void DeferReloadRetry(UINT delay_ms = app_timer::FILE_RELOAD_RETRY_MS);
-    // テキスト選択のドラッグ中なら、リロードをドラッグの終わりまで待たせて true。
-    bool DeferReloadWhileSelecting();
 
     void CancelPendingResources();
 
@@ -376,14 +375,8 @@ private:
     AsyncLoadCoordinator load_coordinator_{ scheduler_ };
     // スピナー (ViewState::loading_shown) は読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。
     float spinner_angle_ = 0.0f;
-    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
-    // 超えたら縮んだ内容を確定版として受け入れる。
-    static constexpr int kMaxPrefixShrinkDefers = 10;
-    int prefix_shrink_defers_ = 0;
-    // 共有を許さずに開かれている間は開けるまで読み直す。諦めると、最後の変更通知を読み直しの前に捨てているので
-    // 次の保存まで古い内容のままになる。短い間隔で 50 回 (約 3 秒) 開けなければ一度知らせ、以後は間隔を空ける。
-    static constexpr int kLockedRetriesBeforeNotice = 50;
-    int locked_retries_ = 0;
+    // 表示中のファイルの読み直し。読み込みを始める・取り消す・結果を取り出すたびに知らせる。
+    ReloadScheduler reload_;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
