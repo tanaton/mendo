@@ -830,6 +830,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 {
     MENDO_PROFILE("OpenDocument");
 
+    NavEntry left = CurrentNavEntry(state_);
     ReplaceDocument(std::move(next), std::move(estimated));
     CancelPendingResources();
     // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
@@ -846,7 +847,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
             layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
         }
     }
-    Dispatch(DocumentOpenedAction{ follow_file_pane });
+    Dispatch(DocumentOpenedAction{ follow_file_pane, std::move(left) });
 
     RelayoutViewport();
 

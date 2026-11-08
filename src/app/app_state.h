@@ -218,6 +218,12 @@ inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
     return state.view.viewport.CurrentTarget(state.document.layout_cache);
 }
 
+inline NavEntry CurrentNavEntry(const AppState& state)
+{
+    const ScrollTarget t = SnapshotVisibleTarget(state);
+    return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
+}
+
 // reducer と App (Win32 層) の双方が AppState から導出するペイン/ブロック情報。
 // 非 inline 関数の定義は reducer.cpp。
 

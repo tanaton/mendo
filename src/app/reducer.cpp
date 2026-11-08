@@ -24,12 +24,6 @@ constexpr float SCROLL_PAGE_FACTOR = 0.9f;
 // Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
 constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
-NavEntry CurrentNavEntry(const AppState& state)
-{
-    const ScrollTarget t = SnapshotVisibleTarget(state);
-    return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
-}
-
 // ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用のスクロール先を捨てる。
 // スクロール先を残すと、次に開く別ファイルが無関係な位置へスクロールする。
 void DiscardPendingLoad(AppState& state)
@@ -413,7 +407,6 @@ ScrollTarget TakePendingScroll(AppState& state)
 
 void RestoreScrollAfterLoad(AppState& state)
 {
-    state.view.nav_history.CommitPending();
     auto& viewport = state.view.viewport;
     if (const ScrollTarget restore = TakePendingScroll(state); restore.IsValid()) {
         viewport.SetScrollTarget(restore.node, restore.offset);
@@ -1112,6 +1105,7 @@ void On(ReduceContext& c, const DocumentOpenedAction& a)
         c.state.file_explorer.SetDirectory(doc.GetDirectory());
     }
     c.state.file_explorer.SetCurrentFile(doc.GetFilePath());
+    c.state.view.nav_history.CommitOpened(a.left);
     RestoreScrollAfterLoad(c.state);
 }
 

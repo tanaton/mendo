@@ -1318,6 +1318,7 @@ TEST_F(ReducerTest, RightClickGestureCompleted_TrackingRight_NavigatesForward)
     state.view.nav_history.Push(NavEntry{ L"C:\\page1.md", 0, 0.0f });
     NavEntry tmp;
     state.view.nav_history.GoBack(NavEntry{ L"C:\\page2.md", 0, 0.0f }, tmp);
+    state.view.nav_history.CommitOpened(NavEntry{ L"C:\\page2.md", 0, 0.0f });
     SetDocument(state, "test", L"C:\\page1.md");
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 
@@ -1757,8 +1758,9 @@ void ResetToDocument(AppState& state, std::wstring_view path)
 // App のロード成功相当: 文書を差し替えて DocumentOpenedAction で確定する。
 void CompleteLoad(AppState& state, std::wstring_view path)
 {
+    NavEntry left = CurrentNavEntry(state);
     ReplaceDocument(state, path);
-    Reduce(state, DocumentOpenedAction{});
+    Reduce(state, DocumentOpenedAction{ .left = std::move(left) });
 }
 
 // 副作用の LoadFile のパス。LoadFile が無ければ nullopt。
@@ -1948,6 +1950,26 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
         EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
     }
+}
+
+// 別ファイルを開いている間に目次で飛ぶと、飛ぶ前の位置と、開き終えて差し替えた時点の位置 (飛んだ先) が 1 回ずつ戻り先になる。
+TEST_F(ReducerTest, TocJumpWhileOpenLoading_KeepsBothPositions)
+{
+    ResetToDocument(state, L"C:\\current.md");
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
+    Reduce(state, TocItemClickedAction{ state.document.doc.GetToc()[2].node_index });
+    const float jumped = state.view.viewport.GetScrollY();
+    ASSERT_GT(jumped, 0.0f);
+    CompleteLoad(state, L"C:\\big.md");
+
+    EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = false })), L"C:\\current.md");
+    CompleteLoad(state, L"C:\\current.md");
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), jumped);
+
+    Reduce(state, NavigateHistoryAction{ .forward = false });
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_FALSE(state.view.nav_history.CanGoBack());
+    EXPECT_EQ(state.view.nav_history.ForwardSize(), 2u);
 }
 
 // ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----

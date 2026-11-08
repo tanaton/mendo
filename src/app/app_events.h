@@ -1,5 +1,6 @@
 #pragma once
 #include "document_utils.h"
+#include "nav.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "titlebar.h"
@@ -187,6 +188,9 @@ struct NavigateAnchorAction {
 // App は推定高さを図のキャッシュの実測値で補正し、読んだことのある画像の寸法を入れてから送る (復元先の Y をずらさない)。
 struct DocumentOpenedAction {
     bool follow_file_pane = false;
+    // 差し替える前の文書の表示位置。確定待ちの開く・戻る/進むで、表示していた文書はこの位置で履歴に入る
+    // (読み込みの間にスクロールや見出しへの移動をした分を含める)。
+    NavEntry left;
 };
 // 同じ文書の新しい版に差し替えた (リロード)。番号に結び付いた一時状態を消し、変わらなかったノードの検索マッチは残し、
 // scroll_y (変更箇所が見える位置。App が実測の高さで求める) へスクロールする。
