@@ -461,8 +461,7 @@ struct DiagramResult {
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
-    // 図の描画命令。クリップボードコピー・保存の画像と拡大表示の元。commands と同時に設定する。
-    // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
+    // 図の描画命令。クリップボードコピー・保存の画像の元。commands と同時に設定する。
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
     // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
@@ -487,10 +486,11 @@ struct DiagramEntry : DiagramResult {
         static_cast<DiagramResult&>(*this) = std::move(r);
         stale = false;
     }
-    // 保存・コピーの元があるか (ボタンを出すか)。
+    // 保存・コピーの元があるか (ボタンを出すか)。仮表示の絵は前のコード・幅・テーマのもので、コピーの SVG
+    // (今の幅・テーマで描く) と食い違うので、描き直すまでボタンを出さない。
     bool CanExport() const noexcept
     {
-        return HasImage() && drawing;
+        return HasImage() && drawing && !stale;
     }
 
     // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。失敗はコードで決まり、同じコードを描き直しても変わらない。
@@ -517,13 +517,11 @@ struct DiagramEntry : DiagramResult {
         stale = true;
         error.clear();
     }
-    // コードの書き換え用。仮表示の絵は別の図のものなので、保存・コピーの元は捨てる。コードのハッシュは新しいノードの
-    // テキストで計算し直させる。
+    // コードの書き換え用。コードのハッシュは新しいノードのテキストで計算し直させる。
     void MarkCodeReplaced() noexcept
     {
         MarkStale();
         code_hash = 0;
-        drawing.reset();
     }
 };
 

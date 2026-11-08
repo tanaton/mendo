@@ -11,6 +11,7 @@
 #include "image_loader.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
+#include "mermaid_util.h"
 #include "reducer_harness.h"
 #include "theme.h"
 #include "test_helpers.h"
@@ -814,6 +815,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
 }
 
 // テーマが変わると、幅に収まって幅の変化では残す図も含めて全部を仮表示にし、旧テーマの描画待ちを捨てる。
+// 仮表示の間は旧テーマの絵を保存・コピーさせない (コピーの SVG は新しいテーマで描くので食い違う)。
 TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -823,6 +825,8 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     auto& diagram = *cache_.FindDiagram(diagram_index);
     ASSERT_TRUE(diagram.commands);
     diagram.width = 100.0f;
+    diagram.drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    ASSERT_TRUE(diagram.CanExport());
     const int initial_drop = mock_mermaid_.drop_queued_count;
 
     // 同じ条件なら描き直さない。
@@ -835,6 +839,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(diagram.commands) << "描き直しの間も旧結果を表示する";
     EXPECT_TRUE(diagram.stale);
+    EXPECT_FALSE(diagram.CanExport());
     EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
