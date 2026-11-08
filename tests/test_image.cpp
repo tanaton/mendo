@@ -1209,6 +1209,40 @@ TEST_F(ImageLoaderAsyncTest, CancelledRequestDoesNotAskToRequestAgain)
     EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
 }
 
+// ビットマップを待つ間に範囲を出て寸法だけを頼まれたら、ビットマップを取り消しても寸法を待つ側が残る。
+// 読まずに返ったら要求し直させ、寸法を読む。
+TEST_F(ImageLoaderAsyncTest, SizeRequestMergedIntoCancelledBitmapRequestIsNotLost)
+{
+    ASSERT_TRUE(CreateTestImage(L"left_range.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"left_range.png");
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.CancelStaleBitmapRequests();
+        loader_.RequestSizeAsync(path);
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_TRUE(DrainDecodes());
+    EXPECT_EQ(loader_.FindImageInfo(path), nullptr) << "ビットマップの要求は読まずに返る";
+
+    loader_.RequestSizeAsync(path);
+    loader_.CancelStaleBitmapRequests();
+    EXPECT_TRUE(DrainDecodes());
+    ASSERT_NE(loader_.FindImageInfo(path), nullptr);
+    EXPECT_FLOAT_EQ(loader_.FindImageInfo(path)->pixel_width, 40.0f);
+
+    // 寸法を頼んだのが前の取り込みなら、今は誰も待っていない。
+    {
+        WorkerGate gate(scheduler_, 2);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.RequestSizeAsync(path);
+        loader_.CancelStaleBitmapRequests();
+        loader_.CancelStaleBitmapRequests();
+    }
+    EXPECT_FALSE(DrainDecodes());
+}
+
 // 読まずに返った後で頼み直されたら、届いたときに要求し直させる (取り消しの取り下げは worker に間に合っていない)。
 TEST_F(ImageLoaderAsyncTest, RerequestAfterCancelledRequestReturnedAsksAgain)
 {

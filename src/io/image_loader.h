@@ -174,12 +174,14 @@ private:
         std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);
         // 前の CancelStaleBitmapRequests の後に頼み直された。
         bool renewed = true;
+        // 前の CancelStaleBitmapRequests の後に寸法だけを頼まれた (範囲を出た)。取り消しても寸法を待つ側が残る。
+        bool size_wanted = false;
     };
     struct PendingDecode {
         // 始めた要求の種類。待つ間に別の種類を頼まれても変えない (寸法を待つ間のビットマップは、届いてから頼み直させる)。
         std::variant<ReadingSize, ReadingBitmap> reading;
         // 待つ間に要求し直された。読まずに返ったら要求し直させる。文書を切り替えて捨てた要求の結果で旧文書の画像を
-        // 読み直さないよう、要求し直されたものだけ読み直させる。取り消したら誰も待っていないので下ろす。
+        // 読み直さないよう、要求し直されたものだけ読み直させる。取り消したら、寸法だけを頼まれていたときだけ残す。
         bool requested_again = false;
     };
     // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。

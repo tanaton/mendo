@@ -154,7 +154,10 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
     if (const auto it = pending_paths_.find(abs_path); it != pending_paths_.end()) {
         auto& pending = it->second;
         pending.requested_again = true;
-        if (auto* bitmap = std::get_if<ReadingBitmap>(&pending.reading); bitmap && !size_only) {
+        if (auto* bitmap = std::get_if<ReadingBitmap>(&pending.reading); bitmap && size_only) {
+            bitmap->size_wanted = true;
+        }
+        else if (bitmap) {
             bitmap->renewed = true;
             bitmap->cancelled->store(false, std::memory_order_relaxed);
         }
@@ -255,9 +258,13 @@ void ImageLoader::CancelStaleBitmapRequests() noexcept
 {
     for (auto& pending : pending_paths_ | std::views::values) {
         auto* const bitmap = std::get_if<ReadingBitmap>(&pending.reading);
-        if (bitmap && !std::exchange(bitmap->renewed, false)) {
+        if (!bitmap) {
+            continue;
+        }
+        const bool size_wanted = std::exchange(bitmap->size_wanted, false);
+        if (!std::exchange(bitmap->renewed, false)) {
             bitmap->cancelled->store(true, std::memory_order_relaxed);
-            pending.requested_again = false;
+            pending.requested_again = size_wanted;
         }
     }
 }
