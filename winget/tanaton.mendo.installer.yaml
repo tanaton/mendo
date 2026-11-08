@@ -2,7 +2,7 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: tanaton.mendo
-PackageVersion: 0.4.1.0
+PackageVersion: 0.5.0.0
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
@@ -10,8 +10,8 @@ NestedInstallerFiles:
   PortableCommandAlias: mendo
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.4.1.0/mendo.zip
-  InstallerSha256: AEEFF5F0341A22ABB25042BFAD55DDD8B2E553B7BE7A9095E4A482478DC87082
+  InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.5.0.0/mendo.zip
+  InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
 ManifestType: installer
 ManifestVersion: 1.12.0
 ReleaseDate: 2026-11-01
