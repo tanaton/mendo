@@ -506,7 +506,7 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
-    // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
+    // 幅・テーマの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
     // 再試行可能に戻す。
     void MarkStale() noexcept
     {
@@ -516,6 +516,14 @@ struct DiagramEntry : DiagramResult {
         }
         stale = true;
         error.clear();
+    }
+    // コードの書き換え用。仮表示の絵は別の図のものなので、保存・コピーの元は捨てる。コードのハッシュは新しいノードの
+    // テキストで計算し直させる。
+    void MarkCodeReplaced() noexcept
+    {
+        MarkStale();
+        code_hash = 0;
+        drawing.reset();
     }
 };
 
