@@ -316,8 +316,7 @@ void RunNavHistoryProperties(uint32_t seed)
     bool reached_max = false;
     int next_node = 0;
 
-    // 時間の大半は確定待ちの操作が両スタックを写す分 (上限近くで 1 回約 40µs)。上限に届くのは seed あたり 2〜7 回
-    // (seed=1 の最初は 14145 歩目) なので、歩数は減らさない。
+    // 上限に届くのは seed あたり 2〜4 回 (seed=1 の最初は 17020 歩目) なので、歩数は減らさない。
     for (int step = 0; step < 30000; ++step) {
         if (segment_left-- == 0) {
             op_range = kOpRanges[pick(0, 3)];

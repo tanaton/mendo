@@ -1,5 +1,6 @@
 #include "nav.h"
-#include <cassert>
+#include <algorithm>
+#include <cstdlib>
 #include <utility>
 
 void NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
@@ -10,139 +11,116 @@ void NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
     }
 }
 
+int NavHistory::PendingSteps() const noexcept
+{
+    const auto* traverse = std::get_if<PendingTraverse>(&pending_);
+    return traverse ? traverse->steps : 0;
+}
+
+size_t NavHistory::BackSize() const noexcept
+{
+    if (std::holds_alternative<PendingOpen>(pending_)) {
+        return std::min(back_stack_.size() + 1, MAX_HISTORY);
+    }
+    return static_cast<size_t>(static_cast<ptrdiff_t>(back_stack_.size()) + PendingSteps());
+}
+
+size_t NavHistory::ForwardSize() const noexcept
+{
+    if (std::holds_alternative<PendingOpen>(pending_)) {
+        return 0;
+    }
+    return static_cast<size_t>(static_cast<ptrdiff_t>(forward_stack_.size()) - PendingSteps());
+}
+
 void NavHistory::Push(NavEntry current)
 {
-    if (auto* open = std::get_if<PendingOpen>(&pending_)) {
-        NavEntry left = std::move(back_stack_.back());
-        PushCapped(open->saved.back, std::move(current));
-        open->saved.forward.clear();
-        back_stack_ = open->saved.back;
-        PushCapped(back_stack_, std::move(left));
-        return;
-    }
     if (auto* traverse = std::get_if<PendingTraverse>(&pending_)) {
-        PushWhileTraversing(*traverse, std::move(current));
-        return;
+        if (traverse->steps > 0) {
+            // 移動先は進む履歴にあり、この移動で消える。別のファイルを開くのと同じにする。
+            pending_ = PendingOpen{ std::move(traverse->left) };
+        }
+        else if (static_cast<size_t>(-traverse->steps) == MAX_HISTORY) {
+            // 移動先が最古の履歴で、積むと押し出されるので、移動元は積まない。
+            forward_stack_.clear();
+            return;
+        }
+        else {
+            --traverse->steps;
+        }
     }
     PushCapped(back_stack_, std::move(current));
     forward_stack_.clear();
-}
-
-void NavHistory::PushWhileTraversing(PendingTraverse& t, NavEntry current)
-{
-    const size_t left_index = LeftIndex(t);
-    PushCapped(t.saved.back, current);
-    t.saved.forward.clear();
-    if (t.forward_first) {
-        // 移動先は表示中の文書より先にあり、表示中の文書の中の移動で進む履歴ごと消える。別のファイルを開くのと同じにする。
-        NavEntry left = std::move(back_stack_[left_index]);
-        back_stack_ = t.saved.back;
-        PushCapped(back_stack_, std::move(left));
-        forward_stack_.clear();
-        pending_ = PendingOpen{ std::move(t.saved) };
-        return;
-    }
-    // 移動先は表示中の文書より前にある。表示中の文書の位置より先の進む履歴を消し、その手前に移動元を挟む。
-    forward_stack_.erase(forward_stack_.begin(), forward_stack_.begin() + static_cast<ptrdiff_t>(left_index));
-    if (back_stack_.size() + forward_stack_.size() >= MAX_HISTORY) {
-        // 最古の履歴は移動先そのもので捨てられないので、移動元を積まない。
-        if (back_stack_.empty()) {
-            return;
-        }
-        back_stack_.pop_front();
-    }
-    forward_stack_.insert(forward_stack_.begin() + 1, std::move(current));
 }
 
 void NavHistory::PushPending(NavEntry current)
 {
-    RollbackPending();
-    // 進む履歴はこの後空にするので、写さずに渡す。
-    Stacks saved{ back_stack_, std::move(forward_stack_) };
-    pending_ = PendingOpen{ std::move(saved) };
-    PushCapped(back_stack_, std::move(current));
-    forward_stack_.clear();
+    pending_ = PendingOpen{ std::move(current) };
 }
 
 void NavHistory::CommitOpened(NavEntry left)
 {
     if (std::holds_alternative<PendingOpen>(pending_)) {
-        back_stack_.back() = std::move(left);
+        PushCapped(back_stack_, std::move(left));
+        forward_stack_.clear();
     }
     else if (const auto* traverse = std::get_if<PendingTraverse>(&pending_)) {
-        LeftStack(*traverse)[LeftIndex(*traverse)] = std::move(left);
+        // 表示していた文書から移動先の手前までを、移動した向きと反対のスタックへ移す。移動先は表示中になるので外す。
+        // 移した数だけ外すので、上限は超えない。
+        auto& from = traverse->steps < 0 ? back_stack_ : forward_stack_;
+        auto& to = traverse->steps < 0 ? forward_stack_ : back_stack_;
+        to.push_back(std::move(left));
+        for (int i = std::abs(traverse->steps); i > 1; --i) {
+            to.push_back(std::move(from.back()));
+            from.pop_back();
+        }
+        from.pop_back();
     }
     pending_ = Settled{};
 }
 
-void NavHistory::CommitPending() noexcept
+void NavHistory::CommitPending()
 {
-    pending_ = Settled{};
-}
-
-void NavHistory::RollbackPending()
-{
-    Stacks* saved = nullptr;
     if (auto* open = std::get_if<PendingOpen>(&pending_)) {
-        saved = &open->saved;
+        CommitOpened(std::move(open->left));
     }
     else if (auto* traverse = std::get_if<PendingTraverse>(&pending_)) {
-        saved = &traverse->saved;
+        CommitOpened(std::move(traverse->left));
     }
-    if (saved) {
-        back_stack_ = std::move(saved->back);
-        forward_stack_ = std::move(saved->forward);
-    }
+}
+
+void NavHistory::RollbackPending() noexcept
+{
     pending_ = Settled{};
 }
 
-bool NavHistory::Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, NavEntry current, NavEntry& out)
+bool NavHistory::Move(int direction, NavEntry current, NavEntry& out)
 {
-    // 開きかけのファイルは取り消し、表示中の文書から移動し直す。移動できなければ元に戻す。
-    if (std::holds_alternative<PendingOpen>(pending_)) {
-        RollbackPending();
-        if (from.empty()) {
-            PushPending(std::move(current));
-            return false;
-        }
-    }
-    if (from.empty()) {
-        return false;
-    }
-    // Push は進む履歴を空にして積むので back + forward は上限を超えず、移動で押し出しは起きない。
-    assert(back_stack_.size() + forward_stack_.size() <= MAX_HISTORY);
-    PendingTraverse next;
-    if (auto* traverse = std::get_if<PendingTraverse>(&pending_)) {
-        // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
-        // current のまま積むと表示中の位置が履歴に重複する。表示中の文書の位置は今の位置にする。
-        LeftStack(*traverse)[LeftIndex(*traverse)] = std::move(current);
-        next = std::move(*traverse);
-        current = std::move(next.to);
-    }
-    else {
-        next.saved = { back_stack_, forward_stack_ };
-        next.forward_first = &to == &back_stack_;
-    }
-    // 表示中の文書の位置まで戻ったら、読み込まないので確定する。
-    const bool returns_to_left = &from == &LeftStack(next) && from.size() - 1 == LeftIndex(next);
-    to.push_back(std::move(current));
-    out = std::move(from.back());
-    from.pop_back();
-    if (returns_to_left) {
+    // 開きかけのファイルは取り消し、表示中の文書から移動する (移動できなければ開くのを続ける)。戻る/進むを続けるときは、
+    // 表示中の文書はまだ確定前の移動先へ切り替わっていないので、移動先を起点にする。
+    const int steps = PendingSteps() + direction;
+    if (steps == 0) {
+        // 表示中の文書へ戻った。読み込まないので確定し、今の位置に留まる。
+        out = std::move(current);
         pending_ = Settled{};
         return true;
     }
-    next.to = out;
-    pending_ = std::move(next);
+    const auto& stack = steps < 0 ? back_stack_ : forward_stack_;
+    const auto distance = static_cast<size_t>(std::abs(steps));
+    if (distance > stack.size()) {
+        return false;
+    }
+    out = stack[stack.size() - distance];
+    pending_ = PendingTraverse{ steps, std::move(current) };
     return true;
 }
 
 bool NavHistory::GoBack(NavEntry current, NavEntry& out)
 {
-    return Transfer(back_stack_, forward_stack_, std::move(current), out);
+    return Move(-1, std::move(current), out);
 }
 
 bool NavHistory::GoForward(NavEntry current, NavEntry& out)
 {
-    return Transfer(forward_stack_, back_stack_, std::move(current), out);
+    return Move(1, std::move(current), out);
 }
