@@ -9,6 +9,10 @@ target_include_directories(mendo_test_support INTERFACE ${CMAKE_CURRENT_SOURCE_D
 # cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。
 # u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
 target_compile_definitions(mendo_test_support INTERFACE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
+# KaTeX の書体の実物と、ビルドで作った pele と KaTeX のバイトコードを読むため (test_pele_engine・BM_MathFrameDraw)。
+target_compile_definitions(mendo_test_support INTERFACE "MENDO_THIRD_PARTY_DIR=u8\"${CMAKE_SOURCE_DIR}/third_party\""
+                                                        "MENDO_JS_BYTECODE_DIR=u8\"${MENDO_JS_BYTECODE_DIR}\"")
+add_dependencies(mendo_test_support mendo_js_bytecode)
 
 target_link_libraries(mendo_tests PRIVATE
     mendo_core
@@ -20,10 +24,6 @@ target_link_libraries(mendo_tests PRIVATE
 target_link_options(mendo_tests PRIVATE $<$<CONFIG:Release>:/LTCG:INCREMENTAL>)
 # test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
-# test_pele_engine が KaTeX の書体の実物と、ビルドで作った pele と KaTeX のバイトコードを読むため。
-target_compile_definitions(mendo_tests PRIVATE "MENDO_THIRD_PARTY_DIR=u8\"${CMAKE_SOURCE_DIR}/third_party\""
-                                               "MENDO_JS_BYTECODE_DIR=u8\"${MENDO_JS_BYTECODE_DIR}\"")
-add_dependencies(mendo_tests mendo_js_bytecode)
 
 # ---- プリコンパイル済みヘッダー ----
 # `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ は mendo_test_support で include path に入る。

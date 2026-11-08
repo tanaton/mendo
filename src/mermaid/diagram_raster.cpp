@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <numbers>
@@ -4187,7 +4188,279 @@ std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_siz
     return KatexLayout(doc, assets).Run(font_size);
 }
 
-void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush)
+namespace {
+
+// 形を塗る。box_to_target は SVG の箱の座標から描く先への変換 (拡大と平行移動だけ) で、clip は箱の座標。
+// マスクも本体もこれで塗り、画素をそろえる。
+void PaintPath(ID2D1RenderTarget* rt, ID2D1PathGeometry* geometry, const std::array<float, 6>& transform, const D2D1_RECT_F& clip, float stroke,
+               const D2D1::Matrix3x2F& box_to_target, ID2D1Brush* brush)
+{
+    rt->SetTransform(box_to_target);
+    rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    rt->SetTransform(ToD2D(transform) * box_to_target);
+    if (stroke > 0.0f) {
+        rt->DrawGeometry(geometry, brush, stroke);
+    }
+    else {
+        rt->FillGeometry(geometry, brush);
+    }
+    rt->SetTransform(box_to_target);
+    rt->PopAxisAlignedClip();
+}
+
+} // namespace
+
+struct MathMaskCache::Impl {
+    // 箱の左上を原点にした形。数式の中の箱の位置は含めないので、同じ形を同じ大きさで使う数式の間で共有する。
+    struct Key {
+        // 数式を捨てると形も消えうる。アドレスが別の形に使い回されないよう、キーが持つ。
+        std::shared_ptr<const MathDrawing::Shape> shape;
+        std::array<float, 6> transform{};
+        float width = 0.0f;
+        float height = 0.0f;
+        float stroke = 0.0f;
+        float scale_x = 0.0f;
+        float scale_y = 0.0f;
+
+        bool operator==(const Key&) const = default;
+    };
+    struct Entry {
+        Key key;
+        // 作れなかった形は null のまま残し、毎フレーム作り直さない (呼び出し側が形を塗る)。
+        ComPtr<ID2D1Bitmap1> bitmap;
+        UINT width = 0;
+        UINT height = 0;
+        uint64_t last_frame = 0;
+
+        // 小さな A8 の描画先でも、1 枚で private が約 14KB 増えた (2000 枚で計測)。
+        size_t Bytes() const noexcept
+        {
+            return bitmap ? std::max<size_t>(static_cast<size_t>(width) * height, 14 * 1024) : 0;
+        }
+    };
+
+    ComPtr<ID2D1Device> device;
+    // マスクを描く。本体の context は描いている最中で、BeginDraw は入れ子にできないので別に持つ。
+    ComPtr<ID2D1DeviceContext> dc;
+    ComPtr<ID2D1SolidColorBrush> opaque;
+    std::unordered_map<uint64_t, Entry> entries;
+    size_t bytes = 0;
+    uint64_t frame = 0;
+
+    static uint64_t Hash(const Key& key) noexcept
+    {
+        uint64_t h = kFnv1a64OffsetBasis;
+        const auto mix = [&h](uint64_t v) noexcept { h = (h ^ v) * kFnv1a64Prime; };
+        mix(std::bit_cast<uintptr_t>(key.shape.get()));
+        for (const float f : key.transform) {
+            mix(std::bit_cast<uint32_t>(f));
+        }
+        for (const float f : { key.width, key.height, key.stroke, key.scale_x, key.scale_y }) {
+            mix(std::bit_cast<uint32_t>(f));
+        }
+        return h;
+    }
+
+    bool EnsureContext()
+    {
+        if (dc) {
+            return true;
+        }
+        if (!device || FAILED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc)) ||
+            FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &opaque))) {
+            dc.Reset();
+            return false;
+        }
+        dc->SetDpi(96.0f, 96.0f);
+        return true;
+    }
+
+    // 装置の画素を 1 単位として形を塗る。
+    Entry Make(const Key& key, ID2D1PathGeometry* geometry)
+    {
+        Entry e{ .key = key,
+                 .width = static_cast<UINT>(std::ceil(key.width * key.scale_x)),
+                 .height = static_cast<UINT>(std::ceil(key.height * key.scale_y)) };
+        if (e.width == 0 || e.height == 0 || !EnsureContext() || std::max(e.width, e.height) > dc->GetMaximumBitmapSize()) {
+            return e;
+        }
+        const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        ComPtr<ID2D1Bitmap1> bitmap;
+        if (FAILED(dc->CreateBitmap(D2D1::SizeU(e.width, e.height), nullptr, 0, &props, &bitmap))) {
+            return e;
+        }
+        dc->SetTarget(bitmap.Get());
+        dc->BeginDraw();
+        dc->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
+        PaintPath(dc.Get(), geometry, key.transform, D2D1::RectF(0.0f, 0.0f, key.width, key.height), key.stroke,
+                  D2D1::Matrix3x2F::Scale(key.scale_x, key.scale_y), opaque.Get());
+        const HRESULT hr = dc->EndDraw();
+        dc->SetTarget(nullptr);
+        if (SUCCEEDED(hr)) {
+            e.bitmap = std::move(bitmap);
+        }
+        return e;
+    }
+};
+
+MathMaskCache::MathMaskCache() : impl_(std::make_unique<Impl>())
+{}
+MathMaskCache::~MathMaskCache() = default;
+
+void MathMaskCache::Reset(ID2D1Device* device) noexcept
+{
+    auto& m = *impl_;
+    m.entries.clear();
+    m.bytes = 0;
+    m.dc.Reset();
+    m.opaque.Reset();
+    m.device = device;
+}
+
+void MathMaskCache::EndFrame(size_t budget_bytes)
+{
+    auto& m = *impl_;
+    if (m.bytes > budget_bytes) {
+        std::vector<std::pair<uint64_t, uint64_t>> stale;
+        for (const auto& [hash, e] : m.entries) {
+            if (e.last_frame != m.frame) {
+                stale.emplace_back(e.last_frame, hash);
+            }
+        }
+        std::ranges::sort(stale);
+        for (const auto& [frame, hash] : stale) {
+            if (m.bytes <= budget_bytes) {
+                break;
+            }
+            const auto it = m.entries.find(hash);
+            m.bytes -= it->second.Bytes();
+            m.entries.erase(it);
+        }
+    }
+    ++m.frame;
+}
+
+bool MathMaskCache::Fill(ID2D1RenderTarget* rt, const MathDrawing::Path& path, ID2D1PathGeometry* geometry, float left, float top, float scale_x,
+                         float scale_y, ID2D1Brush* brush)
+{
+    auto& m = *impl_;
+    if (!m.device || !(scale_x > 0.0f) || !(scale_y > 0.0f)) {
+        return false;
+    }
+    const auto& t = path.transform;
+    const auto& c = path.clip;
+    const Impl::Key key{
+        .shape = path.shape,
+        .transform = { t[0], t[1], t[2], t[3], t[4] - c[0], t[5] - c[1] },
+        .width = c[2] - c[0],
+        .height = c[3] - c[1],
+        .stroke = path.stroke,
+        .scale_x = scale_x,
+        .scale_y = scale_y,
+    };
+    auto& entry = m.entries[Impl::Hash(key)];
+    if (entry.key != key) {
+        m.bytes -= entry.Bytes();
+        entry = m.Make(key, geometry);
+        m.bytes += entry.Bytes();
+    }
+    entry.last_frame = m.frame;
+    if (!entry.bitmap) {
+        return false;
+    }
+    const auto w = static_cast<float>(entry.width);
+    const auto h = static_cast<float>(entry.height);
+    const D2D1_RECT_F dest = D2D1::RectF(left, top, left + w / scale_x, top + h / scale_y);
+    const D2D1_RECT_F src = D2D1::RectF(0.0f, 0.0f, w, h);
+    // FillOpacityMask は ALIASED のときしか描かない。
+    const D2D1_ANTIALIAS_MODE mode = rt->GetAntialiasMode();
+    rt->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+    rt->FillOpacityMask(entry.bitmap.Get(), brush, D2D1_OPACITY_MASK_CONTENT_GRAPHICS, &dest, &src);
+    rt->SetAntialiasMode(mode);
+    return true;
+}
+
+size_t MathMaskCache::Count() const noexcept
+{
+    return impl_->entries.size();
+}
+
+size_t MathMaskCache::Bytes() const noexcept
+{
+    return impl_->bytes;
+}
+
+namespace {
+
+// 色の指定の無いグリフを、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける。DrawGlyphRun は
+// 1 回ごとの手間が大きく、形の多い数式 (1 式 7.5 run) の画面で 1 割ほど縮む。画素は 1 つずつ描くのと同じ。
+// 同じブラシで塗る分どうしは描く順で画素が変わらないので、まとめた run は色を指定した部分の手前か数式の最後に描く。
+class GlyphRunMerger {
+public:
+    void Add(const MathDrawing::Glyphs& g, float x, float baseline)
+    {
+        if (g.glyphs.empty()) {
+            return;
+        }
+        const auto used = std::span{ groups_ }.first(used_);
+        const auto it = std::ranges::find_if(used, [&](const Group& grp) { return grp.face == g.face.Get() && grp.size == g.size; });
+        Group* grp = it != used.end() ? std::to_address(it) : nullptr;
+        if (!grp) {
+            if (used_ == groups_.size()) {
+                groups_.emplace_back();
+            }
+            grp = &groups_[used_++];
+            grp->face = g.face.Get();
+            grp->size = g.size;
+            grp->origin = D2D1::Point2F(x, baseline);
+            grp->glyphs.clear();
+            grp->advances.clear();
+            grp->offsets.clear();
+        }
+        // 前の run の最後のグリフの送りで、ペンをこの run の先頭まで進める。
+        if (!grp->advances.empty()) {
+            grp->advances.back() += x - grp->pen;
+        }
+        grp->glyphs.append_range(g.glyphs);
+        grp->advances.append_range(g.advances);
+        grp->offsets.insert(grp->offsets.end(), g.glyphs.size(), { .advanceOffset = 0.0f, .ascenderOffset = grp->origin.y - baseline });
+        grp->pen = std::ranges::fold_left(g.advances, x, std::plus{});
+    }
+
+    void Flush(ID2D1RenderTarget* rt, ID2D1Brush* brush)
+    {
+        for (const Group& grp : std::span{ groups_ }.first(used_)) {
+            const DWRITE_GLYPH_RUN run{
+                .fontFace = grp.face,
+                .fontEmSize = grp.size,
+                .glyphCount = static_cast<UINT32>(grp.glyphs.size()),
+                .glyphIndices = grp.glyphs.data(),
+                .glyphAdvances = grp.advances.data(),
+                .glyphOffsets = grp.offsets.data(),
+            };
+            rt->DrawGlyphRun(grp.origin, &run, brush, DWRITE_MEASURING_MODE_NATURAL);
+        }
+        used_ = 0;
+    }
+
+private:
+    struct Group {
+        IDWriteFontFace* face = nullptr;
+        float size = 0.0f;
+        D2D1_POINT_2F origin{};
+        float pen = 0.0f;
+        std::vector<uint16_t> glyphs;
+        std::vector<float> advances;
+        std::vector<DWRITE_GLYPH_OFFSET> offsets;
+    };
+    // 毎フレーム確保し直さないよう、配列を残して使い回す。
+    std::vector<Group> groups_;
+    size_t used_ = 0;
+};
+
+} // namespace
+
+void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush, MathMaskCache* masks)
 {
     D2D1::Matrix3x2F base;
     rt->GetTransform(&base);
@@ -4216,16 +4489,25 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         colored->SetOpacity(brush->GetOpacity());
         return colored.Get();
     };
+    thread_local GlyphRunMerger merger;
     for (const auto& item : math.items) {
+        // 色を指定した部分 (\colorbox の背景など) との重なりの順を保つ。
+        if (std::visit([](const auto& it) noexcept { return it.color.has_value(); }, item)) {
+            merger.Flush(rt, brush);
+        }
         if (const auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+            // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
+            const float gy = snap_y(y + g->y);
+            if (!g->color && !g->mirror) {
+                merger.Add(*g, x + g->x, gy);
+                continue;
+            }
             DWRITE_GLYPH_RUN run{};
             run.fontFace = g->face.Get();
             run.fontEmSize = g->size;
             run.glyphCount = static_cast<UINT32>(g->glyphs.size());
             run.glyphIndices = g->glyphs.data();
             run.glyphAdvances = g->advances.data();
-            // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
-            const float gy = snap_y(y + g->y);
             if (g->mirror) {
                 rt->SetTransform(D2D1::Matrix3x2F::Scale(-1.0f, 1.0f, D2D1::Point2F(x + g->x + RunWidth(*g) / 2, gy)) * base);
             }
@@ -4287,21 +4569,18 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
                 continue;
             }
             // SVG の箱は Chrome と同じく左上を装置の画素に合わせる (\xlongequal の線が 0.7 画素ずれた)。
-            const auto origin = D2D1::Matrix3x2F::Translation(snap_x(x + p->clip[0]) - p->clip[0], snap_y(y + p->clip[1]) - p->clip[1]) * base;
-            rt->SetTransform(origin);
-            rt->PushAxisAlignedClip(D2D1::RectF(p->clip[0], p->clip[1], p->clip[2], p->clip[3]), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            rt->SetTransform(ToD2D(p->transform) * origin);
-            if (p->stroke > 0.0f) {
-                rt->DrawGeometry(geometry.Get(), brush_for(p->color), p->stroke);
+            const float left = snap_x(x + p->clip[0]);
+            const float top = snap_y(y + p->clip[1]);
+            ID2D1Brush* const path_brush = brush_for(p->color);
+            if (masks && masks->Fill(rt, *p, geometry.Get(), left, top, scale_x, scale_y, path_brush)) {
+                continue;
             }
-            else {
-                rt->FillGeometry(geometry.Get(), brush_for(p->color));
-            }
-            rt->SetTransform(origin);
-            rt->PopAxisAlignedClip();
+            PaintPath(rt, geometry.Get(), p->transform, D2D1::RectF(p->clip[0], p->clip[1], p->clip[2], p->clip[3]), p->stroke,
+                      D2D1::Matrix3x2F::Translation(left - p->clip[0], top - p->clip[1]) * base, path_brush);
             rt->SetTransform(base);
         }
     }
+    merger.Flush(rt, brush);
 }
 
 std::vector<std::wstring> ResolveFontFamilies(IDWriteFontCollection* fonts, std::wstring_view css_family)

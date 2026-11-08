@@ -4,8 +4,15 @@
 #include "mermaid_util.h"
 #include "pele_engine.h"
 #include "string_convert.h"
+#include "test_helpers.h"
+#include "wic_util.h"
+#include <d2d1_1.h>
 #include <dwrite.h>
+#include <wincodec.h>
 #include <wrl/client.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -20,10 +27,12 @@ namespace {
 using Status = PeleOutcome::Status;
 
 // ランタイムの用意 (バイトコードの読み込みと評価、約 5ms と約 3ms) を 1 回で済ませるため、テストの間で 1 つのエンジンを使う。
-class PeleEngineTest : public ::testing::Test {
+// COM は描いた数式を WIC で読む MathDrawTest のため。
+class PeleEngineTest : public ComApartmentTest {
 protected:
     static void SetUpTestSuite()
     {
+        ComApartmentTest::SetUpTestSuite();
         const std::filesystem::path third_party(MENDO_THIRD_PARTY_DIR);
         const std::filesystem::path bytecode(MENDO_JS_BYTECODE_DIR);
         pele_ = ReadFileBytes(bytecode / "pele.qbc");
@@ -42,6 +51,7 @@ protected:
     {
         engine_.reset();
         dw_.Reset();
+        ComApartmentTest::TearDownTestSuite();
     }
     static std::unique_ptr<PeleEngine> NewEngine()
     {
@@ -331,4 +341,146 @@ TEST_F(PeleEngineTest, DrawingToSvgWritesMathLabelsAsTex)
     ASSERT_EQ(out.status, Status::Drawn);
     const std::string svg = DrawingToSvg(out.drawing);
     EXPECT_NE(svg.find("xml:space=\"preserve\">$$a&lt;b$$</text>"), std::string::npos) << svg;
+}
+
+namespace {
+
+// 数式を WIC のビットマップに描いて画素を比べる。
+class MathDrawTest : public PeleEngineTest {
+protected:
+    static void SetUpTestSuite()
+    {
+        PeleEngineTest::SetUpTestSuite();
+        ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf()));
+        wic_ = wic_util::CreateWicFactory("MathDrawTest");
+        ASSERT_NE(wic_, nullptr);
+    }
+    static void TearDownTestSuite()
+    {
+        wic_.Reset();
+        d2d_.Reset();
+        PeleEngineTest::TearDownTestSuite();
+    }
+
+    struct Canvas {
+        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+        Microsoft::WRL::ComPtr<ID2D1Device> device;
+        UINT width = 0;
+        UINT height = 0;
+    };
+    // math が収まる大きさの、dpr 倍の描画先。
+    static Canvas MakeCanvas(const MathDrawing& math, float dpr)
+    {
+        Canvas c;
+        c.width = static_cast<UINT>(std::ceil((math.width + 8.0f) * dpr));
+        c.height = static_cast<UINT>(std::ceil((math.height + math.depth + 8.0f) * dpr));
+        EXPECT_HRESULT_SUCCEEDED(wic_->CreateBitmap(c.width, c.height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &c.bitmap));
+        const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                                                        96.0f * dpr, 96.0f * dpr);
+        EXPECT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(c.bitmap.Get(), props, &c.rt));
+        EXPECT_HRESULT_SUCCEEDED(c.rt->CreateSolidColorBrush(D2D1::ColorF(0.1f, 0.1f, 0.1f), &c.brush));
+        Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+        EXPECT_HRESULT_SUCCEEDED(c.rt.As(&dc));
+        dc->GetDevice(&c.device);
+        return c;
+    }
+    // parts を順に、箱の左上が画素に合わない位置へ描いた画素 (32bpp PBGRA)。
+    static std::vector<uint32_t> Draw(const Canvas& c, std::span<const MathDrawing> parts, MathMaskCache* masks = nullptr)
+    {
+        c.rt->BeginDraw();
+        c.rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        for (const auto& part : parts) {
+            DrawMath(c.rt.Get(), part, 2.3f, 2.6f + part.height, c.brush.Get(), masks);
+        }
+        EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
+        std::vector<uint32_t> pixels(static_cast<size_t>(c.width) * c.height);
+        EXPECT_HRESULT_SUCCEEDED(c.bitmap->CopyPixels(nullptr, c.width * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
+        return pixels;
+    }
+    static int MaxChannelDiff(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b)
+    {
+        int max_diff = 0;
+        for (size_t i = 0; i < std::min(a.size(), b.size()); ++i) {
+            for (int shift = 0; shift < 32; shift += 8) {
+                max_diff = std::max(max_diff, std::abs(static_cast<int>((a[i] >> shift) & 0xFF) - static_cast<int>((b[i] >> shift) & 0xFF)));
+            }
+        }
+        return max_diff;
+    }
+
+    static inline Microsoft::WRL::ComPtr<ID2D1Factory> d2d_;
+    static inline Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
+};
+
+} // namespace
+
+// マスクで塗った SVG の形は、形を毎回塗るのとほぼ同じ画素になる。箱の左上を画素に合わせるので、置く位置の端数に依らない。
+TEST_F(MathDrawTest, MaskedShapesMatchFilledShapes)
+{
+    for (const float dpr : { 1.0f, 1.5f }) {
+        for (const char* tex : { "\\sqrt{x+1}", "\\overrightarrow{AB}", "\\widehat{xyz}", "\\xrightarrow{abc}", "\\overbrace{a+b+c}" }) {
+            const auto math = Math(tex);
+            ASSERT_NE(math, nullptr) << tex;
+            ASSERT_GT(CountItems<MathDrawing::Path>(*math), 0u) << tex;
+            const auto canvas = MakeCanvas(*math, dpr);
+            MathMaskCache masks;
+            masks.Reset(canvas.device.Get());
+            const auto filled = Draw(canvas, { math.get(), 1 });
+            const auto masked = Draw(canvas, { math.get(), 1 }, &masks);
+            EXPECT_GT(masks.Bytes(), 0u) << tex;
+            EXPECT_LE(MaxChannelDiff(filled, masked), 16) << tex << " dpr=" << dpr;
+        }
+    }
+}
+
+// 同じ書体と大きさのグリフを 1 つの run にまとめても、1 つずつ描くのと同じ画素になる (縦のずれ・横の位置・描く順)。
+// 色を指定した部分 (\colorbox の背景を含む) との重なりの順も変わらない (\mathrlap の文字は後の背景に隠れる)。
+TEST_F(MathDrawTest, MergedGlyphRunsMatchSeparateRuns)
+{
+    for (const float dpr : { 1.0f, 1.5f }) {
+        for (const char* tex : { "\\frac{a}{b}", "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}", "x_1^2 + \\sum_{k=0}^{n} k",
+                                 "a_1 + \\textcolor{red}{b_1} + c^2 + \\colorbox{yellow}{x} + y_1", "\\mathrlap{xy}\\colorbox{yellow}{ab}" }) {
+            const auto math = Math(tex);
+            ASSERT_NE(math, nullptr) << tex;
+            ASSERT_GE(CountItems<MathDrawing::Glyphs>(*math), 2u) << tex;
+            // 1 項目ずつ別の数式にすると、まとめる相手が無い。
+            std::vector<MathDrawing> separate;
+            for (const auto& item : math->items) {
+                separate.push_back({ .width = math->width, .height = math->height, .depth = math->depth, .items = { item } });
+            }
+            const auto canvas = MakeCanvas(*math, dpr);
+            EXPECT_EQ(MaxChannelDiff(Draw(canvas, { math.get(), 1 }), Draw(canvas, separate)), 0) << tex << " dpr=" << dpr;
+        }
+    }
+}
+
+// 予算を超えても、そのフレームで描いたマスクは捨てない。描かなかったフレームの後で捨てる。
+TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
+{
+    const auto math = Math("\\sqrt{x}");
+    ASSERT_NE(math, nullptr);
+    const auto canvas = MakeCanvas(*math, 1.0f);
+    MathMaskCache masks;
+    masks.Reset(canvas.device.Get());
+    Draw(canvas, { math.get(), 1 }, &masks);
+    const size_t count = masks.Count();
+    ASSERT_GT(count, 0u);
+    masks.EndFrame(0);
+    EXPECT_EQ(masks.Count(), count);
+    masks.EndFrame(0);
+    EXPECT_EQ(masks.Count(), 0u);
+    EXPECT_EQ(masks.Bytes(), 0u);
+
+    // 予算に収まれば描かなくても残す。
+    Draw(canvas, { math.get(), 1 }, &masks);
+    masks.EndFrame(1u << 20);
+    masks.EndFrame(1u << 20);
+    EXPECT_EQ(masks.Count(), count);
+
+    // デバイスの無い表では作らず、形をそのまま塗る。
+    masks.Reset(nullptr);
+    Draw(canvas, { math.get(), 1 }, &masks);
+    EXPECT_EQ(masks.Count(), 0u);
 }

@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "diagram_raster.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 #include "win32_util.h"
@@ -289,6 +290,7 @@ void Renderer::TrimForMinimize() noexcept
         return;
     }
     d2d_device_->ClearResources();
+    math_masks_->Reset(d2d_device_.Get());
     // IDXGIDevice3::Trim の前に ClearState で参照を外しておく必要がある。
     ComPtr<ID3D11DeviceContext> d3d_ctx;
     d3d_device_->GetImmediateContext(&d3d_ctx);
@@ -334,6 +336,7 @@ bool Renderer::CreateDevice()
     if (device_context_) {
         device_context_->SetTarget(nullptr);
     }
+    math_masks_->Reset(nullptr);
     device_context_.Reset();
     d2d_device_.Reset();
     swap_chain_.Reset();
@@ -351,6 +354,7 @@ bool Renderer::CreateDevice()
         return false;
     }
     device_lost_ = false;
+    math_masks_->Reset(d2d_device_.Get());
     OnThemeColorsChanged();
     LoadAppIconBitmap();
     return true;
