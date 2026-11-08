@@ -390,12 +390,8 @@ struct Node {
         return { link_urls_, link_url_count_ };
     }
 
-    // urls も各 URL 文字列も、SetText と同じくノードより長く生きる領域を指すこと。
-    constexpr void SetLinkUrls(std::span<const std::string_view> urls) noexcept
-    {
-        SetLinkUrlsAndImageSrcs(urls, urls.size());
-    }
-    // 先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。
+    // 先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。urls も各文字列も、SetText と同じくノードより
+    // 長く生きる領域を指すこと。
     constexpr void SetLinkUrlsAndImageSrcs(std::span<const std::string_view> urls, size_t link_count) noexcept
     {
         assert(link_count <= kMaxLinkUrls && link_count <= urls.size() && urls.size() - link_count <= kMaxImageSlots);

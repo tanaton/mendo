@@ -115,11 +115,6 @@ public:
     {
         return in_flight_;
     }
-    // 最後に Start したパス。IsActive の間だけ意味を持つ。
-    const std::wstring& LoadingPath() const noexcept
-    {
-        return loading_path_;
-    }
 
     // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの SetTheme が
     // std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
@@ -160,7 +155,6 @@ private:
     TaskScheduler& scheduler_;
     LoadFileFn load_file_;
     bool in_flight_ = false;
-    std::wstring loading_path_;
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;
     // 結果の通知先。worker が Publish で読むので mutex_ で守る。
