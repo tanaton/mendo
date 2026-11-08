@@ -893,7 +893,7 @@ void On(ReduceContext& c, const ClearSelectionAction&)
         return;
     }
     auto& viewport = c.state.view.viewport;
-    const bool dragging = std::holds_alternative<left_drag::TextSelect>(c.state.view.drag);
+    const bool dragging = c.state.view.IsSelectingText();
     const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {

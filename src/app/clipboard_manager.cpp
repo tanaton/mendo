@@ -133,12 +133,11 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         EmitCopyResult(WriteClipboardDiagram(hwnd_, build_dib(), *hit));
         return;
     }
-    if (pending_copy_ && pending_copy_->key == key) {
+    if (pending_copy_ == key) {
         return;
     }
     // 別の図を待っていたら、後から押したこちらに置き換える。
-    const uint64_t number = ++copy_requests_;
-    pending_copy_ = PendingCopy{ number, key };
+    pending_copy_ = key;
     show_toast_(i18n::S().toast_diagram_copying);
 
     // 画像は同期で確定し、SVG が届くまで dib で持つ。
@@ -149,8 +148,8 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         node.GetText(),
         md_width,
         dark,
-        [this, key, number, dib = std::move(dib)](std::string_view svg) mutable {
-            if (!pending_copy_ || pending_copy_->number != number) {
+        [this, key, dib = std::move(dib)](std::string_view svg) mutable {
+            if (pending_copy_ != key) {
                 return;
             }
             pending_copy_.reset();

@@ -50,13 +50,7 @@ private:
 
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
     TranspositionCache<uint64_t, std::string, MAX_SVG_CACHE_ENTRIES> svg_cache_;
-    // SVG を待っているコピー。届いた結果は、頼んだときの number がここに残っているときだけ書く
-    // (待つ間に別のコピーが書き込むか、置き換えた)。
-    struct PendingCopy {
-        uint64_t number = 0;
-        // NodeDiagramHash。同じ図を待っている間に押し直しても頼み直さない。
-        uint64_t key = 0;
-    };
-    std::optional<PendingCopy> pending_copy_;
-    uint64_t copy_requests_ = 0;
+    // SVG を待っているコピーの図 (NodeDiagramHash)。届いた結果は、この図を待っているときだけ書く (待つ間に別のコピーが
+    // 書き込むか、置き換えた)。同じ図を待っている間に押し直しても頼み直さない。同じ図の結果は同じなので、どの要求の結果でもよい。
+    std::optional<uint64_t> pending_copy_;
 };

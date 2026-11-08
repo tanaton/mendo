@@ -151,20 +151,22 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
     if (HasGivenUp(abs_path)) {
         return;
     }
-    if (const auto it = pending_paths_.find(abs_path); it != pending_paths_.end()) {
-        auto& pending = it->second;
+    const auto [it, inserted] = pending_paths_.try_emplace(abs_path);
+    auto& pending = it->second;
+    if (!inserted) {
         pending.requested_again = true;
-        if (auto* bitmap = std::get_if<ReadingBitmap>(&pending.reading); bitmap && size_only) {
-            bitmap->size_wanted = true;
-        }
-        else if (bitmap) {
-            bitmap->renewed = true;
-            bitmap->cancelled->store(false, std::memory_order_relaxed);
+        if (auto* bitmap = std::get_if<ReadingBitmap>(&pending.reading)) {
+            if (size_only) {
+                bitmap->size_wanted = true;
+            }
+            else {
+                bitmap->renewed = true;
+                bitmap->cancelled->store(false, std::memory_order_relaxed);
+            }
         }
         return;
     }
     std::shared_ptr<std::atomic<bool>> cancelled;
-    auto& pending = pending_paths_[abs_path];
     if (!size_only) {
         cancelled = pending.reading.emplace<ReadingBitmap>().cancelled;
     }
@@ -175,11 +177,14 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
         if (drop_gen_.load() != drop_gen || (cancelled && cancelled->load(std::memory_order_relaxed))) {
             result.outcome = Skipped{};
         }
-        else if (size_only) {
-            result.outcome = ReadSize(path);
-        }
         else {
-            result.outcome = DecodeForDisplay(path, max_width_px);
+            TaskScheduler::EnsureWorkerCom();
+            if (size_only) {
+                result.outcome = ReadSize(path);
+            }
+            else {
+                result.outcome = DecodeForDisplay(path, max_width_px);
+            }
         }
         result.path = std::move(path);
 
@@ -191,7 +196,6 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
 
 ImageLoader::SizeRead ImageLoader::ReadSize(const std::wstring& path) const
 {
-    TaskScheduler::EnsureWorkerCom();
     SizeRead out;
     if (const auto size = ReadImageSize(wic_factory_.Get(), path, MAX_IMAGE_FILE_SIZE)) {
         out.info = { static_cast<float>(size->width), static_cast<float>(size->height), 0 };
@@ -201,7 +205,6 @@ ImageLoader::SizeRead ImageLoader::ReadSize(const std::wstring& path) const
 
 ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px) const
 {
-    TaskScheduler::EnsureWorkerCom();
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
     const auto bytes = ReadAllBytes(path.c_str(), nullptr, path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
     const auto decoded = wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);

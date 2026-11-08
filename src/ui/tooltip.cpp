@@ -100,7 +100,7 @@ void Tooltip::Show()
     SendMessageW(hwnd_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
     // 表示時点の実カーソル位置を使う。タイマー待機中に同一ターゲット内でカーソルが
-    // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され SetText は
+    // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され Arm は
     // 呼ばれないので、保存した位置では陳腐化する)。
     POINT pt{};
     GetCursorPos(&pt);

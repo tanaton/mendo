@@ -112,6 +112,10 @@ struct ViewState {
     {
         return !std::holds_alternative<left_drag::None>(drag);
     }
+    bool IsSelectingText() const noexcept
+    {
+        return std::holds_alternative<left_drag::TextSelect>(drag);
+    }
     // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
     int HDragNode() const noexcept
     {

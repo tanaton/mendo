@@ -664,7 +664,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
                 SetCapture(hwnd_);
             }
             else {
-                pointer_ = PointerOver{ b, /*clicked=*/true };
+                pointer_ = PointerOver{ b };
             }
             Invalidate();
         }
@@ -693,10 +693,10 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
     }
 
     case WM_LBUTTONUP: {
-        const auto* press = std::get_if<PointerPressing>(&pointer_);
-        if (!press && !std::holds_alternative<PointerDragging>(pointer_)) {
+        if (!PointerDown()) {
             return true;
         }
+        const auto* press = std::get_if<PointerPressing>(&pointer_);
         const Button pressed = press ? press->button : Button::None;
         const auto p = ToDip(lparam);
         const Button hit = HitButton(p.x, p.y);
@@ -706,7 +706,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             ReleaseCapture();
         }
         if (pressed != Button::None && hit == pressed) {
-            pointer_ = PointerOver{ pressed, /*clicked=*/true };
+            pointer_ = PointerOver{ pressed };
             if (pressed == Button::Fit) {
                 Fit();
             }
@@ -723,7 +723,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
 
     // ほかの窓にキャプチャを取られたら、押したボタンもドラッグも取り消す。
     case WM_CAPTURECHANGED:
-        if (std::holds_alternative<PointerPressing>(pointer_) || std::holds_alternative<PointerDragging>(pointer_)) {
+        if (PointerDown()) {
             pointer_ = PointerIdle{};
             Invalidate();
         }

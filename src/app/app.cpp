@@ -575,7 +575,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         RelayoutPendingInline(/*force_tables=*/true);
         return;
     case FILE_RELOAD:
-        RunReloadCommand(reload_.OnTimer(IsSelectingText()));
+        RunReloadCommand(reload_.OnTimer(state_.view.IsSelectingText()));
         return;
     }
 }
@@ -635,9 +635,8 @@ void App::ScheduleLoadingAnimation()
 void App::StopLoadingAnimation()
 {
     // 出す前のスピナーの遅延もここで止める。
-    if (!std::holds_alternative<SpinnerOff>(std::exchange(spinner_, SpinnerOff{}))) {
-        KillTimer(app_timer::Id::LOADING_ANIM);
-    }
+    spinner_ = SpinnerOff{};
+    KillTimer(app_timer::Id::LOADING_ANIM);
     // 出ていれば消すために描き直させる。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
     Dispatch(LoadingShownAction{ false });
 }
@@ -783,7 +782,7 @@ void App::OnParseComplete()
         resource_manager_.ScheduleBitmapManage();
     }
 
-    const ReloadCommand reload = reload_.OnLoadFinished(step, IsSelectingText());
+    const ReloadCommand reload = reload_.OnLoadFinished(step, state_.view.IsSelectingText());
     RunReloadCommand(reload);
 
     // Fail のときだけ結果が無い。
@@ -995,7 +994,7 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::ReloadFile&) {
             if (state_.document.doc.HasBackingFile()) {
-                RunReloadCommand(reload_.OnReloadRequested(IsSelectingText()));
+                RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
             }
         },
         [this](const effect::OpenFileDialog&) {
@@ -1205,14 +1204,13 @@ void App::OnMouseMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     LeftDragMovedAction action{ .dip_x = dip.x, .dip_y = dip.y };
     // 入力欄とテキスト選択だけは、ポインタの位置を文字の位置に直して渡す。
-    const LeftDragState& drag = state_.view.drag;
-    if (std::holds_alternative<left_drag::None>(drag)) {
+    if (!state_.view.IsDragging()) {
         return;
     }
-    if (std::holds_alternative<left_drag::SearchInput>(drag)) {
+    if (std::holds_alternative<left_drag::SearchInput>(state_.view.drag)) {
         action.search_caret = SearchInputPosAt(dip.x);
     }
-    else if (std::holds_alternative<left_drag::TextSelect>(drag)) {
+    else if (state_.view.IsSelectingText()) {
         const auto hit = HitTest(px, py);
         action.node_index = hit.node_index;
         action.text_pos = hit.text_pos;

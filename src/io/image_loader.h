@@ -144,7 +144,7 @@ private:
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
     UINT DecodeWidthPx(float width_dip) const noexcept;
     void QueueDecode(const std::wstring& abs_path, UINT max_width_px, bool size_only);
-    // worker で呼ぶ。
+    // worker で、EnsureWorkerCom の後に呼ぶ。
     SizeRead ReadSize(const std::wstring& path) const;
     Decoded DecodeForDisplay(const std::wstring& path, UINT max_width_px) const;
 

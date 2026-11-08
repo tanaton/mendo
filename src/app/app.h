@@ -308,11 +308,6 @@ private:
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
     void RunReloadCommand(const ReloadCommand& cmd);
-    // 差し替えると選択の途中でドラッグが終わるので、読み直しを待たせる。
-    bool IsSelectingText() const noexcept
-    {
-        return std::holds_alternative<left_drag::TextSelect>(state_.view.drag);
-    }
     // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
     void BeginAsyncLoad(std::wstring path, bool show_animation);
     void StartLoadingAnimation();

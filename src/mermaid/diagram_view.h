@@ -140,10 +140,9 @@ private:
 
     // ポインタの段階。押している間 (Pressing / Dragging) はキャプチャを持つ。
     struct PointerIdle {};
-    // clicked: このボタンを押した後。外れるまでツールチップを出さない。
+    // 押した後も同じボタンの上ならツールチップを出し直さない (HoverAt は同じボタンでは何もしない)。
     struct PointerOver {
         Button button = Button::None;
-        bool clicked = false;
     };
     // 離したときに同じボタンの上なら押したことにする。
     struct PointerPressing {
@@ -155,5 +154,9 @@ private:
         D2D1_POINT_2F last{};
     };
     std::variant<PointerIdle, PointerOver, PointerPressing, PointerDragging> pointer_;
+    bool PointerDown() const noexcept
+    {
+        return std::holds_alternative<PointerPressing>(pointer_) || std::holds_alternative<PointerDragging>(pointer_);
+    }
     bool tracking_leave_ = false;
 };

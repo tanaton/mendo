@@ -371,8 +371,10 @@ private:
     // App::OnMouseMove の振り分け。
     std::string LMove()
     {
+        // ドラッグの種類を足したら、ここの振り分けにも足す。
+        static_assert(std::variant_size_v<LeftDragState> == 7);
         const LeftDragState& drag = h_.state.view.drag;
-        if (std::holds_alternative<left_drag::None>(drag)) {
+        if (!h_.state.view.IsDragging()) {
             return "LMove:Nothing";
         }
         if (std::holds_alternative<left_drag::SearchInput>(drag)) {
@@ -406,7 +408,7 @@ private:
         if (!h_.state.view.IsDragging()) {
             return "LUp:Nothing";
         }
-        if (std::holds_alternative<left_drag::TextSelect>(h_.state.view.drag)) {
+        if (h_.state.view.IsSelectingText()) {
             model_.Dispatch(LeftDragEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
             return "LUp:TextSelection";
         }
@@ -511,7 +513,7 @@ TEST(ReducerCaptureInvariant, EscDuringTextDragReleasesCapture)
 
     model.Dispatch(ClearSelectionAction{});
 
-    EXPECT_FALSE(std::holds_alternative<left_drag::TextSelect>(h.state.view.drag));
+    EXPECT_FALSE(h.state.view.IsSelectingText());
     EXPECT_FALSE(model.Held());
 }
 

@@ -588,7 +588,7 @@ TEST_F(ReducerTest, DocumentReloaded_EndsDocumentBoundDrag)
 
     const auto effects = Reduce(state, DocumentReloadedAction{});
 
-    EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+    EXPECT_FALSE(state.view.IsDragging());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
@@ -638,7 +638,7 @@ TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
 
         const auto effects = Reduce(state, LeftDragEndedAction{});
 
-        EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+        EXPECT_FALSE(state.view.IsDragging());
         EXPECT_EQ(state.view.HDragNode(), -1);
         EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
         EXPECT_EQ(HasEffect<effect::SettleViewport>(effects), c.settles);
@@ -890,7 +890,7 @@ TEST_F(ReducerTest, CaptureChanged_ResetsLeftDrag)
 
         auto effects = Reduce(state, CaptureChangedAction{});
 
-        EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+        EXPECT_FALSE(state.view.IsDragging());
         EXPECT_EQ(state.view.HDragNode(), -1);
         EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     }
@@ -964,7 +964,7 @@ TEST_F(ReducerTest, LeftDragEnded_KeepsCaptureDuringGesture)
     ASSERT_NE(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
     state.view.drag = left_drag::Splitter{ .pane = PaneTarget::File };
     const auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+    EXPECT_FALSE(state.view.IsDragging());
     EXPECT_FALSE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
@@ -1054,7 +1054,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
     // エントリが少なく total_content <= content_height → スクロール不要で no-op
     // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
-    EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+    EXPECT_FALSE(state.view.IsDragging());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1111,7 +1111,7 @@ TEST_F(ReducerTest, LoadingShown_EndsMdPaneDragAndHover)
     const auto effects = Reduce(state, LoadingShownAction{ true });
 
     EXPECT_TRUE(state.view.loading_shown);
-    EXPECT_TRUE(std::holds_alternative<left_drag::None>(state.view.drag));
+    EXPECT_FALSE(state.view.IsDragging());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_EQ(state.view.hover, (HoverHighlights{ .titlebar = TitleBarHitZone::Help, .side_index = { 3, -1 } }));
     EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
@@ -1121,7 +1121,7 @@ TEST_F(ReducerTest, LoadingShown_EndsMdPaneDragAndHover)
     state.view.drag = left_drag::TextSelect{ .node = 1 };
     const auto hidden = Reduce(state, LoadingShownAction{ false });
     EXPECT_FALSE(state.view.loading_shown);
-    EXPECT_TRUE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_TRUE(state.view.IsSelectingText());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(hidden));
     EXPECT_TRUE(Reduce(state, LoadingShownAction{ false }).empty()) << "変わらなければ何もしない";
 }
@@ -1147,7 +1147,7 @@ TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
 
     auto effects = Reduce(state, TextSelectionStartedAction{ 0, 3u, 10, 20 });
 
-    EXPECT_TRUE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_TRUE(state.view.IsSelectingText());
     const auto& select = std::get<left_drag::TextSelect>(state.view.drag);
     EXPECT_EQ(select.click_x, 10);
     EXPECT_EQ(select.click_y, 20);
@@ -1164,7 +1164,7 @@ TEST_F(ReducerTest, TextSelectionStarted_NoHit_DoesNotStartDrag)
     // SetCapture をスキップすることで、対応する ReleaseCapture を省略できる。
     auto effects = Reduce(state, TextSelectionStartedAction{ -1, 0u, 5, 7 });
 
-    EXPECT_FALSE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_FALSE(state.view.IsSelectingText());
     EXPECT_FALSE(HasEffect<effect::SetCapture>(effects));
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -1206,7 +1206,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
     EXPECT_TRUE(sel.active());
     EXPECT_EQ(sel.start_pos, 2u);
     EXPECT_EQ(sel.end_pos, 8u);
-    EXPECT_FALSE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_FALSE(state.view.IsSelectingText());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -1215,7 +1215,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
     state.view.drag = left_drag::TextSelect{ .node = 0, .pos = 2u };
     auto effects = Reduce(state, LeftDragEndedAction{ -1, 0u });
 
-    EXPECT_FALSE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_FALSE(state.view.IsSelectingText());
     EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     // 見た目が変わらないので再描画しない
@@ -1226,7 +1226,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
 TEST_F(ReducerTest, TextSelectionStarted_WithoutSelection_DoesNotInvalidate)
 {
     auto effects = Reduce(state, TextSelectionStartedAction{ 0, 2u, 10, 20 });
-    EXPECT_TRUE(std::holds_alternative<left_drag::TextSelect>(state.view.drag));
+    EXPECT_TRUE(state.view.IsSelectingText());
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
