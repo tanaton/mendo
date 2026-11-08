@@ -14,6 +14,23 @@ Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/
 winget install tanaton.mendo
 ```
 
+## Features
+
+- **Fast startup** — Window creation and file processing run in parallel for a quick launch.
+- **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
+- **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
+- **Mermaid** — Displays ` ```mermaid ` code blocks as diagrams.
+- **Math** — Displays `$$...$$` block equations, ` ```math ` code blocks, and inline `$...$` as math.
+- **Offline** — Works without a network connection.
+- **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
+- **Images** — Displays local PNG, JPEG, BMP, and other images.
+- **Navigation history** — Browser-style back/forward via mouse side buttons, mouse gestures, touchpad swipe, and more, with scroll position restored.
+- **Drag & Drop** — Drop a Markdown file onto the window to open it.
+- **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
+- **Customizable view** — Show/hide each pane, switch between light and dark themes, zoom in 17 steps from 0.25x to 5.00x, and more.
+- **Multilingual UI** — Shows the UI and help in Japanese, English, Simplified Chinese, Traditional Chinese, or Korean to match the Windows display language. You can also switch it from the settings button in the title bar.
+- **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to `%LOCALAPPDATA%\mendo\`.
+
 ## Usage
 
 ```
@@ -39,23 +56,6 @@ Type `mendo` into the File Explorer address bar and press Enter.
 ### Controls
 
 [mendo User Guide](../res/help_en.md)
-
-## Features
-
-- **Fast startup** — Window creation and file processing run in parallel for a quick launch.
-- **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
-- **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
-- **Mermaid** — Displays ` ```mermaid ` code blocks as diagrams.
-- **Math** — Displays `$$...$$` block equations, ` ```math ` code blocks, and inline `$...$` as math.
-- **Offline** — Works without a network connection.
-- **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
-- **Images** — Displays local PNG, JPEG, BMP, and other images.
-- **Navigation history** — Browser-style back/forward via mouse side buttons, mouse gestures, touchpad swipe, and more, with scroll position restored.
-- **Drag & Drop** — Drop a Markdown file onto the window to open it.
-- **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
-- **Customizable view** — Show/hide each pane, switch between light and dark themes, zoom in 17 steps from 0.25x to 5.00x, and more.
-- **Multilingual UI** — Shows the UI and help in Japanese, English, Simplified Chinese, Traditional Chinese, or Korean to match the Windows display language. You can also switch it from the settings button in the title bar.
-- **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to `%LOCALAPPDATA%\mendo\`.
 
 ## Supported Markdown Elements
 
