@@ -129,10 +129,12 @@ void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point dead
 
 void ResourceManager::RequestMermaidRenders()
 {
-    // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。
+    // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。Y の再計算は変わった範囲に限る。
     IndexRange changed;
     RequestVisibleDiagrams(changed);
-    RecomputeChangedHeights(changed);
+    if (!changed.empty()) {
+        host_.RecomputeLayout(changed);
+    }
 }
 
 void ResourceManager::EvictOffscreenBitmaps()
@@ -180,10 +182,7 @@ void ResourceManager::FlushPendingResources()
     last_flush_time_ = std::chrono::steady_clock::now();
 
     LoadImages();
-    // 図の再レイアウトを 1 回にまとめる。
-    IndexRange changed;
-    RequestVisibleDiagrams(changed);
-    RecomputeChangedHeights(changed);
+    RequestMermaidRenders();
 }
 
 void ResourceManager::ScheduleBitmapManage()
@@ -207,6 +206,28 @@ void ResourceManager::OnBitmapManageTimer()
     EvictOffscreenBitmaps();
     // evict 直後は可視範囲のリソースを読み直す。
     // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (RecomputeLayout) だけでよい。
+    FlushPendingResources();
+}
+
+void ResourceManager::DropQueues()
+{
+    mermaid_.DropQueued();
+    image_loader_.DropQueued();
+}
+
+void ResourceManager::ForgetInlineImages()
+{
+    inline_images_.Clear();
+    inline_drawings_.images = {};
+}
+
+void ResourceManager::OnRenderDeviceRecreated()
+{
+    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
+    // 新しい RT で読み直したビットマップに差し替える。
+    state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    inline_drawings_.images = {};
+    // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
     FlushPendingResources();
 }
 
@@ -332,13 +353,9 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
         return;
     }
     // 失敗 (エラー確定) でも、プレースホルダーの文言と、文言を見せる高さが変わる。
-    ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, *state_.theme, content_width), changed);
-}
-
-void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, IndexRange& changed)
-{
+    const float node_width = layout::NodeContentWidth(node, *state_.theme, content_width);
     auto& entry = state_.document.layout_cache[i];
-    entry.CommitMeasured(node_width, layout::BitmapNodeHeight(&bitmap, node_width, entry.height, *state_.theme));
+    entry.CommitMeasured(node_width, layout::BitmapNodeHeight(&diagram, node_width, entry.height, *state_.theme));
     changed.Add(i);
 }
 
@@ -356,17 +373,9 @@ void ResourceManager::DropQueuesIfJumped()
     const float scroll_y = state_.view.viewport.GetScrollY();
     const float viewport_height = ComputePaneLayout(state_).md_rect.height;
     if (viewport_height > 0.0f && std::abs(scroll_y - last_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
-        mermaid_.DropQueued();
-        image_loader_.DropQueued();
+        DropQueues();
     }
     last_request_scroll_ = scroll_y;
-}
-
-void ResourceManager::RecomputeChangedHeights(const IndexRange& changed)
-{
-    if (!changed.empty()) {
-        host_.RecomputeLayout(changed);
-    }
 }
 
 std::optional<ResourceManager::BufferedRange> ResourceManager::ComputeBufferedRange(float screens)

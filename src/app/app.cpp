@@ -151,12 +151,7 @@ void App::ShareRenderTarget()
 void App::OnRenderDeviceRecreated()
 {
     ShareRenderTarget();
-    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
-    // 新しい RT で読み直したビットマップに差し替える。
-    state_.document.layout_cache.InvalidateAllDiagramBitmaps();
-    inline_drawings_.images = {};
-    // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
-    resource_manager_.FlushPendingResources();
+    resource_manager_.OnRenderDeviceRecreated();
     // インライン数式の描画命令はデバイスに依らないので残す。待たせた読み込みの結果を受け取る。
     mermaid_renderer_.ProcessJobResults();
 }
@@ -442,12 +437,6 @@ void App::RelayoutPendingInline(bool force_tables)
     }
 }
 
-void App::ForgetInlineImages()
-{
-    inline_images_.Clear();
-    inline_drawings_.images = {};
-}
-
 void App::ForgetInlineMath()
 {
     inline_math_.Clear();
@@ -610,12 +599,6 @@ void App::ShellOpenAsync(std::wstring target)
     }).detach();
 }
 
-void App::CancelPendingResources()
-{
-    mermaid_renderer_.DropQueued();
-    image_loader_.DropQueued();
-}
-
 void App::StartLoadingAnimation()
 {
     spinner_ = SpinnerSpinning{};
@@ -722,7 +705,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
     // 図と画像はコードやパスがキーなので待ちをそのまま使える。
     const bool same_file = path_util::iequal(path, state_.document.doc.GetFilePath());
     if (!same_file) {
-        CancelPendingResources();
+        resource_manager_.DropQueues();
     }
     RunReloadCommand(reload_.OnLoadStarted(same_file));
     BeginAsyncLoad(std::wstring{ path }, /*show_animation=*/true);
@@ -831,13 +814,13 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     NavEntry left = CurrentNavEntry(state_);
     ReplaceDocument(std::move(next), std::move(estimated));
-    CancelPendingResources();
+    resource_manager_.DropQueues();
     // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
     mermaid_renderer_.CloseViewer();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
-    ForgetInlineImages();
+    resource_manager_.ForgetInlineImages();
 
     // スクロール復元先の Y がずれないよう、推定高さを図のキャッシュの実測値で補正し、画像の寸法も入れてから reducer に渡す。
     if (state_.view.HasPendingScroll()) {

@@ -276,8 +276,6 @@ private:
     void RelayoutPendingInline(bool force_tables);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
-    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
-    void ForgetInlineImages();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
     void SettleViewport();
@@ -316,8 +314,6 @@ private:
     void StopLoadingAnimation();
     // 理由をトーストで知らせ、文書が無ければヘルプを出す。
     void HandleLoadFailureFallback(FileLoadError error);
-
-    void CancelPendingResources();
 
     // ---- テーマ ----
     void ApplyZoom();
