@@ -118,7 +118,7 @@ bool App::Init(HWND hwnd)
         state_.file_explorer.EnsureListed();
     }
 
-    tooltip_.Init(hwnd_);
+    tooltip_.Init(hwnd_, std::to_underlying(app_timer::Id::TOOLTIP));
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
     initialized_ = true;
@@ -544,8 +544,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         Invalidate();
         return;
     case TOOLTIP:
-        KillTimer(id);
-        tooltip_.Show();
+        tooltip_.OnTimer();
         return;
     case LOADING_ANIM:
         // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
@@ -956,13 +955,7 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::ClipboardWrite& ev) { WriteClipboardHtml(hwnd_, ev.html, ev.text); },
         [this](const effect::SetTooltip& ev) {
-            tooltip_.SetText(ev.text);
-            if (ev.text.empty()) {
-                KillTimer(app_timer::Id::TOOLTIP);
-            }
-            else {
-                SetTimer(app_timer::Id::TOOLTIP, app_timer::TOOLTIP_DELAY_MS);
-            }
+            tooltip_.Arm(ev.text);
         },
         [this](const effect::ShowContextMenu& ev) {
             OnContextMenu(ev.screen_x, ev.screen_y);

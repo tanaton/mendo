@@ -1,4 +1,5 @@
 #include "tooltip.h"
+#include "app_constants.h"
 #include "win32_util.h"
 #include <commctrl.h>
 
@@ -23,9 +24,10 @@ Tooltip::~Tooltip()
     }
 }
 
-void Tooltip::Init(HWND parent_hwnd)
+void Tooltip::Init(HWND parent_hwnd, UINT_PTR timer_id)
 {
     parent_ = parent_hwnd;
+    timer_id_ = timer_id;
 }
 
 // 起動時の初回描画を遅らせないよう、ウィンドウは最初の表示まで作らない。
@@ -63,15 +65,33 @@ bool Tooltip::EnsureWindow()
     return true;
 }
 
-void Tooltip::SetText(std::wstring_view text)
+void Tooltip::Arm(std::wstring_view text)
 {
     Hide();
     text_ = text;
+    if (text_.empty()) {
+        if (phase_ == Phase::Armed) {
+            KillTimer(parent_, timer_id_);
+        }
+        phase_ = Phase::Hidden;
+        return;
+    }
+    SetTimer(parent_, timer_id_, app_timer::TOOLTIP_DELAY_MS, nullptr);
+    phase_ = Phase::Armed;
+}
+
+void Tooltip::OnTimer()
+{
+    KillTimer(parent_, timer_id_);
+    if (phase_ == Phase::Armed) {
+        Show();
+    }
 }
 
 void Tooltip::Show()
 {
-    if (text_.empty() || !EnsureWindow()) {
+    if (!EnsureWindow()) {
+        phase_ = Phase::Hidden;
         return;
     }
 
@@ -89,17 +109,17 @@ void Tooltip::Show()
     SendMessageW(hwnd_, TTM_TRACKPOSITION, 0, MAKELPARAM(pt.x, pt.y + offset_y));
 
     SendMessageW(hwnd_, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
-    visible_ = true;
+    phase_ = Phase::Shown;
 }
 
 void Tooltip::Hide()
 {
-    if (!hwnd_ || !visible_) {
+    if (phase_ != Phase::Shown) {
         return;
     }
     TOOLINFOW ti = MakeToolInfo(parent_);
     SendMessageW(hwnd_, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
-    visible_ = false;
+    phase_ = Phase::Hidden;
 }
 
 void Tooltip::ApplyDarkMode(bool dark)
