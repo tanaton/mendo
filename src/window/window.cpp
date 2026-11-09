@@ -576,6 +576,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->Dispatch(ActivateAction{ LOWORD(wParam) != WA_INACTIVE });
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
+    case WM_ACTIVATEAPP:
+        app_->OnActivateApp(wParam != FALSE);
+        return 0;
+
     case WM_ENTERSIZEMOVE:
         app_->Dispatch(EnterSizeMoveAction{});
         return 0;

@@ -14,6 +14,7 @@ enum class Id : UINT_PTR {
     PELE_TRIM,
     DEVICE_RECREATE_RETRY,
     INLINE_TABLES,
+    TRIM_WORKING_SET,
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS = 16;             // ~60fps アニメーション用
@@ -25,6 +26,8 @@ inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;       // スクロール停�
 inline constexpr UINT TOAST_DURATION_MS = 1300;
 inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS = 500; // 描画デバイスの作り直しに失敗した後の再試行間隔
+// 非アクティブにした直後の描き直し (タイトルバーの色) や、すぐ戻る切り替えで外したページを触り直させない。
+inline constexpr UINT TRIM_WORKING_SET_DELAY_MS = 1000;
 
 } // namespace app_timer
 

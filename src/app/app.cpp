@@ -19,6 +19,7 @@
 #include "ui_constants.h"
 #include "win32_util.h"
 #include "window.h"
+#include <psapi.h>
 #include <array>
 #include <cstddef>
 #include <memory_resource>
@@ -346,6 +347,19 @@ void App::OnMinimize()
     renderer_.TrimForMinimize();
 }
 
+void App::OnActivateApp(bool active)
+{
+    if (active) {
+        KillTimer(app_timer::Id::TRIM_WORKING_SET);
+    }
+    else {
+        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する。空にした後に PELE_TRIM で
+        // 捨てると約 1000 ページを触り直して 1MB 残る (図 28 個の文書) ので、空にするまでの待ちの間に済ませる。
+        mermaid_renderer_.TrimIdleRuntimes();
+        SetTimer(app_timer::Id::TRIM_WORKING_SET, app_timer::TRIM_WORKING_SET_DELAY_MS);
+    }
+}
+
 void App::OnAppImageLoaded()
 {
     resource_manager_.OnImagesDecoded();
@@ -554,7 +568,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         resource_manager_.OnBitmapManageTimer();
         return;
     case PELE_TRIM:
-        mermaid_renderer_.OnPeleTrimTimer();
+        mermaid_renderer_.TrimIdleRuntimes();
         return;
     case DEVICE_RECREATE_RETRY:
         KillTimer(id);
@@ -562,6 +576,17 @@ void App::HandleTimer(UINT_PTR timer_id)
         return;
     case INLINE_TABLES:
         RelayoutPendingInline(/*force_tables=*/true);
+        return;
+    case TRIM_WORKING_SET:
+        // 読み込み・再読み込みの worker が使っているページを外すと、すぐ触り直させる。終わるまで次の周期へ回す。
+        if (load_coordinator_.IsActive()) {
+            return;
+        }
+        KillTimer(id);
+        // 空の文書の private WS 20MB のうち約 15MB は、D3D11CreateDevice でドライバが一度触ったきりのページ (AMD)。
+        // 20MB の文書でも 81 → 0.2MB、戻ってスクロールして 4MB。commit は変わらない。使うページは soft fault で戻り、
+        // 外した後の最初の再読み込みだけ 1 割遅い。
+        EmptyWorkingSet(GetCurrentProcess());
         return;
     case FILE_RELOAD:
         RunReloadCommand(reload_.OnTimer(state_.view.IsSelectingText()));

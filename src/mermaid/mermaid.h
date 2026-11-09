@@ -83,8 +83,8 @@ public:
     void DropQueued() override;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
-    // PeleEngine の使っていないランタイムを捨てる。
-    void OnPeleTrimTimer();
+    // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
+    void TrimIdleRuntimes();
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
@@ -187,6 +187,7 @@ private:
     };
 
     // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
+    // 別のアプリへ切り替わったときは待たずに捨てる (App::OnActivateApp)。
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
