@@ -30,6 +30,26 @@ constexpr float INLINE_CODE_INSET_Y = 1.5f;
 // GitHub と同じく前後の空白を背景の外にまるごと残す。
 constexpr float INLINE_CODE_SPACING = 5.0f;
 
+bool IsBlank(std::string_view s) noexcept
+{
+    return s.find_first_not_of(" \t\r\n") == std::string_view::npos;
+}
+
+// 改行も空白とみなし、`\` の改行で縦に並べた画像も画像だけの段落にする。
+bool IsImagesOnly(std::string_view text, std::span<const TextRun> runs) noexcept
+{
+    size_t pos = 0;
+    for (const auto& r : runs) {
+        if (r.image()) {
+            if (!IsBlank(text.substr(pos, r.start - pos))) {
+                return false;
+            }
+            pos = r.start + r.length;
+        }
+    }
+    return IsBlank(text.substr(pos));
+}
+
 // セルに列幅を適用して高さを返す。揃えはセルを作るときに付けてある。
 // 左揃えで列幅に収まるセルは作ったときの無限幅のまま使う。折り返さないので行組みは同じで、
 // 幅を付けると組み直しになる。幅を変えなければ GetMetrics は計測済みの結果を返すだけ。
@@ -266,7 +286,7 @@ std::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::vector<S
         const auto w = cursor.WideRange(t.start, t.length);
         const auto gap = text.substr(prev_end, t.start - prev_end);
         prev_end = t.start + t.length;
-        if (out > 0 && gap.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+        if (out > 0 && IsBlank(gap)) {
             SyntaxToken& prev = tokens[out - 1];
             prev.length = w.startPosition - prev.start;
             if (prev.type == t.type) {
@@ -393,6 +413,8 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
     // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
     // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
     bool pending = false;
+    bool has_image = false;
+    bool placed_block_math = false;
     float image_min_width = 0.0f;
     float widest_image = 0.0f;
     // 読めない画像の alt。幅が決まっていればアイコンの右に収まる幅で折り返し、リンクの中ならリンクの色にする (下線は引かない)。
@@ -460,6 +482,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
         underline.Update(r.has_link() && !(inline_images_ && r.image()), wr);
         if (inline_images_ && r.image()) {
             apply_image(r, wr);
+            has_image = true;
         }
         if (!inline_math_ || !r.math()) {
             continue;
@@ -474,6 +497,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
                 const float fit_width = format.math_fit_width;
                 const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
+                placed_block_math = fit_width > 0.0f;
             }
         }
         else {
@@ -487,6 +511,15 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
     strike.Flush();
     link.Flush();
     underline.Flush();
+    // 比率指定の行間はインラインオブジェクトの行にも掛かり、高さの約 6.4% ずつを上下に足す。GitHub は img と
+    // display: block の数式を line-height で伸ばさない (issue#438)。行間は layout ごとにしか変えられないので、
+    // 画像だけの段落と置けたブロック数式に限って既定にし、文のある行 (待つ間の数式の原文を含む) は行送り 24 を保つ。
+    if ((has_image && IsImagesOnly(text, runs)) || placed_block_math) {
+        if (ComPtr<IDWriteTextLayout3> layout3; SUCCEEDED(layout->QueryInterface(IID_PPV_ARGS(&layout3)))) {
+            const DWRITE_LINE_SPACING spacing{ DWRITE_LINE_SPACING_METHOD_DEFAULT, 0.0f, 0.0f, 0.0f, DWRITE_FONT_LINE_GAP_USAGE_DEFAULT };
+            layout3->SetLineSpacing(&spacing);
+        }
+    }
     return { pending, image_min_width, widest_image };
 }
 

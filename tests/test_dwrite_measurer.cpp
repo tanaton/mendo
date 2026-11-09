@@ -31,6 +31,13 @@ float InlineRangeWidth(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
     return width;
 }
 
+float LayoutHeight(IDWriteTextLayout* layout)
+{
+    DWRITE_TEXT_METRICS m{};
+    layout->GetMetrics(&m);
+    return m.height;
+}
+
 } // namespace
 
 // 描画時にグリフランの文字位置とそのまま突き合わせられるよう、トークンは UTF-16 単位で持つ。
@@ -80,22 +87,17 @@ TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
     auto* center = tl->GetCellLayout(1, 1);
     ASSERT_NE(left, nullptr);
     ASSERT_NE(center, nullptr);
-    const auto height = [](IDWriteTextLayout* layout) {
-        DWRITE_TEXT_METRICS metrics{};
-        layout->GetMetrics(&metrics);
-        return metrics.height;
-    };
-    const float wide_height = height(left);
+    const float wide_height = LayoutHeight(left);
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_LT(center->GetMaxWidth(), 1.0e6f);
 
     measurer_.MeasureNode(nodes[0], entry, 300.0f);
     EXPECT_LT(left->GetMaxWidth(), 1.0e6f) << "収まらない幅では列幅で折り返す";
-    EXPECT_GT(height(left), wide_height);
+    EXPECT_GT(LayoutHeight(left), wide_height);
 
     measurer_.MeasureNode(nodes[0], entry, 800.0f);
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
-    EXPECT_FLOAT_EQ(height(left), wide_height);
+    EXPECT_FLOAT_EQ(LayoutHeight(left), wide_height);
 }
 
 // リロードで引き継いだ layout は、旧キャッシュで持ちうる範囲 (前回の keep・その後の計測) だけを新しいキャッシュに記録する。
@@ -248,6 +250,22 @@ TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
         EXPECT_NEAR(InlineRangeWidth(block, 0, 5), block->GetMaxWidth(), 0.01f);
         EXPECT_FLOAT_EQ(InlineRangeWidth(cache[1].text_layout(), 2, 5), 2000.0f);
     }
+}
+
+// ブロック数式は GitHub の display: block と同じく、行間の倍率を数式に掛けず、行を数式の高さにする。
+// 待つ間の原文と文中の $$ は文として組むので、倍率が掛かったまま。
+TEST_F(DWriteInlineMathTest, BlockMathHasNoExtraLeading)
+{
+    auto [nodes, cache] = ParseAndLayout("$$x$$\n\na $$x$$ b\n");
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_NEAR(LayoutHeight(cache[0].text_layout()), theme_.font_size_body * BODY_LINE_HEIGHT_FACTOR, 0.5f);
+    auto requests = table_.TakeRequests();
+    ASSERT_EQ(requests.size(), 1u);
+    table_.Resolve(requests[0], { 100.0f, 300.0f, 200.0f });
+    cache.InvalidatePendingInlineLayouts(true);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
+    EXPECT_NEAR(LayoutHeight(cache[0].text_layout()), 300.0f, 0.5f);
+    EXPECT_GT(LayoutHeight(cache[1].text_layout()), 330.0f);
 }
 
 // 区切りのそろった run だけを数式にする。長い本文を区切って片側の $$ が無い run は原文のまま組む。
@@ -551,8 +569,26 @@ TEST_F(DWriteInlineImageTest, WideImageShrinksToLineWidth)
         ASSERT_NE(layout, nullptr);
         const float expected = std::min(2000.0f, layout->GetMaxWidth());
         EXPECT_NEAR(InlineRangeWidth(layout, 0, 1), expected, 0.01f);
-        EXPECT_GT(cache[0].height, expected / 2.0f);
+        EXPECT_GE(cache[0].height, expected / 2.0f);
     }
+}
+
+// 画像だけの段落は行間の倍率を画像に掛けず、行を画像の高さにする (GitHub と同じく上下に余白を足さない)。
+// 文と混ざる段落は文の行送りを保つので、倍率が掛かったまま。
+TEST_F(DWriteInlineImageTest, ImageOnlyParagraphHasNoExtraLeading)
+{
+    SetReady("t.png", 200.0f, 300.0f);
+    auto [nodes, cache] = ParseAndLayout("![a](t.png)\n\n![a](t.png)\\\n![b](t.png)\n\ntext ![a](t.png)\n\n| h |\n|---|\n| ![a](t.png) |\n");
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_NEAR(LayoutHeight(cache[0].text_layout()), 300.0f, 0.5f);
+    // 改行の文字がある行は、その文字のディセント (約 4) だけ下に伸びる。倍率が掛かると 677。
+    const float two_lines = LayoutHeight(cache[1].text_layout());
+    EXPECT_GE(two_lines, 600.0f);
+    EXPECT_LT(two_lines, 610.0f);
+    EXPECT_GT(LayoutHeight(cache[2].text_layout()), 330.0f);
+    const auto* tl = cache[3].table_layout();
+    ASSERT_NE(tl, nullptr);
+    EXPECT_NEAR(LayoutHeight(tl->cell_layouts[tl->CellIndex(1, 0)].Get()), 300.0f, 0.5f);
 }
 
 // 同じ src の画像が隣り合っても 1 つにまとめず、1 枚ずつ置く。装飾のある alt も 1 枚。
