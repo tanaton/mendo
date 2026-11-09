@@ -222,6 +222,8 @@ void EmitNavButtons(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane
 void EmitGestureOverlay(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect, bool dark, NavDirection direction);
 // 空なら何も積まない。
 void EmitToast(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect, bool dark, std::wstring_view message);
+// 指しているリンクの行き先を band (LinkStatusBand) の dock の側に、文字列の幅に合わせて置く。空なら何も積まない。
+void EmitLinkStatus(CmdWriter w, IDWriteTextFormat* fmt, const D2D1_RECT_F& band, LinkStatusDock dock, std::wstring_view text);
 } // namespace overlay
 
 // タイトルバーとサイドペイン。デバイスに依存しないので、デバイスの作成前にも組み立てられる。

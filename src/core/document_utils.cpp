@@ -552,6 +552,27 @@ LinkClickResult ClassifyLinkClick(std::string_view url, std::wstring_view doc_pa
     return result;
 }
 
+LinkDestination DescribeLinkDestination(std::string_view url, std::wstring_view doc_path)
+{
+    using Type = LinkClickResult::Type;
+    auto result = ClassifyLinkClick(url, doc_path);
+    switch (result.type) {
+    case Type::None:
+    case Type::ExternalUrl:
+        return { string_convert::Utf8ToWide(url), result.type == Type::ExternalUrl };
+    case Type::Anchor:
+        return { L"#" + string_convert::Utf8ToWide(result.target), true };
+    case Type::Embedded:
+    case Type::LocalFile:
+        if (!result.target.empty()) {
+            result.path += L'#';
+            result.path += string_convert::Utf8ToWide(result.target);
+        }
+        return { std::move(result.path), true };
+    }
+    std::unreachable();
+}
+
 std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
 {
     if (src.contains("://")) {

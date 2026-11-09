@@ -93,6 +93,27 @@ struct SearchSelectWordAction {
     int pos = 0;
 };
 
+// 指している本文のリンク。行き先の文言は ViewState::link_status に持つ。
+struct LinkHover {
+    // リンクのあるノード。-1 なら指していない。
+    int node = -1;
+    // node の view_link_urls() の添字。
+    uint32_t index = 0;
+    // 行き先 (LinkDestination) から決まるので、同じリンクなら前の値を使う。
+    bool navigable = false;
+    LinkStatusDock dock = LinkStatusDock::Left;
+
+    constexpr bool Any() const noexcept
+    {
+        return node >= 0;
+    }
+    constexpr bool SameLink(const LinkHover& o) const noexcept
+    {
+        return node == o.node && index == o.index;
+    }
+    bool operator==(const LinkHover&) const = default;
+};
+
 // マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
 // 既定値はどこにもホバーしていない状態。
 struct HoverHighlights {
@@ -108,6 +129,7 @@ struct HoverHighlights {
     // PaneTarget 順 (File, Toc)。
     std::array<int, 2> side_index{ -1, -1 };
     std::array<PaneHeaderButton, 2> side_button{ PaneHeaderButton::None, PaneHeaderButton::None };
+    LinkHover link;
 
     bool operator==(const HoverHighlights&) const = default;
 };
@@ -115,6 +137,8 @@ struct HoverHighlights {
 // App がヒットテストで求めたホバー状態。reducer がまとめて状態へ反映する。
 struct PointerHoverAction : HoverHighlights {
     TooltipHover tooltip;
+    // link の行き先。ポインタが動くたびにパスを解決しないよう、前と別のリンクに移ったときだけ作る (同じリンクなら空)。
+    std::wstring link_status;
 };
 // ウィンドウ外へ出た。ホバー状態を全て解除しツールチップを閉じる。
 struct MouseLeaveAction {};

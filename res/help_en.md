@@ -67,7 +67,7 @@ A lightweight, high-speed Markdown viewer.
 - **File Pane**: Use the buttons at the top to go to the current file's folder or refresh the list
 - **Show / Hide Panes**: Toggle the file pane and TOC pane from the title bar buttons or the right-click menu
 - **Live Reload**: When the open file changes, it is reloaded automatically and scrolled to the changed position
-- **Links**: Click to open external links in your browser / jump to headings in the page / open linked Markdown files. Middle-click or `Ctrl+click` a link to a Markdown file or a heading to open it in a new window
+- **Links**: Click to open external links in your browser / jump to headings in the page / open linked Markdown files. Middle-click or `Ctrl+click` a link to a Markdown file or a heading to open it in a new window. Hover over a link to see where it goes at the bottom left of the document (local Markdown files as full paths)
 - **Text Selection**: Drag to select a range, or double-click to select a word
 - **Code Block Copy**: Click the copy button at the top-right of a code block
 - **Copy as HTML**: Press `Ctrl+Shift+C` or select "Copy as HTML" from the right-click menu to put HTML rich text on the clipboard while preserving headings, emphasis, links, and more. Pasting into Word or Outlook keeps the formatting.

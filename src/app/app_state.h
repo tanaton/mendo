@@ -93,6 +93,8 @@ struct ViewState {
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;
+    // hover.link の行き先。hover.link が別のリンクに移ったときだけ差し替え、リンクを指していなければ空。
+    std::wstring link_status;
     // SyncActiveTocIndex が描画のたびに決め直す。
     int active_toc_index = -1;
     // 読み込みのスピナーを本文ペインの代わりに出している。その間は本文・ナビボタン・検索バー・スクロールバーを描かないので、

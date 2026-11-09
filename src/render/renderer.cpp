@@ -138,6 +138,8 @@ void Renderer::GenOverlays(const RenderParams& p)
     if (const auto thumb = VScrollThumb(md_pane_rect, bar.info, p.md.scroll_y, bar.may_grow)) {
         frame_cmds_.push_back(*thumb);
     }
+    overlay::EmitLinkStatus({ frame_cmds_, text_layouts_ }, fmt_.link_status.Get(), LinkStatusBand(md_pane_rect, p.search_bar.visible), p.link_status_dock,
+                            p.link_status);
 }
 
 void Renderer::GenGestureTrail(const std::vector<DipPoint>& points)
@@ -304,6 +306,8 @@ void Renderer::CreateTextFormats(bool zoomed_only)
         { fmt_.toast_text,           Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.search_input,         Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,        nullptr, TA_LEAD, PA_CTR, true  } },
         { fmt_.search_count,         Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,        nullptr, TA_CTR,  PA_CTR, true  } },
+        // 長いパスはファイル名を残して手前を省く。
+        { fmt_.link_status,          Loc::Doc,  { body_font, W,                       theme_->pane_font_size,        nullptr, TA_LEAD, PA_CTR, true, 0.0f, true, L'\\' } },
     };
     // clang-format on
 

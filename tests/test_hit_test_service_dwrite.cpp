@@ -21,7 +21,6 @@
 #include <vector>
 
 using layout::NodeIndent;
-using layout::NodeTextXOffset;
 
 namespace {
 
@@ -33,15 +32,9 @@ protected:
         return { pl.nodes, pl.cache, theme_, 0.0f, p, theme_.ContentWidth(800.0f) };
     }
 
-    // 段落ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置。
     DipPoint PointInChar(const ParsedLayout& pl, size_t node, uint32_t pos, float fraction) const
     {
-        FLOAT x = 0.0f, y = 0.0f;
-        DWRITE_HIT_TEST_METRICS m{};
-        pl.cache[node].text_layout()->HitTestTextPosition(pos, FALSE, &x, &y, &m);
-        const auto& n = pl.nodes[node];
-        const float left = theme_.margin_left + NodeIndent(n, theme_) + NodeTextXOffset(n, theme_);
-        return { left + m.left + m.width * fraction, pl.cache.Top(node) + m.top + m.height * 0.5f };
+        return DWriteTestBase::PointInChar(pl.nodes, pl.cache, node, pos, fraction);
     }
 
     DipPoint RightHalfOfChar(const ParsedLayout& pl, size_t node, uint32_t pos) const

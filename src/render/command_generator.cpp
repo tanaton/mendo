@@ -406,6 +406,42 @@ void EmitToast(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane_rect
               D2D1::SizeF(TOAST_OVERLAY_WIDTH, h), TOAST_OVERLAY_CORNER, dark ? 0.85f : 0.7f, message);
 }
 
+void EmitLinkStatus(CmdWriter w, IDWriteTextFormat* fmt, const D2D1_RECT_F& band, LinkStatusDock dock, std::wstring_view text)
+{
+    if (text.empty()) {
+        return;
+    }
+    const bool to_right = dock == LinkStatusDock::RightHalf;
+    const float mid = RectCenter(band).x;
+    const float lo = to_right ? mid + LINK_STATUS_PADDING_X : band.left;
+    const float hi = dock == LinkStatusDock::LeftHalf ? mid - LINK_STATUS_PADDING_X : band.right;
+    const float max_text_w = hi - lo - LINK_STATUS_PADDING_X * 2.0f;
+    if (max_text_w <= 0.0f) {
+        return;
+    }
+    const D2D1_SIZE_F box{ max_text_w, LINK_STATUS_HEIGHT };
+    IDWriteTextLayout* const layout = w.text_layouts.Get(fmt, text, box);
+    if (!layout) {
+        return;
+    }
+    DWRITE_TEXT_METRICS m{};
+    layout->GetMetrics(&m);
+    const float width = std::min(m.width, max_text_w) + LINK_STATUS_PADDING_X * 2.0f;
+    const float left = to_right ? hi - width : lo;
+    const float right = left + width;
+    // 下端はペインの縁に付ける (左に寄せたときは左端も)。縁に付けた側は角を丸めずに切り落とす。
+    const D2D1_RECT_F rect{ left, band.top, right, band.bottom };
+    const float flush_left = to_right ? 0.0f : LINK_STATUS_CORNER;
+    constexpr float half_stroke = 0.5f;
+    const D2D1_RECT_F shape{ left - flush_left + half_stroke, band.top + half_stroke, right - half_stroke, band.bottom + LINK_STATUS_CORNER };
+    auto& out = w.out;
+    out.push_back(PushClipCmd{ rect });
+    out.push_back(FillRoundedRectCmd{ .rect = shape, .radius = LINK_STATUS_CORNER, .brush_id = BrushId::PaneBg });
+    out.push_back(DrawRoundedRectCmd{ .rect = shape, .radius = LINK_STATUS_CORNER, .stroke_width = 1.0f, .brush_id = BrushId::SearchBarBorder });
+    out.push_back(PopClipCmd{});
+    out.push_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(left + LINK_STATUS_PADDING_X, band.top), .layout = layout, .brush_id = BrushId::Text });
+}
+
 void EmitSearchBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt, const SearchBarLayout& sbl, const SearchBarRenderState& sb,
                    const SearchInputMetrics& input)
 {

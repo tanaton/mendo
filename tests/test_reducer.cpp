@@ -493,6 +493,42 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
     EXPECT_TRUE(effects.empty());
 }
 
+// リンクの行き先は、指すリンクが変わったときだけ差し替える。同じリンクの上では文言が空で来ても消さず、
+// リンクから離れたら (窓の外へ出たときも) 消す。
+TEST_F(ReducerTest, PointerHover_LinkStatusReplacedOnlyWhenLinkChanges)
+{
+    PointerHoverAction on_a;
+    on_a.link = { .node = 0, .index = 0, .navigable = true };
+    on_a.link_status = L"https://a.example";
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, on_a)));
+    EXPECT_EQ(state.view.link_status, L"https://a.example");
+
+    PointerHoverAction same;
+    same.link = on_a.link;
+    EXPECT_TRUE(Reduce(state, same).empty());
+    EXPECT_EQ(state.view.link_status, L"https://a.example");
+
+    // ポインタが表示の高さに入って寄せる側が変わったら、文言はそのまま描き直す。
+    same.link.dock = LinkStatusDock::RightHalf;
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, same)));
+    EXPECT_EQ(state.view.link_status, L"https://a.example");
+
+    PointerHoverAction on_b;
+    on_b.link = { .node = 0, .index = 1 };
+    on_b.link_status = L"run.exe";
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, on_b)));
+    EXPECT_EQ(state.view.link_status, L"run.exe");
+
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, PointerHoverAction{})));
+    EXPECT_FALSE(state.view.hover.link.Any());
+    EXPECT_TRUE(state.view.link_status.empty());
+
+    Reduce(state, on_a);
+    Reduce(state, MouseLeaveAction{});
+    EXPECT_FALSE(state.view.hover.link.Any());
+    EXPECT_TRUE(state.view.link_status.empty());
+}
+
 // ---- コマンド系アクションテスト ----
 
 // 状態を見ずに実行側へ渡すだけのコマンドは、対応する副作用を 1 つだけ出す。

@@ -8,6 +8,7 @@
 #include "test_helpers.h"
 #include "d2d_util.h"
 #include "dwrite_measurer.h"
+#include "layout_computer.h"
 #include "parsed_layout.h"
 #include "theme.h"
 #include <dwrite.h>
@@ -37,6 +38,17 @@ protected:
                                 float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
     {
         return sources_.ParseAndLayout(engine_, md, viewport_w, viewport_top, viewport_bottom);
+    }
+
+    // ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置 (本文ペインの中の文書の座標)。
+    DipPoint PointInChar(const std::vector<Node>& nodes, const LayoutCache& cache, size_t node, uint32_t pos, float fraction) const
+    {
+        FLOAT x = 0.0f, y = 0.0f;
+        DWRITE_HIT_TEST_METRICS m{};
+        cache[node].text_layout()->HitTestTextPosition(pos, FALSE, &x, &y, &m);
+        const auto& n = nodes[node];
+        const float left = layout::NodeBlockX(n, theme_) + layout::NodeTextXOffset(n, theme_);
+        return { left + m.left + m.width * fraction, cache.Top(node) + m.top + m.height * 0.5f };
     }
 
     // 本文フォントの標準スタイルの書式。作れなければ null。

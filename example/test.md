@@ -481,6 +481,7 @@ struct ViewState {
     // ユーザー操作実績分に限定される。
     std::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;             // マウス位置でのホバー強調の全体。描画はここから読む
+    std::wstring    link_status;       // hover.link の行き先 (3.25)。リンクを指していなければ空
     int             active_toc_index = -1;     // SyncActiveTocIndex が描画のたびに決め直す
     bool            keep_toc_pane_once = false; // 目次クリック直後の同期 1 回だけ、目次ペインを追従スクロールさせない
     LeftDragState   drag;
@@ -499,6 +500,7 @@ struct HoverHighlights {
     int              h_block = -1;                 // 横スクロールバーを出すブロック
     std::array<int, 2>              side_index{ -1, -1 };  // PaneTarget 順 (File, Toc)
     std::array<PaneHeaderButton, 2> side_button{};
+    LinkHover        link;                         // 指しているリンク (ノード・添字・押せるか・行き先の表示を寄せる側。3.25)
 };
 
 struct InteractionState {
@@ -759,7 +761,7 @@ void App::Dispatch(const AppAction& action)
 
 ### 3.5 レンダーステート構築
 
-各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代・`App` が持つインライン数式の描画命令 `InlineMathDrawings`）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
+各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。リンクの行き先は `ViewState::link_status` と `hover.link.dock` を `RenderParams::link_status` / `link_status_dock` に入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代・`App` が持つインライン数式の描画命令 `InlineMathDrawings`）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
 
 Markdown ペインの描画コマンドは `Renderer`（具象、`renderer.cpp`）が `CommandGenerator` を直接呼んで作り（テーマ・本文の文字列の書式 `MdPaneFormats`・`TextLayoutCache` は `Init` で 1 回だけ渡し、`Renderer` が持つものを参照させる。1 回の `GenerateMdPane` の間に使う値は `FrameContext` のメンバに置く）、自由関数 `ExecuteDrawCommands`（宣言は `draw_command.h`、実装は `command_executor.cpp`）で描く。1 フレームのコマンドは `Renderer` の 1 本の列（`frame_cmds_`）に、タイトルバーとサイドペイン（`Renderer::PrepareChrome`）→ 本文（`GenerateMdPane` が列の後ろに積む）→ 本文に重ねるもの（`GenOverlays`）の順に積み、`BeginDraw` の後に 1 回だけ実行する。タイトルバーとサイドペインの組み立て自体は `command_generator.h` の自由関数 `chrome::EmitTitleBar` / `chrome::EmitSidePanes` が行い（重ね描きの `overlay::` と同じく HWND やデバイスなしでテストできる）、`Renderer` は書式とキャッシュを渡すだけである。
 
@@ -776,7 +778,7 @@ sequenceDiagram
     R->>R: BeginFrame: PrepareChrome (タイトルバー・サイドペイン → frame_cmds_)
     R->>CG: GenerateMdPane(frame_cmds_, params.md, dpi_scale)
     CG-->>R: frame_cmds_ の後ろに積む
-    R->>R: GenOverlays (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー → frame_cmds_)
+    R->>R: GenOverlays (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー・リンクの行き先 → frame_cmds_)
     R->>R: AcquireFrame
     R->>RT: BeginDraw / Clear
     R->>CE: ExecuteDrawCommands(frame_cmds_, rt, brushes, params.md.inline_math)
@@ -1126,7 +1128,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
 
 コードブロックの構文色も描画時に付ける。`DrawTextLayoutCmd::syntax_tokens`（同じ `NodeLayoutEntry` が持つ UTF-16 位置のトークン、非所有）があれば、`VisibleRunRenderer` はグリフランを `clusterMap` でトークン境界に分け、種別ごとの固定ブラシ（`SyntaxKeyword` 〜 `SyntaxDeleted`）で描く。右から左のランも分割し、境界がクラスタ（合字等）の途中にあればそのクラスタは後ろのトークンの色になる。`SetDrawingEffect` は 1 回ごとに既存の範囲数に比例して重くなり、巨大なコードブロックで O(n²) になるため構文色には使わない。トークンは計測ワーカーが text_layout と一緒に作り、トークン間の空白だけの隙間は直前のトークンに含めて同種をまとめ、グリフランの分割を減らしておく。
 
-インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectOf` が QueryInterface で見分け、key と倍率を返す）は `InlineMathDrawings` の描画命令を `DrawMath` で本文の色で描き（幅に収まらないブロック数式は倍率で縮める）、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
+インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectOf` が QueryInterface で見分け、key と倍率を返す）は `InlineMathDrawings` の描画命令を `DrawMath` で本文の色で描き（幅に収まらないブロック数式は倍率で縮める）、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）とリンクの行き先（`link_status`。`ellipsis_keep_after` で最後の `\` から後ろを残し、手前を省く。3.25）が使う。図の文言の枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
 
 #### 3.8.3 Renderer のデバイスとスワップチェーン
 
@@ -1195,12 +1197,13 @@ private:
 8. トースト通知（`overlay::EmitToast`）
 9. 検索バー（下部ドッキング、`overlay::EmitSearchBar`）
 10. Markdownペインのスクロールバーのつまみ（`VScrollThumb`。サイドペインのつまみも同じ関数で作る）
+11. 指しているリンクの行き先（`overlay::EmitLinkStatus`。3.25）
 
 オーバーレイボタンのうち、コードブロックのコピーは常に描き、図の保存 / コピーはマウスが図の画像領域にある間（`MdPaneParams::hovered_diagram`）だけ描く。どれもボタンにホバー中だけ濃くする。矩形は `layout::ForEachOverlayButton` が列挙し、描画とヒットテストで同じ矩形を使う。
 
 読み込み中（`RenderParams::loading_angle` がある）は 3 の代わりに 5 のスピナー（`overlay::EmitLoadingSpinner`）を積み、7・8（ジェスチャオーバーレイ・トースト）だけを重ねる。コンテキストメニューはこのシーケンスとは別経路で描画される。
 
-`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索バーの配置は `Renderer::GenOverlays` が 1 フレームに 1 回だけ `ComputeSearchBarLayout` で組み（`SearchBarLayout`。バー全体の矩形 `bar_rect` も持つ）、入力欄の幅を測るのにも `overlay::EmitSearchBar` にもそれを渡す。検索欄の文字列は `MeasureSearchInput`（`command_generator.h`。DirectWrite のファクトリと書式だけを使い、デバイスに依存しない）がレイアウトを `TextLayoutCache` から引いて選択範囲とキャレットの位置を測り、その結果（`SearchInputMetrics`）を `overlay::EmitSearchBar` に渡す。入力欄のクリックとドラッグの文字位置は `HitTestSearchInput` が同じレイアウトから求める。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
+`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バー・リンクの行き先の組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索バーの配置は `Renderer::GenOverlays` が 1 フレームに 1 回だけ `ComputeSearchBarLayout` で組み（`SearchBarLayout`。バー全体の矩形 `bar_rect` も持つ）、入力欄の幅を測るのにも `overlay::EmitSearchBar` にもそれを渡す。検索欄の文字列は `MeasureSearchInput`（`command_generator.h`。DirectWrite のファクトリと書式だけを使い、デバイスに依存しない）がレイアウトを `TextLayoutCache` から引いて選択範囲とキャレットの位置を測り、その結果（`SearchInputMetrics`）を `overlay::EmitSearchBar` に渡す。入力欄のクリックとドラッグの文字位置は `HitTestSearchInput` が同じレイアウトから求める。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
 
 描画コストを抑えるためのキャッシュ:
 
@@ -1741,6 +1744,9 @@ struct LinkClickResult {
 };
 
 LinkClickResult ClassifyLinkClick(std::string_view url);
+// 指したリンクの行き先の表示 (3.25)。押したら開くもの (ローカルの Markdown は絶対パス、文書の中の見出しは "#見出し") と、
+// 押して何か起きるか (navigable。手の形のカーソルにするか)。押しても何も起きないリンクは書いたままの URL
+LinkDestination DescribeLinkDestination(std::string_view url, std::wstring_view doc_path);
 bool            IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
 std::string     PercentDecode(std::string_view s);
@@ -2018,7 +2024,7 @@ struct OverlayButtonHit {
 
 ホバーとクリックは同じ `app_controller::ResolveMdPaneHit`（`AppState` とペイン配置だけから求める純粋関数）で「点が MD ペインのどの領域を指すか」を決める。優先順位は 検索バー → ナビボタン → オーバーレイボタン（コピー / ダイアグラムコピー / 保存）→ スクロールバー → 本文 で、縮小表示でボタンがスクロールバーのヒット余白に掛かってもボタンが勝つ。結果は `app_controller::MdPaneHit`（`kind` と、検索バーのゾーン・ナビボタン・`OverlayButtonHit`）で返す。ホバー表示（カーソルとツールチップ）とクリックの結果は常に一致する。ホバーでは判定結果を `PointerHover` に書いて `PointerHoverAction` で reducer に渡し、reducer が `ViewState::hover` に反映する。
 
-リンクは `FindLinkHitAtPosition`（`core/selection_html.h`）で URL とその添字（`node.view_link_urls()` の位置）を一度に求める。ツールチップはこの添字で対象を識別し、URL 文字列から添字を探し直さない。
+リンクは `FindLinkHitAtPosition`（`core/selection_html.h`）で URL とその添字（`node.view_link_urls()` の位置）を一度に求める。ツールチップと左下の行き先の表示（`HoverHighlights::link`。3.25）はこの添字で対象を識別し、URL 文字列から添字を探し直さない。
 
 ---
 
@@ -2476,6 +2482,14 @@ private:
 `TooltipTarget` の同一判定は `zone` と `key` だけで行う。`key` は表示文字列の内容ではなく対象の番号で、リンクは「ノード番号とリンクの添字」、画像はノード番号、ファイルペインの項目は「`FileExplorer` の世代と項目 index」、目次の項目は index、各ボタンはボタン種別から作る。ホバー処理（`app_controller.cpp` の `BuildMdContentTooltip` / `BuildSidePaneTooltip` など）は現在の対象と異なるときだけ `text` を組み立てる（確保と UTF-8→UTF-16 変換をマウス移動のたびに行わない）。番号は文書が変わると別の対象を指すので、文書を差し替えると `DocumentOpenedAction` / `DocumentReloadedAction` の reducer（`ResetPerNodeTransientState`）が現在の対象を捨ててツールチップを隠させる。
 
 ホバーの結果が別の対象なら reducer が `InteractionState::tooltip` を書き換えて `effect::SetTooltip{ text }` を出す。消すとき（スクロール・ウィンドウ外へ出た・非アクティブ化・文書の差し替え）は空の `SetTooltip` で、対象が無ければ隠れているので出さない。`App::Execute` は `tooltip_.SetText` で出ているものを隠して文言を差し替え、文言があれば `app_timer::Id::TOOLTIP`（`TOOLTIP_DELAY_MS` = 500ms）を仕掛け、`App::HandleTimer` がタイマーを止めて `tooltip_.Show()` する（reducer を通さない）。`Show` は保存した座標ではなく表示時点の `GetCursorPos` を使うので、待つ間に同じ対象の中でカーソルが動いても最新の位置に出る。
+
+#### リンクの行き先の表示
+
+本文のリンクを指している間は、ツールチップ（書いたままの URL）と別に、本文ペインの左下へ押したら開くものを待たずに出す（Chrome の左下の表示と同じ。issue #433 でユーザーが両方出すことを選んだ）。文言は `DescribeLinkDestination`（3.13.2）が `ClassifyLinkClick` の結果から作る。ローカルの Markdown は解決した絶対パス（見出しの指定があれば `#見出し` を後ろに付ける）、文書の中の見出しは `#見出し`、外部の URL と押しても何も起きないリンクは書いたままの URL。押しても何も起きないリンクは手の形のカーソルにしない（`LinkDestination::navigable`）。
+
+- **状態**: 指しているリンクは `HoverHighlights::link`（`LinkHover`。ノード・添字・`navigable`・寄せる側 `dock`）、文言は `ViewState::link_status` に持つ。`app_controller` の `HoverLink` は、指すリンクが前と同じ（`LinkHover::SameLink`）なら `navigable` を前の値から写して文言を作らない（パスの解決をマウス移動のたびに行わない）。reducer は指すリンクが変わったときだけ `PointerHoverAction::link_status` で差し替え、リンクを指していなければ空にする（`ApplyHoverHighlights` と `ResetPerNodeTransientState`）。描き直すのは指すリンクか寄せる側が変わったときだけ。
+- **置き場所**: `LinkStatusBand`（`ui_constants.h`）が本文ペインの下端（検索バーを出していればその上）に高さ `LINK_STATUS_HEIGHT` の帯を取り、右端はナビボタンの手前までにする。ポインタが帯の高さにあれば、`LinkStatusDockAt` がポインタと反対の半分（`LinkStatusDock::LeftHalf` / `RightHalf`）に寄せ、指しているリンクを隠さない。半分の境は描く側と同じ帯の中央。
+- **描画**: `overlay::EmitLinkStatus` が文言の幅に合わせて置く。下端（左に寄せたときは左端も）はペインの縁に付け、縁に付けた側の角はクリップで切り落とす。書式（`link_status`）は省略記号付きで、`ellipsis_keep_after = '\'` により長いパスはファイル名を残して途中を省く。フェードはしない（3.24 と同じく、毎フレームの全画面再描画を伴うため）。
 
 ---
 
@@ -3122,7 +3136,7 @@ sequenceDiagram
     R->>R: PrepareChrome (タイトルバー / サイドペインのコマンド → frame_cmds_)
     R->>CG: GenerateMdPane(frame_cmds_, params.md, dpi_scale)
     CG-->>R: frame_cmds_ の後ろに積む
-    R->>R: GenOverlays (ナビボタン / ジェスチャー / トースト / 検索バー / スクロールバー → frame_cmds_)
+    R->>R: GenOverlays (ナビボタン / ジェスチャー / トースト / 検索バー / スクロールバー / リンクの行き先 → frame_cmds_)
     Note right of R: ローディング中は本文の代わりにスピナーを積む。ContextMenu は別経路で描画
     R->>R: AcquireFrame (ループで取れていなければ待つ)
     R->>RT: BeginDraw / Clear

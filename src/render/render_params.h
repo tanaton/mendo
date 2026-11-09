@@ -7,6 +7,7 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "search_state.h"
+#include "ui_constants.h"
 #include <optional>
 #include <span>
 #include <string_view>
@@ -103,6 +104,9 @@ struct RenderParams {
     NavDirection nav_hovered = NavDirection::None;
     bool can_go_back = false;
     bool can_go_forward = false;
+    // 指しているリンクの行き先。空なら出さない。
+    std::wstring_view link_status;
+    LinkStatusDock link_status_dock = LinkStatusDock::Left;
     // 読み込み中のスピナーの角度。あれば本文ペイン・ナビボタン・検索バー・スクロールバーの代わりにスピナーを描く。
     std::optional<float> loading_angle;
 };
