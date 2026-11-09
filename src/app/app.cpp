@@ -297,7 +297,7 @@ void App::OnPaint()
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
-        .link_status = state_.view.link_status,
+        .link_status = state_.view.hover.link.StatusText(),
         .link_status_dock = state_.view.hover.link.dock,
         .loading_angle = SpinnerAngle(),
     });

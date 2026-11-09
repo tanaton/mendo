@@ -48,7 +48,6 @@ public:
     {
         return std::holds_alternative<Lost>(state_);
     }
-    // 描く前に、次のフレームを描いてよくなるのを待つ。
     bool NeedsFrame() const noexcept
     {
         const auto* ready = std::get_if<Ready>(&state_);

@@ -296,7 +296,7 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
     if (link) {
         const uint64_t key = PackTooltipKey(node_index, link->index);
         return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::wstring& text) {
-            text = string_convert::Utf8ToWide(link->url);
+            text = ToDisplayUrl(string_convert::Utf8ToWide(link->url));
         });
     }
     if (!image) {
@@ -307,7 +307,7 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
             text = string_convert::Utf8ToWide(image->alt);
             text += L"\n";
         }
-        text += string_convert::Utf8ToWide(image->src);
+        text += ToDisplayUrl(string_convert::Utf8ToWide(image->src));
     });
 }
 
@@ -354,12 +354,10 @@ void HoverLink(const AppState& state, const PaneLayout& layout, int node, const 
     h.node = node;
     h.index = link.index;
     if (const auto& current = state.view.hover.link; h.SameLink(current)) {
-        h.navigable = current.navigable;
+        h.destination = current.destination;
     }
     else {
-        auto dest = DescribeLinkDestination(link.url, state.document.doc.GetFilePath());
-        h.navigable = dest.navigable;
-        hover.link_status = std::move(dest.text);
+        h.destination = std::make_shared<const LinkDestination>(DescribeLinkDestination(link.url, state.document.doc.GetFilePath()));
     }
     h.dock = LinkStatusDockAt(LinkStatusBand(layout.md_rect, state.search.search_state.IsVisible()), pointer);
 }
@@ -430,7 +428,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
         }
     }
     hover.tooltip = BuildMdContentTooltip(state, node_index, link, image);
-    result.cursor = hover.link.navigable ? PointerCursor::Hand : PointerCursor::IBeam;
+    result.cursor = hover.link.Navigable() ? PointerCursor::Hand : PointerCursor::IBeam;
 }
 
 } // namespace

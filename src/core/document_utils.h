@@ -150,8 +150,13 @@ struct LinkDestination {
     bool navigable = false;
 };
 // 押したら実際に開くものを出す。ローカルの Markdown は解決した絶対パス、文書の中の見出しは "#見出し"。
-// 外部の URL と、押しても何も起きないリンクは書いたままの URL。
+// 外部の URL と、押しても何も起きないリンクは書いたままの URL。どれも ToDisplayUrl を通す。
 LinkDestination DescribeLinkDestination(std::string_view url, std::wstring_view doc_path);
+// 文書に書かれた URL・パスを画面に出す形にする。見えない文字 (双方向の上書きなど) は並びを入れ替えて別の行き先に
+// 見せられるので、ブラウザのアドレスバーと同じく %XX (UTF-8) にする。data: の URL などは数百 KB になるので、
+// MAX_DISPLAY_URL_LEN を超えれば、パスの末尾と URL の先頭がどちらも見えるよう両端を残して中を切る。
+inline constexpr size_t MAX_DISPLAY_URL_LEN = 1024;
+std::wstring ToDisplayUrl(std::wstring_view text);
 // 文書に書かれたパス (UTF-8、%XX のエンコード可) を絶対パスにする。相対パスは doc_dir から引く。
 // 開かないもの (URL・ネットワーク上の絶対パス・使えない文字を含むパス・解決の失敗) は空。画像とリンクで共有する。
 std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir);

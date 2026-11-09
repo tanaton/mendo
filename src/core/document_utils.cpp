@@ -476,19 +476,25 @@ std::string PercentDecode(std::string_view s)
 
 namespace {
 
+template <typename Str>
+void AppendPercentEncoded(Str& out, unsigned char b)
+{
+    constexpr char kHex[] = "0123456789ABCDEF";
+    out += '%';
+    out += kHex[b >> 4];
+    out += kHex[b & 0x0F];
+}
+
 // ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
 // 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
 std::string EncodeShellUnsafeChars(std::string_view url)
 {
-    constexpr char kHex[] = "0123456789ABCDEF";
     std::string out;
     out.reserve(url.size());
     for (const char ch : url) {
         const auto c = static_cast<unsigned char>(ch);
         if (c <= 0x20 || c == 0x7F || c == '"') {
-            out += '%';
-            out += kHex[c >> 4];
-            out += kHex[c & 0x0F];
+            AppendPercentEncoded(out, c);
         }
         else {
             out += ch;
@@ -497,7 +503,53 @@ std::string EncodeShellUnsafeChars(std::string_view url)
     return out;
 }
 
+// 幅を持たずに見た目だけを変える文字。双方向の上書き (U+202E など) は並びを入れ替えて別の行き先に見せられる。
+constexpr bool IsInvisibleFormatChar(uint32_t cp) noexcept
+{
+    return cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp == 0xAD || cp == 0x061C || cp == 0x180E || (cp >= 0x200B && cp <= 0x200F) ||
+           (cp >= 0x202A && cp <= 0x202E) || (cp >= 0x2060 && cp <= 0x206F) || cp == 0xFEFF || (cp >= 0xFFF9 && cp <= 0xFFFB) ||
+           (cp >= 0xE0000 && cp <= 0xE007F);
+}
+
+void AppendWithInvisibleEncoded(std::wstring& out, std::wstring_view text)
+{
+    for (uint32_t pos = 0; pos < text.size();) {
+        const auto [cp, len] = utf8_codec::DecodeAt(text, pos);
+        if (IsInvisibleFormatChar(cp)) {
+            char utf8[4];
+            for (const char ch : std::string_view(utf8, utf8_codec::EncodeCp(cp, utf8))) {
+                AppendPercentEncoded(out, static_cast<unsigned char>(ch));
+            }
+        }
+        else {
+            out.append(text.substr(pos, len));
+        }
+        pos += len;
+    }
+}
+
 } // namespace
+
+std::wstring ToDisplayUrl(std::wstring_view text)
+{
+    std::wstring out;
+    // %XX にしても短くはならないので、長い入力は中を切って残る両端の分だけを見る。
+    if (text.size() > MAX_DISPLAY_URL_LEN * 2) {
+        out.reserve(MAX_DISPLAY_URL_LEN * 2);
+        AppendWithInvisibleEncoded(out, text.substr(0, MAX_DISPLAY_URL_LEN));
+        AppendWithInvisibleEncoded(out, text.substr(text.size() - MAX_DISPLAY_URL_LEN));
+    }
+    else {
+        AppendWithInvisibleEncoded(out, text);
+    }
+    if (out.size() > MAX_DISPLAY_URL_LEN) {
+        constexpr auto kHalf = static_cast<uint32_t>(MAX_DISPLAY_URL_LEN / 2);
+        const uint32_t head = utf8_codec::SnapToCpStart(out, kHalf);
+        const uint32_t tail = utf8_codec::SnapToCpStart(out, static_cast<uint32_t>(out.size()) - (kHalf - 1));
+        out.replace(head, tail - head, L"…");
+    }
+    return out;
+}
 
 LinkClickResult ClassifyLinkClick(std::string_view url, std::wstring_view doc_path)
 {
@@ -556,21 +608,26 @@ LinkDestination DescribeLinkDestination(std::string_view url, std::wstring_view 
 {
     using Type = LinkClickResult::Type;
     auto result = ClassifyLinkClick(url, doc_path);
-    switch (result.type) {
-    case Type::None:
-    case Type::ExternalUrl:
-        return { string_convert::Utf8ToWide(url), result.type == Type::ExternalUrl };
-    case Type::Anchor:
-        return { L"#" + string_convert::Utf8ToWide(result.target), true };
-    case Type::Embedded:
-    case Type::LocalFile:
-        if (!result.target.empty()) {
-            result.path += L'#';
-            result.path += string_convert::Utf8ToWide(result.target);
+    const auto describe = [&]() -> LinkDestination {
+        switch (result.type) {
+        case Type::None:
+        case Type::ExternalUrl:
+            return { string_convert::Utf8ToWide(url), result.type == Type::ExternalUrl };
+        case Type::Anchor:
+            return { L"#" + string_convert::Utf8ToWide(result.target), true };
+        case Type::Embedded:
+        case Type::LocalFile:
+            if (!result.target.empty()) {
+                result.path += L'#';
+                result.path += string_convert::Utf8ToWide(result.target);
+            }
+            return { std::move(result.path), true };
         }
-        return { std::move(result.path), true };
-    }
-    std::unreachable();
+        std::unreachable();
+    };
+    auto dest = describe();
+    dest.text = ToDisplayUrl(dest.text);
+    return dest;
 }
 
 std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
