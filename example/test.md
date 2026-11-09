@@ -341,6 +341,7 @@ flowchart TD
     LOOP -->|PeekMessageW / DispatchMessageW| W{Win32Window<br>WndProc}
     W -->|WM_PAINT| PAINT[App::OnPaint]
     W -->|WM_SIZE| SIZE[ResizeAction<br>最小化時は App::OnMinimize]
+    W -->|WM_ACTIVATEAPP| ACTAPP[App::OnActivateApp]
     W -->|WM_KEYDOWN / WM_SYSKEYDOWN Alt+←→| KEY[App::OnKeyDown]
     W -->|WM_MOUSEWHEEL| WHEEL[App::OnMouseWheel]
     W -->|WM_MOUSEHWHEEL| HWHEEL[HWheelAction]
@@ -1165,6 +1166,7 @@ private:
 - **リサイズ**: ライブリサイズ中（`live`）は `ResizeBuffers` をせず、モニタ全体の大きさのバッファを使い回して表示範囲（source size）だけを変える。
 - **デバイスロスト**: `EndDraw` が `D2DERR_RECREATE_TARGET` を返したときと、`Present` が `DXGI_ERROR_DEVICE_REMOVED` / `RESET` / `HUNG` / `DRIVER_INTERNAL_ERROR` を返したときに `device_lost_` が立ち、次フレーム冒頭の `BeginFrame` が `CreateDevice` で作り直す。作り直しの経路はここ 1 か所だけ。
 - **最小化**: `Renderer::TrimForMinimize` が D2D の内部キャッシュとドライバ側の一時確保を手放す。
+- **別のアプリへの切り替え**: `WM_ACTIVATEAPP` で `App::OnActivateApp` が使っていない QuickJS のランタイムを捨て、`TRIM_WORKING_SET_DELAY_MS`（1 秒）後に `EmptyWorkingSet` でワーキングセットを空にする（読み込み中は終わるまで待つ）。空の文書のプライベートワーキングセット 20MB のうち約 15MB は、D3D11CreateDevice でドライバが一度触ったきりのページ（AMD）。非アクティブの間は 0.1MB 前後になり、戻ってスクロールしても数 MB しか戻らない。commit は変わらず、外したページはメモリに余裕があれば変更リストに残る。自分のポップアップや図の拡大表示への切り替えは同じ UI スレッドなので `WM_ACTIVATEAPP` が来ない。
 
 #### 3.8.4 Renderer ファイル構成
 
@@ -1620,7 +1622,7 @@ KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどな�
 
 拡大表示（`DiagramView`）とクリップボードの SVG も `PeleEngine` の描画命令から作る。どちらも本文の幅で組んだ図を本文の幅に縮めずに描く（`Render` の `fit` を切る）。本文で縮めずに描けた図（幅に縛られない結果）はその描画命令がそのまま使えるので、メモリのキャッシュにあれば pele で描き直さない（`FindWidthFreeDrawing`）。拡大表示は窓に `ID2D1HwndRenderTarget` を作り、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く。操作は右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ。描けない図は窓を閉じて「図を開けませんでした」を出す（書き換えで描けなくなったときは、出ている図を残す）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。保存・コピーの画像は本体の窓の DPR でその場で描く（`DiagramBitmap`）。コピーは描いた画像をそのまま CF_DIB にし、保存は保存先を選んでから描いて PNG にする。
 
-`PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele と KaTeX はビルドの時に QuickJS のバイトコードにして exe に埋め込み（`js_compile`。実行時にコンパイルすると最初の図で約 65ms、最初の数式で約 20ms かかっていた）、各ランタイムはそれを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）で捨てる（`app_timer::Id::PELE_TRIM` → `OnPeleTrimTimer`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（WebView2 で描いていた頃との比較。3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
+`PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele と KaTeX はビルドの時に QuickJS のバイトコードにして exe に埋め込み（`js_compile`。実行時にコンパイルすると最初の図で約 65ms、最初の数式で約 20ms かかっていた）、各ランタイムはそれを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）か、別のアプリへ切り替わった時点で捨てる（`app_timer::Id::PELE_TRIM` / `App::OnActivateApp` → `TrimIdleRuntimes`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。切り替えた時点で捨てるのは、ランタイムを捨てると全オブジェクトをたどり、ヒープも遅れて decommit するので、ワーキングセットを空にした後だと外したページを触り直させるため。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（WebView2 で描いていた頃との比較。3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、埋め込みリソース（pele・KaTeX・書体）を読む具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。
 
@@ -3403,6 +3405,7 @@ enum class Id : UINT_PTR {
     PELE_TRIM,             // 7 使っていない QuickJS のランタイムを捨てる
     DEVICE_RECREATE_RETRY, // 8
     INLINE_MATH_TABLES,    // 9 寸法を待つ表の組み直しを、前回から App::kMathTableRelayoutInterval (1 秒) 空けて行う
+    TRIM_WORKING_SET,      // 10 別のアプリへ切り替わった後にワーキングセットを空にする
     END,  // 番兵。新規タイマーはこの直前に追加する。
 };
 
@@ -3414,6 +3417,7 @@ inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止
 inline constexpr UINT TOAST_DURATION_MS         = 1300; // トースト表示時間
 inline constexpr UINT TOOLTIP_DELAY_MS          = 500;  // ツールチップを出すまでの待ち
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS  = 500;  // 描画デバイスの作り直しに失敗した後の再試行間隔
+inline constexpr UINT TRIM_WORKING_SET_DELAY_MS = 1000; // 非アクティブ直後の描き直しやすぐ戻る切り替えで、外したページを触り直させない
 }
 ```
 
@@ -4276,6 +4280,7 @@ exit /b 0
     "PELE_TRIM":             7,
     "DEVICE_RECREATE_RETRY": 8,
     "INLINE_MATH_TABLES":    9,
+    "TRIM_WORKING_SET":      10,
   },
   /* カスタム Win32 メッセージ
      WM_APP+N の形式で識別子を採番している (+1, +3〜+5 は欠番) */

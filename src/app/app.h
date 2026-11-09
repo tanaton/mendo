@@ -91,6 +91,8 @@ public:
 
     void OnPaint();
     void OnMinimize();
+    // WM_ACTIVATEAPP。自分のポップアップや図の拡大表示への切り替えでは来ない。
+    void OnActivateApp(bool active);
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
     // 割り当ての無いキーは false を返し、ウィンドウ側の既定の処理に回させる。
     bool OnKeyDown(WPARAM key, LPARAM flags);
