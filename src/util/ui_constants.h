@@ -307,6 +307,37 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
 // PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
+// 本文のリンクを指している間、本文ペインの下端に出すリンクの行き先 (Chrome の左下の表示と同じ)。
+inline constexpr float LINK_STATUS_HEIGHT = 22.0f;
+inline constexpr float LINK_STATUS_PADDING_X = 8.0f;
+inline constexpr float LINK_STATUS_CORNER = 4.0f;
+
+// 行き先の表示を寄せる側。ポインタが表示と同じ高さにあるときは、ポインタと反対の半分に寄せて指しているリンクを隠さない。
+enum class LinkStatusDock : uint8_t {
+    // 左端から、帯の幅いっぱいまで伸ばす。
+    Left,
+    LeftHalf,
+    RightHalf,
+};
+
+// 行き先の表示を置ける帯。本文ペインの下端 (検索バーを出していればその上) で、右端はナビボタンとスクロールバーの手前まで。
+// 描画とホバーの判定 (ポインタが帯の高さにあるか) で共有する。
+inline D2D1_RECT_F LinkStatusBand(const PaneRect& md_rect, bool search_bar_visible) noexcept
+{
+    const float bottom = md_rect.y + md_rect.height - (search_bar_visible ? SEARCH_BAR_HEIGHT : 0.0f);
+    const float right = std::max(md_rect.x, NavBackButtonRect(md_rect).left - NAV_BTN_GAP);
+    return D2D1::RectF(md_rect.x, bottom - LINK_STATUS_HEIGHT, right, bottom);
+}
+
+// 半分に寄せたときは帯の中央で分ける (EmitLinkStatus)。
+inline LinkStatusDock LinkStatusDockAt(const D2D1_RECT_F& band, DipPoint pointer) noexcept
+{
+    if (pointer.y < band.top) {
+        return LinkStatusDock::Left;
+    }
+    return pointer.x < RectCenter(band).x ? LinkStatusDock::RightHalf : LinkStatusDock::LeftHalf;
+}
+
 inline constexpr float GESTURE_OVERLAY_WIDTH = 280.0f;
 
 inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;

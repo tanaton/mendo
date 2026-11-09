@@ -192,6 +192,7 @@ private:
         Microsoft::WRL::ComPtr<IDWriteTextFormat> toast_text;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> search_input;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> search_count;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> link_status;
     };
     TextFormats fmt_;
 

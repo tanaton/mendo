@@ -1742,6 +1742,33 @@ TEST(HandleLinkClickTest, OpensRelativeLinkOnSameShare)
     EXPECT_EQ(result.path, L"\\\\host\\share\\sub\\other.md");
 }
 
+// 押したら開くものを出す (issue #433)。押しても何も起きないリンクは書いたままの URL で、手の形のカーソルにしない。
+TEST(LinkDestinationTest, DescribesWhatClickOpens)
+{
+    struct Case {
+        std::string_view url;
+        std::wstring_view text;
+        bool navigable;
+    };
+    // 分類そのものは ClassifyLinkClick のテストで見るので、分類ごとに 1 つずつ。
+    const Case kCases[] = {
+        // 外部の URL は書いたまま (ShellExecute に渡すときの %XX にしない)。
+        { "https://example.com/a b", L"https://example.com/a b", true },
+        // ローカルの Markdown は解決した絶対パス。見出しの指定はデコードして後ろに付ける。
+        { "other.md#%E4%BD%BF%E3%81%84%E6%96%B9", L"C:\\docs\\other.md#使い方", true },
+        { "other.md#", L"C:\\docs\\other.md", true },
+        { "readme.md#usage", L"#usage", true },
+        { "mendo://help", L"mendo://help", true },
+        { "run.exe", L"run.exe", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.url));
+        const auto d = DescribeLinkDestination(c.url, L"C:/docs/readme.md");
+        EXPECT_EQ(d.text, c.text);
+        EXPECT_EQ(d.navigable, c.navigable);
+    }
+}
+
 TEST(PercentDecodeTest, DecodesHexPairsAndKeepsInvalidSequences)
 {
     struct Case {

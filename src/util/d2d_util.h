@@ -22,6 +22,8 @@ struct TextFormatSpec {
     float line_height_factor = 0.0f;
     // 箱に収まらない行を省き、見えている最後の行の末尾を省略記号にする。箱の外には描かない。
     bool ellipsis = false;
+    // ellipsis で、行の最後のこの文字から後ろを残し、その手前を省く (パスのファイル名を残す)。0 なら末尾を省く。
+    wchar_t ellipsis_keep_after = 0;
 };
 
 // 比率指定の行間にして、フォールバックで高くなる行は既定と同じく高いまま、主フォントの行を line_height にする。
@@ -70,7 +72,11 @@ inline Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(IDWriteFactory
     if (s.ellipsis) {
         Microsoft::WRL::ComPtr<IDWriteInlineObject> sign;
         if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(fmt.Get(), &sign))) {
-            const DWRITE_TRIMMING trimming{ .granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER };
+            const DWRITE_TRIMMING trimming{
+                .granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                .delimiter = s.ellipsis_keep_after,
+                .delimiterCount = s.ellipsis_keep_after != 0 ? 1u : 0u,
+            };
             fmt->SetTrimming(&trimming, sign.Get());
         }
     }

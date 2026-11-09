@@ -284,7 +284,8 @@ constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
     return (uint64_t{ outer } << 32) | inner;
 }
 
-// リンクの付いた画像はリンク先を出す。
+// リンクの付いた画像はリンク先を出す。リンクは下端の行き先の表示 (HoverLink) と別に、書いたままの URL をここにも出す
+// (issue #433 でユーザーが両方出すことを選んだ)。
 TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::optional<LinkHit> link, std::optional<ImageHit> image)
 {
     if (hit_node < 0) {
@@ -347,6 +348,22 @@ void HoverSidePane(const AppState& state, PaneTarget target, const PaneLayout& l
     result.cursor = hit.button != PaneHeaderButton::None ? PointerCursor::Hand : PointerCursor::Arrow;
 }
 
+void HoverLink(const AppState& state, const PaneLayout& layout, int node, const LinkHit& link, DipPoint pointer, PointerHoverAction& hover)
+{
+    auto& h = hover.link;
+    h.node = node;
+    h.index = link.index;
+    if (const auto& current = state.view.hover.link; h.SameLink(current)) {
+        h.navigable = current.navigable;
+    }
+    else {
+        auto dest = DescribeLinkDestination(link.url, state.document.doc.GetFilePath());
+        h.navigable = dest.navigable;
+        hover.link_status = std::move(dest.text);
+    }
+    h.dock = LinkStatusDockAt(LinkStatusBand(layout.md_rect, state.search.search_state.IsVisible()), pointer);
+}
+
 void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y, PointerHoverResult& result)
 {
     auto& hover = result.hover;
@@ -404,13 +421,16 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
         if (!node.view_link_urls().empty() || has_images) {
             const auto hit = hit_test::HitTest(hit_ctx);
             link = LinkAtHit(state, hit);
+            if (link) {
+                HoverLink(state, layout, hit.node_index, *link, { dip_x, dip_y }, hover);
+            }
             if (has_images && hit.node_index == node_index && hit.char_pos != hit_test::HitResult::kNoChar) {
                 image = FindImageHitAtPosition(node, hit.char_pos);
             }
         }
     }
     hover.tooltip = BuildMdContentTooltip(state, node_index, link, image);
-    result.cursor = link ? PointerCursor::Hand : PointerCursor::IBeam;
+    result.cursor = hover.link.navigable ? PointerCursor::Hand : PointerCursor::IBeam;
 }
 
 } // namespace
