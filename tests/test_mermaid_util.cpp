@@ -229,24 +229,24 @@ TEST(NodeDiagramHash, SameWidthBucketSharesHash)
     EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 590.0f, false), mermaid_util::NodeDiagramHash(a, 605.0f, false));
 }
 
-// ディスクキャッシュのファイル名になるので式を変えない。変えると既存のキャッシュを引けなくなる。
+// ディスクキャッシュのファイル名になる。式を変えたら MermaidFileCache::VERSION を上げる。
 TEST(NodeDiagramHash, KeepsPersistedFormula)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     // 幅 600 は 608 に量子化される。
-    const uint64_t expected = Fnv1a64(a.GetText()) ^ (uint64_t{ 608 } * kFnv1a64Prime) ^ 2654435761ULL;
+    const uint64_t expected = RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64) ^ 2654435761ULL;
     EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, true), expected);
     EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), expected);
-    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, false), Fnv1a64(a.GetText()) ^ (uint64_t{ 608 } * kFnv1a64Prime));
+    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, false), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64));
 }
 
-// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。ディスクキャッシュのファイル名になるので式を変えない。
+// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。式を変えたら MermaidFileCache::VERSION を上げる。
 TEST(DiagramWidthFreeHash, DistinctFromWidthKeysAndKeepsFormula)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     const uint64_t code = mermaid_util::DiagramCodeHash(a);
     const uint64_t free_light = mermaid_util::DiagramWidthFreeHash(code, false);
-    EXPECT_EQ(free_light, Fnv1a64(a.GetText()) ^ kFnv1a64Prime);
+    EXPECT_EQ(free_light, RapidHash(a.GetText()) ^ kGoldenRatio64);
     EXPECT_NE(mermaid_util::DiagramWidthFreeHash(code, true), free_light);
     for (const float w : { 0.0f, 1.0f, 32.0f, 600.0f, 4000.0f }) {
         EXPECT_NE(mermaid_util::DiagramRequestHash(code, w, false), free_light) << w;

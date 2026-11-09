@@ -1969,9 +1969,9 @@ private:
     std::deque<std::string> strings_;
     std::deque<std::wstring> wide_strings_;
     std::deque<Vars> vars_;
-    std::string resolved_;                                    // var() を解いた値。Apply が持ち続けるものは Retain で写す
-    std::vector<std::pair<Prop, std::string_view>> declared_; // Compute の宣言の並び。要素ごとに確保しないよう使い回す
-    std::unordered_map<std::string_view, uint32_t> ids_;      // GradientRef が初めて引くときに作る
+    std::string resolved_;                                                      // var() を解いた値。Apply が持ち続けるものは Retain で写す
+    std::vector<std::pair<Prop, std::string_view>> declared_;                   // Compute の宣言の並び。要素ごとに確保しないよう使い回す
+    std::unordered_map<std::string_view, uint32_t, StringTransparentHash> ids_; // GradientRef が初めて引くときに作る
     bool ids_ready_ = false;
     std::vector<std::pair<std::string, std::string>> gradients_; // (id|alpha, 名前。空は塗れない参照)
     std::string defs_;
@@ -4227,18 +4227,12 @@ struct MathMaskCache::Impl {
     size_t bytes = 0;
     uint64_t frame = 0;
 
+    // Key は shared_ptr を含みバイト列のまま渡せないので、形のアドレスを seed にして値の部分だけを並べる。
     static uint64_t Hash(const Key& key) noexcept
     {
-        uint64_t h = kFnv1a64OffsetBasis;
-        const auto mix = [&h](uint64_t v) noexcept { h = (h ^ v) * kFnv1a64Prime; };
-        mix(std::bit_cast<uintptr_t>(key.shape.get()));
-        for (const float f : key.transform) {
-            mix(std::bit_cast<uint32_t>(f));
-        }
-        for (const float f : { key.width, key.height, key.stroke, key.scale_x, key.scale_y }) {
-            mix(std::bit_cast<uint32_t>(f));
-        }
-        return h;
+        const auto& t = key.transform;
+        const std::array<float, 11> v{ t[0], t[1], t[2], t[3], t[4], t[5], key.width, key.height, key.stroke, key.scale_x, key.scale_y };
+        return rapidhash_withSeed(v.data(), sizeof(v), std::bit_cast<uintptr_t>(key.shape.get()));
     }
 
     bool EnsureContext()

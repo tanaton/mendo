@@ -97,6 +97,7 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 | Markdown 剖析器 | [md4c](https://github.com/mity/md4c)（SAX 式回呼） |
 | Mermaid 圖表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 數學公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 雜湊 | [rapidhash](https://github.com/Nicoshev/rapidhash) |
 | 測試 | Google Test v1.18.0 |
 | 基準測試 | Google Benchmark v1.10.0 |
 | 建置 | CMake 4.2+ |

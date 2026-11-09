@@ -111,17 +111,11 @@ private:
     };
     struct KeyHash {
         using is_transparent = void;
+        // KeyTail は詰め物の無い値の並びなのでバイト列のまま渡し、文字列と書式は seed に混ぜる。
+        static_assert(sizeof(KeyTail) == sizeof(void*) + 4 * sizeof(uint32_t));
         static size_t operator()(const KeyView& k) noexcept
         {
-            size_t h = std::hash<std::wstring_view>{}(k.text);
-            const auto mix = [&h](size_t v) noexcept { h ^= v + kGoldenRatio64 + (h << 6) + (h >> 2); };
-            mix(std::hash<const void*>{}(k.fmt));
-            mix(std::hash<const void*>{}(k.tail.fonts));
-            mix(std::bit_cast<uint32_t>(k.tail.width));
-            mix(std::bit_cast<uint32_t>(k.tail.height));
-            mix(k.tail.underline_start);
-            mix(k.tail.underline_length);
-            return h;
+            return rapidhash_withSeed(&k.tail, sizeof(k.tail), RapidHash(k.text) ^ std::bit_cast<uintptr_t>(k.fmt));
         }
     };
     struct KeyEqual {

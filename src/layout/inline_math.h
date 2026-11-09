@@ -54,8 +54,6 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
 inline constexpr size_t kInlineMathPerChunk = 64;
 
 struct InlineMathChunk {
-    // 組の数式のキーの並びから決まる。計画を作り直す前に頼んだ組の結果を見分けるのに使う。
-    uint64_t key = 0;
     std::vector<InlineMathItem> items;
     // 描画を頼んで結果を待っている (TakeChunk から FinishChunk まで)。
     bool requested = false;
@@ -73,13 +71,19 @@ public:
     }
     // key の数式を含む組の番号。計画に無ければ nullopt。
     std::optional<size_t> ChunkOf(uint64_t key) const noexcept;
+    // Build のたびに変わる。頼んだ組の結果が今の計画のものかを見分ける。
+    uint64_t Generation() const noexcept
+    {
+        return generation_;
+    }
     // 組を描くために取り出す。結果を待っている組は nullptr。描けた組はまた取り出せる。
     const InlineMathChunk* TakeChunk(size_t chunk) noexcept;
-    // TakeChunk した組の結果が届いた。計画を作り直す前に頼んだ組 (番号と key が合わない) は何もしない。
-    void FinishChunk(size_t chunk, uint64_t key) noexcept;
+    // TakeChunk した組の結果が届いた。generation は頼んだときの Generation()。作り直す前の計画で頼んだ組は何もしない。
+    void FinishChunk(size_t chunk, uint64_t generation) noexcept;
 
 private:
     std::vector<InlineMathChunk> chunks_;
+    uint64_t generation_ = 0;
     // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない (数式 12000 個で 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
 };

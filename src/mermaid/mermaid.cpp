@@ -134,7 +134,7 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    const uint64_t code_hash = mermaid_util::EnsureDiagramCodeHash(diagram_entry.code_hash, node);
+    const uint64_t code_hash = mermaid_util::DiagramCodeHash(node);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
     if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {

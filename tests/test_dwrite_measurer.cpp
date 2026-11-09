@@ -377,20 +377,7 @@ TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
     EXPECT_FALSE(table.HasUnresolved()) << "描けなかった数式も結果が出たら待ちから外す";
 }
 
-namespace {
-
-std::vector<uint64_t> ChunkKeys(const InlineMathPlan& plan)
-{
-    std::vector<uint64_t> keys;
-    for (const auto& c : plan.Chunks()) {
-        keys.push_back(c.key);
-    }
-    return keys;
-}
-
-} // namespace
-
-// 文書の順に重複を除いて並べ、文字の大きさは計測と同じ規則で決める。同じ文書なら毎回同じ組になる。
+// 文書の順に重複を除いて並べ、文字の大きさは計測と同じ規則で決める。
 TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 {
     const Theme theme = GetLightTheme();
@@ -411,10 +398,6 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     };
     EXPECT_EQ(items, expected);
     EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
-
-    InlineMathPlan again;
-    again.Build(parsed.nodes, parsed.indices.math_indices, theme);
-    EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
 }
 
 // 組は結果を待つ間は取り出せず、描けたらまた取り出せる。
@@ -424,25 +407,25 @@ TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
     const auto parsed = ParseMarkdown("$a$ $b$\n");
     plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
     ASSERT_EQ(plan.Chunks().size(), 1u);
-    const uint64_t key = plan.Chunks()[0].key;
     EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
     EXPECT_EQ(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, key);
+    plan.FinishChunk(0, plan.Generation());
     EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
 }
 
-// 計画を作り直す前に頼んだ組 (番号か key が合わない) の結果は状態を変えない。
+// 計画を作り直す前に頼んだ組の結果は、同じ中身に作り直した組でも状態を変えない。
 TEST(InlineMathPlan, StaleChunksDoNotFinish)
 {
     InlineMathPlan plan;
     const auto parsed = ParseMarkdown("$a$\n");
     plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    const uint64_t key = plan.Chunks()[0].key;
+    const uint64_t stale = plan.Generation();
     ASSERT_NE(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, key + 1);
-    plan.FinishChunk(1, key);
-    EXPECT_EQ(plan.TakeChunk(0), nullptr) << "まだ待っている";
-    plan.FinishChunk(0, key);
+    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
+    ASSERT_NE(plan.TakeChunk(0), nullptr);
+    plan.FinishChunk(0, stale);
+    EXPECT_EQ(plan.TakeChunk(0), nullptr) << "作り直した後に頼んだ組はまだ待っている";
+    plan.FinishChunk(0, plan.Generation());
     EXPECT_NE(plan.TakeChunk(0), nullptr);
 }
 

@@ -32,7 +32,8 @@ public:
     // 8: 文字と数式のラベルの数の並びを、置き方 (変換・x・y・大きさ・色・不透明度) を先頭にそろえた。
     // 9: 図の text-decoration:line-through と calc() の足し引きを描くようにした。
     // 10: ライトの配色を mermaid の既定のテーマに寄せた。
-    static constexpr uint32_t VERSION = 10;
+    // 11: 図のコードのハッシュを FNV-1a から rapidhash に、幅を混ぜる係数を kGoldenRatio64 に替え、ファイル名が変わった。
+    static constexpr uint32_t VERSION = 11;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();

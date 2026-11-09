@@ -97,6 +97,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Mermaid diagrams | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | Math | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| Hashing | [rapidhash](https://github.com/Nicoshev/rapidhash) |
 | Tests | Google Test v1.18.0 |
 | Benchmarks | Google Benchmark v1.10.0 |
 | Build | CMake 4.2+ |

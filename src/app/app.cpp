@@ -376,9 +376,9 @@ bool App::RequestInlineMathChunk(uint64_t key)
     if (const auto* c = inline_math_plan_.TakeChunk(*chunk)) {
         inline_math_.MarkRequested(c->items);
         const size_t index = *chunk;
-        const uint64_t chunk_key = c->key;
-        mermaid_renderer_.RequestMathBatch(c->items, [this, index, chunk_key](InlineMathBatchResult result) {
-            OnInlineMathRendered(std::move(result), index, chunk_key);
+        const uint64_t generation = inline_math_plan_.Generation();
+        mermaid_renderer_.RequestMathBatch(c->items, [this, index, generation](InlineMathBatchResult result) {
+            OnInlineMathRendered(std::move(result), index, generation);
         });
     }
     return true;
@@ -389,9 +389,9 @@ void App::RebuildInlineMathPlan()
     inline_math_plan_.Build(state_.document.doc.GetNodes(), state_.document.doc.GetMathNodeIndices(), theme_service_.GetTheme());
 }
 
-void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
+void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation)
 {
-    inline_math_plan_.FinishChunk(chunk, chunk_key);
+    inline_math_plan_.FinishChunk(chunk, generation);
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
         if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {

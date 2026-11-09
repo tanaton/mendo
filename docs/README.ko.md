@@ -97,6 +97,7 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 | Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
 | Mermaid 다이어그램 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 수학 표기 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 해시 | [rapidhash](https://github.com/Nicoshev/rapidhash) |
 | 테스트 | Google Test v1.18.0 |
 | 벤치마크 | Google Benchmark v1.10.0 |
 | 빌드 | CMake 4.2+ |

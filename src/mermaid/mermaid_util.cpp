@@ -331,23 +331,14 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 uint64_t mermaid_util::DiagramCodeHash(std::string_view code) noexcept
 {
     // 描き方を変えたときは MermaidFileCache::VERSION を上げ、古い描き方のファイルをフォルダごと捨てる。
-    return Fnv1a64(code);
-}
-
-uint64_t mermaid_util::EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept
-{
-    if (cached == 0) {
-        cached = DiagramCodeHash(node);
-    }
-    return cached;
+    return RapidHash(code);
 }
 
 namespace {
-// 幅と dark_mode は別 prime で xor mix する。xor なのでコード側のソルトと順序を問わない。
-// ディスクキャッシュのファイル名になるので値を変えない。
+// 幅と dark_mode は別の係数で xor mix する。ディスクキャッシュのファイル名になるので、変えたら MermaidFileCache::VERSION を上げる。
 constexpr uint64_t MixDiagramKey(uint64_t code_hash, uint64_t width_term, bool dark_mode) noexcept
 {
-    return code_hash ^ (width_term * kFnv1a64Prime) ^ (static_cast<uint64_t>(dark_mode) * 2654435761ULL); // Knuth multiplicative
+    return code_hash ^ (width_term * kGoldenRatio64) ^ (static_cast<uint64_t>(dark_mode) * 2654435761ULL); // Knuth multiplicative
 }
 } // namespace
 

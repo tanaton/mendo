@@ -470,9 +470,6 @@ struct DiagramResult {
 };
 
 struct DiagramEntry : DiagramResult {
-    // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
-    // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
-    uint64_t code_hash = 0;
     // 絵 (commands)・寸法・drawing は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
@@ -506,7 +503,7 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
-    // 幅・テーマの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
+    // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
     // 再試行可能に戻す。
     void MarkStale() noexcept
     {
@@ -516,12 +513,6 @@ struct DiagramEntry : DiagramResult {
         }
         stale = true;
         error.clear();
-    }
-    // コードの書き換え用。コードのハッシュは新しいノードのテキストで計算し直させる。
-    void MarkCodeReplaced() noexcept
-    {
-        MarkStale();
-        code_hash = 0;
     }
 };
 

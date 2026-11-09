@@ -128,7 +128,7 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
                 if (text.empty() || tbl.IsHeaderRow(r)) {
                     continue;
                 }
-                const auto [first_row, added] = first_rows.TryEmplace(Fnv1a64(text));
+                const auto [first_row, added] = first_rows.TryEmplace(RapidHash(text));
                 if (added) {
                     *first_row = static_cast<uint32_t>(r);
                     continue;

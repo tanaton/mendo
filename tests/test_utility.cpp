@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "utility.h"
-#include <set>
 #include <variant>
 
 // ═══════════════════════════════════════════════
@@ -22,44 +21,37 @@ TEST(Utility, OverloadedDispatchesByType)
 }
 
 // ═══════════════════════════════════════════════
-// Fnv1a64
+// RapidHash
 // ═══════════════════════════════════════════════
 
-// 空は offset basis。1 バイトは (basis ^ byte) * prime で、0x80 以上も符号拡張せずに混ぜる。
-// 長さの違い・1 文字の違い・NUL 1 バイトでも値が変わる。参照値は isthe.com の FNV-1a 64-bit。
-TEST(Fnv1a64, MatchesReferenceValues)
+// 図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら
+// MermaidFileCache::VERSION を上げる。
+// 長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
+TEST(RapidHash, KeepsPersistedValues)
 {
+    const std::string x200(200, 'x');
     struct Case {
         std::string_view input;
         uint64_t expected;
     };
-    constexpr Case kCases[] = {
-        { {}, kFnv1a64OffsetBasis },
-        { "a", 0xaf63dc4c8601ec8cULL },
-        { "a", (kFnv1a64OffsetBasis ^ 0x61ULL) * kFnv1a64Prime },
-        { "foobar", 0x85944171f73967e8ULL },
-        { { "\x80", 1 }, (kFnv1a64OffsetBasis ^ 0x80ULL) * kFnv1a64Prime },
-        { { "\0", 1 }, (kFnv1a64OffsetBasis ^ 0x00ULL) * kFnv1a64Prime },
+    const Case kCases[] = {
+        { {},                  0x0338dc4be2cecdaeULL },
+        { "a",                 0x599f47df33a2e1ebULL },
+        { { "\0", 1 },         0x4f23c791b16eba02ULL },
+        { "foobar",            0xd76f53d9bff5e23cULL },
+        { "0123456789abcdef",  0x8b249eb98f29bff6ULL },
+        { "0123456789abcdefg", 0x62b040278b0412a6ULL },
+        { x200,                0x25adb114ca9ea76aULL },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::string{ c.input }));
-        EXPECT_EQ(Fnv1a64(c.input), c.expected);
+        EXPECT_EQ(RapidHash(c.input), c.expected);
     }
-    EXPECT_NE(Fnv1a64(std::string_view{ "abc" }), Fnv1a64(std::string_view{ "abcd" }));
-    EXPECT_NE(Fnv1a64(std::string_view{ "abcd" }), Fnv1a64(std::string_view{ "abce" }));
-    // constexpr 関数としてコンパイル時に解ける。
-    static_assert(Fnv1a64(std::string_view{ "x" }) == ((kFnv1a64OffsetBasis ^ 0x78ULL) * kFnv1a64Prime));
 }
 
-TEST(Fnv1a64, NoCollisionsOnSmallSet)
+TEST(RapidHash, WideStringHashesUtf16Bytes)
 {
-    // 1000 個の "key_<i>" 文字列でハッシュ衝突がないことを確認 (実用域での衝突確率は 10^-12 程度)。
-    std::set<uint64_t> seen;
-    for (int i = 0; i < 1000; ++i) {
-        const std::string s = "key_" + std::to_string(i);
-        const auto inserted = seen.insert(Fnv1a64(std::string_view{ s })).second;
-        ASSERT_TRUE(inserted) << "collision at i=" << i;
-    }
+    EXPECT_EQ(RapidHash(L"ab"), RapidHash(std::string_view{ "a\0b\0", 4 }));
 }
 
 // ═══════════════════════════════════════════════

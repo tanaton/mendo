@@ -10,7 +10,7 @@ namespace {
 
 uint64_t PathKey(const std::wstring& path) noexcept
 {
-    return Fnv1a64(std::wstring_view{ path });
+    return RapidHash(path);
 }
 
 // 寸法を読むときに先に読むファイルの先頭の長さ。JPEG・PNG・GIF・ICO の寸法はヘッダにあり、手元の写真と

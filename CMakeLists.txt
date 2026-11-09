@@ -105,6 +105,10 @@ add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
 target_compile_options(md4c PRIVATE /W0)
 
+# ---- rapidhash（サードパーティ、ヘッダーのみ） ----
+add_library(rapidhash INTERFACE)
+target_include_directories(rapidhash SYSTEM INTERFACE third_party/rapidhash)
+
 # ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
@@ -171,7 +175,7 @@ target_compile_definitions(mendo_core PUBLIC
 # リンクする OS のライブラリはここにまとめる (ソースの #pragma comment(lib) は使わない)。
 # windowscodecs は DLL を静的に読まないが、WIC の GUID がこの lib にある。
 target_link_libraries(mendo_core PUBLIC
-    md4c quickjs d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
+    md4c quickjs rapidhash d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
 )
 if(MENDO_USE_TRACY)
     # profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。TRACY_ENABLE は TracyClient から伝わる。
