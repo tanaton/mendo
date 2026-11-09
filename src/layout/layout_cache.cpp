@@ -281,7 +281,7 @@ bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
     if (it == src.diagrams_.end() || !it->second.HasImage()) {
         return false;
     }
-    diagrams_.insert_or_assign(to, std::move(it->second)).first->second.MarkCodeReplaced();
+    diagrams_.insert_or_assign(to, std::move(it->second)).first->second.MarkStale();
     entries_[to].height = src.entries_[from].height;
     return true;
 }

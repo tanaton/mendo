@@ -141,8 +141,7 @@ bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, si
 InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path)
 {
     // 名前に '\\' を含められないのでパスはハッシュにする。
-    const std::wstring& native = path.native();
-    const uint64_t hash = Fnv1a64(std::wstring_view{ native });
+    const uint64_t hash = RapidHash(path.native());
     const std::wstring name = std::format(L"Local\\mendo-{}-{:016x}", kind, hash);
     mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
     if (!mutex_) {

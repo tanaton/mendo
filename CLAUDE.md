@@ -13,6 +13,7 @@ Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
 - **ダイアグラム**: pele + QuickJS-ng (`third_party/pele/`)
 - **数式**: KaTeX + QuickJS-ng (`third_party/katex/`)
+- **ハッシュ**: rapidhash (`third_party/rapidhash/`)
 - **テスト**: Google Test v1.18.0
 - **ベンチマーク**: Google Benchmark v1.10.0 (`bench/`、`-DMENDO_BUILD_BENCHMARKS=ON` のときだけ)
 - **ビルド**: CMake 4.2+ (Visual Studio 2026)

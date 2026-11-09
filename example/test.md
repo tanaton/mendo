@@ -1610,7 +1610,7 @@ public:
 
 `ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図は呼び出しごとの `changed` に積み、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果は描画命令かエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持つ。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。結果は描画命令かエラーの `DiagramResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持つ。
 
 図はブラウザを使わずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、描画命令（`DiagramDrawing`）にする。結果は `Job` 経路で UI に戻り、描画命令の UTF-8（`SerializeDrawing`）をディスクキャッシュに置く。`<foreignObject>` のように描画命令にできない要素を含む図は描かず、`DiagramError::Kind::Unsupported`（「この図は描画できません」）にする。今の pele は数式を描けたラベルを `<svg class="pele-math">`、描けなかったラベルを TeX の文字で書き、画像は `images: false` で出させないので、mermaid の文書の例と本書の図（575 図）でこのエラーになる図は無い。
 
@@ -2924,7 +2924,6 @@ classDiagram
         +ComPtr~ID2D1CommandList~ commands
         +shared_ptr~DiagramDrawing~ drawing
         +DiagramError error
-        +uint64_t code_hash
         +bool stale
     }
 
@@ -2940,7 +2939,7 @@ classDiagram
 
 `TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。`MeasureTable` はローカルに組み、全セルを測って幾何を確定（`FinalizeTableLayout` の `CommitGeometry`）してから `NodeLayoutEntry::set_table_layout` で置くので、`table_layout()` があれば描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）は揃っている。幅も合っているかは `GeometryValidAt` で分かる。幅が変わっても組み直すまでは前の幅の幾何のまま残り（見えている表は描く前に組み直す）、推定が `entry.height` だけを伸ばしても、同じ幅の早道は幾何の高さ（`TotalHeight`）で確定し直す。`table_layout()` の無いテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows` が呼ぶ `TableLayoutData::EvictRowsOutside`）はセルレイアウトが生存しうる行範囲 `live_rows_`（`IndexRange`。ノードの `text_layout` の `live_nodes_` も同じ型）のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。evict 済みの行の印（`row_evicted_`）・その数・生存範囲は互いに揃っている必要があるので private にし、`TableLayoutData` のメンバ（`EvictRowsOutside` / `MarkRowRestored` / `MarkAllRowsEvicted`）だけが書き換える。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
-`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。図は `bitmap` を持たず、`commands`（描画命令を記録したコマンドリスト）を描き、`drawing`（描画命令）をクリップボードコピー・保存と拡大表示に使う。`error`（`DiagramError`。失敗の種類と、pele が返した文言）は描画失敗の理由で、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索・選択のハイライトの矩形はキャッシュせず、可視範囲の前後の行にかかる分を毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
+`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。図は `bitmap` を持たず、`commands`（描画命令を記録したコマンドリスト）を描き、`drawing`（描画命令）をクリップボードコピー・保存と拡大表示に使う。`error`（`DiagramError`。失敗の種類と、pele が返した文言）は描画失敗の理由で、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索・選択のハイライトの矩形はキャッシュせず、可視範囲の前後の行にかかる分を毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
 
 ### 4.3 Document
 
@@ -3290,7 +3289,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_command_generator_highlight.cpp` | CommandGenerator ハイライト描画 |
 | `test_transposition_cache.cpp` | TranspositionCache |
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
-| `test_utility.cpp` | ユーティリティ関数（`utility.h`、FNV-1a ハッシュを含む） |
+| `test_utility.cpp` | ユーティリティ関数（`utility.h`、rapidhash のハッシュを含む） |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator（起動時の先行読み込みと `Attach` を含む） |
 | `test_parallel_measure.cpp` | 並列計測と `ProcessDirtyBatch` のダーティバッチ計測（期限・クリップ・計測失敗の再試行） |
 | `test_clipboard_manager.cpp` | ClipboardManager |
@@ -3541,7 +3540,7 @@ src/
 │   └── search_state.h / .cpp      # SearchState
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
     ├── app_constants.h            # タイマーID / WM_APP+N 定義
-    ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / FNV-1a / ByteBuffer / overloaded)
+    ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / rapidhash / ByteBuffer / overloaded)
     ├── win32_util.h               # Win32 小物 (IsKeyDown / LoadRcData / BindWindowInstance / LogHrFailure)
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
     ├── utf8_codec.h               # UTF-8 低レベルコーデック

@@ -97,6 +97,7 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | Mermaidダイアグラム | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 数学記法 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| ハッシュ | [rapidhash](https://github.com/Nicoshev/rapidhash) |
 | テスト | Google Test v1.18.0 |
 | ベンチマーク | Google Benchmark v1.10.0 |
 | ビルド | CMake 4.2+ |

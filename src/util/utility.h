@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include <rapidhash.h>
+
 // 確保した後で書き込んで埋めるバイト列 (ファイルの読み込みなど)。std::vector と違い確保時に 0 で埋めない。
 // 埋める分は読み込みの 2 割弱にあたる (温まったキャッシュから 50MB を読んで約 2.5ms / 15ms)。
 class ByteBuffer {
@@ -60,34 +62,29 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-inline constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
-inline constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
-// 2^64 / 黄金比。ハッシュに別の値を混ぜる定数。ディスクキャッシュのキーに入るので変えない。
+// 2^64 / 黄金比。ハッシュに別の値を混ぜる定数。ディスクキャッシュのキーに入るので、変えたら MermaidFileCache::VERSION を上げる。
 inline constexpr std::uint64_t kGoldenRatio64 = 0x9E3779B97F4A7C15ULL;
 
-// 短い文字列に対して衝突分布が良好な 64bit ハッシュ。
-// N=10^4 規模で衝突確率 ~10^-12 と実質ゼロ。
-constexpr std::uint64_t Fnv1a64(std::string_view sv) noexcept
+// 表のセルの代表探しで数十バイトの文字列を大量に引くので、1 バイトずつ掛け算が連なる FNV-1a は使わない。
+// 値は図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる。rapidhash.h を替えて値が変わったら
+// MermaidFileCache::VERSION を上げる (ロックは旧版と同時に動く間だけ互いを排他しない)。
+inline std::uint64_t RapidHash(std::string_view sv) noexcept
 {
-    std::uint64_t h = kFnv1a64OffsetBasis;
-    for (const char c : sv) {
-        h = (h ^ static_cast<unsigned char>(c)) * kFnv1a64Prime;
-    }
-    return h;
+    return rapidhash(sv.data(), sv.size());
 }
 // UTF-16 のバイト列のハッシュ (パスのキーなど)。
-inline std::uint64_t Fnv1a64(std::wstring_view sv) noexcept
+inline std::uint64_t RapidHash(std::wstring_view sv) noexcept
 {
-    return Fnv1a64(std::string_view{ reinterpret_cast<const char*>(sv.data()), sv.size() * sizeof(wchar_t) });
+    return rapidhash(sv.data(), sv.size() * sizeof(wchar_t));
 }
 
 // 文字列キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
-// std::equal_to<> と組み合わせて使う。
+// std::equal_to<> と組み合わせて使う。MSVC の std::hash は FNV-1a なので使わない。
 struct StringTransparentHash {
     using is_transparent = void;
     static size_t operator()(std::string_view sv) noexcept
     {
-        return std::hash<std::string_view>{}(sv);
+        return RapidHash(sv);
     }
 };
 

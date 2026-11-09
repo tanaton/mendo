@@ -84,10 +84,7 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
     const auto& nodes = state_.document.doc.GetNodes();
     bool any_applied = false;
     for (size_t i : VisibleSlice(state_.document.doc.GetDiagramNodeIndices(), range)) {
-        // 結果を残しているエントリ (仮表示で引き継いだ図など) にはハッシュも残し、RequestRender に計算し直させない。
-        auto* const diagram = state_.document.layout_cache.FindDiagram(i);
-        const uint64_t code_hash = diagram ? mermaid_util::EnsureDiagramCodeHash(diagram->code_hash, nodes[i])
-                                           : mermaid_util::DiagramCodeHash(nodes[i]);
+        const uint64_t code_hash = mermaid_util::DiagramCodeHash(nodes[i]);
         if (const auto hit = mermaid_file_cache_.Find(mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode),
                                                       mermaid_util::DiagramRequestHash(code_hash, content_width, dark_mode),
                                                       content_width, /*touch=*/false)) {

@@ -127,7 +127,7 @@ struct ParseContext : NodeStorage {
     // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
     static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::unordered_map<std::string_view, int16_t> link_url_lookup;
+    std::unordered_map<std::string_view, int16_t, StringTransparentHash> link_url_lookup;
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;

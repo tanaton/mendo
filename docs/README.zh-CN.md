@@ -97,6 +97,7 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 | Markdown 解析器 | [md4c](https://github.com/mity/md4c)（SAX 式回调） |
 | Mermaid 图表 | [pele](https://pele.run/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
 | 数学公式 | [KaTeX](https://katex.org/) + [QuickJS-ng](https://github.com/quickjs-ng/quickjs) |
+| 哈希 | [rapidhash](https://github.com/Nicoshev/rapidhash) |
 | 测试 | Google Test v1.18.0 |
 | 基准测试 | Google Benchmark v1.10.0 |
 | 构建 | CMake 4.2+ |

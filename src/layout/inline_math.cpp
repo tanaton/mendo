@@ -20,7 +20,7 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
 {
     // 1/8 DIP 単位に丸め、浮動小数の誤差で同じ大きさが別のキーにならないようにする。
     const auto size_term = static_cast<uint64_t>(std::lround(font_size * 8.0f));
-    return Fnv1a64(tex) ^ (size_term * kGoldenRatio64);
+    return RapidHash(tex) ^ (size_term * kGoldenRatio64);
 }
 
 float MathFontSize(const Theme& theme, const Node& node) noexcept
@@ -35,8 +35,7 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
 
 void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
 {
-    constexpr uint64_t kChunkKeySalt = 0xA54FF53A5F1D36F1ULL;
-
+    ++generation_;
     chunks_.clear();
     chunk_of_.Clear();
     InlineMathChunk current;
@@ -44,9 +43,6 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
         if (current.items.empty()) {
             return;
         }
-        current.key = std::ranges::fold_left(current.items, kChunkKeySalt, [](uint64_t key, const auto& item) static noexcept {
-            return (key ^ item.key) * kFnv1a64Prime;
-        });
         chunks_.push_back(std::move(current));
         current = {};
     };
@@ -93,10 +89,9 @@ const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk) noexcept
     return std::exchange(c.requested, true) ? nullptr : &c;
 }
 
-void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key) noexcept
+void InlineMathPlan::FinishChunk(size_t chunk, uint64_t generation) noexcept
 {
-    // 計画を作り直す前に頼んだ組は、番号と key が合わない。
-    if (chunk < chunks_.size() && chunks_[chunk].key == key) {
+    if (generation == generation_) {
         chunks_[chunk].requested = false;
     }
 }
@@ -269,7 +264,7 @@ std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* objec
 
 uint64_t InlineImageKey(std::string_view src) noexcept
 {
-    return Fnv1a64(src);
+    return RapidHash(src);
 }
 
 InlineImageEntry InlineImageTable::Find(uint64_t key)
