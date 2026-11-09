@@ -1159,14 +1159,15 @@ public:
 private:
     void AcquireFrame() noexcept;
     void Present() noexcept;
-    bool device_lost_ = false;
+    RenderDeviceState device_;   // NoDevice / Ready{frame_acquired} / Lost
 };
 ```
 
 - **デバイス作成**: D3D デバイスの作成（数十 ms）は `PrefetchD3DDevice` で wWinMain の冒頭から起動処理と重ね、`Renderer::CreateDevice` で受け取る。作り直しに失敗している間はロスト扱いのままにする。
+- **デバイスとフレームの段階**: `RenderDeviceState` が `NoDevice`（作る前）/ `Ready`（描ける。`frame_acquired` を持つ）/ `Lost`（作り直す）の variant で持ち、`EndDraw` と `Present` の HRESULT から遷移を決める（`OnEndDraw` / `OnPresent`）。D3D に触らないので、デバイスのロストを起こさずに遷移をテストする（`test_render_device_state.cpp`）。
 - **フレーム待ち**: Frame Latency Waitable Object のシグナルで次のフレームを描いてよいかを判断する。メッセージループが `FrameWaitHandle` を待って `MarkFrameAcquired` で記録し、取れていなければ `Renderer::Render` がコマンドを組み立てた後、`BeginDraw` の前の `AcquireFrame` で最大 `kFrameWaitTimeoutMs`（1 秒）待つ。取れたら Present するまで取れた扱いのままにし、表示されなかったフレームの後で待ち直さない。
 - **リサイズ**: ライブリサイズ中（`live`）は `ResizeBuffers` をせず、モニタ全体の大きさのバッファを使い回して表示範囲（source size）だけを変える。
-- **デバイスロスト**: `EndDraw` が `D2DERR_RECREATE_TARGET` を返したときと、`Present` が `DXGI_ERROR_DEVICE_REMOVED` / `RESET` / `HUNG` / `DRIVER_INTERNAL_ERROR` を返したときに `device_lost_` が立ち、次フレーム冒頭の `BeginFrame` が `CreateDevice` で作り直す。作り直しの経路はここ 1 か所だけ。
+- **デバイスロスト**: `EndDraw` が `D2DERR_RECREATE_TARGET` を返したときと、`Present` が `DXGI_ERROR_DEVICE_REMOVED` / `RESET` / `HUNG` / `DRIVER_INTERNAL_ERROR` を返したときに `Lost` になり、次フレーム冒頭の `Render` が `CreateDevice` で作り直す。作り直しの経路はここ 1 か所だけ。
 - **最小化**: `Renderer::TrimForMinimize` が D2D の内部キャッシュとドライバ側の一時確保を手放す。
 - **別のアプリへの切り替え**: `WM_ACTIVATEAPP` で `App::OnActivateApp` が使っていない QuickJS のランタイムを捨て、`TRIM_WORKING_SET_DELAY_MS`（1 秒）後に `EmptyWorkingSet` でワーキングセットを空にする（読み込み中は終わるまで待つ）。空の文書のプライベートワーキングセット 20MB のうち約 15MB は、D3D11CreateDevice でドライバが一度触ったきりのページ（AMD）。非アクティブの間は 0.1MB 前後になり、戻ってスクロールしても数 MB しか戻らない。commit は変わらず、外したページはメモリに余裕があれば変更リストに残る。自分のポップアップや図の拡大表示への切り替えは同じ UI スレッドなので `WM_ACTIVATEAPP` が来ない。
 
@@ -1627,9 +1628,9 @@ KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどな�
 
 `PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（1 つ約 3MB）。pele と KaTeX はビルドの時に QuickJS のバイトコードにして exe に埋め込み（`js_compile`。実行時にコンパイルすると最初の図で約 65ms、最初の数式で約 20ms かかっていた）、各ランタイムはそれを読む（約 5ms）。ワーカーは既定の 1MB のスタックで動くので、JS のスタックの上限は 512KB にする。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpRenders`）、配置の重い図が画像のデコードやディスクキャッシュの読み込みを待たせないようにする。使っていないランタイムは、最後に描き終えてから `PELE_TRIM_MS`（10 秒）か、別のアプリへ切り替わった時点で捨てる（`app_timer::Id::PELE_TRIM` / `App::OnActivateApp` → `TrimIdleRuntimes`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。切り替えた時点で捨てるのは、ランタイムを捨てると全オブジェクトをたどり、ヒープも遅れて decommit するので、ワーキングセットを空にした後だと外したページを触り直させるため。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（WebView2 で描いていた頃との比較。3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
-`mendo_core` には `IMermaidRenderer` 抽象のみが入り、埋め込みリソース（pele・KaTeX・書体）を読む具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。
+`MermaidRenderer` は `mendo_core` に入る。埋め込みリソース（pele・KaTeX・書体）から `PeleEngine` を作るのは `Init` に渡す `PeleFactory` で、本番は `CreateBundledPele` を、テストはビルドで作ったバイトコードから作る（テストの exe はリソースを持たない）。`ResourceManager` と `ClipboardManager` は `IMermaidRenderer` 越しに使い、テストでは mock を渡す。
 
-描画とディスクキャッシュの読み込みは UI スレッドで行わない。どちらも `Job` 経路に流し、バックグラウンド `TaskScheduler` で描画命令を作るか、ファイルを読んで解析する。完了は `app_msg::MERMAID_JOB_DONE` で通知され、UI スレッドの `ProcessJobResults` が描画命令をコマンドリストに記録してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverJobResults` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。描いた直後の描画命令はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・解析できなかった図は描き直し、描いた直後の図が記録できなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の結果はディスクへ保存したいので取り消さない。
+描画とディスクキャッシュの読み込みは UI スレッドで行わない。どちらも `Job` 経路に流し、バックグラウンド `TaskScheduler` で描画命令を作るか、ファイルを読んで解析する。`Job` は仕事の種類（`JobWork`: pele で描く `Render`・ディスクキャッシュを読む `DiskLoad`・本文の描画命令から SVG を作る `SvgFromDrawing`）と、結果（`JobOutcome` の variant: 返しただけの `JobDropped`・描画命令の `JobDrawing`・描けなかった `JobFailed`・読めなかった `JobUnreadable`・`JobSvg`・`JobMaths`）を持つ。同時に描く数の枠を使うのは `Render` だけ。完了は `app_msg::MERMAID_JOB_DONE` で通知され、UI スレッドの `ProcessJobResults` が描画命令をコマンドリストに記録してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverJobResults` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。描いた直後の描画命令はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・解析できなかった図は描き直し、描いた直後の図が記録できなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `Shutdown` で世代（`drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の結果はディスクへ保存したいので取り消さない。
 
 #### 3.12.3 MermaidFileCache — 永続キャッシュ
 
@@ -3068,7 +3069,7 @@ flowchart TD
     WIN --> PCHK{document_path<br>あり？}
     PCHK -->|Yes| PRELOAD[StartPreloadAsync<br>共有 scheduler で読み込み + パース + 推定]
     PCHK -->|No| PREP
-    PRELOAD --> PREP[restore_scroll か restore_scroll_if_same_file で同一ファイルなら<br>RestoreScrollPosition + SetInitialDirectory]
+    PRELOAD --> PREP[scroll が Restore か、RestoreIfSameFile で同一ファイルなら RestoreScrollPosition<br>Anchor なら SetInitialAnchor + SetInitialDirectory]
     PREP --> CREATE[Win32Window::Create]
 
     CREATE --> REG[RegisterClassExW]
@@ -3097,7 +3098,7 @@ flowchart TD
     EXIT --> END[終了]
 ```
 
-`DecideStartupPlan` は、ファイル引数ならそのファイル、フォルダ引数・引数なしなら前回ファイルを `document_path` にし、実在しないパスの引数では前回ファイルを復元せずヘルプを出す。ファイルペインのフォルダは、ファイル引数ならその親、フォルダ引数ならそのフォルダ、それ以外は cwd（cwd がシステムフォルダや exe のフォルダなら前回ファイルのフォルダ）にする。ファイル引数が前回ファイルと同じ表記（大文字小文字は区別しない）ならスクロール位置を復元する（`restore_scroll`）。表記が違えば `restore_scroll_if_same_file` を立て、2 ファイルを開く `std::filesystem::equivalent` での確認はプリロードを始めた後に `wWinMain` が行う。描画デバイスの作成（`CreateRenderDevice`）は起動時の読み込みの取り込みより後に置き、デバイスを待つ間に終わった読み込みや画像デコードは最初のフレームに入れる。ファイルペインの列挙完了とインライン数式の描画の依頼もデバイスに依存しないので、デバイスの作成を待つ前に取り込む（`Win32Window::TakeStartupMessages`）。
+`DecideStartupPlan` は、ファイル引数ならそのファイル、フォルダ引数・引数なしなら前回ファイルを `document_path` にし、実在しないパスの引数では前回ファイルを復元せずヘルプを出す。ファイルペインのフォルダは、ファイル引数ならその親、フォルダ引数ならそのフォルダ、それ以外は cwd（cwd がシステムフォルダや exe のフォルダなら前回ファイルのフォルダ）にする。開いた文書でのスクロールは `StartupPlan::scroll`（`None` / `Restore` / `RestoreIfSameFile` / `Anchor` の variant）で決める。ファイル引数に `--anchor` があればその見出しへ飛び（`Anchor`）、前回ファイルと同じ表記（大文字小文字は区別しない）ならスクロール位置を復元する（`Restore`）。表記が違えば同一ファイルかもしれないので `RestoreIfSameFile` にし、2 ファイルを開く `std::filesystem::equivalent` での確認はプリロードを始めた後に `wWinMain` が行う。描画デバイスの作成（`CreateRenderDevice`）は起動時の読み込みの取り込みより後に置き、デバイスを待つ間に終わった読み込みや画像デコードは最初のフレームに入れる。ファイルペインの列挙完了とインライン数式の描画の依頼もデバイスに依存しないので、デバイスの作成を待つ前に取り込む（`Win32Window::TakeStartupMessages`）。
 
 ### 5.2 ファイル読み込みから描画まで
 
@@ -3212,7 +3213,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |
 
-`mendo_core` には **DirectWrite / 図の描画の抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（埋め込みリソースを読む）と `Renderer`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
+`mendo_core` には **DirectWrite / 図の描画の抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`Renderer`（Direct2D）と `App` / `Win32Window` は `mendo` 実行ファイル側に置く。`MermaidRenderer` は `mendo_core` に入り、pele をテストから差し込む（`PeleFactory`）。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
 
 ### 6.4 pele と KaTeX の埋め込み
 
@@ -3255,7 +3256,7 @@ pie title テストカバレッジ（ファイル数ベース）
     "UIコード（テスト対象外）" : 13
 ```
 
-> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `mermaid/mermaid.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / 埋め込みリソース依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
+> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D 依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
 
 ### 7.3 テストソース一覧（抜粋）
 
@@ -3296,6 +3297,8 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_help.cpp` | ヘルプドキュメント |
 | `test_mermaid_util.cpp` | Mermaidユーティリティ |
 | `test_mermaid_file_cache.cpp` | MermaidFileCache |
+| `test_render_device_state.cpp` | RenderDeviceState（描画デバイスとフレームの段階） |
+| `test_mermaid_renderer.cpp` | MermaidRenderer（pele で描く・ディスクキャッシュ・取り消し・同時に描く数の枠） |
 | `test_app_controller.cpp` | app_controller |
 | `test_reducer.cpp` | Reducer |
 | `test_resource_manager.cpp` | ResourceManager |
@@ -4943,7 +4946,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 26 | SwipeDetector | swipe_detector.h | mendo_core | あり |
 | 27 | hit_test | hit_test_service.h/cpp | mendo_core | あり |
 | 28 | ConfigService + session:: | config_service.h/cpp | mendo_core | あり |
-| 29 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
+| 29 | MermaidRenderer | mermaid.h/cpp | mendo_core | あり |
 | 30 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
 | 31 | TitleBar | titlebar.h/cpp | mendo_core | あり |
 | 32 | ContextMenu | context_menu.h/cpp | mendo_core | あり |

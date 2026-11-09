@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "diagram_raster.h"
-#include "example_files.h"
 #include "mermaid_util.h"
 #include "pele_engine.h"
+#include "pele_test_assets.h"
 #include "string_convert.h"
 #include "test_helpers.h"
 #include "wic_util.h"
@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -33,17 +32,8 @@ protected:
     static void SetUpTestSuite()
     {
         ComApartmentTest::SetUpTestSuite();
-        const std::filesystem::path third_party(MENDO_THIRD_PARTY_DIR);
-        const std::filesystem::path bytecode(MENDO_JS_BYTECODE_DIR);
-        pele_ = ReadFileBytes(bytecode / "pele.qbc");
-        katex_ = ReadFileBytes(bytecode / "katex.qbc");
-        ASSERT_FALSE(pele_.empty());
-        ASSERT_FALSE(katex_.empty());
-        fonts_.clear();
-        for (const auto name : kKatexFontFiles) {
-            fonts_.push_back(ReadFileBytes(third_party / "katex" / "fonts" / (std::wstring{ name } + L".woff2")));
-            ASSERT_FALSE(fonts_.back().empty());
-        }
+        assets_ = PeleTestAssets::Load();
+        ASSERT_TRUE(assets_.ok());
         ASSERT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw_.GetAddressOf())));
         engine_ = NewEngine();
     }
@@ -55,11 +45,7 @@ protected:
     }
     static std::unique_ptr<PeleEngine> NewEngine()
     {
-        std::vector<std::span<const std::byte>> fonts;
-        for (const auto& f : fonts_) {
-            fonts.push_back(std::as_bytes(std::span{ f }));
-        }
-        return std::make_unique<PeleEngine>(std::as_bytes(std::span{ pele_ }), std::as_bytes(std::span{ katex_ }), std::move(fonts), dw_.Get(), L"ja-jp");
+        return assets_.NewEngine(dw_.Get());
     }
     static std::shared_ptr<const MathDrawing> Math(std::string_view tex)
     {
@@ -83,9 +69,7 @@ protected:
         return out;
     }
 
-    static inline std::string pele_;
-    static inline std::string katex_;
-    static inline std::vector<std::string> fonts_;
+    static inline PeleTestAssets assets_;
     static inline Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     static inline std::unique_ptr<PeleEngine> engine_;
 };

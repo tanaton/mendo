@@ -38,6 +38,7 @@
 #include "mock_text_measurer.h"
 #include "parsed_layout.h"
 #include "pele_engine.h"
+#include "pele_test_assets.h"
 #include "render_params.h"
 #include "reducer_harness.h"
 #include "task_scheduler.h"
@@ -1167,15 +1168,12 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
         state.SkipWithError("D3D device init failed");
         return;
     }
-    const std::filesystem::path bytecode(MENDO_JS_BYTECODE_DIR);
-    const std::filesystem::path third_party(MENDO_THIRD_PARTY_DIR);
-    const std::string pele = ReadFileBytes(bytecode / "pele.qbc");
-    const std::string katex = ReadFileBytes(bytecode / "katex.qbc");
-    const auto font_bytes = kKatexFontFiles | std::views::transform([&](std::wstring_view name) {
-        return ReadFileBytes(third_party / "katex" / "fonts" / (std::wstring{ name } + L".woff2"));
-    }) | std::ranges::to<std::vector>();
-    auto fonts = font_bytes | std::views::transform([](const std::string& f) { return std::as_bytes(std::span{ f }); }) | std::ranges::to<std::vector>();
-    PeleEngine engine(std::as_bytes(std::span{ pele }), std::as_bytes(std::span{ katex }), std::move(fonts), l.factory.Get(), L"ja-jp");
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok()) {
+        state.SkipWithError("pele bytecode or KaTeX fonts not found");
+        return;
+    }
+    const auto engine = assets.NewEngine(l.factory.Get());
     InlineMathPlan plan;
     plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
     InlineMathTable table;
@@ -1185,7 +1183,7 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
         table.MarkRequested(chunk.items);
-        auto results = engine.RenderMaths(sources);
+        auto results = engine->RenderMaths(sources);
         for (auto&& [item, drawing] : std::views::zip(chunk.items, results)) {
             if (drawing) {
                 table.Resolve(item.key, { drawing->width, drawing->height + drawing->depth, drawing->height });

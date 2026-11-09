@@ -380,6 +380,9 @@ void On(ReduceContext& c, const TocItemClickedAction& a)
     PushCurrentNavEntry(c.state);
     ScrollToHeading(c.state, a.node_index);
     c.state.view.keep_toc_pane_once = true;
+    // スクロールが動かなくても描き直し、印をこのクリックの描画で消費させる。残すと、後のキー操作のスクロールで目次が
+    // 追従しない。
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const NavigateAnchorAction& a)
@@ -1187,10 +1190,17 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
     const float old_scroll = state.view.viewport.GetScrollY();
     const bool had_capture = CaptureRequired(state);
+    const auto nav_buttons = [&history = state.view.nav_history] { return std::pair{ history.CanGoBack(), history.CanGoForward() }; };
+    const auto old_nav_buttons = nav_buttons();
 
     std::visit([&](const auto& a) { On(c, a); }, action);
     if (c.emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
         EmitScrollChangedSideEffects(c);
+    }
+    // 戻る・進むのボタンは履歴から決まる。スクロールせずに履歴だけが変わる操作 (表示中の見出しへのアンカー・同じ位置への戻る)
+    // でも描き直す。
+    if (nav_buttons() != old_nav_buttons) {
+        Invalidate(c);
     }
     // 描き直しとキャプチャの変更は、モーダルの副作用 (メニュー・ファイルを開くダイアログ) より先に済ませるよう先頭に積む。
     // 描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った。

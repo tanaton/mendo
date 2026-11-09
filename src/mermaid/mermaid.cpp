@@ -47,7 +47,7 @@ void MermaidRenderer::Shutdown()
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
-                           std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
+                           PeleFactory make_pele, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
 {
     hwnd_ = hwnd;
     file_cache_ = &file_cache;
@@ -55,6 +55,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic
     wic_factory_ = wic;
     dw_factory_ = dw;
     bg_scheduler_ = &bg_scheduler;
+    make_pele_ = std::move(make_pele);
     on_update_ = std::move(on_update);
     on_viewer_failed_ = std::move(on_viewer_failed);
 }
@@ -116,10 +117,11 @@ void MermaidRenderer::DropQueued()
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
     // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。SVG と拡大表示の要求は頼み直す仕組みが無いので残す。
     std::erase_if(render_waiting_, [this](const RenderRequest& r) {
-        if (r.kind() != RequestKind::Display) {
+        const auto* display = std::get_if<DisplayTarget>(&r.target);
+        if (!display) {
             return false;
         }
-        inflight_.erase(r.request_hash);
+        inflight_.erase(display->request_hash);
         return true;
     });
 }
@@ -146,16 +148,15 @@ bool MermaidRenderer::RequestRender(
         return false;
     }
 
+    const auto hit = file_cache_->Find(width_free_hash, hash, max_width, /*touch=*/true);
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
         .code = std::string{ node.GetText() },
         .max_width = max_width,
         .dark_mode = dark_mode,
-        .request_hash = hash,
-        .width_free_hash = width_free_hash,
+        .target = DisplayTarget{ .request_hash = hash, .width_free_hash = width_free_hash, .width_free = hit && hit->key == width_free_hash },
     };
-    if (const auto hit = file_cache_->Find(width_free_hash, hash, max_width, /*touch=*/true)) {
-        req.width_free = hit->key == width_free_hash;
+    if (hit) {
         StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
         return false;
     }
@@ -169,10 +170,8 @@ void MermaidRenderer::PostJob(Job job, Work work)
     bg_scheduler_->Post([this, job = std::move(job), work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式・SVG・拡大表示は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        job.dropped = job.req.kind() == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
-        if (!job.dropped) {
-            work(job);
-        }
+        const bool dropped = job.req.kind() == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
+        job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
         }
@@ -184,20 +183,23 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path pat
     // 描画命令の図のラベルの数式を組み直すのに使う。
     EnsurePele();
     // ファイル読み込みと解析は worker で行う (UI では時間予算なしに積み上がる)。
-    PostJob(Job{ .req = std::move(req) }, [this, path = std::move(path)](Job& job) { LoadDiskJob(job, path); });
+    PostJob(Job{ .req = std::move(req), .work = JobWork::DiskLoad }, [this, path = std::move(path)](Job& job) { return LoadDiskJob(job, path); });
 }
 
-void MermaidRenderer::LoadDiskJob(Job& job, const std::filesystem::path& path)
+MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::filesystem::path& path)
 {
-    const auto data = ReadAllBytes(path.c_str(), &job.read_error);
+    DWORD read_error = 0;
+    const auto data = ReadAllBytes(path.c_str(), &read_error);
     if (data.empty()) {
-        return;
+        return JobUnreadable{ read_error };
+    }
+    auto drawing = mermaid_util::ParseDrawing(string_convert::Utf8ToWide({ reinterpret_cast<const char*>(data.data()), data.size() }));
+    if (!drawing) {
+        return JobUnreadable{};
     }
     // 描画命令のラベルの数式は TeX だけを置いてあるので組み直す。
-    if (auto drawing = mermaid_util::ParseDrawing(string_convert::Utf8ToWide({ reinterpret_cast<const char*>(data.data()), data.size() }))) {
-        job.used_pele = pele_->ResolveMaths(*drawing);
-        job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing));
-    }
+    job.used_pele = pele_->ResolveMaths(*drawing);
+    return JobDrawing{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
 }
 
 Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing)
@@ -222,10 +224,12 @@ void MermaidRenderer::ApplyMathResult(Job& r)
     if (!cb) {
         return;
     }
+    // 数式は取り消さず (drop_gen_ は表示用だけ)、終了で取り消した数式も null で返る。
+    auto& drawings = std::get<JobMaths>(r.outcome).drawings;
     InlineMathBatchResult result;
     result.items.reserve(math.items.size());
     for (size_t i = 0; i < math.items.size(); ++i) {
-        auto& item = result.items.emplace_back(InlineMathBatchResult::Item{ .key = math.items[i].key, .drawing = std::move(r.maths[i]) });
+        auto& item = result.items.emplace_back(InlineMathBatchResult::Item{ .key = math.items[i].key, .drawing = std::move(drawings[i]) });
         if (const auto& d = item.drawing; d && d->width > 0.0f) {
             item.metrics = { d->width, d->height + d->depth, d->height };
         }
@@ -244,47 +248,77 @@ bool MermaidRenderer::ApplyJobResult(Job& r)
         ApplyMathResult(r);
         return false;
     case RequestKind::View:
-        if (auto& callback = std::get<ViewCallback>(r.req.target); callback && !r.dropped) {
-            std::exchange(callback, {})(std::move(r.parsed));
+        // 取り消したのは終了のときだけで、結果を待つ窓はもう無い。
+        if (auto& callback = std::get<ViewCallback>(r.req.target); callback && !std::holds_alternative<JobDropped>(r.outcome)) {
+            auto* drawn = std::get_if<JobDrawing>(&r.outcome);
+            std::exchange(callback, {})(drawn ? std::move(drawn->drawing) : nullptr);
         }
         return false;
     case RequestKind::Svg:
         if (auto& callback = std::get<SvgCallback>(r.req.target)) {
-            std::exchange(callback, {})(r.svg);
+            const auto* svg = std::get_if<JobSvg>(&r.outcome);
+            std::exchange(callback, {})(svg ? std::string_view{ svg->svg } : std::string_view{});
         }
         return false;
     case RequestKind::Display:
-        break;
+        return ApplyDisplayResult(r);
     }
-    // 取り消してから戻るまでに来た同じ要求は inflight_ で断っているので、要求し直させる。
-    if (r.dropped) {
-        inflight_.erase(r.req.request_hash);
-        return true;
-    }
-    if (r.parsed) {
-        DiagramResult result{ .commands = RecordDrawing(*r.parsed), .width = r.parsed->width, .height = r.parsed->height };
-        if (result.commands) {
-            if (r.rendered) {
-                r.req.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
-                file_cache_->StoreAsync(r.req.CacheKey(), result.width, result.height, std::move(r.bytes));
-            }
-            result.drawing = std::move(r.parsed);
-            InsertCache(r.req.CacheKey(), std::move(result));
-            inflight_.erase(r.req.request_hash);
+    std::unreachable();
+}
+
+bool MermaidRenderer::SettleDisplayError(const DisplayTarget& display, const DiagramError& error)
+{
+    SetDiagramError(display.request_hash, error.kind, error.message);
+    inflight_.erase(display.request_hash);
+    return true;
+}
+
+bool MermaidRenderer::ApplyDisplayResult(Job& r)
+{
+    const bool rendered = r.work == JobWork::Render;
+    // r.req の中を指すので、r.req を StartRender に渡した後は使わない。
+    auto& display = std::get<DisplayTarget>(r.req.target);
+    // clang-format off
+    return std::visit(overloaded{
+        // 取り消してから戻るまでに来た同じ要求は inflight_ で断っているので、要求し直させる。
+        [&](JobDropped&) {
+            inflight_.erase(display.request_hash);
             return true;
-        }
-    }
-    // 描いたばかりの図は描き直しても同じ結果になるので、エラーを確定させて再要求させない。
-    if (r.rendered) {
-        SetDiagramError(r.req.request_hash, r.error.empty() ? DiagramError::Kind::Render : r.error.kind, r.error.message);
-        inflight_.erase(r.req.request_hash);
-        return true;
-    }
-    if (r.read_error) {
-        file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
-    }
-    StartRender(std::move(r.req));
-    return false;
+        },
+        [&](JobDrawing& d) {
+            DiagramResult result{ .commands = RecordDrawing(*d.drawing), .width = d.drawing->width, .height = d.drawing->height };
+            if (!result.commands) {
+                // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。
+                if (rendered) {
+                    return SettleDisplayError(display, { DiagramError::Kind::Render });
+                }
+                StartRender(std::move(r.req));
+                return false;
+            }
+            if (rendered) {
+                display.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
+                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes));
+            }
+            result.drawing = std::move(d.drawing);
+            InsertCache(display.CacheKey(), std::move(result));
+            inflight_.erase(display.request_hash);
+            return true;
+        },
+        [&](const JobFailed& f) {
+            return SettleDisplayError(display, f.error);
+        },
+        [&](const JobUnreadable& u) {
+            if (u.read_error) {
+                file_cache_->OnReadFailed(display.CacheKey(), u.read_error);
+            }
+            StartRender(std::move(r.req));
+            return false;
+        },
+        // 表示用の要求には来ない。
+        [](const JobSvg&) -> bool { std::unreachable(); },
+        [](const JobMaths&) -> bool { std::unreachable(); },
+    }, r.outcome);
+    // clang-format on
 }
 
 void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point deadline)
@@ -298,7 +332,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     bool render_done = false;
     bool used_pele = false;
     job_results_.Drain(deadline, [&](Job& r) {
-        if (r.rendered) {
+        if (r.work == JobWork::Render) {
             --renders_running_;
             render_done = true;
         }
@@ -317,14 +351,18 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     }
 }
 
-void MermaidRenderer::EnsurePele()
+std::unique_ptr<PeleEngine> MermaidRenderer::CreateBundledPele(IDWriteFactory* dw)
 {
-    if (pele_) {
-        return;
-    }
     auto fonts = std::views::iota(0u, static_cast<UINT>(std::size(kKatexFontFiles))) |
                  std::views::transform([](UINT i) { return LoadRcData(IDR_KATEX_FONT_FIRST + i); }) | std::ranges::to<std::vector>();
-    pele_ = std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), dw_factory_.Get(), i18n::TextLocale());
+    return std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), dw, i18n::TextLocale());
+}
+
+void MermaidRenderer::EnsurePele()
+{
+    if (!pele_) {
+        pele_ = make_pele_(dw_factory_.Get());
+    }
 }
 
 void MermaidRenderer::StartRender(RenderRequest req)
@@ -341,13 +379,13 @@ void MermaidRenderer::PumpRenders()
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {
         ++renders_running_;
-        Job job{ .req = std::move(render_waiting_.front()), .rendered = true };
+        Job job{ .req = std::move(render_waiting_.front()), .work = JobWork::Render };
         render_waiting_.pop_front();
-        PostJob(std::move(job), [this](Job& j) { RenderJob(j); });
+        PostJob(std::move(job), [this](Job& j) { return RenderJob(j); });
     }
 }
 
-void MermaidRenderer::RenderJob(Job& job)
+MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
 {
     using Status = PeleOutcome::Status;
     job.used_pele = true;
@@ -355,33 +393,32 @@ void MermaidRenderer::RenderJob(Job& job)
         const auto sources = std::get<MathRequest>(job.req.target).items | std::views::transform([](const auto& item) static noexcept {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
-        job.maths = pele_->RenderMaths(sources);
-        return;
+        return JobMaths{ pele_->RenderMaths(sources) };
     }
     // 拡大表示とクリップボードは本文の幅に縮めない (pele の配置は本文と同じ幅で組む)。
     auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, job.req.kind() == RequestKind::Display);
     switch (out.status) {
     case Status::Cancelled:
-        job.dropped = true;
-        return;
+        return JobDropped{};
     case Status::Unsupported:
-        job.error = { DiagramError::Kind::Unsupported };
-        return;
+        return JobFailed{ .error = { DiagramError::Kind::Unsupported } };
     case Status::Error:
-        job.error = { DiagramError::Kind::Render, std::move(out.error) };
-        return;
+        return JobFailed{
+            .error = { .kind = DiagramError::Kind::Render, .message = std::move(out.error) }
+        };
     case Status::Drawn:
         break;
     }
     if (job.req.kind() == RequestKind::Svg) {
-        job.svg = DrawingToSvg(out.drawing);
-        return;
+        return JobSvg{ DrawingToSvg(out.drawing) };
     }
+    JobDrawing drawn;
     // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
     if (job.req.kind() == RequestKind::Display) {
-        job.bytes = mermaid_util::SerializeDrawing(out.drawing);
+        drawn.bytes = mermaid_util::SerializeDrawing(out.drawing);
     }
-    job.parsed = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
+    drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
+    return drawn;
 }
 
 // 数式のラベルも KaTeX で描かず元の文字のまま書く (Office や Inkscape は MathML を読めない)。
@@ -389,8 +426,8 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
 {
     // 本文の描画命令を使えるなら pele で描かないので、図の描画の待ちに並べない。
     if (auto drawing = FindWidthFreeDrawing(code, max_width, dark_mode)) {
-        PostJob(Job{ .req = { .target = std::move(callback) } },
-                [drawing = std::move(drawing)](Job& job) { job.svg = DrawingToSvg(*drawing); });
+        PostJob(Job{ .req = { .target = std::move(callback) }, .work = JobWork::SvgFromDrawing },
+                [drawing = std::move(drawing)](Job&) -> JobOutcome { return JobSvg{ DrawingToSvg(*drawing) }; });
         return;
     }
     StartRender(RenderRequest{

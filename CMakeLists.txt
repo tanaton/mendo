@@ -143,6 +143,7 @@ add_library(mendo_core STATIC
     src/io/image_loader.cpp
     src/io/file_watcher.cpp
     # mermaid - Mermaid図表サポート
+    src/mermaid/mermaid.cpp
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
@@ -199,7 +200,6 @@ add_executable(mendo WIN32
     src/app/app.cpp
     src/render/renderer.cpp
     src/render/renderer_device.cpp
-    src/mermaid/mermaid.cpp
     res/mendo.rc
 )
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
