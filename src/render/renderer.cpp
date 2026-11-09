@@ -74,10 +74,10 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
 {
     MENDO_PROFILE("Render");
 
-    if (device_lost_) {
+    if (device_.IsLost()) {
         return CreateDevice() ? FrameResult::DeviceRecreated : FrameResult::RetryLater;
     }
-    if (!rt()) {
+    if (!device_.IsReady()) {
         return FrameResult::Done;
     }
 
@@ -97,14 +97,11 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
 
     const HRESULT hr = rt()->EndDraw();
     math_masks_->EndFrame(MathMaskCache::kBudgetBytes);
-    if (hr == D2DERR_RECREATE_TARGET) {
-        device_lost_ = true;
-    }
-    else if (SUCCEEDED(hr)) {
+    if (device_.OnEndDraw(hr)) {
         Present();
     }
     // 作り直しは次のフレームの冒頭に任せる。
-    return device_lost_ ? FrameResult::RedrawNow : FrameResult::Done;
+    return device_.IsLost() ? FrameResult::RedrawNow : FrameResult::Done;
 }
 
 void Renderer::GenOverlays(const RenderParams& p)

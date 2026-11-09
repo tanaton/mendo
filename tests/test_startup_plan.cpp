@@ -10,6 +10,8 @@ constexpr std::wstring_view kLastFile = L"D:\\notes\\memo.md";
 constexpr std::wstring_view kReadme = L"E:\\proj\\README.md";
 constexpr std::wstring_view kSystem = L"C:\\Windows\\System32";
 constexpr std::array<std::wstring_view, 2> kIgnored = { kSystem, L"C:\\Tools\\mendo" };
+const StartupScroll kRestore = startup_scroll::Restore{};
+const StartupScroll kRestoreIfSame = startup_scroll::RestoreIfSameFile{};
 
 } // namespace
 
@@ -27,39 +29,37 @@ TEST(StartupPlanTest, DecidesDocumentScrollAndPane)
         std::wstring_view cwd = kCwd;
         std::wstring_view last_file = kLastFile;
         std::wstring_view document = {};
-        bool restore = false;
-        bool restore_if_same = false;
+        StartupScroll scroll = {};
         std::wstring_view pane = {};
-        std::wstring_view plan_anchor = {};
     };
     using enum StartupArgKind;
     const Case kCases[] = {
-        { .name = "NoArg", .kind = None, .document = kLastFile, .restore = true, .pane = kCwd },
+        { .name = "NoArg", .kind = None, .document = kLastFile, .scroll = kRestore, .pane = kCwd },
         { .name = "NoArgNoLastFile", .kind = None, .last_file = L"", .pane = kCwd },
-        { .name = "SystemCwd", .kind = None, .cwd = kSystem, .document = kLastFile, .restore = true, .pane = L"D:\\notes" },
-        { .name = "ExeDirCwd", .kind = None, .cwd = L"C:\\Tools\\mendo", .document = kLastFile, .restore = true, .pane = L"D:\\notes" },
-        { .name = "IgnoredCwdCaseAndTrailingSeparator", .kind = None, .cwd = L"c:\\windows\\SYSTEM32\\", .document = kLastFile, .restore = true, .pane = L"D:\\notes" },
-        { .name = "EmptyCwd", .kind = None, .cwd = L"", .document = kLastFile, .restore = true, .pane = L"D:\\notes" },
-        { .name = "SubdirectoryOfIgnoredCwd", .kind = None, .cwd = L"C:\\Windows\\System32\\drivers", .document = kLastFile, .restore = true, .pane = L"C:\\Windows\\System32\\drivers" },
+        { .name = "SystemCwd", .kind = None, .cwd = kSystem, .document = kLastFile, .scroll = kRestore, .pane = L"D:\\notes" },
+        { .name = "ExeDirCwd", .kind = None, .cwd = L"C:\\Tools\\mendo", .document = kLastFile, .scroll = kRestore, .pane = L"D:\\notes" },
+        { .name = "IgnoredCwdCaseAndTrailingSeparator", .kind = None, .cwd = L"c:\\windows\\SYSTEM32\\", .document = kLastFile, .scroll = kRestore, .pane = L"D:\\notes" },
+        { .name = "EmptyCwd", .kind = None, .cwd = L"", .document = kLastFile, .scroll = kRestore, .pane = L"D:\\notes" },
+        { .name = "SubdirectoryOfIgnoredCwd", .kind = None, .cwd = L"C:\\Windows\\System32\\drivers", .document = kLastFile, .scroll = kRestore, .pane = L"C:\\Windows\\System32\\drivers" },
         { .name = "IgnoredCwdWithoutLastFile", .kind = None, .cwd = kSystem, .last_file = L"", .pane = kSystem },
         // ファイル名が前回と違えば、開いて確かめるまでもなく別のファイル。
         { .name = "File", .kind = File, .arg = kReadme, .document = kReadme, .pane = L"E:\\proj" },
-        { .name = "FileSameAsLastFile", .kind = File, .arg = kLastFile, .document = kLastFile, .restore = true, .pane = L"D:\\notes" },
-        { .name = "FileSlashAndCase", .kind = File, .arg = L"d:/notes/MEMO.md", .document = L"d:/notes/MEMO.md", .restore_if_same = true, .pane = L"d:/notes" },
-        { .name = "FileShortDirName", .kind = File, .arg = L"D:\\NOTES~1\\memo.md", .document = L"D:\\NOTES~1\\memo.md", .restore_if_same = true, .pane = L"D:\\NOTES~1" },
-        { .name = "FileShortFileName", .kind = File, .arg = L"D:\\notes\\MEMO~1.MD", .document = L"D:\\notes\\MEMO~1.MD", .restore_if_same = true, .pane = L"D:\\notes" },
+        { .name = "FileSameAsLastFile", .kind = File, .arg = kLastFile, .document = kLastFile, .scroll = kRestore, .pane = L"D:\\notes" },
+        { .name = "FileSlashAndCase", .kind = File, .arg = L"d:/notes/MEMO.md", .document = L"d:/notes/MEMO.md", .scroll = kRestoreIfSame, .pane = L"d:/notes" },
+        { .name = "FileShortDirName", .kind = File, .arg = L"D:\\NOTES~1\\memo.md", .document = L"D:\\NOTES~1\\memo.md", .scroll = kRestoreIfSame, .pane = L"D:\\NOTES~1" },
+        { .name = "FileShortFileName", .kind = File, .arg = L"D:\\notes\\MEMO~1.MD", .document = L"D:\\notes\\MEMO~1.MD", .scroll = kRestoreIfSame, .pane = L"D:\\notes" },
         // 比べる相手が無いので、ファイルを開いて確かめる必要も無い。
         { .name = "FileNoLastFile", .kind = File, .arg = kReadme, .last_file = L"", .document = kReadme, .pane = L"E:\\proj" },
         { .name = "FileNonMarkdown", .kind = File, .arg = L"E:\\proj\\notes.txt", .document = L"E:\\proj\\notes.txt", .pane = L"E:\\proj" },
         { .name = "FileInRoot", .kind = File, .arg = L"E:\\README.md", .document = L"E:\\README.md", .pane = L"E:\\" },
-        { .name = "Directory", .kind = Directory, .arg = L"E:\\proj", .document = kLastFile, .restore = true, .pane = L"E:\\proj" },
+        { .name = "Directory", .kind = Directory, .arg = L"E:\\proj", .document = kLastFile, .scroll = kRestore, .pane = L"E:\\proj" },
         { .name = "DirectoryNoLastFile", .kind = Directory, .arg = L"E:\\proj", .last_file = L"", .pane = L"E:\\proj" },
         { .name = "Invalid", .kind = Invalid, .arg = L"C:\\work\\docs\\missing.md", .pane = kCwd },
         // 見出しはファイルを指定したときだけ使い、前回のスクロール位置より優先する。
-        { .name = "FileWithAnchor", .kind = File, .arg = kReadme, .anchor = L"usage", .document = kReadme, .pane = L"E:\\proj", .plan_anchor = L"usage" },
-        { .name = "AnchorOverridesRestore", .kind = File, .arg = kLastFile, .anchor = L"usage", .document = kLastFile, .pane = L"D:\\notes", .plan_anchor = L"usage" },
-        { .name = "AnchorWithDirectory", .kind = Directory, .arg = L"E:\\proj", .anchor = L"usage", .document = kLastFile, .restore = true, .pane = L"E:\\proj" },
-        { .name = "AnchorWithoutPath", .kind = None, .anchor = L"usage", .document = kLastFile, .restore = true, .pane = kCwd },
+        { .name = "FileWithAnchor", .kind = File, .arg = kReadme, .anchor = L"usage", .document = kReadme, .scroll = startup_scroll::Anchor{ L"usage" }, .pane = L"E:\\proj" },
+        { .name = "AnchorOverridesRestore", .kind = File, .arg = kLastFile, .anchor = L"usage", .document = kLastFile, .scroll = startup_scroll::Anchor{ L"usage" }, .pane = L"D:\\notes" },
+        { .name = "AnchorWithDirectory", .kind = Directory, .arg = L"E:\\proj", .anchor = L"usage", .document = kLastFile, .scroll = kRestore, .pane = L"E:\\proj" },
+        { .name = "AnchorWithoutPath", .kind = None, .anchor = L"usage", .document = kLastFile, .scroll = kRestore, .pane = kCwd },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -72,10 +72,8 @@ TEST(StartupPlanTest, DecidesDocumentScrollAndPane)
             .ignored_cwds = kIgnored,
         });
         EXPECT_EQ(plan.document_path, c.document);
-        EXPECT_EQ(plan.restore_scroll, c.restore);
-        EXPECT_EQ(plan.restore_scroll_if_same_file, c.restore_if_same);
+        EXPECT_EQ(plan.scroll, c.scroll);
         EXPECT_EQ(plan.pane_directory, c.pane);
-        EXPECT_EQ(plan.anchor, c.plan_anchor);
     }
 }
 

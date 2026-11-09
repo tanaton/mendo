@@ -1519,14 +1519,15 @@ TEST_F(FilePaneRevealTest, NoDocumentIsNoOp)
 
 // ---- TocItemClicked テスト ----
 
-TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryOnly)
+// スクロールしなくても、積んだ履歴で戻るボタンを出すために描き直す。
+TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryAndRedraws)
 {
     SetDocument(state, "test", L"C:\\file.md");
 
     auto effects = Reduce(state, TocItemClickedAction{ -1 });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
-    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
@@ -1602,6 +1603,27 @@ TEST_F(ReducerTest, SyncActiveToc_TocClickKeepsTocPaneOnce)
     Reduce(state, NavigateAnchorAction{ std::string("heading-25") });
     SyncActiveTocIndex(state);
     EXPECT_EQ(state.view.active_toc_index, 25);
+    EXPECT_GT(TocPaneScroll(state), 0.0f);
+}
+
+// 表示中の見出しをもう一度クリックしてもスクロールは動かない。それでも描き直させ、追従しない印をそのクリックの描画で
+// 消費させる。描き直さないと印が残り、後のキー操作のスクロールで目次が追従しなかった。
+TEST_F(ReducerTest, SyncActiveToc_TocClickWithoutScrollIsConsumedByItsRedraw)
+{
+    SetupTocFollow(state);
+    const int heading = state.document.doc.GetToc()[20].node_index;
+    Reduce(state, TocItemClickedAction{ heading });
+    SyncActiveTocIndex(state);
+    ASSERT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
+
+    const float scroll_y = state.view.viewport.GetScrollY();
+    const auto effects = Reduce(state, TocItemClickedAction{ heading });
+    ASSERT_FLOAT_EQ(state.view.viewport.GetScrollY(), scroll_y);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    SyncActiveTocIndex(state);
+
+    Reduce(state, KeyScrollAction{ ScrollType::End });
+    SyncActiveTocIndex(state);
     EXPECT_GT(TocPaneScroll(state), 0.0f);
 }
 
@@ -1772,6 +1794,34 @@ TEST_F(ReducerTest, NavigateAnchor_MissingAnchorKeepsHistory)
     EXPECT_TRUE(effects.empty());
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(state.view.nav_history.CanGoForward());
+}
+
+// 表示中の見出しへのアンカーはスクロールしないが、積んだ履歴で戻るボタンを出すために描き直す。
+TEST_F(ReducerTest, NavigateAnchor_WithoutScrollRedrawsForBackButton)
+{
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
+    ASSERT_FALSE(state.view.nav_history.CanGoBack());
+
+    auto effects = Reduce(state, NavigateAnchorAction{ std::string("first") });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_TRUE(state.view.nav_history.CanGoBack());
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 同じ文書の同じ位置へ戻るとスクロールしないが、戻る・進むのボタンが入れ替わるので描き直す。
+TEST_F(ReducerTest, NavigateHistory_WithoutScrollRedrawsForNavButtons)
+{
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
+    Reduce(state, NavigateAnchorAction{ std::string("first") });
+    ASSERT_TRUE(state.view.nav_history.CanGoBack());
+
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_FALSE(state.view.nav_history.CanGoBack());
+    EXPECT_TRUE(state.view.nav_history.CanGoForward());
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- ロード中に次の移動が重なる連続操作 ----

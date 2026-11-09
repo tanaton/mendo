@@ -11,7 +11,7 @@ namespace mermaid_util {
 struct DiagramDrawing;
 }
 
-// MermaidRenderer は exe の埋め込みリソースを読むので mendo_core に入れない。mendo_core 入りのモジュールは本 interface を介する。
+// ResourceManager と ClipboardManager は本 interface を介し、テストでは pele を動かさない mock を渡す。
 class IMermaidRenderer {
 public:
     // SVG (UTF-8) の取得結果。空なら描けなかった。終了で取り消した要求では呼ばない。

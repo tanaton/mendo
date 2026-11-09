@@ -3,6 +3,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 enum class StartupArgKind : uint8_t {
@@ -37,17 +38,37 @@ struct StartupContext {
     std::span<const std::wstring_view> ignored_cwds;
 };
 
+// 開いた文書でスクロールする先。
+namespace startup_scroll {
+
+struct None {
+    bool operator==(const None&) const = default;
+};
+// 前回のスクロール位置を戻す。
+struct Restore {
+    bool operator==(const Restore&) const = default;
+};
+// 引数のファイルが前回のファイルと表記違いの同一ファイルかもしれない (スラッシュ違いなど)。同じなら戻す。
+// 確かめるには 2 ファイルを開くので、呼び出し側がプリロードを始めてから調べる。
+struct RestoreIfSameFile {
+    bool operator==(const RestoreIfSameFile&) const = default;
+};
+// この見出しへ飛ぶ。前回のスクロール位置は戻さない。
+struct Anchor {
+    std::wstring name;
+    bool operator==(const Anchor&) const = default;
+};
+
+} // namespace startup_scroll
+
+using StartupScroll = std::variant<startup_scroll::None, startup_scroll::Restore, startup_scroll::RestoreIfSameFile, startup_scroll::Anchor>;
+
 struct StartupPlan {
     // 空ならヘルプを表示する。
     std::wstring document_path;
     // 空ならファイルペインを設定しない。
     std::wstring pane_directory;
-    // 空でなければ、開いた文書でこの見出しへ飛ぶ。前回のスクロール位置は戻さない。
-    std::wstring anchor;
-    bool restore_scroll = false;
-    // 引数のファイルが前回のファイルと表記違いの同一ファイルかもしれない (スラッシュ違いなど)。同じなら復元する。
-    // 確かめるには 2 ファイルを開くので、呼び出し側がプリロードを始めてから調べる。
-    bool restore_scroll_if_same_file = false;
+    StartupScroll scroll;
 };
 
 StartupPlan DecideStartupPlan(const StartupContext& ctx);

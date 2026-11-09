@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 // d3d11.h / dxgi は renderer_device.cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
@@ -25,6 +26,74 @@ class MathMaskCache;
 void PrefetchD3DDevice();
 // 先行作成が終わるとシグナルになる。先行作成していないか、受け取り済みなら nullptr。
 HANDLE D3DPrefetchDoneEvent() noexcept;
+
+// 描画デバイスとフレームの段階。D3D に触らないので、デバイスのロストを起こさずに遷移を試せる。
+class RenderDeviceState {
+public:
+    // デバイスを作る前。描かない。
+    struct NoDevice {};
+    struct Ready {
+        // 次のフレームを描いてよいこと (Frame Latency Waitable Object のシグナル) を受け取った。表示するまで受け取った扱いのままにし、
+        // 描かずに終わったフレームの後で待ち直さない。
+        bool frame_acquired = false;
+    };
+    // EndDraw・Present・Resize がデバイスのロストを知らせたか、作り直しに失敗した。次のフレームの冒頭で作り直す。
+    struct Lost {};
+
+    bool IsReady() const noexcept
+    {
+        return std::holds_alternative<Ready>(state_);
+    }
+    bool IsLost() const noexcept
+    {
+        return std::holds_alternative<Lost>(state_);
+    }
+    // 描く前に、次のフレームを描いてよくなるのを待つ。
+    bool NeedsFrame() const noexcept
+    {
+        const auto* ready = std::get_if<Ready>(&state_);
+        return ready && !ready->frame_acquired;
+    }
+    void MarkFrameAcquired() noexcept
+    {
+        if (auto* ready = std::get_if<Ready>(&state_)) {
+            ready->frame_acquired = true;
+        }
+    }
+    void MarkCreated() noexcept
+    {
+        state_ = Ready{};
+    }
+    void MarkLost() noexcept
+    {
+        state_ = Lost{};
+    }
+    // 表示する (Present する) なら true。
+    bool OnEndDraw(HRESULT hr) noexcept
+    {
+        if (hr == D2DERR_RECREATE_TARGET) {
+            MarkLost();
+            return false;
+        }
+        return SUCCEEDED(hr);
+    }
+    void OnPresent(HRESULT hr) noexcept
+    {
+        // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
+        // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+            MarkLost();
+            return;
+        }
+        // 表示されなかったフレーム (隠れていた・失敗した) はシグナルを消費しないので、取れた扱いのまま次に回す。
+        if (auto* ready = std::get_if<Ready>(&state_); ready && SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED) {
+            ready->frame_acquired = false;
+        }
+    }
+
+private:
+    std::variant<NoDevice, Ready, Lost> state_;
+};
 
 // D2D/DirectWrite/WIC のファクトリ、D3D デバイス・スワップチェーンとロスト検知、ブラシとテキスト書式を持ち、1 フレームを描く。
 // デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi を読む唯一の TU)。
@@ -101,12 +170,12 @@ public:
     // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。
     HANDLE FrameWaitHandle() const noexcept
     {
-        return (frame_acquired_ || device_lost_) ? nullptr : frame_latency_waitable_.get();
+        return device_.NeedsFrame() ? frame_latency_waitable_.get() : nullptr;
     }
     // FrameWaitHandle の待ちが成立した (シグナルを消費した) ことを記録する。
     void MarkFrameAcquired() noexcept
     {
-        frame_acquired_ = true;
+        device_.MarkFrameAcquired();
     }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width)
@@ -144,7 +213,7 @@ private:
     // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
     // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
     void AcquireFrame() noexcept;
-    // EndDraw 後に呼ぶ。デバイスロスト系の失敗は device_lost_ で知らせる。
+    // EndDraw 後に呼ぶ。デバイスロスト系の失敗は device_ に知らせる。
     void Present() noexcept;
 
     ID2D1DeviceContext* rt() const noexcept
@@ -159,10 +228,7 @@ private:
     // スワップチェーンのバッファの大きさ。ライブリサイズ中は描画面 (width_px_ x height_px_) より大きい。
     UINT buffer_width_ = 0;
     UINT buffer_height_ = 0;
-    // EndDraw が D2DERR_RECREATE_TARGET を返したか、Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET 等を
-    // 検知したか、CreateSwapChainBitmap が失敗した。次フレームの Render で作り直す。
-    bool device_lost_ = false;
-    bool frame_acquired_ = false;
+    RenderDeviceState device_;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;

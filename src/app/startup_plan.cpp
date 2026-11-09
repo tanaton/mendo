@@ -74,22 +74,29 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
     case StartupArgKind::File:
         plan.document_path = ctx.arg_path;
         plan.pane_directory = path_util::ParentDirectory(ctx.arg_path);
-        plan.anchor = ctx.anchor;
-        if (!plan.anchor.empty()) {
-            return plan;
+        if (!ctx.anchor.empty()) {
+            plan.scroll = startup_scroll::Anchor{ std::wstring{ ctx.anchor } };
         }
-        plan.restore_scroll = path_util::iequal(ctx.arg_path, ctx.last_file);
-        plan.restore_scroll_if_same_file = !plan.restore_scroll && !ctx.last_file.empty() && MaybeSameFile(ctx.arg_path, ctx.last_file);
+        else if (path_util::iequal(ctx.arg_path, ctx.last_file)) {
+            plan.scroll = startup_scroll::Restore{};
+        }
+        else if (!ctx.last_file.empty() && MaybeSameFile(ctx.arg_path, ctx.last_file)) {
+            plan.scroll = startup_scroll::RestoreIfSameFile{};
+        }
         return plan;
     case StartupArgKind::Directory:
         plan.document_path = ctx.last_file;
         plan.pane_directory = ctx.arg_path;
-        plan.restore_scroll = !ctx.last_file.empty();
+        if (!ctx.last_file.empty()) {
+            plan.scroll = startup_scroll::Restore{};
+        }
         return plan;
     case StartupArgKind::None:
         plan.document_path = ctx.last_file;
         plan.pane_directory = PaneDirectoryFromCwd(ctx);
-        plan.restore_scroll = !ctx.last_file.empty();
+        if (!ctx.last_file.empty()) {
+            plan.scroll = startup_scroll::Restore{};
+        }
         return plan;
     case StartupArgKind::Invalid:
         // 前回ファイルは復元せず直接ヘルプを出す。

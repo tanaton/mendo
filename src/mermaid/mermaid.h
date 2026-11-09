@@ -55,6 +55,11 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
+    // 最初に図か数式を描くときに 1 回だけ、Init の dw で呼ぶ。本番は CreateBundledPele で、テストはビルドで作ったバイトコードから
+    // 作る (テストの exe は埋め込みリソースを持たない)。
+    using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
+    static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
+
     // d2d・wic・dw は Renderer と共有する。d2d は拡大表示の窓と図を描いた画像の描画先を、wic は図を描いた画像を、
     // dw は図の文字を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
@@ -62,7 +67,7 @@ public:
     // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
     // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
-              std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
+              PeleFactory make_pele, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
@@ -126,22 +131,26 @@ private:
         Math
     };
 
+    // 本文の図のキャッシュのキー。
+    struct DisplayTarget {
+        // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
+        uint64_t request_hash = 0;
+        uint64_t width_free_hash = 0;
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        bool width_free = false;
+        uint64_t CacheKey() const noexcept
+        {
+            return width_free ? width_free_hash : request_hash;
+        }
+    };
+
     struct RenderRequest {
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
-        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
-        bool width_free = false;
-        // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
-        uint64_t request_hash = 0;
-        uint64_t width_free_hash = 0;
-        uint64_t CacheKey() const noexcept
-        {
-            return width_free ? width_free_hash : request_hash;
-        }
         // 結果の渡し先 (RequestKind の順)。Math (RequestMathBatch) は code などを使わない。
-        std::variant<std::monostate, SvgCallback, ViewCallback, MathRequest> target;
+        std::variant<DisplayTarget, SvgCallback, ViewCallback, MathRequest> target;
         RequestKind kind() const noexcept
         {
             return static_cast<RequestKind>(target.index());
@@ -149,8 +158,8 @@ private:
     };
     template <RequestKind K>
     using TargetOf = std::variant_alternative_t<std::to_underlying(K), decltype(RenderRequest::target)>;
-    static_assert(std::is_same_v<TargetOf<RequestKind::Svg>, SvgCallback> && std::is_same_v<TargetOf<RequestKind::View>, ViewCallback> &&
-                  std::is_same_v<TargetOf<RequestKind::Math>, MathRequest>);
+    static_assert(std::is_same_v<TargetOf<RequestKind::Display>, DisplayTarget> && std::is_same_v<TargetOf<RequestKind::Svg>, SvgCallback> &&
+                  std::is_same_v<TargetOf<RequestKind::View>, ViewCallback> && std::is_same_v<TargetOf<RequestKind::Math>, MathRequest>);
 
     // 図の拡大表示 (窓は DiagramView が持つ)。
     struct Viewer {
@@ -162,28 +171,47 @@ private:
         bool dark_mode = false;
     };
 
-    // bg のワーカーの仕事 1 つ (図や数式の描画・ディスクキャッシュの読み込み) とその結果。
+    enum class JobWork : uint8_t {
+        // PeleEngine で描く。同時に描く数の枠を 1 つ使い、結果を受け取ったときに返す (PumpRenders)。
+        Render,
+        // ディスクキャッシュの描画命令を読む。表示用の要求だけ。
+        DiskLoad,
+        // 本文の描画命令から SVG を作る。SVG の要求だけ。
+        SvgFromDrawing,
+    };
+    // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
+    struct JobDropped {};
+    // 描いたか読んだ描画命令。UI で commands にする。
+    struct JobDrawing {
+        std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
+        // 表示用の要求を描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
+        std::string bytes;
+    };
+    // PeleEngine で描けなかった。描き直しても同じ。
+    struct JobFailed {
+        DiagramError error;
+    };
+    // ディスクキャッシュを読めなかったか (理由)、解析できなかった (0)。
+    struct JobUnreadable {
+        DWORD read_error = 0;
+    };
+    // クリップボード用の SVG (UTF-8)。
+    struct JobSvg {
+        std::string svg;
+    };
+    // MathRequest::items と同じ順で、描けなかった数式は null。
+    struct JobMaths {
+        std::vector<std::shared_ptr<const MathDrawing>> drawings;
+    };
+    using JobOutcome = std::variant<JobDropped, JobDrawing, JobFailed, JobUnreadable, JobSvg, JobMaths>;
+
+    // bg のワーカーの仕事 1 つとその結果。
     struct Job {
         RenderRequest req;
-        // インライン数式の要求の結果。MathRequest::items と同じ順で、描けなかった数式は null。
-        std::vector<std::shared_ptr<const MathDrawing>> maths;
-        // 描いたばかりの図の、ディスクキャッシュに書く描画命令 (UTF-8)。
-        std::string bytes;
-        // 描画命令。UI で commands にする。
-        std::shared_ptr<const mermaid_util::DiagramDrawing> parsed;
-        // ディスクキャッシュを読めなかった理由。
-        DWORD read_error = 0;
-        // 投入後に drop_gen_ が進んだので描かず・読まずに返した。
-        bool dropped = false;
-        // PeleEngine で描いた (ディスクキャッシュから読んだのではない)。成功はディスクキャッシュへ書き、失敗は確定させる。
-        // 走っている数も数える。
-        bool rendered = false;
-        // 描けなかった理由。描画命令を記録できなかったときは空。
-        DiagramError error;
+        JobWork work = JobWork::Render;
+        JobOutcome outcome;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
-        // クリップボード用の SVG (UTF-8)。
-        std::string svg;
     };
 
     // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
@@ -222,17 +250,21 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
-    // job を bg で work(job) してから job_results_ に返す。投入後に drop_gen_ が進んだ表示用の要求は work せずに返す。
+    // job を bg で work(job) してその結果を outcome に入れ、job_results_ に返す。投入後に drop_gen_ が進んだ表示用の要求は
+    // work せずに JobDropped で返す。
     template <typename Work>
     void PostJob(Job job, Work work);
     // worker で呼ぶ。
-    void RenderJob(Job& job);
+    JobOutcome RenderJob(Job& job);
 
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。
-    void LoadDiskJob(Job& job, const std::filesystem::path& path);
+    JobOutcome LoadDiskJob(Job& job, const std::filesystem::path& path);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
+    bool ApplyDisplayResult(Job& r);
+    // 表示用の要求のエラーを確定させ、再要求させない。
+    bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
@@ -272,6 +304,7 @@ private:
     std::atomic<uint32_t> drop_gen_{ 0 };
 
     // 最初に図を描くときに作る。終了時は描き終わりを待ってから捨てる。
+    PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
     // PeleEngine で描く要求のうち、上限を超えて待っているものと、bg で走っている数。
     std::deque<RenderRequest> render_waiting_;

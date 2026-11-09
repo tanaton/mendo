@@ -272,7 +272,7 @@ void Renderer::Resize(UINT width, UINT height, bool live) noexcept
     }
     // SetTarget(nullptr) のまま戻ると次回 BeginDraw で D2DERR_WRONG_STATE。
     if (!ok || !CreateSwapChainBitmap()) {
-        device_lost_ = true;
+        device_.MarkLost();
     }
 }
 
@@ -303,33 +303,24 @@ void Renderer::TrimForMinimize() noexcept
 
 void Renderer::AcquireFrame() noexcept
 {
-    if (frame_acquired_ || !frame_latency_waitable_) {
+    if (!device_.NeedsFrame() || !frame_latency_waitable_) {
         return;
     }
     // alertable=FALSE: UI スレッドは APC を使わないので、意図しない早期復帰を防ぐ。
-    frame_acquired_ = WaitForSingleObjectEx(frame_latency_waitable_.get(), kFrameWaitTimeoutMs, FALSE) == WAIT_OBJECT_0;
+    if (WaitForSingleObjectEx(frame_latency_waitable_.get(), kFrameWaitTimeoutMs, FALSE) == WAIT_OBJECT_0) {
+        device_.MarkFrameAcquired();
+    }
 }
 
 void Renderer::Present() noexcept
 {
-    const HRESULT hr = swap_chain_->Present(1, 0);
-    // 表示されなかったフレーム (隠れていた・失敗した) はシグナルを消費しないので、取れた扱いのまま次に回す。
-    if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED) {
-        frame_acquired_ = false;
-    }
-    // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
-    // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
-    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
-        hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
-        device_lost_ = true;
-    }
+    device_.OnPresent(swap_chain_->Present(1, 0));
 }
 
 bool Renderer::CreateDevice()
 {
     // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
-    device_lost_ = true;
-    frame_acquired_ = false;
+    device_.MarkLost();
     frame_latency_waitable_.reset();
     // flip モデルのスワップチェーンは、前のものが解放されるまで同じ HWND に作れない。ブラシや図のビットマップが
     // 古いデバイスを生かしていても手放せるよう描画先を外し、D3D の遅延解放をフラッシュで済ませる。
@@ -353,7 +344,7 @@ bool Renderer::CreateDevice()
         device_context_.Reset();
         return false;
     }
-    device_lost_ = false;
+    device_.MarkCreated();
     math_masks_->Reset(d2d_device_.Get());
     OnThemeColorsChanged();
     LoadAppIconBitmap();
