@@ -76,7 +76,7 @@ TEST_F(LinkHoverTest, ShowsDestinationAndCursorPerLink)
         EXPECT_EQ(r.hover.link.node, 0);
         EXPECT_EQ(r.hover.link.index, c.index);
         EXPECT_EQ(r.hover.link.dock, LinkStatusDock::Left);
-        EXPECT_EQ(r.hover.link_status, c.status);
+        EXPECT_EQ(r.hover.link.StatusText(), c.status);
         EXPECT_EQ(r.cursor, c.cursor);
         EXPECT_EQ(r.hover.tooltip.target.zone, TooltipTarget::Zone::MdLink);
     }
@@ -87,7 +87,14 @@ TEST_F(LinkHoverTest, ShowsDestinationAndCursorPerLink)
     EXPECT_EQ(off.cursor, PointerCursor::IBeam);
 }
 
-// 同じリンクの上を動いている間は行き先を求め直さない (文言は空で来て、押せるかは前の値を使う)。
+// ツールチップの URL も、見えない文字を %XX にして出す。
+TEST_F(LinkHoverTest, TooltipEncodesInvisibleChars)
+{
+    Load("[ext](https://evil.example/\xE2\x80\xAEgpj.moc)");
+    EXPECT_EQ(HoverAt(CharCenter(1)).hover.tooltip.text, L"https://evil.example/%E2%80%AEgpj.moc");
+}
+
+// 同じリンクの上を動いている間は行き先を求め直さず、前のものを共有する。
 TEST_F(LinkHoverTest, SameLinkReusesDestination)
 {
     Load("[ext](https://example.com) [bad](run.exe)");
@@ -96,7 +103,6 @@ TEST_F(LinkHoverTest, SameLinkReusesDestination)
         const auto first = HoverAt(CharCenter(pos));
         Reduce(state_, first.hover);
         const auto again = HoverAt(CharCenter(pos));
-        EXPECT_TRUE(again.hover.link_status.empty());
         EXPECT_EQ(again.hover.link, first.hover.link);
         EXPECT_EQ(again.cursor, first.cursor);
     }
@@ -220,6 +226,21 @@ TEST_F(LinkStatusDrawTest, HalfDocksStayInTheirHalf)
     ASSERT_TRUE(short_right);
     EXPECT_FLOAT_EQ(short_right->rect.right, band_.right);
     EXPECT_GT(short_right->rect.left, mid) << "短い文字列は幅を合わせて右に寄る";
+}
+
+// 左右の半分と、位置だけが違うペインでは、同じ文字レイアウトを使い回す (寄せる側が変わるたびに作り直さない)。
+TEST_F(LinkStatusDrawTest, SharesLayoutAcrossHalvesAndPanePosition)
+{
+    const std::wstring long_url = L"https://example.com/" + std::wstring(200, L'x');
+    const auto layout_of = [&](LinkStatusDock dock) -> IDWriteTextLayout* {
+        const auto text = FindFirst<DrawTextLayoutCmd>(Emit(dock, long_url));
+        return text ? text->layout : nullptr;
+    };
+    IDWriteTextLayout* const left = layout_of(LinkStatusDock::LeftHalf);
+    ASSERT_NE(left, nullptr);
+    EXPECT_EQ(layout_of(LinkStatusDock::RightHalf), left);
+    band_ = LinkStatusBand({ kPane.x + 33.3f, kPane.y, kPane.width, kPane.height }, false);
+    EXPECT_EQ(layout_of(LinkStatusDock::LeftHalf), left);
 }
 
 // 収まらない長いパスは、ファイル名を残して手前を省く。

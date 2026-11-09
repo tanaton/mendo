@@ -412,10 +412,11 @@ void EmitLinkStatus(CmdWriter w, IDWriteTextFormat* fmt, const D2D1_RECT_F& band
         return;
     }
     const bool to_right = dock == LinkStatusDock::RightHalf;
-    const float mid = RectCenter(band).x;
-    const float lo = to_right ? mid + LINK_STATUS_PADDING_X : band.left;
-    const float hi = dock == LinkStatusDock::LeftHalf ? mid - LINK_STATUS_PADDING_X : band.right;
-    const float max_text_w = hi - lo - LINK_STATUS_PADDING_X * 2.0f;
+    // 半分に寄せたときは中央の両側に余白を空ける。左右の半分を同じ式で求め、端数を切り捨てて、丸めの揺れで
+    // 文字レイアウトのキャッシュが外れないようにする。
+    const float band_w = band.right - band.left;
+    const float slot_w = dock == LinkStatusDock::Left ? band_w : band_w * 0.5f - LINK_STATUS_PADDING_X;
+    const float max_text_w = std::floor(slot_w - LINK_STATUS_PADDING_X * 2.0f);
     if (max_text_w <= 0.0f) {
         return;
     }
@@ -427,7 +428,7 @@ void EmitLinkStatus(CmdWriter w, IDWriteTextFormat* fmt, const D2D1_RECT_F& band
     DWRITE_TEXT_METRICS m{};
     layout->GetMetrics(&m);
     const float width = std::min(m.width, max_text_w) + LINK_STATUS_PADDING_X * 2.0f;
-    const float left = to_right ? hi - width : lo;
+    const float left = to_right ? band.right - width : band.left;
     const float right = left + width;
     // 下端はペインの縁に付ける (左に寄せたときは左端も)。縁に付けた側は角を丸めずに切り落とす。
     const D2D1_RECT_F rect{ left, band.top, right, band.bottom };

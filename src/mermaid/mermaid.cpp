@@ -165,9 +165,9 @@ bool MermaidRenderer::RequestRender(
 }
 
 template <typename Work>
-void MermaidRenderer::PostJob(Job job, Work work)
+void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
 {
-    bg_scheduler_->Post([this, job = std::move(job), work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
+    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind }, work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式・SVG・拡大表示は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
         const bool dropped = job.req.kind() == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
@@ -183,7 +183,7 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path pat
     // 描画命令の図のラベルの数式を組み直すのに使う。
     EnsurePele();
     // ファイル読み込みと解析は worker で行う (UI では時間予算なしに積み上がる)。
-    PostJob(Job{ .req = std::move(req), .work = JobWork::DiskLoad }, [this, path = std::move(path)](Job& job) { return LoadDiskJob(job, path); });
+    PostJob(std::move(req), JobWork::DiskLoad, [this, path = std::move(path)](Job& job) { return LoadDiskJob(job, path); });
 }
 
 MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::filesystem::path& path)
@@ -379,9 +379,9 @@ void MermaidRenderer::PumpRenders()
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {
         ++renders_running_;
-        Job job{ .req = std::move(render_waiting_.front()), .work = JobWork::Render };
+        auto req = std::move(render_waiting_.front());
         render_waiting_.pop_front();
-        PostJob(std::move(job), [this](Job& j) { return RenderJob(j); });
+        PostJob(std::move(req), JobWork::Render, [this](Job& j) { return RenderJob(j); });
     }
 }
 
@@ -426,7 +426,7 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
 {
     // 本文の描画命令を使えるなら pele で描かないので、図の描画の待ちに並べない。
     if (auto drawing = FindWidthFreeDrawing(code, max_width, dark_mode)) {
-        PostJob(Job{ .req = { .target = std::move(callback) }, .work = JobWork::SvgFromDrawing },
+        PostJob({ .target = std::move(callback) }, JobWork::SvgFromDrawing,
                 [drawing = std::move(drawing)](Job&) -> JobOutcome { return JobSvg{ DrawingToSvg(*drawing) }; });
         return;
     }

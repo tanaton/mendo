@@ -7,6 +7,7 @@
 #include "tooltip.h"
 #include "ui_constants.h"
 #include <array>
+#include <memory>
 #include <variant>
 #include <string>
 #include <cstdint>
@@ -93,23 +94,32 @@ struct SearchSelectWordAction {
     int pos = 0;
 };
 
-// 指している本文のリンク。行き先の文言は ViewState::link_status に持つ。
+// 指している本文のリンク。
 struct LinkHover {
     // リンクのあるノード。-1 なら指していない。
     int node = -1;
     // node の view_link_urls() の添字。
     uint32_t index = 0;
-    // 行き先 (LinkDestination) から決まるので、同じリンクなら前の値を使う。
-    bool navigable = false;
+    // ポインタが動くたびにパスを解決しないよう、別のリンクに移ったときだけ作り、同じリンクの間は前のものを共有する
+    // (app_controller.cpp の HoverLink)。比べるのはポインタなので、同じリンクの上で動いても描き直さない。
+    std::shared_ptr<const LinkDestination> destination;
     LinkStatusDock dock = LinkStatusDock::Left;
 
-    constexpr bool Any() const noexcept
+    bool Any() const noexcept
     {
         return node >= 0;
     }
-    constexpr bool SameLink(const LinkHover& o) const noexcept
+    bool SameLink(const LinkHover& o) const noexcept
     {
         return node == o.node && index == o.index;
+    }
+    bool Navigable() const noexcept
+    {
+        return destination && destination->navigable;
+    }
+    std::wstring_view StatusText() const noexcept
+    {
+        return destination ? std::wstring_view{ destination->text } : std::wstring_view{};
     }
     bool operator==(const LinkHover&) const = default;
 };
@@ -137,8 +147,6 @@ struct HoverHighlights {
 // App がヒットテストで求めたホバー状態。reducer がまとめて状態へ反映する。
 struct PointerHoverAction : HoverHighlights {
     TooltipHover tooltip;
-    // link の行き先。ポインタが動くたびにパスを解決しないよう、前と別のリンクに移ったときだけ作る (同じリンクなら空)。
-    std::wstring link_status;
 };
 // ウィンドウ外へ出た。ホバー状態を全て解除しツールチップを閉じる。
 struct MouseLeaveAction {};

@@ -20,6 +20,7 @@
 #include "syntax.h"
 #include "theme.h"
 #include "theme_palette.h"
+#include "utf8_codec.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
 #include "viewport_manager.h"
@@ -1753,13 +1754,18 @@ TEST(LinkDestinationTest, DescribesWhatClickOpens)
     // 分類そのものは ClassifyLinkClick のテストで見るので、分類ごとに 1 つずつ。
     const Case kCases[] = {
         // 外部の URL は書いたまま (ShellExecute に渡すときの %XX にしない)。
-        { "https://example.com/a b", L"https://example.com/a b", true },
+        { "https://example.com/a b",                    L"https://example.com/a b",               true  },
         // ローカルの Markdown は解決した絶対パス。見出しの指定はデコードして後ろに付ける。
-        { "other.md#%E4%BD%BF%E3%81%84%E6%96%B9", L"C:\\docs\\other.md#使い方", true },
-        { "other.md#", L"C:\\docs\\other.md", true },
-        { "readme.md#usage", L"#usage", true },
-        { "mendo://help", L"mendo://help", true },
-        { "run.exe", L"run.exe", false },
+        { "other.md#%E4%BD%BF%E3%81%84%E6%96%B9",       L"C:\\docs\\other.md#使い方",             true  },
+        { "other.md#",                                  L"C:\\docs\\other.md",                    true  },
+        { "readme.md#usage",                            L"#usage",                                true  },
+        { "mendo://help",                               L"mendo://help",                          true  },
+        { "run.exe",                                    L"run.exe",                               false },
+        // 双方向の上書きなどの見えない文字は %XX にし、表示の並びで別の行き先に見せない。
+        { "https://evil.example/\xE2\x80\xAEgpj.moc",   L"https://evil.example/%E2%80%AEgpj.moc", true  },
+        { "https://a.example/\xE2\x80\x8B\xEF\xBB\xBF", L"https://a.example/%E2%80%8B%EF%BB%BF",  true  },
+        { "other.md#a\xE2\x81\xA6_b",                   L"C:\\docs\\other.md#a%E2%81%A6_b",       true  },
+        { "#\xF3\xA0\x80\x81",                          L"#%F3%A0%80%81",                         true  },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.url));
@@ -1767,6 +1773,48 @@ TEST(LinkDestinationTest, DescribesWhatClickOpens)
         EXPECT_EQ(d.text, c.text);
         EXPECT_EQ(d.navigable, c.navigable);
     }
+}
+
+// data: の URL などは数百 KB になるので、両端を残して中を切る。
+TEST(LinkDestinationTest, CutsMiddleOfLongDestination)
+{
+    const std::string url = "https://example.com/" + std::string(300'000, 'a') + "/tail.png";
+    const auto d = DescribeLinkDestination(url, L"C:/docs/readme.md");
+    ASSERT_EQ(d.text.size(), MAX_DISPLAY_URL_LEN);
+    EXPECT_TRUE(d.text.starts_with(L"https://example.com/aaa"));
+    EXPECT_TRUE(d.text.ends_with(L"aaa/tail.png"));
+    EXPECT_EQ(d.text[MAX_DISPLAY_URL_LEN / 2], L'…');
+
+    // サロゲートペアの途中では切らない。
+    const std::string emoji = "\xF0\x9F\x98\x80";
+    std::string wide_url = "https://example.com/";
+    for (int i = 0; i < 1000; ++i) {
+        wide_url += emoji;
+    }
+    const auto w = DescribeLinkDestination(wide_url, L"C:/docs/readme.md");
+    EXPECT_LE(w.text.size(), MAX_DISPLAY_URL_LEN + 1);
+    const auto cut = w.text.find(L'…');
+    ASSERT_NE(cut, std::wstring::npos);
+    EXPECT_FALSE(utf8_codec::IsHighSurrogate(w.text[cut - 1]));
+    EXPECT_FALSE(utf8_codec::IsLowSurrogate(w.text[cut + 1]));
+}
+
+// 長い入力は両端だけを %XX にするが、全体を %XX にしてから中を切ったのと同じ結果になる。
+TEST(ToDisplayUrlTest, LongInputMatchesWholeEncoding)
+{
+    std::wstring text;
+    for (int i = 0; i < 3000; ++i) {
+        text += (i % 3 == 0) ? L'\u202E' : L'a';
+    }
+    std::wstring whole;
+    for (const wchar_t c : text) {
+        whole += c == L'\u202E' ? std::wstring(L"%E2%80%AE") : std::wstring(1, c);
+    }
+    const auto shown = ToDisplayUrl(text);
+    ASSERT_EQ(shown.size(), MAX_DISPLAY_URL_LEN);
+    EXPECT_EQ(shown.substr(0, MAX_DISPLAY_URL_LEN / 2), whole.substr(0, MAX_DISPLAY_URL_LEN / 2));
+    EXPECT_EQ(shown[MAX_DISPLAY_URL_LEN / 2], L'…');
+    EXPECT_TRUE(whole.ends_with(shown.substr(MAX_DISPLAY_URL_LEN / 2 + 1)));
 }
 
 TEST(PercentDecodeTest, DecodesHexPairsAndKeepsInvalidSequences)

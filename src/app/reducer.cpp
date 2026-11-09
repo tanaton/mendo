@@ -456,9 +456,6 @@ void ApplyHoverHighlights(ReduceContext& c, HoverHighlights h)
     if (c.state.view.HDragNode() >= 0) {
         h.h_block = c.state.view.hover.h_block;
     }
-    if (!h.link.Any()) {
-        c.state.view.link_status.clear();
-    }
     if (std::exchange(c.state.view.hover, h) != h) {
         Invalidate(c);
     }
@@ -466,9 +463,6 @@ void ApplyHoverHighlights(ReduceContext& c, HoverHighlights h)
 
 void On(ReduceContext& c, const PointerHoverAction& a)
 {
-    if (!a.link.SameLink(c.state.view.hover.link)) {
-        c.state.view.link_status = a.link_status;
-    }
     ApplyHoverHighlights(c, a);
     if (a.tooltip.target != c.state.interaction.tooltip) {
         c.state.interaction.tooltip = a.tooltip.target;
@@ -1084,7 +1078,6 @@ void ResetPerNodeTransientState(ReduceContext& c)
     view.viewport.ClearSelection();
     view.block_scroll_x.clear();
     view.hover = {};
-    view.link_status.clear();
     view.active_toc_index = -1;
     // スピナーを出している間は描画が同期しないので、クリックした文書の分が残っていることがある。
     view.keep_toc_pane_once = false;

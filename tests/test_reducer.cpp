@@ -493,40 +493,37 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
     EXPECT_TRUE(effects.empty());
 }
 
-// リンクの行き先は、指すリンクが変わったときだけ差し替える。同じリンクの上では文言が空で来ても消さず、
-// リンクから離れたら (窓の外へ出たときも) 消す。
-TEST_F(ReducerTest, PointerHover_LinkStatusReplacedOnlyWhenLinkChanges)
+// リンクの行き先は hover.link と一緒に持つ。同じ行き先を共有したまま動いても描き直さず、リンクから離れたら
+// (窓の外へ出たときも) 消える。
+TEST_F(ReducerTest, PointerHover_LinkStatusFollowsHoveredLink)
 {
     PointerHoverAction on_a;
-    on_a.link = { .node = 0, .index = 0, .navigable = true };
-    on_a.link_status = L"https://a.example";
+    on_a.link = { .node = 0, .index = 0, .destination = std::make_shared<const LinkDestination>(LinkDestination{ L"https://a.example", true }) };
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, on_a)));
-    EXPECT_EQ(state.view.link_status, L"https://a.example");
+    EXPECT_EQ(state.view.hover.link.StatusText(), L"https://a.example");
 
     PointerHoverAction same;
     same.link = on_a.link;
     EXPECT_TRUE(Reduce(state, same).empty());
-    EXPECT_EQ(state.view.link_status, L"https://a.example");
 
     // ポインタが表示の高さに入って寄せる側が変わったら、文言はそのまま描き直す。
     same.link.dock = LinkStatusDock::RightHalf;
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, same)));
-    EXPECT_EQ(state.view.link_status, L"https://a.example");
+    EXPECT_EQ(state.view.hover.link.StatusText(), L"https://a.example");
 
     PointerHoverAction on_b;
-    on_b.link = { .node = 0, .index = 1 };
-    on_b.link_status = L"run.exe";
+    on_b.link = { .node = 0, .index = 1, .destination = std::make_shared<const LinkDestination>(LinkDestination{ L"run.exe", false }) };
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, on_b)));
-    EXPECT_EQ(state.view.link_status, L"run.exe");
+    EXPECT_EQ(state.view.hover.link.StatusText(), L"run.exe");
 
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(Reduce(state, PointerHoverAction{})));
     EXPECT_FALSE(state.view.hover.link.Any());
-    EXPECT_TRUE(state.view.link_status.empty());
+    EXPECT_TRUE(state.view.hover.link.StatusText().empty());
 
     Reduce(state, on_a);
     Reduce(state, MouseLeaveAction{});
     EXPECT_FALSE(state.view.hover.link.Any());
-    EXPECT_TRUE(state.view.link_status.empty());
+    EXPECT_TRUE(state.view.hover.link.StatusText().empty());
 }
 
 // ---- コマンド系アクションテスト ----

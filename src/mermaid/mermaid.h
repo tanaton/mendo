@@ -208,7 +208,8 @@ private:
     // bg のワーカーの仕事 1 つとその結果。
     struct Job {
         RenderRequest req;
-        JobWork work = JobWork::Render;
+        // 既定値を置かない (Render だと指定し忘れた仕事も描画の枠を返す)。
+        JobWork work;
         JobOutcome outcome;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
@@ -250,10 +251,10 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
-    // job を bg で work(job) してその結果を outcome に入れ、job_results_ に返す。投入後に drop_gen_ が進んだ表示用の要求は
-    // work せずに JobDropped で返す。
+    // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す。投入後に drop_gen_ が進んだ
+    // 表示用の要求は work せずに JobDropped で返す。
     template <typename Work>
-    void PostJob(Job job, Work work);
+    void PostJob(RenderRequest req, JobWork kind, Work work);
     // worker で呼ぶ。
     JobOutcome RenderJob(Job& job);
 
