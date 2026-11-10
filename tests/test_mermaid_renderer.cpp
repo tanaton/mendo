@@ -181,15 +181,15 @@ protected:
         return PollUntil(ready, std::chrono::seconds(30));
     }
 
-    bool Request(const DiagramDoc& d, DiagramEntry& entry)
+    bool Request(const DiagramDoc& d, DiagramEntry& entry, float max_width = kMaxWidth)
     {
-        return renderer_.RequestRender(d.node(), entry, kMaxWidth, /*dark_mode=*/false);
+        return renderer_.RequestRender(d.node(), entry, max_width, /*dark_mode=*/false);
     }
 
     // 結果が出るまで要求し直す (結果を待つ図を on_update で要求し直す ResourceManager と同じ)。
-    bool RenderUntilSettled(const DiagramDoc& d, DiagramEntry& entry)
+    bool RenderUntilSettled(const DiagramDoc& d, DiagramEntry& entry, float max_width = kMaxWidth)
     {
-        return Await([&] { return Request(d, entry); });
+        return Await([&] { return Request(d, entry, max_width); });
     }
 
     // 別の図の描画命令を、key のディスクキャッシュとして置く。ディスクから読んだ図はその描画命令で出るので、描き直したのと見分けられる。
@@ -388,7 +388,7 @@ TEST_F(MermaidRendererTest, WideDiagramFitsDisplayAndBitmapButNotSvg)
     constexpr float kNarrow = 200.0f;
     const DiagramDoc d(kWide);
     DiagramEntry entry;
-    ASSERT_TRUE(Await([&] { return renderer_.RequestRender(d.node(), entry, kNarrow, /*dark_mode=*/false); }));
+    ASSERT_TRUE(RenderUntilSettled(d, entry, kNarrow));
     ASSERT_TRUE(entry.CanExport());
 
     const std::string svg = SvgOf(entry);
@@ -396,7 +396,7 @@ TEST_F(MermaidRendererTest, WideDiagramFitsDisplayAndBitmapButNotSvg)
     float h = 0.0f;
     ASSERT_EQ(sscanf_s(svg.c_str(), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%f\" height=\"%f\"", &w, &h), 2) << svg;
     ASSERT_GT(w, kNarrow);
-    const float fit_h = std::ceil(std::floor(h * kNarrow / w * 64.0f) / 64.0f);
+    const float fit_h = mermaid_util::FittedDiagramSize(*entry.drawing, kNarrow).height;
 
     const D2D1_RECT_F rect = DiagramRect(entry.width, entry.height, 0.0f, kNarrow, 0.0f);
     EXPECT_NEAR(rect.right - rect.left, kNarrow, 0.001f);
@@ -445,7 +445,7 @@ TEST_F(MermaidRendererTest, ViewerUsesBodyDrawingOfWideDiagramInSameWidthBucket)
     constexpr float kNarrow = 200.0f;
     const DiagramDoc wide(kWide);
     DiagramEntry entry;
-    ASSERT_TRUE(Await([&] { return renderer_.RequestRender(wide.node(), entry, kNarrow, /*dark_mode=*/false); }));
+    ASSERT_TRUE(RenderUntilSettled(wide, entry, kNarrow));
     ASSERT_GT(entry.width, kNarrow);
     OpenViewer(wide.node().GetText(), 0, kNarrow + 5.0f);
     ASSERT_EQ(viewer_.drawings.size(), 1u);
@@ -501,12 +501,12 @@ TEST_F(MermaidRendererTest, ViewerFollowsCodeAndKeepsDrawingOnError)
 {
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
-    renderer_.UpdateViewerCode(kBeta);
+    renderer_.UpdateViewerCode(kBeta, kMaxWidth);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
     EXPECT_EQ(viewer_.loading, 0);
 
-    renderer_.UpdateViewerCode(kBroken);
+    renderer_.UpdateViewerCode(kBroken, kMaxWidth);
     // 同じ壊れた図の本文の結果が確定するころには、先に頼んだ拡大表示の分も済んでいる。
     const DiagramDoc broken(kBroken);
     DiagramEntry entry;
@@ -549,7 +549,7 @@ TEST_F(MermaidRendererTest, ViewerFollowsTheme)
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_EQ(viewer_.drawings[0]->background, kDiagramLightBackground);
-    renderer_.SetViewerDarkMode(true);
+    renderer_.SetViewerDarkMode(true, kMaxWidth);
     EXPECT_TRUE(viewer_.dark);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_EQ(viewer_.drawings[1]->background, kDiagramDarkBackground);

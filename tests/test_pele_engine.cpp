@@ -5,7 +5,6 @@
 #include "pele_test_assets.h"
 #include "string_convert.h"
 #include "test_helpers.h"
-#include "ui_constants.h"
 #include "wic_util.h"
 #include <d2d1_1.h>
 #include <dwrite.h>
@@ -574,37 +573,4 @@ TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
     masks.Reset(nullptr);
     Draw(canvas, { math.get(), 1 }, &masks);
     EXPECT_EQ(masks.Count(), 0u);
-}
-
-// 幅の上限に収まらない図の、表示の矩形と保存・コピーの画像の大きさ。幅は上限に合わせ、高さはブラウザのレイアウトと同じく
-// 1/64 px に切り捨ててから切り上げる。
-TEST_F(MathDrawTest, WideDiagramFitsDisplayRectAndExportedBitmap)
-{
-    constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
-    for (const float max_width : { 200.0f, 333.5f }) {
-        const auto out = engine_->Render(kWide, false, max_width);
-        ASSERT_EQ(out.status, Status::Drawn);
-        const float w = out.drawing.width;
-        const float h = out.drawing.height;
-        ASSERT_GT(w, max_width);
-        const float fit_w = std::ceil(std::floor(max_width * 64.0f) / 64.0f);
-        const float fit_h = std::ceil(std::floor(h * max_width / w * 64.0f) / 64.0f);
-
-        // 表示は端数のまま縮めるので、高さは切り上げた値と 1px 未満ずれる。
-        const D2D1_RECT_F rect = DiagramRect(w, h, 10.0f, max_width, 20.0f);
-        EXPECT_NEAR(rect.left, 10.0f, 0.001f);
-        EXPECT_NEAR(rect.right - rect.left, max_width, 0.001f);
-        EXPECT_EQ(rect.top, 20.0f);
-        EXPECT_NEAR(rect.bottom - rect.top, fit_h, 1.0f);
-
-        const auto size = mermaid_util::FittedDiagramSize(out.drawing, max_width);
-        for (const float dpr : { 1.0f, 1.5f }) {
-            const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), out.drawing, size, dpr, L"ja-jp");
-            ASSERT_NE(bitmap, nullptr);
-            UINT pw = 0, ph = 0;
-            ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&pw, &ph));
-            EXPECT_EQ(pw, static_cast<UINT>(std::ceil(fit_w * dpr))) << max_width;
-            EXPECT_EQ(ph, static_cast<UINT>(std::ceil(fit_h * dpr))) << max_width;
-        }
-    }
 }

@@ -1,6 +1,7 @@
 #include "syntax.h"
 #include "syntax_keywords.h"
 #include "ascii_util.h"
+#include "utility.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -2811,13 +2812,9 @@ constexpr bool StartsWithVim9Script(std::string_view text) noexcept
 
 // ヒアドキュメントの終端の行は長さが決まらないので、状態には 16 bit のハッシュで持つ。途中から始めた本文は
 // ハッシュの合う最初の行で終わる (終端でない行が偶然合うのは 6 万行に 1 行程度)。
-constexpr SyntaxLexState VimMarkerHash(std::string_view marker) noexcept
+SyntaxLexState VimMarkerHash(std::string_view marker) noexcept
 {
-    uint32_t h = 0;
-    for (const char c : marker) {
-        h = h * 31 + static_cast<unsigned char>(c);
-    }
-    return (h ^ (h >> 16)) & 0xFFFF;
+    return static_cast<SyntaxLexState>(RapidHash(marker) & 0xFFFF);
 }
 
 // 状態は、途中から始めること・Vim9 script かどうか・ヒアドキュメントの本文の中ならその種類と trim と終端の行のハッシュ。

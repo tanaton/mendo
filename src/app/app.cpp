@@ -84,7 +84,7 @@ bool App::Init(HWND hwnd)
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_,
-                           &MermaidRenderer::CreateBundledPele, &MermaidRenderer::OpenDiagramView, [this]() {
+                           &MermaidRenderer::CreateBundledPele, &DiagramView::Open, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -914,7 +914,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     Dispatch(ReloadSettledAction{});
 
     if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), mermaid_renderer_.ViewerNode(), NodeType::Diagram)) {
-        mermaid_renderer_.UpdateViewerCode(node->GetText());
+        mermaid_renderer_.UpdateViewerCode(node->GetText(), MdContentWidth(state_));
     }
 }
 
@@ -1133,7 +1133,7 @@ void App::ToggleDarkMode()
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
-    mermaid_renderer_.SetViewerDarkMode(dark);
+    mermaid_renderer_.SetViewerDarkMode(dark, MdContentWidth(state_));
     RelayoutViewport();
     session::SaveDarkMode(config_, dark);
 }

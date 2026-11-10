@@ -121,7 +121,7 @@ void MermaidRenderer::DropQueued()
 
 void MermaidRenderer::DropQueuedMath()
 {
-    std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind() == RequestKind::Math; });
+    std::erase_if(render_waiting_, [](const RenderRequest& r) { return std::holds_alternative<MathRequest>(r.target); });
 }
 
 bool MermaidRenderer::RequestRender(
@@ -173,7 +173,7 @@ void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
     bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind }, work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        const bool dropped = job.req.kind() == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
+        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
@@ -246,7 +246,7 @@ void MermaidRenderer::ApplyMathResult(Job& r)
 
 bool MermaidRenderer::ApplyJobResult(Job& r)
 {
-    if (r.req.kind() == RequestKind::Math) {
+    if (std::holds_alternative<MathRequest>(r.req.target)) {
         // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
         ApplyMathResult(r);
         return false;
@@ -346,12 +346,6 @@ std::unique_ptr<PeleEngine> MermaidRenderer::CreateBundledPele(IDWriteFactory* d
     return std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), dw, i18n::TextLocale());
 }
 
-std::unique_ptr<IDiagramViewer> MermaidRenderer::OpenDiagramView(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                                 std::move_only_function<void()> on_close)
-{
-    return DiagramView::Open(owner, d2d, dw, wic, dark, std::move(on_close));
-}
-
 void MermaidRenderer::EnsurePele()
 {
     if (!pele_) {
@@ -383,7 +377,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
 {
     using Status = PeleOutcome::Status;
     job.used_pele = true;
-    if (job.req.kind() == RequestKind::Math) {
+    if (std::holds_alternative<MathRequest>(job.req.target)) {
         const auto sources = std::get<MathRequest>(job.req.target).items | std::views::transform([](const auto& item) static noexcept {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
@@ -438,22 +432,24 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
     RequestViewerDrawing();
 }
 
-void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
+void MermaidRenderer::SetViewerDarkMode(bool dark_mode, float max_width)
 {
     if (!ViewerOpen()) {
         return;
     }
+    viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
     viewer_.view->SetDarkMode(dark_mode);
     RequestViewerDrawing();
 }
 
-void MermaidRenderer::UpdateViewerCode(std::string_view code)
+void MermaidRenderer::UpdateViewerCode(std::string_view code, float max_width)
 {
     if (!ViewerOpen() || viewer_.code == code) {
         return;
     }
     viewer_.code.assign(code);
+    viewer_.max_width = max_width;
     RequestViewerDrawing();
 }
 

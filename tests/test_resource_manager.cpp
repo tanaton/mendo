@@ -798,7 +798,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
     ASSERT_TRUE(diagram.commands);
-    // 表示幅に合わせて縮めた図なので、幅が変われば描き直しになる。
+    // 幅の上限より広い図 (幅に縛られる結果) なので、幅が変われば描き直しになる。
     diagram.width = 2000.0f;
 
     mock_mermaid_.sync_apply_bitmap = false;

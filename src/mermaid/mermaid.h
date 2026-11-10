@@ -59,11 +59,9 @@ public:
     // 作る (テストの exe は埋め込みリソースを持たない)。
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
-    // 拡大表示の窓を開く。開けなければ null。本番は OpenDiagramView (DiagramView::Open) で、テストは窓を作らない実装を返す。
+    // 拡大表示の窓を開く。開けなければ null。本番は DiagramView::Open で、テストは窓を作らない実装を返す。
     using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
                                                               std::move_only_function<void()> on_close);
-    static std::unique_ptr<IDiagramViewer> OpenDiagramView(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                           std::move_only_function<void()> on_close);
 
     // d2d・wic・dw は Renderer と共有する。d2d は拡大表示の窓と図を描いた画像の描画先を、wic は図を描いた画像を、
     // dw は図の文字を作るのに使う。
@@ -98,10 +96,12 @@ public:
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
+    // max_width は今の本文の幅。本文と同じ要求にして同じ図を 2 回描かないよう、テーマの切り替えと保存への追従でも渡し直す
+    // (開いたときの幅のままだと、本体の幅を変えた後は幅に収まらない図を本文用と別に描く)。
     void OpenViewer(std::string_view code, int node, float max_width, bool dark_mode);
     void CloseViewer();
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
-    void SetViewerDarkMode(bool dark_mode);
+    void SetViewerDarkMode(bool dark_mode, float max_width);
     // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
     std::optional<std::string_view> ViewerCode() const noexcept
     {
@@ -117,19 +117,13 @@ public:
         viewer_.node = node;
     }
     // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
-    void UpdateViewerCode(std::string_view code);
+    void UpdateViewerCode(std::string_view code, float max_width);
     void ApplyViewerLanguage();
 
 private:
     struct MathRequest {
         std::vector<InlineMathItem> items;
         MathBatchCallback callback;
-    };
-
-    // RenderRequest::target の並び。Display は結果をキャッシュに持ち、Math は結果を target のコールバックで返す。
-    enum class RequestKind : uint8_t {
-        Display,
-        Math
     };
 
     // 図 (本文と拡大表示) のキャッシュのキー。
@@ -150,16 +144,9 @@ private:
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
-        // 結果の渡し先 (RequestKind の順)。Math (RequestMathBatch) は code などを使わない。
+        // 結果の渡し先。図 (DisplayTarget) は結果をキャッシュに持ち、数式 (MathRequest) はコールバックで返す。数式は code などを使わない。
         std::variant<DisplayTarget, MathRequest> target;
-        RequestKind kind() const noexcept
-        {
-            return static_cast<RequestKind>(target.index());
-        }
     };
-    template <RequestKind K>
-    using TargetOf = std::variant_alternative_t<std::to_underlying(K), decltype(RenderRequest::target)>;
-    static_assert(std::is_same_v<TargetOf<RequestKind::Display>, DisplayTarget> && std::is_same_v<TargetOf<RequestKind::Math>, MathRequest>);
 
     // 図の拡大表示 (窓は DiagramView が持つ)。
     struct Viewer {

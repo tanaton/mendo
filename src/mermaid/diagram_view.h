@@ -47,8 +47,8 @@ public:
     // owner の中央に、owner の 9 割の大きさで「読み込み中」として開く。on_close は ×・Esc で呼ぶ (呼ばれた側がこれを壊す)。
     // 開けなければ null。
     // d2d は本体と同じファクトリ。数式の形 (MathDrawing::Shape) はファクトリごとに作るので、分けると本体と交互に作り直す。
-    static std::unique_ptr<DiagramView> Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                             std::move_only_function<void()> on_close);
+    static std::unique_ptr<IDiagramViewer> Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                                std::move_only_function<void()> on_close);
     // 窓も壊す。
     ~DiagramView() override;
     DiagramView(const DiagramView&) = delete;

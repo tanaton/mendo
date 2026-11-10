@@ -101,8 +101,8 @@ DiagramView::DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFacto
     : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d2d_(d2d)
 {}
 
-std::unique_ptr<DiagramView> DiagramView::Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                               std::move_only_function<void()> on_close)
+std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                                  std::move_only_function<void()> on_close)
 {
     static const bool registered = RegisterWindowClass(
         kWindowClass.data(), WndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
