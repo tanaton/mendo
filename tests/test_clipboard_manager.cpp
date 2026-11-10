@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "clipboard_manager.h"
 #include "document.h"
-#include "document_test_helpers.h"
 #include "i18n.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
@@ -34,7 +33,6 @@ public:
 };
 
 constexpr float kDefaultMdWidth = 800.0f;
-constexpr std::string_view kMermaidMd = "```mermaid\ngraph TD; A-->B\n```\n";
 
 } // namespace
 
@@ -47,14 +45,6 @@ protected:
         manager_.Init(nullptr, &renderer_, nullptr, [this](std::wstring_view m) { toasts_.emplace_back(m); });
     }
 
-    // 文書を差し替え、最初の type ノードの index を返す。
-    int Load(std::string_view md, NodeType type = NodeType::Diagram)
-    {
-        doc_ = Document::FromMarkdown(std::string(md), L"t.md");
-        return FindFirstNodeIndexByType(doc_.GetNodes(), type);
-    }
-
-    Document doc_;
     MockMermaidRenderer renderer_;
     std::vector<std::wstring> toasts_;
     ClipboardManager manager_;
@@ -62,27 +52,16 @@ protected:
         std::make_shared<const mermaid_util::DiagramDrawing>(mermaid_util::DiagramDrawing{ .width = 1200.0f, .height = 600.0f });
 };
 
-// 範囲外・種別違いのノードと、描いた絵の無い図は何もしない (トーストも出さず、画像も描かない)。
+// 範囲外・種別違いのノードのコードのコピーと、描いた絵の無い図は何もしない (トーストも出さず、画像も描かない)。
 TEST_F(ClipboardManagerTest, InvalidTargetsAreNoOps)
 {
-    Load("paragraph text");
-    manager_.CopyCodeBlock(doc_, -1, false);
-    manager_.CopyCodeBlock(doc_, 9999, false);
-    manager_.CopyCodeBlock(doc_, 0, false);
+    const Document doc = Document::FromMarkdown("paragraph text", L"t.md");
+    manager_.CopyCodeBlock(doc, -1, false);
+    manager_.CopyCodeBlock(doc, 9999, false);
+    manager_.CopyCodeBlock(doc, 0, false);
 
-    const int code = Load("```cpp\nint main(){}\n```\n", NodeType::CodeBlock);
-    ASSERT_GE(code, 0);
-    manager_.SaveDiagramAsPng(doc_, code, drawing_, kDefaultMdWidth);
-    manager_.CopyDiagramToClipboard(doc_, code, drawing_, kDefaultMdWidth);
-
-    const int diagram = Load(kMermaidMd);
-    ASSERT_GE(diagram, 0);
-    manager_.SaveDiagramAsPng(doc_, -1, drawing_, kDefaultMdWidth);
-    manager_.SaveDiagramAsPng(doc_, 9999, drawing_, kDefaultMdWidth);
-    manager_.SaveDiagramAsPng(doc_, diagram, {}, kDefaultMdWidth);
-    manager_.CopyDiagramToClipboard(doc_, -1, drawing_, kDefaultMdWidth);
-    manager_.CopyDiagramToClipboard(doc_, 9999, drawing_, kDefaultMdWidth);
-    manager_.CopyDiagramToClipboard(doc_, diagram, {}, kDefaultMdWidth);
+    manager_.SaveDiagramAsPng({}, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard({}, kDefaultMdWidth);
 
     EXPECT_EQ(renderer_.bitmap_count, 0);
     EXPECT_TRUE(toasts_.empty());
@@ -92,10 +71,7 @@ TEST_F(ClipboardManagerTest, InvalidTargetsAreNoOps)
 // (画像が無ければクリップボードに触れず、失敗と知らせる)。
 TEST_F(ClipboardManagerTest, CopyDiagramDrawsBitmapAtBodyWidthAndToastsOnce)
 {
-    const int diagram = Load(kMermaidMd);
-    ASSERT_GE(diagram, 0);
-
-    manager_.CopyDiagramToClipboard(doc_, diagram, drawing_, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard(drawing_, kDefaultMdWidth);
     EXPECT_EQ(renderer_.bitmap_count, 1);
     EXPECT_EQ(renderer_.last_drawing, drawing_.get());
     EXPECT_FLOAT_EQ(renderer_.last_width, kDefaultMdWidth);
@@ -103,7 +79,7 @@ TEST_F(ClipboardManagerTest, CopyDiagramDrawsBitmapAtBodyWidthAndToastsOnce)
     EXPECT_EQ(toasts_[0], i18n::S().toast_diagram_copy_failed);
 
     // 同じ図を押し直しても、別の図を押しても、毎回その図を描いて知らせる。
-    manager_.CopyDiagramToClipboard(doc_, diagram, drawing_, 1024.0f);
+    manager_.CopyDiagramToClipboard(drawing_, 1024.0f);
     EXPECT_EQ(renderer_.bitmap_count, 2);
     EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
     EXPECT_EQ(toasts_.size(), 2u);

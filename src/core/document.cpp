@@ -7,7 +7,7 @@
 
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {
-    MENDO_PROFILE("Document::FromMarkdown");
+    MENDO_PROFILE("Document::FromNormalizedMarkdown");
     assert(std::string_view{ text }.find_first_of(std::string_view{ "\r\0", 2 }) == std::string_view::npos);
     Document doc;
     doc.file_path_ = path;

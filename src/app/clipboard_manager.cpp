@@ -66,10 +66,9 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
     WriteClipboardHtml(hwnd_, ExtractSelectedTextAsHtml(nodes, selection, dark), ExtractSelectedText(nodes, selection));
 }
 
-void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing,
-                                        float md_width) const
+void ClipboardManager::SaveDiagramAsPng(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const
 {
-    if (!NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram) || !drawing) {
+    if (!drawing) {
         return;
     }
 
@@ -107,10 +106,9 @@ UniqueGlobalMem ClipboardManager::BuildDib(IWICBitmapSource* bitmap) const
     });
 }
 
-void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing,
-                                              float md_width) const
+void ClipboardManager::CopyDiagramToClipboard(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const
 {
-    if (!NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram) || !drawing) {
+    if (!drawing) {
         return;
     }
     // SVG は描画命令を書き直すだけ (500 ノードの図で約 0.3MB) なので、画像と同じくその場で作る。

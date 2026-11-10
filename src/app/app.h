@@ -352,7 +352,7 @@ private:
     // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
     TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
     MermaidFileCache file_cache_;        // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
-    ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の Shutdown が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
+    ClipboardManager clipboard_manager_;
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
     // 本文中の画像の寸法表。計測ワーカーが引き、ResourceManager が読み込みの結果を書く。

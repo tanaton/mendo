@@ -46,7 +46,7 @@ struct Theme;
 class TaskScheduler;
 
 // LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去・LF 正規化済) + 元の UTF-8 バイト数 (BOM 込み)。
-// byte_size はリロード時の二段階保存検出 (IsFileLargerThan) や AnalyzeReloadDiff の参照用。
+// byte_size はリロード時の二段階保存検出 (IsFileLargerThan) の参照用。
 struct LoadedFileDoc {
     std::string text;
     size_t byte_size = 0;
@@ -116,8 +116,8 @@ public:
         return in_flight_;
     }
 
-    // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの SetTheme が
-    // std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
+    // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの ThemeService
+    // (ApplyZoom・ToggleDarkMode) が std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
     // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
@@ -127,7 +127,7 @@ public:
     // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
     bool Attach(HWND hwnd, UINT msg_id);
 
-    // ロード結果の取り出し。fired から Take までの間に Cancel が走った場合 sink は破棄済み。
+    // ロード結果の取り出し。通知から Take までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
     // request_stop で走行中の parse/Estimate を協調的に打ち切り、worker の以後の publish を弾く。outcome_ も即時クリア。

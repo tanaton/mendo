@@ -17,7 +17,7 @@ struct TableRestoreResult {
     std::optional<float> height;
 };
 
-// IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
+// 計測は const で、IDWriteTextLayout は per-call 生成、ファクトリと書式はワーカーごとに分ける (DWriteTextMeasurer) ため、
 // 同一インスタンスを複数ワーカーから const 経由で叩いて良い。
 // lifecycle 系 (RecreateFormats / SetTheme / SetScheduler) は non-const で UI スレッドからのみ呼ぶ。
 // 並列計測には const 参照で渡すので、計測中に lifecycle 系は呼べない。
@@ -50,7 +50,7 @@ public:
     // 測った高さを返す。測れなければ nullopt (例外と同じく再試行しない)。
     // entry にはレイアウトなどの計測の産物だけを書き、高さと dirty の確定は MeasureEntry (CommitMeasured) に任せる。
     // 並列計測では worker ごとに別ノード・別 entry を渡す。
-    // 図のノード (NodeType::Diagram) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
+    // 図のノード (NodeType::Diagram) は渡さない。高さは MeasureEntry が DiagramNodeHeight で決める。
     virtual std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
     // dirty でないテーブルの、viewport (エントリ上端からのローカル座標) 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
@@ -69,12 +69,12 @@ protected:
 // 測れたら組んだ幅 (NodeLayoutWidth) を cached_width に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
 // 測れなければ何も確定せず、推定の高さを実測値として残さない。
-// bitmap は図のノードの DiagramEntry (無ければ nullptr)。
+// diagram は図のノードの DiagramEntry (無ければ nullptr)。
 inline void MeasureEntry(
-    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* bitmap)
+    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* diagram)
 {
     const std::optional<float> height = node.type == NodeType::Diagram
-                                            ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, measurer.GetTheme())
+                                            ? layout::DiagramNodeHeight(diagram, node_width, entry.height, measurer.GetTheme())
                                             : measurer.MeasureNode(node, entry, node_width);
     if (height) {
         entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), *height);

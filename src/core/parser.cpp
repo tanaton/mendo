@@ -80,8 +80,7 @@ struct ParseContext : NodeStorage {
 
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ (フラグは uint8_t なので添字は 8 未満)。
-    // md4c は強調の入れ子に上限が無いので 8bit では数えない。CommonMark で link はネスト禁止のため
-    // link_url_index のみ単純フィールド (-1 = リンク外)。
+    // md4c は強調の入れ子に上限が無いので 8bit では数えない。
     std::array<uint32_t, 8> span_depths{};
     // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
@@ -150,7 +149,7 @@ struct ParseContext : NodeStorage {
     std::vector<size_t> split_code_runs;
 
     // 現在ノードのテキストと runs のスクラッチを Node に確定し、スクラッチをクリアする。
-    // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
+    // BeginNode と EndNode から呼ぶ。
     // スクラッチの capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
     {

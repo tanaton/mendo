@@ -501,7 +501,6 @@ void NormalizeSource(std::string& s)
     ReplaceNulls(s);
 }
 
-// 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。
 bool IsSafeUrlScheme(std::string_view url) noexcept
 {
     return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");

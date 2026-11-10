@@ -322,7 +322,7 @@ bool Renderer::CreateDevice()
     // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
     device_.MarkLost();
     frame_latency_waitable_.reset();
-    // flip モデルのスワップチェーンは、前のものが解放されるまで同じ HWND に作れない。ブラシや図のビットマップが
+    // flip モデルのスワップチェーンは、前のものが解放されるまで同じ HWND に作れない。ブラシや図の描画命令が
     // 古いデバイスを生かしていても手放せるよう描画先を外し、D3D の遅延解放をフラッシュで済ませる。
     if (device_context_) {
         device_context_->SetTarget(nullptr);

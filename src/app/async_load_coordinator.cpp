@@ -137,7 +137,7 @@ bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
 void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& theme, float content_width,
                                      const std::stop_token& stop_token, ReloadBase reload_base)
 {
-    MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
+    MENDO_PROFILE("AsyncLoadCoordinator::RunWorker");
     // 各段の前の stop check は重い処理を skip するための short-circuit。
     if (stop_token.stop_requested()) {
         return;
@@ -228,8 +228,7 @@ std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept
     if (!outcome_) {
         return std::nullopt;
     }
-    // 取り出し成功 = 非同期ロードの完結。同期ロードなど別経路から in_flight を触ると
-    // race になるため、coordinator の責務に閉じる。
+    // 取り出し成功 = 非同期ロードの完結。in_flight を倒すのは coordinator の責務に閉じる。
     in_flight_ = false;
     return std::exchange(outcome_, std::nullopt);
 }

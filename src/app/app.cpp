@@ -857,7 +857,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     // スクロール復元先の Y がずれないよう、推定高さを図のキャッシュの実測値で補正し、画像の寸法も入れてから reducer に渡す。
     if (state_.view.HasPendingScroll()) {
-        MENDO_TRACE("FinishLoad: pending scroll");
+        MENDO_TRACE("OpenDocument: pending scroll");
         if (resource_manager_.ApplyCachedHeights({ 0, state_.document.doc.GetNodes().size() })) {
             layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
         }
@@ -866,7 +866,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     RelayoutViewport();
 
-    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
+    MENDO_TRACEF("OpenDocument: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
@@ -1390,10 +1390,10 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         auto drawing = diagram ? diagram->drawing : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_));
+            clipboard_manager_.CopyDiagramToClipboard(std::move(drawing), MdContentWidth(state_));
         }
         else {
-            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_));
+            clipboard_manager_.SaveDiagramAsPng(std::move(drawing), MdContentWidth(state_));
         }
         return;
     }

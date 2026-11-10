@@ -20,7 +20,7 @@ enum class NodeType : uint8_t {
     ListItem,
     Table,
     TaskListItem,
-    // Mermaid の図。テキストではなくビットマップで描画するコードブロック。
+    // Mermaid の図。テキストではなく描画命令 (pele の SVG から作る) で描くコードブロック。
     Diagram
 };
 

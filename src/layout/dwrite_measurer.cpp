@@ -13,7 +13,6 @@
 #include "utility.h"
 #include <algorithm>
 #include <atomic>
-#include <cassert>
 #include <cmath>
 #include <iterator>
 #include <limits>

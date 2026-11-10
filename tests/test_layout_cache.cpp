@@ -99,9 +99,9 @@ TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
 }
 
-// テーマ変更やデバイスロストで全ビットマップを捨てるとき、エラー状態も消して再試行の契機にする (issue #271)。
+// テーマ変更やデバイスロストで図の描画命令を全部捨てるとき、エラー状態も消して再試行の契機にする (issue #271)。
 // 寸法は再計測が表示高さに使うので残す。
-TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsErrorAndKeepsSize)
+TEST(LayoutCacheTest, InvalidateAllDiagramCommandsClearsErrorAndKeepsSize)
 {
     LayoutCache cache(2);
     for (size_t i = 0; i < 2; i++) {
@@ -111,7 +111,7 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsErrorAndKeepsSize)
         d.error = { DiagramError::Kind::Render, L"Parse error on line 1" };
     }
 
-    cache.InvalidateAllDiagramBitmaps();
+    cache.InvalidateAllDiagramCommands();
 
     for (size_t i = 0; i < 2; i++) {
         EXPECT_TRUE(cache.FindDiagram(i)->error.empty());
@@ -352,21 +352,21 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
 }
 
 // 図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。
-TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
+TEST(DiagramNodeHeight, ScalesKeepsOrFallsBack)
 {
     const auto& theme = GetLightTheme();
     DiagramEntry wide;
     wide.width = 1200.0f;
     wide.height = 800.0f;
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&wide, 600.0f, 50.0f, theme), 400.0f);
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(&wide, 600.0f, 50.0f, theme), 400.0f);
 
     DiagramEntry narrow;
     narrow.width = 300.0f;
     narrow.height = 200.0f;
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&narrow, 600.0f, 50.0f, theme), 200.0f);
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(&narrow, 600.0f, 50.0f, theme), 200.0f);
 
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
 }
 
 // デバイスロストで捨てるのはデバイスで決まる結果。寸法はレイアウトを保つため残す。
@@ -383,13 +383,13 @@ TEST(DiagramEntryTest, EvictForRetryKeepsOnlySize)
 }
 
 // 描けなかった図は、推定が 1 行ぶんでも文言を数行見せる高さにする。高い推定はそのまま保つ。
-TEST(BitmapNodeHeight, ErrorKeepsAtLeastErrorPlaceholder)
+TEST(DiagramNodeHeight, ErrorKeepsAtLeastErrorPlaceholder)
 {
     const auto& theme = GetLightTheme();
     DiagramEntry failed;
     failed.error = { DiagramError::Kind::Render, L"KaTeX parse error" };
     const float error_height = layout::ErrorPlaceholderHeight(theme);
     EXPECT_GT(error_height, layout::PlaceholderHeight(theme));
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, 24.0f, theme), error_height);
-    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, error_height + 50.0f, theme), error_height + 50.0f);
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(&failed, 600.0f, 24.0f, theme), error_height);
+    EXPECT_FLOAT_EQ(layout::DiagramNodeHeight(&failed, 600.0f, error_height + 50.0f, theme), error_height + 50.0f);
 }

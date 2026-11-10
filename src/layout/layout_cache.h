@@ -593,7 +593,7 @@ public:
     // デバイスロスト時用。旧デバイス上の描画命令は新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
-    void InvalidateAllDiagramBitmaps() noexcept;
+    void InvalidateAllDiagramCommands() noexcept;
 
     // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を
     // 破棄し、layout_dirty=true で再生成させる。text_top と height は維持する。
@@ -699,7 +699,7 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
     return y + h < range_top || y > range_bottom;
 }
 
-// 下端が viewport_top 以上の最初のノードを二分探索で見つける。該当なしの場合は cache.size() を返す。
+// 下端が viewport_top を超える最初のノードを二分探索で見つける。該当なしの場合は cache.size() を返す。
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, float viewport_top) noexcept
 {
     const auto indices = std::views::iota(size_t{ 0 }, cache.size());
@@ -720,7 +720,7 @@ constexpr size_t FindFirstNodeBelow(const LayoutCache& cache, float y, size_t fr
 }
 
 // range_top..range_bottom と重なる可能性があるノード範囲を返す。
-// begin: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex 相当）。
+// begin: 下端が range_top を超える最初のノード（FindFirstVisibleNodeIndex 相当）。
 // end: 上端が range_bottom を超える最初のノード。
 inline IndexRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
 {

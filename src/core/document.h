@@ -14,7 +14,7 @@
 // 原文と、それをパースした結果。ノードのテキストは raw か parsed.arena を指すので、1 つの共有で寿命をそろえる。
 // パース後は書き換えない。非同期リロードの worker が UI の差し替えと無関係に読めるよう共有で持つ。
 struct DocumentData {
-    // LF-only (LoadFile または 2 引数 FromMarkdown が正規化する)。バッファは relocate しないので、
+    // LF-only (LoadFile または FromMarkdown が正規化する)。バッファは relocate しないので、
     // 原文をそのまま表示するノードのテキストが指し続けられる。
     std::string raw;
     // ノードと、原文をそのまま表示できないノードのテキスト・全ノードの runs・リンク URL・テーブル本体。

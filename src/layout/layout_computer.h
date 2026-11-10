@@ -94,7 +94,7 @@ inline float TableBaseRowHeight(const Theme& theme) noexcept
     return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
 }
 
-constexpr float BitmapDisplayHeight(float width, float height, float max_width) noexcept
+constexpr float DiagramDisplayHeight(float width, float height, float max_width) noexcept
 {
     return FitBitmapSize(width, height, max_width).height;
 }
@@ -127,20 +127,20 @@ void ForEachOverlayButton(const Node& node, const LayoutCache& cache, size_t i, 
     if (!HasDiagramButtons(diagram)) {
         return;
     }
-    const auto bmp = DiagramRect(diagram->width, diagram->height, x, w, top);
+    const auto rect = DiagramRect(diagram->width, diagram->height, x, w, top);
     for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
-        fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
+        fn(OverlayButtonRect(rect.right, rect.top, kind), kind);
     }
 }
 
-// ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
+// 図のノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
 // 描けなかった図は ErrorPlaceholderHeight 以上にする。
-inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
+inline float DiagramNodeHeight(const DiagramEntry* diagram, float node_width, float current_height, const Theme& theme) noexcept
 {
-    if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
-        return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
+    if (diagram && diagram->width > 0 && diagram->height > 0) {
+        return DiagramDisplayHeight(diagram->width, diagram->height, node_width);
     }
-    if (bitmap && !bitmap->error.empty()) {
+    if (diagram && !diagram->error.empty()) {
         return std::max(current_height, ErrorPlaceholderHeight(theme));
     }
     return current_height > 0 ? current_height : PlaceholderHeight(theme);

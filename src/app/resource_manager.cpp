@@ -90,7 +90,7 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
                                                       content_width, /*touch=*/false)) {
             const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
             // 引き継いだ図は高さが変わらないので、Y の再計算を呼ばせない。
-            const float height = layout::BitmapDisplayHeight(hit->entry.css_width, hit->entry.css_height, node_width);
+            const float height = layout::DiagramDisplayHeight(hit->entry.css_width, hit->entry.css_height, node_width);
             any_applied |= std::exchange(state_.document.layout_cache[i].height, height) != height;
         }
     }
@@ -225,7 +225,7 @@ void ResourceManager::OnRenderDeviceRecreated()
 {
     // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
     // 新しい RT で読み直したビットマップに差し替える。
-    state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+    state_.document.layout_cache.InvalidateAllDiagramCommands();
     inline_drawings_.images = {};
     // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
     FlushPendingResources();
@@ -362,7 +362,7 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
     // 失敗 (エラー確定) でも、プレースホルダーの文言と、文言を見せる高さが変わる。
     const float node_width = layout::NodeContentWidth(node, *state_.theme, content_width);
     auto& entry = state_.document.layout_cache[i];
-    entry.CommitMeasured(node_width, layout::BitmapNodeHeight(&diagram, node_width, entry.height, *state_.theme));
+    entry.CommitMeasured(node_width, layout::DiagramNodeHeight(&diagram, node_width, entry.height, *state_.theme));
     changed.Add(i);
 }
 

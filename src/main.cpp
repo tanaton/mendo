@@ -110,10 +110,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     Win32Window window(config);
 
-    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
-    // I/O + Markdown パースを進める。worker は Create 末尾で hwnd を受け取り
-    // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
-    // preload が無ければ Create 末尾でヘルプを開く。
+    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D2D/DWrite/WIC のファクトリ) と並列に
+    // I/O + Markdown パースを進める。通知先の hwnd は Create の中の LoadInitialDocument で渡し、
+    // 結果 (PARSE_COMPLETE) は最初のフレームより前に OnParseComplete で取り込む。
+    // preload が無ければ LoadInitialDocument がヘルプを開く。
     if (!plan.document_path.empty()) {
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }
