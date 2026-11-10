@@ -2,7 +2,10 @@
 
 ## プロジェクト概要
 
-Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
+- Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアーです。
+- Markdownの描画はGitHubの見た目を参考にします。
+- できるだけ高速かつ省メモリ動作し、メンテナンスしやすいコードベースを目指します。
+- このコードベースはあなたのものです。その目的や構造はあなたが決めることであり、今後もそれを発展させていくことになります。
 
 ## 技術スタック
 
@@ -41,5 +44,5 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=<正規表現>
 
 ## 注意事項
 
-- コメントは簡潔にまとめる。Whatコメントは禁止
+- コメントには背景を簡潔にまとめる
 - `third_party/` は外部コードなので編集しない
