@@ -1648,7 +1648,6 @@ enum class Prop : uint8_t {
     Ry,
     StopColor,
     StopOpacity,
-    MaxWidth,
     Count,
 };
 constexpr size_t kPropCount = static_cast<size_t>(Prop::Count);
@@ -1681,7 +1680,6 @@ constexpr std::pair<std::string_view, Prop> kPropNames[]{
     { "ry",                   Prop::Ry               },
     { "stop-color",           Prop::StopColor        },
     { "stop-opacity",         Prop::StopOpacity      },
-    { "max-width",            Prop::MaxWidth         },
 };
 
 std::optional<Prop> PropOf(std::string_view name) noexcept
@@ -1789,7 +1787,6 @@ struct Style {
         float opacity = 1.0f;
         bool display_none = false;
         uint8_t decoration = 0; // mermaid_util::kTextUnderline・kTextLineThrough
-        bool fit_width = false; // max-width:100%
         std::string_view baseline_shift;
         std::optional<float> rx; // nullopt は auto
         std::optional<float> ry;
@@ -1908,7 +1905,7 @@ public:
     {
     }
 
-    std::optional<mermaid_util::DiagramDrawing> Run(bool dark, float max_width);
+    std::optional<mermaid_util::DiagramDrawing> Run(bool dark);
 
 private:
     struct Piece {
@@ -2204,9 +2201,6 @@ bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         r = f;
         return true;
     }
-    case Prop::MaxWidth:
-        s.own.fit_width = value == "100%";
-        return true;
     case Prop::Count:
         break;
     }
@@ -2789,7 +2783,7 @@ bool PeleSvgResolver::Walk(uint32_t index, const Style& parent, const Mat& ctm, 
     return !s.visible || Shape(el, s, m, own_opacity);
 }
 
-std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, float max_width)
+std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
 {
     const XmlNode& root = nodes_[0];
     if (root.name != "svg") {
@@ -2810,16 +2804,12 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark, floa
     if (!(attr_w.value_or(0.0f) > 0.0f && attr_h.value_or(0.0f) > 0.0f)) {
         return std::nullopt;
     }
-    float w = *attr_w;
-    float h = *attr_h;
-    // ブラウザと同じく SVG の style の max-width:100%;height:auto で、幅の上限まで縦横比を保って縮める。
-    if (rs.own.fit_width && max_width > 0.0f && w > max_width) {
-        h = h * max_width / w;
-        w = max_width;
-    }
-    // ブラウザのレイアウトは 1/64 px に切り捨てる。大きさの切り上げをブラウザとそろえる (837x520 を幅 800 にすると高さ 497.013 → 497)。
-    w = std::floor(w * 64.0f) / 64.0f;
-    h = std::floor(h * 64.0f) / 64.0f;
+    // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る。縮めるのは描くとき
+    // (DiagramRect・FittedDiagramSize) で、拡大表示・クリップボードの SVG・本文が同じ描画命令を使える。拡大率を図形の
+    // transform に書くと小数 3 桁に丸まり、文字 (丸めない) と最大 0.0005 x 座標 px ずれていた。
+    // ブラウザのレイアウトは 1/64 px に切り捨てる。大きさの切り上げをブラウザとそろえる。
+    const float w = std::floor(*attr_w * 64.0f) / 64.0f;
+    const float h = std::floor(*attr_h * 64.0f) / 64.0f;
     Mat root_ctm;
     if (!ViewportTransform(root, 0.0, 0.0, w, h, root_ctm)) {
         return std::nullopt;
@@ -4707,14 +4697,14 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
 }
 
 std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(
-    std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
+    std::string_view svg, bool dark, DiagramTextMeasurer& measurer,
     std::span<const PeleMathLabel> maths)
 {
     XmlDoc doc;
     if (!ParseXml(svg, doc)) {
         return std::nullopt;
     }
-    return PeleSvgResolver(doc, measurer, maths).Run(dark, max_width);
+    return PeleSvgResolver(doc, measurer, maths).Run(dark);
 }
 
 ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
@@ -4746,7 +4736,7 @@ bool DrawDiagram(
     }
     D2D1::Matrix3x2F base;
     dc->GetTransform(&base);
-    // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。背景はキャプチャと同じく塗る。
+    // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。
     dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.width, drawing.height), brush.Get());
     DiagramTextMeasurer formats(dw, locale);
@@ -4809,11 +4799,11 @@ ComPtr<ID2D1CommandList> RecordDiagram(
 
 Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
     ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
-    const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale)
+    const mermaid_util::DiagramDrawing& drawing, mermaid_util::DiagramSize size, float dpr, const wchar_t* locale)
 {
-    const auto width = static_cast<UINT>(std::ceil(drawing.width * dpr));
-    const auto height = static_cast<UINT>(std::ceil(drawing.height * dpr));
-    if (!d2d || !dw || !wic || width == 0 || height == 0) {
+    const auto width = static_cast<UINT>(std::ceil(size.width * dpr));
+    const auto height = static_cast<UINT>(std::ceil(size.height * dpr));
+    if (!d2d || !dw || !wic || width == 0 || height == 0 || !(drawing.width > 0.0f && drawing.height > 0.0f)) {
         return nullptr;
     }
     ComPtr<IWICBitmap> bitmap;
@@ -4829,6 +4819,7 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
         return nullptr;
     }
     dc->BeginDraw();
+    dc->SetTransform(D2D1::Matrix3x2F::Scale(size.width / drawing.width, size.height / drawing.height));
     const bool ok = DrawDiagram(dc.Get(), dw, wic, drawing, locale);
     if (FAILED(dc->EndDraw()) || !ok) {
         return nullptr;

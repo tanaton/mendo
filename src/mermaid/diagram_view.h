@@ -23,37 +23,50 @@ std::optional<float> NextZoom(float zoom, float fit_zoom, int dir) noexcept;
 
 } // namespace diagram_view
 
+// MermaidRenderer が拡大表示の窓に頼む操作。本物の窓は開くと前面を取るので、テストは窓を作らない実装を差し込む。
+class IDiagramViewer {
+public:
+    virtual ~IDiagramViewer() = default;
+    // 本体と一緒に壊されていない。
+    virtual bool IsOpen() const noexcept = 0;
+    virtual bool HasDrawing() const noexcept = 0;
+    virtual void BringToFront() const noexcept = 0;
+    // タイトル・ボタンのツールチップ・読み込み中の文言を、表示中の言語にする。
+    virtual void ApplyLanguage() = 0;
+    virtual void SetDarkMode(bool dark) = 0;
+    // 別の図を開いた。
+    virtual void ShowLoading() = 0;
+    // 図が出ていれば位置とボタンで変えた倍率を保つ (保存とテーマの切り替え)。全体表示のままなら新しい大きさに合わせ直す。
+    virtual void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) = 0;
+};
+
 // 図の拡大表示の窓。図の描画命令を倍率を変えて描き、右上のボタン・ホイール (スクロール)・ドラッグ・キーで操作する。
 // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
-class DiagramView {
+class DiagramView final : public IDiagramViewer {
 public:
     // owner の中央に、owner の 9 割の大きさで「読み込み中」として開く。on_close は ×・Esc で呼ぶ (呼ばれた側がこれを壊す)。
     // 開けなければ null。
     // d2d は本体と同じファクトリ。数式の形 (MathDrawing::Shape) はファクトリごとに作るので、分けると本体と交互に作り直す。
-    static std::unique_ptr<DiagramView> Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                             std::move_only_function<void()> on_close);
+    static std::unique_ptr<IDiagramViewer> Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                                std::move_only_function<void()> on_close);
     // 窓も壊す。
-    ~DiagramView();
+    ~DiagramView() override;
     DiagramView(const DiagramView&) = delete;
     DiagramView& operator=(const DiagramView&) = delete;
 
-    // 本体と一緒に壊されていない。
-    bool IsOpen() const noexcept
+    bool IsOpen() const noexcept override
     {
         return hwnd_ != nullptr;
     }
-    bool HasDrawing() const noexcept
+    bool HasDrawing() const noexcept override
     {
         return drawing_ != nullptr;
     }
-    void BringToFront() const noexcept;
-    // タイトル・ボタンのツールチップ・読み込み中の文言を、表示中の言語にする。
-    void ApplyLanguage();
-    void SetDarkMode(bool dark);
-    // 別の図を開いた。
-    void ShowLoading();
-    // 図が出ていれば位置とボタンで変えた倍率を保つ (保存とテーマの切り替え)。全体表示のままなら新しい大きさに合わせ直す。
-    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing);
+    void BringToFront() const noexcept override;
+    void ApplyLanguage() override;
+    void SetDarkMode(bool dark) override;
+    void ShowLoading() override;
+    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) override;
 
 private:
     static constexpr UINT_PTR kTooltipTimer = 2;

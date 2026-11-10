@@ -2,6 +2,7 @@
 #include "block_h_scroll.h"
 #include "doc_dwrite_bridge.h"
 #include "layout_computer.h"
+#include "chrome_layout.h"
 #include <ranges>
 
 using layout::NodeBlockX;

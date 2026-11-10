@@ -185,9 +185,11 @@ struct Node {
     union Payload {
         NodeTableData* table = nullptr; // Table
         int32_t list_number;            // 順序付きの ListItem / TaskListItem (0 始まりも可)
+        // type は SyntaxTokenType、state は SyntaxLexState。合わせて 4 バイトにして payload を 8 バイトに保つ。
         struct CodeLead {
             uint32_t length;
-            SyntaxTokenType type;
+            uint32_t type : 8;
+            uint32_t state : kSyntaxLexStateBits;
         } code_lead; // 区切ったコードブロックの続き
     } payload_;
 
@@ -374,14 +376,25 @@ struct Node {
     }
     constexpr SyntaxTokenType code_lead_type() const noexcept
     {
-        return (flags_ & kHasCodeLead) != 0 ? payload_.code_lead.type : SyntaxTokenType::Plain;
+        return (flags_ & kHasCodeLead) != 0 ? static_cast<SyntaxTokenType>(payload_.code_lead.type) : SyntaxTokenType::Plain;
     }
-    constexpr void set_code_lead(uint32_t length, SyntaxTokenType token_type) noexcept
+    // 続くトークンの後ろから字句解析を始めるときの状態。行や入れ子の状態を持つ言語 (CSS・HTML・YAML など) だけが使う。
+    constexpr SyntaxLexState code_lex_state() const noexcept
     {
-        if (length == 0 || token_type == SyntaxTokenType::Plain) {
+        return (flags_ & kHasCodeLead) != 0 ? SyntaxLexState{ payload_.code_lead.state } : 0u;
+    }
+    constexpr void set_code_lead(uint32_t length, SyntaxTokenType token_type, SyntaxLexState state) noexcept
+    {
+        assert(state < (SyntaxLexState{ 1 } << kSyntaxLexStateBits));
+        if (token_type == SyntaxTokenType::Plain) {
+            length = 0;
+        }
+        if (length == 0 && state == 0) {
             return;
         }
-        payload_.code_lead = { length, token_type };
+        payload_.code_lead.length = length;
+        payload_.code_lead.type = std::to_underlying(length != 0 ? token_type : SyntaxTokenType::Plain);
+        payload_.code_lead.state = state;
         flags_ |= kHasCodeLead;
     }
 
@@ -458,12 +471,6 @@ constexpr bool JoinsPrevInline(const Node& next) noexcept
 constexpr bool JoinsNextInline(std::span<const Node> nodes, size_t i) noexcept
 {
     return i + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
-}
-
-// テキストではなく図を描くノード。
-constexpr bool IsBitmapDrawNode(const Node& node) noexcept
-{
-    return node.type == NodeType::Diagram;
 }
 
 constexpr bool IsListItem(const Node& node) noexcept

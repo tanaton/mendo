@@ -8,6 +8,7 @@
 #include "layout_computer.h"
 #include "layout.h"
 #include "context_menu.h"
+#include "chrome_layout.h"
 #include "pane_layout.h"
 #include "settings_dialog.h"
 #include "profiler.h"
@@ -83,7 +84,7 @@ bool App::Init(HWND hwnd)
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_,
-                           &MermaidRenderer::CreateBundledPele, [this]() {
+                           &MermaidRenderer::CreateBundledPele, &DiagramView::Open, [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
@@ -728,9 +729,9 @@ void App::LoadMarkdownFile(std::wstring_view path)
         ShowEmbeddedResource(path);
         return;
     }
-    // 旧文書の画像・図の待ちはもう要らない。文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す
-    // (OnParseComplete・CancelOtherFileLoad)。開いている文書を開き直すとリロードとして扱われ、
-    // 図と画像はコードやパスがキーなので待ちをそのまま使える。
+    // 旧文書の画像・図の待ちはもう要らないので捨て、読み込みの間は新たに頼まない (IsLoadingOtherDocument)。
+    // 文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す (OnParseComplete・CancelOtherFileLoad)。
+    // 開いている文書を開き直すとリロードとして扱われ、図と画像はコードやパスがキーなので待ちをそのまま使える。
     const bool same_file = path_util::iequal(path, state_.document.doc.GetFilePath());
     if (!same_file) {
         resource_manager_.DropQueues();
@@ -787,14 +788,15 @@ void App::OnParseComplete()
 
     StopLoadingAnimation();
 
+    const ReloadCommand reload = reload_.OnLoadFinished(step, state_.view.IsSelectingText());
+    RunReloadCommand(reload);
+
     // 読み始めに捨てた画像・図の待ちを、文書を差し替えずに終わるなら要求し直す。ApplyReload は ReloadDocument が要求する
     // (ドラッグの後に回すときも、読み直しの結果でここか ReloadDocument を通る)。
+    // 読み込み中は頼まない (IsLoadingOtherDocument) ので、reload_ に読み終えたことを知らせた後で呼ぶ。
     if (step != ParseCompleteStep::ReplaceWithResult && step != ParseCompleteStep::ApplyReload) {
         resource_manager_.ScheduleBitmapManage();
     }
-
-    const ReloadCommand reload = reload_.OnLoadFinished(step, state_.view.IsSelectingText());
-    RunReloadCommand(reload);
 
     // Fail のときだけ結果が無い。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
@@ -842,6 +844,9 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     NavEntry left = CurrentNavEntry(state_);
     ReplaceDocument(std::move(next), std::move(estimated));
+    // 監視は新しい文書で始め直すので、前の文書の読み直しはやめる。読み込みの結果を経ずに来る経路 (読み込み中に開いたヘルプ) でも、
+    // 以降の要求が開いた文書の画像と図を頼めるよう、要求より先に読み込み中の扱い (IsLoadingOtherDocument) を終える。
+    RunReloadCommand(reload_.OnDocumentReplaced());
     resource_manager_.DropQueues();
     // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
     mermaid_renderer_.CloseViewer();
@@ -865,7 +870,6 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
-    RunReloadCommand(reload_.OnDocumentReplaced());
 }
 
 void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos)
@@ -910,7 +914,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     Dispatch(ReloadSettledAction{});
 
     if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), mermaid_renderer_.ViewerNode(), NodeType::Diagram)) {
-        mermaid_renderer_.UpdateViewerCode(node->GetText());
+        mermaid_renderer_.UpdateViewerCode(node->GetText(), MdContentWidth(state_));
     }
 }
 
@@ -1129,7 +1133,7 @@ void App::ToggleDarkMode()
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
-    mermaid_renderer_.SetViewerDarkMode(dark);
+    mermaid_renderer_.SetViewerDarkMode(dark, MdContentWidth(state_));
     RelayoutViewport();
     session::SaveDarkMode(config_, dark);
 }
@@ -1386,10 +1390,10 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         auto drawing = diagram ? diagram->drawing : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_), dark);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_));
         }
         else {
-            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, std::move(drawing));
+            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, std::move(drawing), MdContentWidth(state_));
         }
         return;
     }

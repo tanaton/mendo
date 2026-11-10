@@ -187,7 +187,7 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
         // ビットマップを描くノードの高さはビットマップ側で決まるので残す。
-        if (!IsBitmapDrawNode(nodes[i])) {
+        if (nodes[i].type != NodeType::Diagram) {
             e.height = 0.0f;
         }
     }

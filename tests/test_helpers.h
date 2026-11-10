@@ -227,7 +227,7 @@ struct StressFixture {
         }
         cache = MakeUniformCache(static_cast<int>(n), 80.0f);
         for (size_t i = 0; i < n; ++i) {
-            if (IsBitmapDrawNode(nodes[i])) {
+            if (nodes[i].type == NodeType::Diagram) {
                 auto& d = cache.EnsureDiagram(i);
                 d.width = 100.0f + static_cast<float>(i % 50);
                 d.height = 50.0f + static_cast<float>(i % 30);

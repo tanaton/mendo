@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -61,13 +62,22 @@ constexpr bool IsBlockMath(const Node& node) noexcept
            MathDelimiterLength(text, runs[0]) > 0;
 }
 
-// node の pos を含む run。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の offset。
-// base は run の start を node のテキストの位置に直す差 (表のセルの開始位置)。無ければ (セルの区切り文字も) run は null。
-struct NodeRunHit {
-    const TextRun* run = nullptr;
-    uint32_t base = 0;
+// node の text_pos にあるリンク・画像。表は linearized 形式 (concat_text) の offset で、セルの区切り文字には当たらない。
+struct LinkHit {
+    std::string_view url; // node 内の URL を指す
+    uint32_t index = 0;   // node.view_link_urls() の添字
 };
-NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept;
+[[nodiscard]] std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos);
+
+// ツールチップに出す画像の alt と src。
+struct ImageHit {
+    std::string_view src;
+    // 空なら alt の無い画像。
+    std::string_view alt;
+    // 画像の範囲の node のテキストでの位置。同じノードの画像を見分ける。
+    uint32_t start = 0;
+};
+[[nodiscard]] std::optional<ImageHit> FindImageHitAtPosition(const Node& node, uint32_t text_pos);
 
 // 見出しの文字から画像 (alt) を除いたもの。GitHub はアンカーも目次も見出しの文字 (textContent) から作り、alt は属性なので入らない。
 // 画像が無ければ GetText() をそのまま返し、あれば scratch に組んで返す。アンカーは除いた跡の空白もそのまま使う (GitHub と同じ)。

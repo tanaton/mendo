@@ -62,13 +62,6 @@ public:
         return true;
     }
 
-    void RequestSvg(std::string_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
-    {
-        if (callback) {
-            callback({});
-        }
-    }
-
     void DropQueued() override
     {
         drop_queued_count++;
@@ -82,7 +75,12 @@ struct TestResourceManagerHost final : ResourceManagerHost {
     int recompute_layout = 0;
     IndexRange last_change = {};
     std::optional<app_timer::Id> last_set_timer_id;
+    bool loading_other = false;
 
+    bool IsLoadingOtherDocument() const override
+    {
+        return loading_other;
+    }
     void SetTimer(app_timer::Id id, UINT) override
     {
         last_set_timer_id = id;
@@ -800,7 +798,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
     ASSERT_TRUE(diagram.commands);
-    // 表示幅に合わせて縮めた図なので、幅が変われば描き直しになる。
+    // 幅の上限より広い図 (幅に縛られる結果) なので、幅が変われば描き直しになる。
     diagram.width = 2000.0f;
 
     mock_mermaid_.sync_apply_bitmap = false;
@@ -995,4 +993,67 @@ TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
     EXPECT_FALSE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\other\\doc.md");
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
+}
+
+// ---- 別の文書の読み込み中 ----
+
+// 別の文書を読み込んでいる間は、結果の到着・スクロール・BITMAP_MANAGE のどれからも表示中の文書の図を頼まない。
+// 始まった描画は取り消せず、開いた文書の最初の図を待たせる。差し替えずに終わったら頼み直す。
+TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(mock_mermaid_.requested.size(), 1u);
+
+    host_.loading_other = true;
+    rm_.DropQueues();
+    rm_.RequestMermaidRenders();
+    rm_.FlushPendingResources();
+    rm_.OnBitmapManageTimer();
+    EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
+
+    host_.loading_other = false;
+    rm_.OnBitmapManageTimer();
+    EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
+}
+
+// 画像も同じ。捨てた要求が読まずに戻っても (待つ間に頼み直してあると読み直させる)、読み込み中は頼み直さない。
+TEST_F(ResourceManagerImageFileTest, NoImageRequestsWhileLoadingOtherDocument)
+{
+    WritePng(dir_.path() / L"a.png");
+    WritePng(dir_.path() / L"b.png");
+    LoadMarkdown("![a](a.png)\n\n![b](b.png)\n", 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    {
+        WorkerGate gate(scheduler_, 2);
+        rm_.LoadImages();
+        rm_.LoadImages();
+        host_.loading_other = true;
+        rm_.DropQueues();
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    rm_.OnImagesDecoded(kNoDeadline);
+    rm_.FlushPendingResources();
+    rm_.OnBitmapManageTimer();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_FALSE(image_loader_.ProcessCompletedDecodes(kNoDeadline));
+    EXPECT_EQ(image_loader_.ImageInfoCount(), 0u) << "読み込み中に表示中の文書の画像を読んだ";
+
+    host_.loading_other = false;
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_TRUE(HasBitmap("a.png"));
+    EXPECT_TRUE(HasBitmap("b.png"));
+}
+
+// 読み込みを始める前にデコードを終えていた画像は、読み込み中でも取り込んで描く。
+TEST_F(ResourceManagerImageFileTest, LoadingOtherDocumentStillTakesInDecodedImages)
+{
+    WritePng(dir_.path() / L"a.png");
+    LoadMarkdown("![a](a.png)\n", 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    rm_.LoadImages();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+
+    host_.loading_other = true;
+    rm_.DropQueues();
+    rm_.OnImagesDecoded(kNoDeadline);
+    EXPECT_TRUE(HasBitmap("a.png"));
 }

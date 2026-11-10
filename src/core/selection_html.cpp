@@ -12,7 +12,6 @@
 #include <cstring>
 #include <format>
 #include <iterator>
-#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -699,24 +698,4 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
     });
     lists.CloseAll();
     return out;
-}
-
-std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
-{
-    const auto link_urls = node.view_link_urls();
-    const TextRun* run = FindRunAt(node, text_pos).run;
-    if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
-        return std::nullopt;
-    }
-    const auto index = static_cast<uint32_t>(run->link_url_index);
-    return LinkHit{ link_urls[index], index };
-}
-
-std::optional<ImageHit> FindImageHitAtPosition(const Node& node, uint32_t text_pos)
-{
-    const auto [run, base] = FindRunAt(node, text_pos);
-    if (!run || !run->image()) {
-        return std::nullopt;
-    }
-    return ImageHit{ node.image_src(*run), ImageAlt(node.GetText().substr(base), *run), base + run->start };
 }

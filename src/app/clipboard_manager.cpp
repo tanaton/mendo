@@ -1,9 +1,9 @@
 #include "clipboard_manager.h"
 #include "clipboard_util.h"
+#include "diagram_raster.h"
 #include "document.h"
 #include "file_io.h"
 #include "i18n.h"
-#include "mermaid_util.h"
 #include "selection_html.h"
 #include "wic_util.h"
 #include <objidl.h>
@@ -66,7 +66,8 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
     WriteClipboardHtml(hwnd_, ExtractSelectedTextAsHtml(nodes, selection, dark), ExtractSelectedText(nodes, selection));
 }
 
-void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) const
+void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing,
+                                        float md_width) const
 {
     if (!NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram) || !drawing) {
         return;
@@ -77,7 +78,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, std
         return;
     }
 
-    const auto bitmap = mermaid_renderer_->DiagramBitmap(*drawing);
+    const auto bitmap = mermaid_renderer_->DiagramBitmap(*drawing, md_width);
     const bool ok = bitmap && SavePng(wic_, bitmap.Get(), filename);
     show_toast_(ok ? i18n::S().toast_image_saved : i18n::S().toast_image_save_failed);
 }
@@ -106,59 +107,14 @@ UniqueGlobalMem ClipboardManager::BuildDib(IWICBitmapSource* bitmap) const
     });
 }
 
-void ClipboardManager::EmitCopyResult(bool ok) const
-{
-    show_toast_(ok ? i18n::S().toast_diagram_copied : i18n::S().toast_diagram_copy_failed);
-}
-
 void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing,
-                                              float md_width, bool dark)
+                                              float md_width) const
 {
-    const Node* node_ptr = NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram);
-    if (!node_ptr) {
+    if (!NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram) || !drawing) {
         return;
     }
-    // 画像はコピーを始めるときだけ描く (コピー中の再入では描かない)。
-    const auto build_dib = [&] {
-        const auto bitmap = drawing ? mermaid_renderer_->DiagramBitmap(*drawing) : nullptr;
-        return BuildDib(bitmap.Get());
-    };
-    const auto& node = *node_ptr;
-    const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
-
-    // SVG + 画像。SVG は bg のワーカーで描く非同期の取得なのでキャッシュ優先。
-    if (const auto* hit = svg_cache_.Find(key)) {
-        // 待っているコピーの結果で、後から押したこのコピーを上書きさせない。
-        pending_copy_.reset();
-        EmitCopyResult(WriteClipboardDiagram(hwnd_, build_dib(), *hit));
-        return;
-    }
-    if (pending_copy_ == key) {
-        return;
-    }
-    // 別の図を待っていたら、後から押したこちらに置き換える。
-    pending_copy_ = key;
-    show_toast_(i18n::S().toast_diagram_copying);
-
-    // 画像は同期で確定し、SVG が届くまで dib で持つ。
-    UniqueGlobalMem dib = build_dib();
-
-    // clang-format off
-    mermaid_renderer_->RequestSvg(
-        node.GetText(),
-        md_width,
-        dark,
-        [this, key, dib = std::move(dib)](std::string_view svg) mutable {
-            if (pending_copy_ != key) {
-                return;
-            }
-            pending_copy_.reset();
-            const bool ok = WriteClipboardDiagram(hwnd_, std::move(dib), svg);
-            if (ok && !svg.empty()) {
-                svg_cache_.Insert(key, std::string{ svg });
-            }
-            EmitCopyResult(ok);
-        }
-    );
-    // clang-format on
+    // SVG は描画命令を書き直すだけ (500 ノードの図で約 0.3MB) なので、画像と同じくその場で作る。
+    const auto bitmap = mermaid_renderer_->DiagramBitmap(*drawing, md_width);
+    const bool ok = WriteClipboardDiagram(hwnd_, BuildDib(bitmap.Get()), DrawingToSvg(*drawing));
+    show_toast_(ok ? i18n::S().toast_diagram_copied : i18n::S().toast_diagram_copy_failed);
 }

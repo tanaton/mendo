@@ -7,7 +7,6 @@
 #include "render_params.h"
 #include "theme.h"
 #include "ui_types.h"
-#include "ui_constants.h"
 #include "search_state.h"
 #include <d2d1.h>
 #include <dwrite.h>

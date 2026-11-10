@@ -3,7 +3,7 @@
 #include "reducer.h"
 #include "reducer_harness.h"
 #include "test_helpers.h"
-#include "ui_constants.h"
+#include "chrome_layout.h"
 #include <algorithm>
 #include <functional>
 #include <string>

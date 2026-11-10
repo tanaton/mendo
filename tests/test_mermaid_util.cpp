@@ -196,7 +196,7 @@ TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
 }
 
 // ============================================================
-// NodeDiagramHash テスト
+// DiagramRequestHash テスト
 // ============================================================
 
 namespace {
@@ -208,36 +208,58 @@ Node ParseSingleCodeBlock(std::string_view md)
     return std::move(nodes.front());
 }
 
+uint64_t RequestHash(const Node& node, float max_width, bool dark_mode)
+{
+    return mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(node), max_width, dark_mode);
+}
+
 } // namespace
 
-TEST(NodeDiagramHash, DependsOnTextWidthBucketAndTheme)
+TEST(DiagramRequestHash, DependsOnTextWidthBucketAndTheme)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     const auto b = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->C\n```");
-    const uint64_t base = mermaid_util::NodeDiagramHash(a, 600.0f, false);
+    const uint64_t base = RequestHash(a, 600.0f, false);
 
-    EXPECT_NE(mermaid_util::NodeDiagramHash(b, 600.0f, false), base);
-    EXPECT_NE(mermaid_util::NodeDiagramHash(a, 600.0f, true), base);
-    EXPECT_NE(mermaid_util::NodeDiagramHash(a, 900.0f, false), base);
+    EXPECT_NE(RequestHash(b, 600.0f, false), base);
+    EXPECT_NE(RequestHash(a, 600.0f, true), base);
+    EXPECT_NE(RequestHash(a, 900.0f, false), base);
 }
 
 // 幅は 32 刻みで量子化されるため、同じバケット内のリサイズではキャッシュを再利用する。
-TEST(NodeDiagramHash, SameWidthBucketSharesHash)
+TEST(DiagramRequestHash, SameWidthBucketSharesHash)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     ASSERT_EQ(mermaid_util::QuantizeWidth(590.0f), mermaid_util::QuantizeWidth(605.0f));
-    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 590.0f, false), mermaid_util::NodeDiagramHash(a, 605.0f, false));
+    EXPECT_EQ(RequestHash(a, 590.0f, false), RequestHash(a, 605.0f, false));
 }
 
 // ディスクキャッシュのファイル名になる。式を変えたら MermaidFileCache::VERSION を上げる。
-TEST(NodeDiagramHash, KeepsPersistedFormula)
+TEST(DiagramRequestHash, KeepsPersistedFormula)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     // 幅 600 は 608 に量子化される。
-    const uint64_t expected = RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64) ^ 2654435761ULL;
-    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, true), expected);
-    EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), expected);
-    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, false), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64));
+    EXPECT_EQ(RequestHash(a, 600.0f, true), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64) ^ 2654435761ULL);
+    EXPECT_EQ(RequestHash(a, 600.0f, false), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64));
+}
+
+// 幅の上限に収まる図の大きさはそのまま。収まらない図は幅を上限に合わせ、ブラウザのレイアウトと同じく 1/64 px に切り捨てて
+// から切り上げる (保存・コピーの画像の大きさ)。
+TEST(FittedDiagramSize, KeepsFittingSizeAndFloorsShrunkSizeTo64ths)
+{
+    const mermaid_util::DiagramDrawing drawing{ .width = 837.0f, .height = 520.0f };
+    for (const float fits : { 837.0f, 900.0f, 0.0f }) {
+        const auto size = mermaid_util::FittedDiagramSize(drawing, fits);
+        EXPECT_EQ(size.width, 837.0f) << fits;
+        EXPECT_EQ(size.height, 520.0f) << fits;
+    }
+    // 520 * 800 / 837 = 497.013 → 497 (切り上げるだけだと 498)。
+    const auto shrunk = mermaid_util::FittedDiagramSize(drawing, 800.0f);
+    EXPECT_EQ(shrunk.width, 800.0f);
+    EXPECT_EQ(shrunk.height, 497.0f);
+    const auto fractional = mermaid_util::FittedDiagramSize(drawing, 413.5f);
+    EXPECT_EQ(fractional.width, 414.0f);
+    EXPECT_EQ(fractional.height, 257.0f);
 }
 
 // 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。式を変えたら MermaidFileCache::VERSION を上げる。

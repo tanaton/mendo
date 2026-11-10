@@ -8,11 +8,14 @@
 #include "pele_test_assets.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
+#include "ui_constants.h"
 #include "wic_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -42,12 +45,73 @@ struct DiagramDoc {
     }
     uint64_t RequestHash() const
     {
-        return mermaid_util::NodeDiagramHash(node(), kMaxWidth, false);
+        return mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(node()), kMaxWidth, false);
     }
     uint64_t WidthFreeHash() const
     {
         return mermaid_util::DiagramWidthFreeHash(mermaid_util::DiagramCodeHash(node()), false);
     }
+};
+
+constexpr std::string_view kGamma = "flowchart TD\n  M[Gamma] --> N[Delta]\n";
+constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]\n";
+
+// 拡大表示の窓に頼まれた操作の記録。窓が壊れた後も見られるよう、窓の外に置く。
+struct ViewerLog {
+    int opened = 0;
+    int loading = 0;
+    int front = 0;
+    bool alive = false;
+    bool dark = false;
+    bool fail_open = false;
+    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
+};
+
+// 窓を作らない拡大表示 (本物は開くと前面を取る)。
+class FakeViewer final : public IDiagramViewer {
+public:
+    FakeViewer(ViewerLog& log, bool dark) : log_(log)
+    {
+        ++log_.opened;
+        log_.alive = true;
+        log_.dark = dark;
+    }
+    ~FakeViewer() override
+    {
+        log_.alive = false;
+    }
+    bool IsOpen() const noexcept override
+    {
+        return true;
+    }
+    bool HasDrawing() const noexcept override
+    {
+        return has_drawing_;
+    }
+    void BringToFront() const noexcept override
+    {
+        ++log_.front;
+    }
+    void ApplyLanguage() override
+    {}
+    void SetDarkMode(bool dark) override
+    {
+        log_.dark = dark;
+    }
+    void ShowLoading() override
+    {
+        ++log_.loading;
+        has_drawing_ = false;
+    }
+    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) override
+    {
+        has_drawing_ = true;
+        log_.drawings.push_back(std::move(drawing));
+    }
+
+private:
+    ViewerLog& log_;
+    bool has_drawing_ = false;
 };
 
 // MermaidRenderer を、ビルドで作った pele と KaTeX のバイトコードで動かす (テストの exe は埋め込みリソースを持たない)。
@@ -77,8 +141,28 @@ protected:
 
         file_cache_.SetCacheDir(temp_.path());
         file_cache_.Init(file_scheduler_);
-        renderer_.Init(window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), file_cache_, scheduler_, NewEngine, [this] { ++updates_; }, [] {});
+        viewer_ = {};
+        renderer_.Init(
+            window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), file_cache_, scheduler_, NewEngine, OpenFakeViewer, [this] { ++updates_; },
+            [this] { ++viewer_failed_; });
         renderer_.SetRenderTarget(rt_.Get());
+    }
+
+    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID2D1Factory*, IDWriteFactory*, IWICImagingFactory*, bool dark,
+                                                          std::move_only_function<void()>)
+    {
+        return viewer_.fail_open ? nullptr : std::make_unique<FakeViewer>(viewer_, dark);
+    }
+
+    void OpenViewer(std::string_view code, int node = 0, float max_width = kMaxWidth)
+    {
+        renderer_.OpenViewer(code, node, max_width, /*dark_mode=*/false);
+    }
+
+    // 拡大表示に渡した図が count 個になるのを待つ。
+    bool AwaitViewerDrawings(size_t count)
+    {
+        return Await([&] { return viewer_.drawings.size() >= count; });
     }
 
     void TearDown() override
@@ -97,15 +181,15 @@ protected:
         return PollUntil(ready, std::chrono::seconds(30));
     }
 
-    bool Request(const DiagramDoc& d, DiagramEntry& entry)
+    bool Request(const DiagramDoc& d, DiagramEntry& entry, float max_width = kMaxWidth)
     {
-        return renderer_.RequestRender(d.node(), entry, kMaxWidth, /*dark_mode=*/false);
+        return renderer_.RequestRender(d.node(), entry, max_width, /*dark_mode=*/false);
     }
 
     // 結果が出るまで要求し直す (結果を待つ図を on_update で要求し直す ResourceManager と同じ)。
-    bool RenderUntilSettled(const DiagramDoc& d, DiagramEntry& entry)
+    bool RenderUntilSettled(const DiagramDoc& d, DiagramEntry& entry, float max_width = kMaxWidth)
     {
-        return Await([&] { return Request(d, entry); });
+        return Await([&] { return Request(d, entry, max_width); });
     }
 
     // 別の図の描画命令を、key のディスクキャッシュとして置く。ディスクから読んだ図はその描画命令で出るので、描き直したのと見分けられる。
@@ -121,6 +205,8 @@ protected:
     }
 
     static inline PeleTestAssets assets_;
+    static inline ViewerLog viewer_;
+    int viewer_failed_ = 0;
 
     ComPtr<ID2D1Factory> d2d_;
     ComPtr<IWICImagingFactory> wic_;
@@ -211,24 +297,24 @@ TEST_F(MermaidRendererTest, RerendersAndForgetsMissingDiskCache)
 }
 
 // 取り消すと、投入済みの表示用の図は描かずに返り、待ちの表示用の図は捨てる。どちらも要求中の印を外して頼み直させる。
-// SVG の要求は残し、取り消した図が使っていた同時に描く数の枠も返す。
-TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsSvg)
+// インライン数式の要求は残し、取り消した図が使っていた同時に描く数の枠も返す。
+TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsMath)
 {
     const DiagramDoc alpha(kAlpha);
     const DiagramDoc beta(kBeta);
     DiagramEntry ea;
     DiagramEntry eb;
-    std::optional<std::string> svg;
+    std::optional<InlineMathBatchResult> math;
     {
         WorkerGate gate(scheduler_, 2);
         ASSERT_TRUE(gate.ready());
         EXPECT_FALSE(Request(alpha, ea));
         EXPECT_FALSE(Request(beta, eb));
-        renderer_.RequestSvg(kBeta, kMaxWidth, false, [&](std::string_view s) { svg.emplace(s); });
+        renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [&](InlineMathBatchResult r) { math = std::move(r); });
         renderer_.DropQueued();
     }
-    ASSERT_TRUE(Await([&] { return svg.has_value(); }));
-    EXPECT_TRUE(svg->contains("Beta"));
+    ASSERT_TRUE(Await([&] { return math.has_value(); }));
+    EXPECT_NE(math->items.at(0).drawing, nullptr);
     EXPECT_GT(updates_, 0);
     EXPECT_FALSE(ea.HasImage());
 
@@ -236,35 +322,6 @@ TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsSvg)
     ASSERT_TRUE(RenderUntilSettled(beta, eb));
     EXPECT_TRUE(ea.HasImage());
     EXPECT_TRUE(eb.HasImage());
-}
-
-// クリップボードの SVG は pele で描く。描けなければ空で知らせる。
-TEST_F(MermaidRendererTest, RendersSvgAndReportsFailureAsEmpty)
-{
-    std::optional<std::string> ok;
-    std::optional<std::string> broken;
-    renderer_.RequestSvg(kAlpha, kMaxWidth, false, [&](std::string_view s) { ok.emplace(s); });
-    renderer_.RequestSvg(kBroken, kMaxWidth, false, [&](std::string_view s) { broken.emplace(s); });
-    ASSERT_TRUE(Await([&] { return ok && broken; }));
-    EXPECT_TRUE(ok->contains("Alpha"));
-    EXPECT_TRUE(broken->empty());
-}
-
-// 本文で幅に縛られずに描けた図は、その描画命令から SVG を作る (pele で描き直さない)。
-TEST_F(MermaidRendererTest, SvgUsesWidthFreeDrawingOfBody)
-{
-    const DiagramDoc alpha(kAlpha);
-    DiagramEntry drawn;
-    ASSERT_TRUE(RenderUntilSettled(alpha, drawn));
-    const DiagramDoc beta(kBeta);
-    StoreDrawingAs(drawn, beta.WidthFreeHash());
-    DiagramEntry entry;
-    ASSERT_TRUE(RenderUntilSettled(beta, entry));
-
-    std::optional<std::string> svg;
-    renderer_.RequestSvg(beta.node().GetText(), kMaxWidth, false, [&](std::string_view s) { svg.emplace(s); });
-    ASSERT_TRUE(Await([&] { return svg.has_value(); }));
-    EXPECT_TRUE(svg->contains("Alpha"));
 }
 
 // インライン数式は要求と同じ順で返し、描けない数式は描画命令も寸法も空。
@@ -286,19 +343,22 @@ TEST_F(MermaidRendererTest, RendersMathBatchInRequestOrder)
 // 数式の取り消しは、待っている数式の要求だけを捨てる。
 TEST_F(MermaidRendererTest, DropQueuedMathDropsOnlyWaitingMath)
 {
-    std::optional<std::string> first;
-    std::optional<std::string> second;
+    const DiagramDoc alpha(kAlpha);
+    const DiagramDoc beta(kBeta);
+    DiagramEntry ea;
+    DiagramEntry eb;
     bool math_called = false;
     {
         WorkerGate gate(scheduler_, 2);
         ASSERT_TRUE(gate.ready());
-        renderer_.RequestSvg(kAlpha, kMaxWidth, false, [&](std::string_view s) { first.emplace(s); });
+        EXPECT_FALSE(Request(alpha, ea));
         renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [&](InlineMathBatchResult) { math_called = true; });
         renderer_.DropQueuedMath();
-        renderer_.RequestSvg(kBeta, kMaxWidth, false, [&](std::string_view s) { second.emplace(s); });
+        EXPECT_FALSE(Request(beta, eb));
     }
-    // 数式が残っていれば、2 つ目の SVG より先に描かれる。
-    ASSERT_TRUE(Await([&] { return first && second; }));
+    // 数式が残っていれば、2 つ目の図より先に描かれる。
+    ASSERT_TRUE(RenderUntilSettled(alpha, ea));
+    ASSERT_TRUE(RenderUntilSettled(beta, eb));
     EXPECT_FALSE(math_called);
 }
 
@@ -321,16 +381,256 @@ TEST_F(MermaidRendererTest, KeepsResultsUntilRenderTargetReturns)
     EXPECT_TRUE(entry.HasImage());
 }
 
+// 幅の上限に収まらない図は、表示の矩形を上限の幅に縮める。保存・コピーの画像は縮めた大きさ (高さは 1/64 px に切り捨てて
+// から切り上げ) x DPR、クリップボードの SVG は縮めない大きさ。
+TEST_F(MermaidRendererTest, WideDiagramFitsDisplayAndBitmapButNotSvg)
+{
+    constexpr float kNarrow = 200.0f;
+    const DiagramDoc d(kWide);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry, kNarrow));
+    ASSERT_TRUE(entry.CanExport());
+
+    const std::string svg = SvgOf(entry);
+    float w = 0.0f;
+    float h = 0.0f;
+    ASSERT_EQ(sscanf_s(svg.c_str(), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%f\" height=\"%f\"", &w, &h), 2) << svg;
+    ASSERT_GT(w, kNarrow);
+    const float fit_h = mermaid_util::FittedDiagramSize(*entry.drawing, kNarrow).height;
+
+    const D2D1_RECT_F rect = DiagramRect(entry.width, entry.height, 0.0f, kNarrow, 0.0f);
+    EXPECT_NEAR(rect.right - rect.left, kNarrow, 0.001f);
+    EXPECT_NEAR(rect.bottom - rect.top, fit_h, 1.0f);
+
+    const auto bitmap = renderer_.DiagramBitmap(*entry.drawing, kNarrow);
+    ASSERT_NE(bitmap, nullptr);
+    UINT pw = 0;
+    UINT ph = 0;
+    ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&pw, &ph));
+    const float dpr = DpiScaleFrom(static_cast<float>(GetDpiForWindow(window_.Get())));
+    EXPECT_EQ(pw, static_cast<UINT>(std::ceil(kNarrow * dpr)));
+    EXPECT_EQ(ph, static_cast<UINT>(std::ceil(fit_h * dpr)));
+}
+
+// ---- 拡大表示 ----
+
+// 開くと窓を出し、描けたら図を渡す。図の目印とコードを覚える。
+TEST_F(MermaidRendererTest, ViewerShowsDrawingWhenRendered)
+{
+    OpenViewer(kAlpha, 3);
+    EXPECT_EQ(viewer_.opened, 1);
+    EXPECT_TRUE(viewer_.drawings.empty());
+    EXPECT_EQ(renderer_.ViewerNode(), 3);
+    EXPECT_EQ(renderer_.ViewerCode(), kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Alpha"));
+    EXPECT_EQ(viewer_failed_, 0);
+}
+
+// 本文で描けている図は、描き直さずにその描画命令をすぐ渡す。
+TEST_F(MermaidRendererTest, ViewerUsesDrawingOfBody)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(alpha, entry));
+    OpenViewer(alpha.node().GetText());
+    ASSERT_EQ(viewer_.drawings.size(), 1u);
+    EXPECT_EQ(viewer_.drawings[0], entry.drawing);
+}
+
+// 幅の上限に収まらない図も、本文が描いた結果を使う。本文を描いた後で幅が少し変わっていても (同じ 32px の刻みの中)、
+// 描き直さずに本文と同じ折り返しの図を出す。
+TEST_F(MermaidRendererTest, ViewerUsesBodyDrawingOfWideDiagramInSameWidthBucket)
+{
+    constexpr float kNarrow = 200.0f;
+    const DiagramDoc wide(kWide);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(wide, entry, kNarrow));
+    ASSERT_GT(entry.width, kNarrow);
+    OpenViewer(wide.node().GetText(), 0, kNarrow + 5.0f);
+    ASSERT_EQ(viewer_.drawings.size(), 1u);
+    EXPECT_EQ(viewer_.drawings[0], entry.drawing);
+}
+
+// 拡大表示が頼んだ図は本文と同じ要求になり、同じ図を 2 回描かない (保存のたびに本文用と拡大表示用を描いていた)。
+TEST_F(MermaidRendererTest, ViewerAndBodyShareOneRender)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry entry;
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        OpenViewer(alpha.node().GetText());
+        EXPECT_FALSE(Request(alpha, entry));
+    }
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    ASSERT_TRUE(Request(alpha, entry));
+    EXPECT_EQ(viewer_.drawings[0], entry.drawing);
+}
+
+// 幅の上限に収まらない図も、拡大表示には縮めない大きさで渡す。
+TEST_F(MermaidRendererTest, ViewerGetsWideDiagramAtNaturalSize)
+{
+    constexpr float kNarrow = 200.0f;
+    OpenViewer(kWide, 0, kNarrow);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_GT(viewer_.drawings[0]->width, kNarrow);
+}
+
+// 同じ図をもう一度開くと前面に出すだけ。別の図なら読み込み中に戻して描き直す。
+TEST_F(MermaidRendererTest, ViewerReopenBringsToFrontOrReplaces)
+{
+    OpenViewer(kAlpha, 1);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    OpenViewer(kAlpha, 2);
+    EXPECT_EQ(viewer_.front, 1);
+    EXPECT_EQ(viewer_.loading, 0);
+    EXPECT_EQ(viewer_.opened, 1);
+    EXPECT_EQ(renderer_.ViewerNode(), 2);
+    EXPECT_EQ(viewer_.drawings.size(), 1u);
+
+    OpenViewer(kBeta, 5);
+    EXPECT_EQ(viewer_.loading, 1);
+    EXPECT_EQ(viewer_.opened, 1);
+    ASSERT_TRUE(AwaitViewerDrawings(2));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
+}
+
+// 保存で図が変わったら、読み込み中に戻さずに差し替える。描けないコードになったら今の図を残し、窓も閉じない。
+TEST_F(MermaidRendererTest, ViewerFollowsCodeAndKeepsDrawingOnError)
+{
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    renderer_.UpdateViewerCode(kBeta, kMaxWidth);
+    ASSERT_TRUE(AwaitViewerDrawings(2));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
+    EXPECT_EQ(viewer_.loading, 0);
+
+    renderer_.UpdateViewerCode(kBroken, kMaxWidth);
+    // 同じ壊れた図の本文の結果が確定するころには、先に頼んだ拡大表示の分も済んでいる。
+    const DiagramDoc broken(kBroken);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(broken, entry));
+    EXPECT_FALSE(entry.error.empty());
+    EXPECT_TRUE(viewer_.alive);
+    EXPECT_EQ(viewer_.drawings.size(), 2u);
+    EXPECT_EQ(viewer_failed_, 0);
+    EXPECT_EQ(renderer_.ViewerCode(), kBroken);
+}
+
+// 開いた図が描けなければ、窓を閉じて知らせる。
+TEST_F(MermaidRendererTest, ViewerFailsWhenFirstDrawingCannotRender)
+{
+    OpenViewer(kBroken, 4);
+    ASSERT_TRUE(Await([&] { return viewer_failed_ == 1; }));
+    EXPECT_FALSE(viewer_.alive);
+    EXPECT_TRUE(viewer_.drawings.empty());
+    EXPECT_EQ(renderer_.ViewerCode(), std::nullopt);
+    EXPECT_EQ(renderer_.ViewerNode(), -1);
+}
+
+// 窓を開けなければ知らせ、図も描かせない。
+TEST_F(MermaidRendererTest, ViewerFailsWhenWindowCannotOpen)
+{
+    viewer_.fail_open = true;
+    OpenViewer(kAlpha);
+    EXPECT_EQ(viewer_failed_, 1);
+    EXPECT_EQ(renderer_.ViewerCode(), std::nullopt);
+    const DiagramDoc beta(kBeta);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(beta, entry));
+    EXPECT_TRUE(viewer_.drawings.empty());
+    EXPECT_EQ(viewer_failed_, 1);
+}
+
+// テーマの切り替えは窓の配色を変え、読み込み中に戻さずに新しいテーマの図に差し替える。
+TEST_F(MermaidRendererTest, ViewerFollowsTheme)
+{
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_EQ(viewer_.drawings[0]->background, kDiagramLightBackground);
+    renderer_.SetViewerDarkMode(true, kMaxWidth);
+    EXPECT_TRUE(viewer_.dark);
+    ASSERT_TRUE(AwaitViewerDrawings(2));
+    EXPECT_EQ(viewer_.drawings[1]->background, kDiagramDarkBackground);
+    EXPECT_EQ(viewer_.loading, 0);
+}
+
+// 描画待ちを捨てても (大きな移動・幅やテーマの変更)、拡大表示の図は描く。待ちにあっても、投入済みでも。
+TEST_F(MermaidRendererTest, ViewerDrawingSurvivesDropQueued)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry ea;
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        EXPECT_FALSE(Request(alpha, ea));
+        OpenViewer(kBeta);
+        renderer_.DropQueued();
+    }
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
+    renderer_.CloseViewer();
+    ASSERT_TRUE(RenderUntilSettled(alpha, ea));
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        OpenViewer(kGamma);
+        renderer_.DropQueued();
+    }
+    ASSERT_TRUE(AwaitViewerDrawings(2));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Gamma"));
+}
+
+// 待っている間に閉じたら、後から届いた結果で壊れた窓に触らない。開き直せば描ける。
+TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
+{
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        OpenViewer(kAlpha);
+        renderer_.CloseViewer();
+    }
+    EXPECT_FALSE(viewer_.alive);
+    const DiagramDoc beta(kBeta);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(beta, entry));
+    EXPECT_TRUE(viewer_.drawings.empty());
+    EXPECT_EQ(viewer_failed_, 0);
+
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Alpha"));
+}
+
+// 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
+TEST_F(MermaidRendererTest, ViewerDrawingWaitsForRenderTarget)
+{
+    renderer_.SetRenderTarget(nullptr);
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(PollUntil([&] { return window_.DrainMessages(app_msg::MERMAID_JOB_DONE) > 0; }, std::chrono::seconds(30)));
+    renderer_.ProcessJobResults(kNoDeadline);
+    EXPECT_TRUE(viewer_.drawings.empty());
+
+    renderer_.SetRenderTarget(rt_.Get());
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_EQ(viewer_failed_, 0);
+}
+
 // 終了は、待っている要求も描いている要求も、コールバックを呼ばずに捨てる。
 TEST_F(MermaidRendererTest, ShutdownDropsPendingCallbacks)
 {
     int called = 0;
-    renderer_.RequestSvg(kAlpha, kMaxWidth, false, [&](std::string_view) { ++called; });
-    renderer_.RequestSvg(kBeta, kMaxWidth, false, [&](std::string_view) { ++called; });
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry entry;
+    EXPECT_FALSE(Request(alpha, entry));
     renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [&](InlineMathBatchResult) { ++called; });
+    renderer_.RequestMathBatch({ { .key = 2, .tex = "y", .font_size = 16.0f } }, [&](InlineMathBatchResult) { ++called; });
     renderer_.Shutdown();
     renderer_.ProcessJobResults(kNoDeadline);
     EXPECT_EQ(called, 0);
+    EXPECT_EQ(updates_, 0);
 }
 
 } // namespace

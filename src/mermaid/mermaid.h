@@ -44,7 +44,7 @@ struct InlineMathBatchResult {
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
-// (PeleEngine)、拡大表示 (DiagramView) とクリップボードの SVG もその描画命令から作る。図のラベルの数式とインライン数式は
+// (PeleEngine)、拡大表示 (DiagramView) と保存・コピーの画像もその描画命令から作る。図のラベルの数式とインライン数式は
 // 同じランタイムで KaTeX を動かして描く。描画命令にできない図は描かず、描けないことを知らせる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
@@ -59,6 +59,9 @@ public:
     // 作る (テストの exe は埋め込みリソースを持たない)。
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
+    // 拡大表示の窓を開く。開けなければ null。本番は DiagramView::Open で、テストは窓を作らない実装を返す。
+    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
+                                                              std::move_only_function<void()> on_close);
 
     // d2d・wic・dw は Renderer と共有する。d2d は拡大表示の窓と図を描いた画像の描画先を、wic は図を描いた画像を、
     // dw は図の文字を作るのに使う。
@@ -67,16 +70,16 @@ public:
     // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
     // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
-              PeleFactory make_pele, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
+              PeleFactory make_pele, ViewerFactory open_viewer, std::move_only_function<void()> on_update,
+              std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
-    void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
-    Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing) override;
+    Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
     void ProcessJobResults(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
@@ -93,10 +96,12 @@ public:
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
+    // max_width は今の本文の幅。本文と同じ要求にして同じ図を 2 回描かないよう、テーマの切り替えと保存への追従でも渡し直す
+    // (開いたときの幅のままだと、本体の幅を変えた後は幅に収まらない図を本文用と別に描く)。
     void OpenViewer(std::string_view code, int node, float max_width, bool dark_mode);
     void CloseViewer();
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
-    void SetViewerDarkMode(bool dark_mode);
+    void SetViewerDarkMode(bool dark_mode, float max_width);
     // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
     std::optional<std::string_view> ViewerCode() const noexcept
     {
@@ -112,7 +117,7 @@ public:
         viewer_.node = node;
     }
     // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
-    void UpdateViewerCode(std::string_view code);
+    void UpdateViewerCode(std::string_view code, float max_width);
     void ApplyViewerLanguage();
 
 private:
@@ -121,17 +126,7 @@ private:
         MathBatchCallback callback;
     };
 
-    // 拡大表示の結果。描けなければ drawing は null。
-    using ViewCallback = std::move_only_function<void(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)>;
-    // RenderRequest::target の並び。Display だけが結果をキャッシュに持ち、ほかは結果を target のコールバックで返す。
-    enum class RequestKind : uint8_t {
-        Display,
-        Svg,
-        View,
-        Math
-    };
-
-    // 本文の図のキャッシュのキー。
+    // 図 (本文と拡大表示) のキャッシュのキー。
     struct DisplayTarget {
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t request_hash = 0;
@@ -149,26 +144,20 @@ private:
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
-        // 結果の渡し先 (RequestKind の順)。Math (RequestMathBatch) は code などを使わない。
-        std::variant<DisplayTarget, SvgCallback, ViewCallback, MathRequest> target;
-        RequestKind kind() const noexcept
-        {
-            return static_cast<RequestKind>(target.index());
-        }
+        // 結果の渡し先。図 (DisplayTarget) は結果をキャッシュに持ち、数式 (MathRequest) はコールバックで返す。数式は code などを使わない。
+        std::variant<DisplayTarget, MathRequest> target;
     };
-    template <RequestKind K>
-    using TargetOf = std::variant_alternative_t<std::to_underlying(K), decltype(RenderRequest::target)>;
-    static_assert(std::is_same_v<TargetOf<RequestKind::Display>, DisplayTarget> && std::is_same_v<TargetOf<RequestKind::Svg>, SvgCallback> &&
-                  std::is_same_v<TargetOf<RequestKind::View>, ViewCallback> && std::is_same_v<TargetOf<RequestKind::Math>, MathRequest>);
 
     // 図の拡大表示 (窓は DiagramView が持つ)。
     struct Viewer {
-        std::unique_ptr<DiagramView> view;
+        std::unique_ptr<IDiagramViewer> view;
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
         int node = -1;
         float max_width = 0.0f;
         bool dark_mode = false;
+        // 要求した図の結果をまだ窓に渡していない。
+        bool pending = false;
     };
 
     enum class JobWork : uint8_t {
@@ -176,15 +165,13 @@ private:
         Render,
         // ディスクキャッシュの描画命令を読む。表示用の要求だけ。
         DiskLoad,
-        // 本文の描画命令から SVG を作る。SVG の要求だけ。
-        SvgFromDrawing,
     };
     // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
     struct JobDropped {};
     // 描いたか読んだ描画命令。UI で commands にする。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
-        // 表示用の要求を描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
+        // 描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
         std::string bytes;
     };
     // PeleEngine で描けなかった。描き直しても同じ。
@@ -195,15 +182,11 @@ private:
     struct JobUnreadable {
         DWORD read_error = 0;
     };
-    // クリップボード用の SVG (UTF-8)。
-    struct JobSvg {
-        std::string svg;
-    };
     // MathRequest::items と同じ順で、描けなかった数式は null。
     struct JobMaths {
         std::vector<std::shared_ptr<const MathDrawing>> drawings;
     };
-    using JobOutcome = std::variant<JobDropped, JobDrawing, JobFailed, JobUnreadable, JobSvg, JobMaths>;
+    using JobOutcome = std::variant<JobDropped, JobDrawing, JobFailed, JobUnreadable, JobMaths>;
 
     // bg のワーカーの仕事 1 つとその結果。
     struct Job {
@@ -235,14 +218,12 @@ private:
     {
         return viewer_.view && viewer_.view->IsOpen();
     }
+    // 拡大表示は本文と同じ結果 (cache_) を使う。本文が描いた図はその描画命令をそのまま出し、無ければ表示用の要求として
+    // 描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。
     void RequestViewerDrawing();
-    // 今までの要求の結果を要らなくする。描画中の分は世代で捨て、待ちの分は描かせない (結果を待つ人がいないのでコールバックは
-    // 呼ばない)。新しい世代を返す。
-    unsigned int InvalidateViewerDrawing()
-    {
-        std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind() == RequestKind::View; });
-        return ++viewer_render_;
-    }
+    // 拡大表示が待っている図の結果を引き、出ていれば窓に渡す。まだなら頼む (頼んであれば何もしない)。結果が出たときと、
+    // 待ちの表示用の要求を捨てたときに呼ぶ。呼び漏らすと窓が読み込み中のまま残る。
+    void PollViewerDrawing();
     void FailViewer();
 
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
@@ -270,21 +251,18 @@ private:
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
     void InsertCache(uint64_t hash, DiagramResult result);
+    // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
     const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
-    // 幅を混ぜないキーの結果。いまの幅の上限より狭いときだけ使える。
-    const DiagramResult* FindWidthFree(uint64_t width_free_hash, float max_width);
-    // 本文で縮めずに描けた図 (幅に縛られない結果) の描画命令。拡大表示とクリップボードは本文の幅に縮めない描き方なので、
-    // これをそのまま使える。無ければ null。
-    std::shared_ptr<const mermaid_util::DiagramDrawing> FindWidthFreeDrawing(std::string_view code, float max_width, bool dark_mode);
+    // 結果 (描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
+    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
+    ViewerFactory open_viewer_ = nullptr;
     Viewer viewer_;
-    // 拡大表示の要求ごとに進め、新しい要求か閉じた後に届いた古い結果を捨てる。
-    unsigned int viewer_render_ = 0;
     std::move_only_function<void()> on_viewer_failed_;
 
     // 結果が出たときに呼ぶ。

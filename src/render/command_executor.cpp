@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <new>
+#include <span>
+#include <vector>
 
 namespace {
 
@@ -207,44 +210,107 @@ private:
         const float left = cmd_.cull_left - run.fontEmSize;
         const float right = cmd_.cull_right + run.fontEmSize;
         const auto past_end = [&] { return direction > 0.0f ? pen_x > right : pen_x < left; };
-        const auto draw_until = [&](uint32_t glyph_end, ID2D1Brush* brush) {
-            uint32_t first = glyph_end;
-            uint32_t last = glyph;
-            float first_x = pen_x;
+        // [glyph, glyph_end) のうち映るグリフ [first, last) と、その両端のペンの位置。
+        struct Span {
+            uint32_t first;
+            uint32_t last;
+            float first_x;
+            float last_x;
+        };
+        const auto take_until = [&](uint32_t glyph_end) {
+            Span s{ glyph_end, glyph, pen_x, pen_x };
             for (; glyph < glyph_end && !past_end(); glyph++) {
                 const float next_x = pen_x + direction * run.glyphAdvances[glyph];
                 if (std::max(pen_x, next_x) >= left && std::min(pen_x, next_x) <= right) {
-                    if (first == glyph_end) {
-                        first = glyph;
-                        first_x = pen_x;
+                    if (s.first == glyph_end) {
+                        s.first = glyph;
+                        s.first_x = pen_x;
                     }
-                    last = glyph + 1;
+                    s.last = glyph + 1;
+                    s.last_x = next_x;
                 }
                 pen_x = next_x;
             }
-            if (first >= last) {
-                return;
-            }
-            DWRITE_GLYPH_RUN part = run;
-            part.glyphCount = last - first;
-            part.glyphIndices += first;
-            part.glyphAdvances += first;
-            if (part.glyphOffsets) {
-                part.glyphOffsets += first;
-            }
-            rt_->DrawGlyphRun(D2D1::Point2F(first_x, y), &part, brush, mode);
+            return s;
         };
-        // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
         const auto tokens = cmd_.syntax_tokens;
-        auto it = std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
-        for (; it != tokens.end() && it->start < run_end; ++it) {
-            draw_until(glyph_at(std::max(it->start, run_begin)), default_brush_);
-            draw_until(glyph_at(std::min(it->start + it->length, run_end)), BrushOr(SyntaxBrushId(it->type)));
-            if (past_end()) {
+        if (tokens.empty()) {
+            const Span s = take_until(run.glyphCount);
+            if (s.first < s.last) {
+                DWRITE_GLYPH_RUN part = run;
+                part.glyphCount = s.last - s.first;
+                part.glyphIndices += s.first;
+                part.glyphAdvances += s.first;
+                if (part.glyphOffsets) {
+                    part.glyphOffsets += s.first;
+                }
+                rt_->DrawGlyphRun(D2D1::Point2F(s.first_x, y), &part, default_brush_, mode);
+            }
+            return;
+        }
+
+        // トークンごとに DrawGlyphRun を呼ぶと、トークンの細かい JSON 60 行で 1 フレーム 1.5ms かかる。同じ色のグリフを 1 つのランに
+        // 集め、間の別の色のグリフの送り幅は直前のグリフの送り幅に足して、色ごとに 1 回で描く (0.35ms。BM_CodeBlockDraw)。
+        // 置き場は使い回し、映るグリフの数までしか伸びない。
+        struct BrushGlyphs {
+            ID2D1Brush* brush = nullptr;
+            float start_x = 0.0f;
+            float end_x = 0.0f;
+            std::vector<UINT16> indices;
+            std::vector<FLOAT> advances;
+            std::vector<DWRITE_GLYPH_OFFSET> offsets;
+        };
+        thread_local std::vector<BrushGlyphs> groups;
+        size_t used = 0;
+        const auto collect_until = [&](uint32_t glyph_end, ID2D1Brush* brush) {
+            const Span s = take_until(glyph_end);
+            if (s.first >= s.last) {
                 return;
             }
+            const auto found = std::ranges::find(groups.begin(), groups.begin() + static_cast<ptrdiff_t>(used), brush, &BrushGlyphs::brush);
+            const auto index = static_cast<size_t>(found - groups.begin());
+            if (index == used) {
+                if (groups.size() == used) {
+                    groups.emplace_back();
+                }
+                BrushGlyphs& fresh = groups[used++];
+                fresh.brush = brush;
+                fresh.start_x = s.first_x;
+                fresh.indices.clear();
+                fresh.advances.clear();
+                fresh.offsets.clear();
+            }
+            BrushGlyphs& g = groups[index];
+            if (!g.advances.empty()) {
+                g.advances.back() += (s.first_x - g.end_x) * direction;
+            }
+            g.indices.insert(g.indices.end(), run.glyphIndices + s.first, run.glyphIndices + s.last);
+            g.advances.insert(g.advances.end(), run.glyphAdvances + s.first, run.glyphAdvances + s.last);
+            if (run.glyphOffsets) {
+                g.offsets.insert(g.offsets.end(), run.glyphOffsets + s.first, run.glyphOffsets + s.last);
+            }
+            g.end_x = s.last_x;
+        };
+        try {
+            // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
+            auto it = std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
+            for (; it != tokens.end() && it->start < run_end && !past_end(); ++it) {
+                collect_until(glyph_at(std::max(it->start, run_begin)), default_brush_);
+                collect_until(glyph_at(std::min(it->start + it->length, run_end)), BrushOr(SyntaxBrushId(it->type)));
+            }
+            collect_until(run.glyphCount, default_brush_);
+        } catch (const std::bad_alloc&) {
+            // 集めかけの組は数がそろっていないので、このランは描かない。
+            return;
         }
-        draw_until(run.glyphCount, default_brush_);
+        for (const BrushGlyphs& g : std::span{ groups }.first(used)) {
+            DWRITE_GLYPH_RUN part = run;
+            part.glyphCount = static_cast<UINT32>(g.indices.size());
+            part.glyphIndices = g.indices.data();
+            part.glyphAdvances = g.advances.data();
+            part.glyphOffsets = run.glyphOffsets ? g.offsets.data() : nullptr;
+            rt_->DrawGlyphRun(D2D1::Point2F(g.start_x, y), &part, g.brush, mode);
+        }
     }
     void FillLine(float x, float top, float width, float thickness, IUnknown* effect) const noexcept
     {

@@ -227,7 +227,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
 {
     // 図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
     // 描画時にビットマップが後続ノードへはみ出すため既存値を維持する。
-    if (IsBitmapDrawNode(node)) {
+    if (node.type == NodeType::Diagram) {
         return;
     }
     // 同じ幅で実測していれば、height は実測値かそれ以上なので推定は要らない。

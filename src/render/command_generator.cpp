@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "i18n.h"
 #include "layout_computer.h"
+#include "chrome_layout.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "ui_constants.h"
@@ -1429,7 +1430,7 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
             break;
         }
         const Node& node = nodes[i];
-        const DiagramEntry* diagram = IsBitmapDrawNode(node) ? cache.FindDiagram(i) : nullptr;
+        const DiagramEntry* diagram = node.type == NodeType::Diagram ? cache.FindDiagram(i) : nullptr;
         e.GenerateNode(node, cache[i], diagram, i, local_text_top);
         ++visible_count;
     }

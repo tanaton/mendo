@@ -1,9 +1,9 @@
 #pragma once
-// hit_test_service.h / selection_html.h を app_state.h を読む全 TU へ広げないため分ける。
+// hit_test_service.h を app_state.h を読む全 TU へ広げないため分ける。
 #include "app_events.h"
 #include "app_state.h"
+#include "document_utils.h"
 #include "hit_test_service.h"
-#include "selection_html.h"
 #include <cstdint>
 #include <optional>
 

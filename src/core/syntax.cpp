@@ -1,8 +1,10 @@
 #include "syntax.h"
 #include "syntax_keywords.h"
 #include "ascii_util.h"
+#include "utility.h"
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <iterator>
@@ -872,6 +874,10 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
 // 行や宣言の構造で色が決まる言語の専用 lexer
 // ============================================================
 
+// 行や入れ子の状態を持つ lexer は、begin とそこでの状態 (SyntaxLexState) を受け取って途中から解析できる。区切ったコードの
+// 続きのノードは前のノードを読まずに解析するので (TokenizeCodeNode)、継ぎ目での状態をパーサが先に求めて持たせる。
+// trace はそのときだけ渡り、ふだんの解析 (null) では何も残さない。状態の 0 は、どの lexer でもコードの先頭の状態にする。
+
 // [pos, end) の先頭のスペース・タブを飛ばした位置。
 constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexcept
 {
@@ -881,6 +887,25 @@ constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexc
 void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::vector<SyntaxToken>& tokens)
 {
     TokenizeRange<BASH_LEXER_CONFIG>(text.substr(0, end), begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+}
+
+// 行末の '\' でつないだ論理行 [begin, end) の 2 行目から後ろは、行の途中から続ける状態 rest で始め直せる。head は begin での状態。
+// '\' で終わったままテキストが尽きた行は続きが次の窓にあるので、最後の行の頭から解析し直させる。
+void NoteContinuationLines(SyntaxStateTrace* trace, std::string_view text, size_t begin, size_t end, SyntaxLexState head, SyntaxLexState rest)
+{
+    if (!trace || end == begin) {
+        return;
+    }
+    if (const size_t first_eol = SkipToEol(text, begin); first_eol < end) {
+        trace->SetRange(first_eol + 1, std::min(end + 1, text.size()), rest);
+    }
+    if (end == text.size()) {
+        const size_t newline = text.rfind('\n', end - 1);
+        const size_t last_line = newline != npos && newline >= begin ? newline + 1 : begin;
+        if (const size_t last = TrimEnd(text, last_line, end); last > last_line && text[last - 1] == '\\') {
+            trace->SetUnsettled(last_line, last_line == begin ? head : rest, text.size());
+        }
+    }
 }
 
 // 値全体が数値リテラル（符号・基数接頭辞・小数・指数・'_' 区切り・inf / nan）か。
@@ -981,16 +1006,24 @@ SyntaxTokenType DiffLineType(std::string_view line) noexcept
     }
 }
 
-void TokenizeDiff(std::string_view text, std::vector<SyntaxToken>& tokens)
+// 状態はハンクの中かどうかと、直前の行が旧ファイルのヘッダかどうか。
+// 続きのノードは自分のテキストしか読めないので、ノードの末尾 2 行にある "--- " はヘッダでも先読みできず、削除行の色になる。
+void TokenizeDiff(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
+    constexpr SyntaxLexState kInHunk = 1;
+    constexpr SyntaxLexState kAfterOldHeader = 2;
     const auto starts_with_at = [text](size_t pos, std::string_view prefix) {
         return pos < text.size() && text.substr(pos).starts_with(prefix);
     };
     // ハンク内では "-- " を消した行も "--- " で始まるので、次のファイルのヘッダは
     // "--- " "+++ " "@@" の 3 行が並ぶときだけとみなす。
-    bool in_hunk = false;
-    bool after_old_header = false;
-    for (size_t pos = 0; pos < text.size();) {
+    bool in_hunk = (state & kInHunk) != 0;
+    bool after_old_header = (state & kAfterOldHeader) != 0;
+    const auto packed = [&]() -> SyntaxLexState { return (in_hunk ? kInHunk : 0) | (after_old_header ? kAfterOldHeader : 0); };
+    for (size_t pos = begin; pos < text.size();) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, packed());
+        }
         const size_t eol = SkipToEol(text, pos);
         const auto line = text.substr(pos, eol - pos);
         auto type = DiffLineType(line);
@@ -1006,6 +1039,9 @@ void TokenizeDiff(std::string_view text, std::vector<SyntaxToken>& tokens)
         in_hunk = in_hunk || type == SyntaxTokenType::Type;
         EmitRange(tokens, pos, eol, type);
         pos = eol + 1;
+    }
+    if (trace) {
+        trace->Set(text.size(), packed());
     }
 }
 
@@ -1117,10 +1153,19 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<Synt
     }
 }
 
+// YAML の状態はブロックスカラーの親の桁 + 1 で、本文の外は 0。254 桁より深い親は 254 桁として扱う。
+constexpr SyntaxLexState YamlBlockScalarState(size_t parent_indent) noexcept
+{
+    return static_cast<SyntaxLexState>(std::min<size_t>(parent_indent, 254) + 1);
+}
+
 // インデントが parent_indent より深い行（と空行）をブロックスカラーの本文として String にする。返り値は本文直後の行頭。
-size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_indent, std::vector<SyntaxToken>& tokens)
+size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_indent, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     while (pos < text.size()) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, YamlBlockScalarState(parent_indent));
+        }
         const size_t eol = SkipToEol(text, pos);
         const size_t first = SkipBlanks(text, pos, eol);
         const size_t end = TrimEnd(text, first, eol);
@@ -1135,10 +1180,23 @@ size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_inde
     return pos;
 }
 
-void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
+void TokenizeYaml(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
-    size_t pos = 0;
+    size_t pos = begin;
+    // 本文の途中でテキストが尽きたら、末尾の状態も本文の中。
+    SyntaxLexState tail = 0;
+    const auto scan_block_scalar = [&](size_t parent_indent) {
+        pos = ScanYamlBlockScalar(text, pos, parent_indent, tokens, trace);
+        tail = pos >= text.size() ? YamlBlockScalarState(parent_indent) : 0;
+    };
+    if (state != 0) {
+        scan_block_scalar(state - 1);
+    }
     while (pos < text.size()) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, 0);
+        }
+        tail = 0;
         const size_t eol = SkipToEol(text, pos);
         const auto line = text.substr(pos, eol - pos);
         // 引用符の中の行末 '\' で次の行へ読み進めないよう、行末で切ったテキストを走査する。
@@ -1167,8 +1225,11 @@ void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
         const bool block_scalar = ScanYamlValue(until_eol, i, eol, tokens);
         pos = eol + 1;
         if (block_scalar) {
-            pos = ScanYamlBlockScalar(text, pos, indent, tokens);
+            scan_block_scalar(indent);
         }
+    }
+    if (trace) {
+        trace->Set(text.size(), tail);
     }
 }
 
@@ -1231,89 +1292,132 @@ struct DepthFlags {
     }
 };
 
-void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
+// 括弧の深さと、深さごとのフラグを状態に詰める。持つのは内側の kPackedLevels 段までで、それより外側の段は忘れる
+// (抜けた先を深さ 0・フラグなしとして読む)。SyntaxLexState の残りは 3 bit。
+constexpr int kPackedLevels = 16;
+constexpr int kPackedDepthBits = kPackedLevels + 5;
+static_assert(kPackedDepthBits + 3 <= kSyntaxLexStateBits);
+
+constexpr SyntaxLexState PackDepth(int depth, DepthFlags flags) noexcept
+{
+    const int kept = std::min(depth, kPackedLevels);
+    const int dropped = depth - kept;
+    const uint64_t bits = dropped < DepthFlags::kMaxDepth ? flags.bits >> dropped : 0;
+    return static_cast<SyntaxLexState>((bits & ((uint64_t{ 1 } << kept) - 1)) | (static_cast<uint64_t>(kept) << kPackedLevels));
+}
+
+constexpr int UnpackDepth(SyntaxLexState state) noexcept
+{
+    return static_cast<int>((state >> kPackedLevels) & 0x1F);
+}
+
+constexpr DepthFlags UnpackDepthFlags(SyntaxLexState state) noexcept
+{
+    return { state & ((SyntaxLexState{ 1 } << kPackedLevels) - 1) };
+}
+
+constexpr SyntaxLexState kTomlNoKey = SyntaxLexState{ 1 } << kPackedDepthBits;
+constexpr SyntaxLexState kTomlMidLine = kTomlNoKey << 1;
+
+// 1 文字ずつ進む lexer が、状態を残すために次に解析を区切る位置。ループの中で毎回確かめると、状態を残さないふだんの解析まで
+// 1 割遅くなるので (16KB の TOML で 28.7 → 32.8µs)、区切りまでを内側のループで進め、その外で状態を残す。
+size_t NextStateStop(const SyntaxStateTrace* trace, size_t text_size) noexcept
+{
+    return trace ? std::min(trace->next_wanted(), text_size) : text_size;
+}
+
+void TokenizeToml(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     // 括弧の深さごとに '{' (インラインテーブル) か '[' (配列) かを覚える。キーはテーブル直下でのみ現れる。
-    DepthFlags inline_tables;
-    int depth = 0;
-    bool expect_key = true;
-    bool line_start = true;
-    size_t i = 0;
-    while (i < text.size()) {
-        const char c = text[i];
-        if (c == '\n') {
-            i++;
-            line_start = true;
-            expect_key = expect_key || depth == 0;
-            continue;
-        }
-        if (IsBlank(c)) {
-            i++;
-            continue;
-        }
-        if (c == '#') {
-            i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
-            continue;
-        }
-        const bool in_inline_table = inline_tables.test(depth);
-        if (expect_key && (depth == 0 || in_inline_table)) {
-            expect_key = false;
-            if (depth == 0 && line_start && c == '[') {
-                const size_t eol = SkipToEol(text, i);
-                size_t e = text.substr(0, eol).find(']', i);
-                e = e < eol ? e + 1 : eol;
-                if (e < eol && text[e] == ']') {
-                    e++;
+    DepthFlags inline_tables = UnpackDepthFlags(state);
+    int depth = UnpackDepth(state);
+    bool expect_key = (state & kTomlNoKey) == 0;
+    bool line_start = (state & kTomlMidLine) == 0;
+    size_t i = begin;
+    for (const size_t n = text.size();;) {
+        const size_t stop = NextStateStop(trace, n);
+        while (i < stop) {
+            const char c = text[i];
+            if (c == '\n') {
+                i++;
+                line_start = true;
+                expect_key = expect_key || depth == 0;
+                continue;
+            }
+            if (IsBlank(c)) {
+                i++;
+                continue;
+            }
+            if (c == '#') {
+                i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
+                continue;
+            }
+            const bool in_inline_table = inline_tables.test(depth);
+            if (expect_key && (depth == 0 || in_inline_table)) {
+                expect_key = false;
+                if (depth == 0 && line_start && c == '[') {
+                    const size_t eol = SkipToEol(text, i);
+                    size_t e = text.substr(0, eol).find(']', i);
+                    e = e < eol ? e + 1 : eol;
+                    if (e < eol && text[e] == ']') {
+                        e++;
+                    }
+                    i = EmitRange(tokens, i, e, SyntaxTokenType::Keyword);
+                    line_start = false;
+                    continue;
                 }
-                i = EmitRange(tokens, i, e, SyntaxTokenType::Keyword);
-                line_start = false;
+                if (const size_t eq = FindTomlKeyEquals(text, i); eq != npos) {
+                    EmitRange(tokens, i, TrimEnd(text, i, eq), SyntaxTokenType::Type);
+                    i = eq + 1;
+                    line_start = false;
+                    continue;
+                }
+            }
+            line_start = false;
+            if (c == '"' || c == '\'') {
+                const bool triple = i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c;
+                i = EmitRange(tokens, i, triple ? ScanTripleQuote(text, i, c, c == '"') : ScanString(text, i, c, false, c == '"'), SyntaxTokenType::String);
                 continue;
             }
-            if (const size_t eq = FindTomlKeyEquals(text, i); eq != npos) {
-                EmitRange(tokens, i, TrimEnd(text, i, eq), SyntaxTokenType::Type);
-                i = eq + 1;
-                line_start = false;
+            if (c == '[' || c == '{') {
+                depth++;
+                inline_tables.set(depth, c == '{');
+                expect_key = c == '{';
+                i++;
                 continue;
             }
+            if (c == ']' || c == '}') {
+                depth = std::max(depth - 1, 0);
+                i++;
+                continue;
+            }
+            if (c == ',') {
+                expect_key = in_inline_table;
+                i++;
+                continue;
+            }
+            static constexpr CharSet kScalarPunct{ "+-.:" };
+            const size_t e = SkipWhile(text, i, [](char ch) static noexcept { return IsIdentChar(ch) || kScalarPunct.contains(ch); });
+            if (e == i) {
+                i++;
+                continue;
+            }
+            i = EmitRange(tokens, i, e, ClassifyScalar(text.substr(i, e - i)));
         }
-        line_start = false;
-        if (c == '"' || c == '\'') {
-            const bool triple = i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c;
-            i = EmitRange(tokens, i, triple ? ScanTripleQuote(text, i, c, c == '"') : ScanString(text, i, c, false, c == '"'), SyntaxTokenType::String);
-            continue;
+        if (trace) {
+            trace->Set(i, PackDepth(depth, inline_tables) | (expect_key ? 0 : kTomlNoKey) | (line_start ? 0 : kTomlMidLine));
         }
-        if (c == '[' || c == '{') {
-            depth++;
-            inline_tables.set(depth, c == '{');
-            expect_key = c == '{';
-            i++;
-            continue;
+        if (i >= n) {
+            break;
         }
-        if (c == ']' || c == '}') {
-            depth = std::max(depth - 1, 0);
-            i++;
-            continue;
-        }
-        if (c == ',') {
-            expect_key = in_inline_table;
-            i++;
-            continue;
-        }
-        static constexpr CharSet kScalarPunct{ "+-.:" };
-        const size_t e = SkipWhile(text, i, [](char ch) static noexcept { return IsIdentChar(ch) || kScalarPunct.contains(ch); });
-        if (e == i) {
-            i++;
-            continue;
-        }
-        i = EmitRange(tokens, i, e, ClassifyScalar(text.substr(i, e - i)));
     }
 }
 
 // ---------- INI ----------
 
-void TokenizeIni(std::string_view text, std::vector<SyntaxToken>& tokens)
+void TokenizeIni(std::string_view text, size_t begin, std::vector<SyntaxToken>& tokens)
 {
-    for (size_t pos = 0; pos < text.size();) {
+    for (size_t pos = begin; pos < text.size();) {
         const size_t eol = SkipToEol(text, pos);
         const size_t i = SkipBlanks(text, pos, eol);
         const size_t end = TrimEnd(text, i, eol);
@@ -1445,9 +1549,12 @@ size_t ScanCssValueToken(std::string_view text, size_t i, bool at_rule, std::vec
     return i + 1;
 }
 
+// CSS の状態はブロックの深さ (255 で頭打ち)・文の頭かどうか・文の途中ならそのモード。HTML の lexer がこの上のビットを使う。
+constexpr int kCssStateBits = 11;
+
 // [begin, text.size()) を CSS として走査する。HTML の <style> 内もここを通す。
 template <bool kScss>
-void TokenizeCssRange(std::string_view text, size_t begin, std::vector<SyntaxToken>& tokens)
+void TokenizeCssRange(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     enum class Mode : uint8_t {
         Selector,
@@ -1455,85 +1562,107 @@ void TokenizeCssRange(std::string_view text, size_t begin, std::vector<SyntaxTok
         Value,
         AtRule,
     };
+    constexpr SyntaxLexState kDepthMask = 0xFF;
+    constexpr SyntaxLexState kMidStatement = 0x100;
+    constexpr int kModeShift = 9;
     const size_t n = text.size();
-    int depth = 0;
-    bool stmt_start = true;
-    Mode mode = Mode::Selector;
+    int depth = static_cast<int>(state & kDepthMask);
+    bool stmt_start = (state & kMidStatement) == 0;
+    Mode mode = static_cast<Mode>((state >> kModeShift) & 3);
+    // 文の頭ではモードを次のトークンで決め直すので、持ち越さない。
+    const auto packed = [](int at_depth, bool at_stmt_start, Mode in_mode) static noexcept -> SyntaxLexState {
+        const auto all_depth = static_cast<SyntaxLexState>(at_depth);
+        const SyntaxLexState kept_depth = all_depth < kDepthMask ? all_depth : kDepthMask;
+        return kept_depth | (at_stmt_start ? 0 : kMidStatement | (SyntaxLexState{ std::to_underlying(in_mode) } << kModeShift));
+    };
     size_t i = begin;
-    while (i < n) {
-        const char c = text[i];
-        const char next = i + 1 < n ? text[i + 1] : '\0';
-        if (c == '/' && next == '*') {
-            i = EmitRange(tokens, i, ScanBlockComment(text, i, '*', '/'), SyntaxTokenType::Comment);
-            continue;
-        }
-        if constexpr (kScss) {
-            if (c == '/' && next == '/') {
-                i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
+    for (;;) {
+        const size_t stop = NextStateStop(trace, n);
+        while (i < stop) {
+            const char c = text[i];
+            const char next = i + 1 < n ? text[i + 1] : '\0';
+            if (c == '/' && next == '*') {
+                i = EmitRange(tokens, i, ScanBlockComment(text, i, '*', '/'), SyntaxTokenType::Comment);
                 continue;
             }
-            // 補間 #{...} の括弧をブロックと数えない。
-            if (c == '#' && next == '{') {
-                const size_t close = text.find('}', i);
-                i = close == npos ? n : close + 1;
+            if constexpr (kScss) {
+                if (c == '/' && next == '/') {
+                    i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
+                    continue;
+                }
+                // 補間 #{...} の括弧をブロックと数えない。
+                if (c == '#' && next == '{') {
+                    const size_t close = text.find('}', i);
+                    i = close == npos ? n : close + 1;
+                    continue;
+                }
+            }
+            if (IsMarkupSpace(c)) {
+                i++;
                 continue;
             }
-        }
-        if (IsMarkupSpace(c)) {
-            i++;
-            continue;
-        }
-        if (c == '"' || c == '\'') {
-            i = EmitRange(tokens, i, ScanString(text, i, c, false), SyntaxTokenType::String);
-            continue;
-        }
-        if (c == '{' || c == '}' || c == ';') {
-            if (c == '{') {
-                depth++;
+            if (c == '"' || c == '\'') {
+                i = EmitRange(tokens, i, ScanString(text, i, c, false), SyntaxTokenType::String);
+                continue;
             }
-            else if (c == '}') {
-                depth = std::max(depth - 1, 0);
-            }
-            stmt_start = true;
-            i++;
-            continue;
-        }
-        if (stmt_start) {
-            stmt_start = false;
-            if (c == '@') {
-                mode = Mode::AtRule;
-            }
-            else if (kScss && c == '$') {
-                mode = Mode::Property;
-            }
-            else if (depth == 0) {
-                mode = Mode::Selector;
-            }
-            else {
-                // ブロック内は、文末より先に '{' が来ればネストしたルールのセレクタ、そうでなければ宣言。
-                const size_t p = text.find_first_of(";{}", i);
-                mode = p != npos && text[p] == '{' ? Mode::Selector : Mode::Property;
-            }
-        }
-        switch (mode) {
-        case Mode::Selector:
-            i = ScanCssSelectorToken(text, i, tokens);
-            break;
-        case Mode::Property:
-            if (c == ':') {
-                mode = Mode::Value;
+            if (c == '{' || c == '}' || c == ';') {
+                if (c == '{') {
+                    depth++;
+                }
+                else if (c == '}') {
+                    depth = std::max(depth - 1, 0);
+                }
+                stmt_start = true;
                 i++;
+                continue;
             }
-            else if (IsDashedIdentChar(c) || (kScss && c == '$')) {
-                i = EmitRange(tokens, i, SkipCssIdent(text, i + 1), SyntaxTokenType::Type);
+            if (stmt_start) {
+                stmt_start = false;
+                if (c == '@') {
+                    mode = Mode::AtRule;
+                }
+                else if (kScss && c == '$') {
+                    mode = Mode::Property;
+                }
+                else if (depth == 0) {
+                    mode = Mode::Selector;
+                }
+                else {
+                    // ブロック内は、文末より先に '{' が来ればネストしたルールのセレクタ、そうでなければ宣言。
+                    // 続きのノードは自分のテキストしか読めないので、文がノードの末尾をまたぐと宣言として読む。
+                    const size_t p = text.find_first_of(";{}", i);
+                    if (trace && p == npos) {
+                        trace->SetUnsettled(i, packed(depth, true, mode), n);
+                    }
+                    mode = p != npos && text[p] == '{' ? Mode::Selector : Mode::Property;
+                }
             }
-            else {
-                i++;
+            switch (mode) {
+            case Mode::Selector:
+                i = ScanCssSelectorToken(text, i, tokens);
+                break;
+            case Mode::Property:
+                if (c == ':') {
+                    mode = Mode::Value;
+                    i++;
+                }
+                else if (IsDashedIdentChar(c) || (kScss && c == '$')) {
+                    i = EmitRange(tokens, i, SkipCssIdent(text, i + 1), SyntaxTokenType::Type);
+                }
+                else {
+                    i++;
+                }
+                break;
+            case Mode::Value:
+            case Mode::AtRule:
+                i = ScanCssValueToken<kScss>(text, i, mode == Mode::AtRule, tokens);
+                break;
             }
-            break;
-        case Mode::Value:
-        case Mode::AtRule:
-            i = ScanCssValueToken<kScss>(text, i, mode == Mode::AtRule, tokens);
+        }
+        if (trace) {
+            trace->Set(i, packed(depth, stmt_start, mode));
+        }
+        if (i >= n) {
             break;
         }
     }
@@ -1572,115 +1701,208 @@ constexpr size_t FindClosingTag(std::string_view text, size_t pos, ascii_util::D
     return text.size();
 }
 
+// マークアップの状態。タグの属性の途中 (閉じると中身が続く <script> / <style> の開きタグは別に持つ) か、
+// <script> / <style> の中身か。<style> の中身では下位のビットに CSS の状態を重ねる。
+// 属性の '=' と値の間は持たないので、そこから始めると引用符の無い値を属性名として色付けする。
+enum class MarkupMode : uint8_t {
+    Text,
+    Tag,
+    ScriptTag,
+    StyleTag,
+    Script,
+    Style,
+};
+static_assert(kCssStateBits + 3 <= kSyntaxLexStateBits);
+
+constexpr SyntaxLexState MarkupState(MarkupMode mode) noexcept
+{
+    return SyntaxLexState{ std::to_underlying(mode) } << kCssStateBits;
+}
+
 // タグ名は Keyword、属性名は Type、属性値は String、文字参照は Number。
 // HTML では <script> / <style> の中身を JS / CSS として色付けする。
 template <bool kHtml>
-void TokenizeMarkup(std::string_view text, std::vector<SyntaxToken>& tokens)
+void TokenizeMarkup(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     const size_t n = text.size();
-    size_t i = 0;
+    size_t i = begin;
+    // 1 周でタグの外 → 属性 → 中身と進んで Text に戻る。Text 以外で周に入るのは、途中から始めるときだけ。
+    auto mode = static_cast<MarkupMode>(state >> kCssStateBits);
+    SyntaxLexState css_state = state & ((SyntaxLexState{ 1 } << kCssStateBits) - 1);
+    // テキストの末尾での状態。<style> の中身のまま尽きたときは CSS の lexer が残す。
+    SyntaxLexState tail = state;
+    bool style_open = false;
     while (i < n) {
-        const size_t lt = text.find('<', i);
-        // タグ間のテキストだけを探す (& の無い文書でタグごとに末尾まで読まない)
-        const auto between = text.substr(0, lt == npos ? n : lt);
-        for (size_t amp = between.find('&', i); amp != npos; amp = between.find('&', amp + 1)) {
-            if (const size_t e = ScanHtmlEntity(between, amp); e != npos) {
-                EmitRange(tokens, amp, e, SyntaxTokenType::Number);
-                amp = e - 1;
+        if (mode == MarkupMode::Text) {
+            tail = MarkupState(MarkupMode::Text);
+            const size_t lt = text.find('<', i);
+            const size_t text_end = lt == npos ? n : lt;
+            // '<' まではどこからでも始め直せる。その直後のタグ名から始めるとタグとして読めない。
+            if (trace && trace->Wants(text_end)) {
+                trace->SetRange(i, std::min(text_end + 1, n), MarkupState(MarkupMode::Text));
             }
-        }
-        if (lt == npos) {
-            break;
-        }
-        const auto rest = text.substr(lt);
-        const auto emit_until = [&](size_t open_length, std::string_view close, SyntaxTokenType type) {
-            const size_t p = text.find(close, lt + open_length);
-            i = p == npos ? n : p + close.size();
-            EmitRange(tokens, lt, i, type);
-        };
-        if (rest.starts_with("<!--")) {
-            emit_until(4, "-->", SyntaxTokenType::Comment);
-            continue;
-        }
-        if (rest.starts_with("<![CDATA[")) {
-            emit_until(9, "]]>", SyntaxTokenType::String);
-            continue;
-        }
-        if (rest.starts_with("<!") || rest.starts_with("<?")) {
-            emit_until(2, ">", SyntaxTokenType::Preprocessor);
-            continue;
-        }
-        const bool closing = rest.starts_with("</");
-        const size_t name_start = lt + (closing ? 2 : 1);
-        size_t j = SkipWhile(text, name_start, IsMarkupNameChar);
-        if (j == name_start || !IsIdentStart(text[name_start])) {
-            i = lt + 1;
-            continue;
-        }
-        EmitRange(tokens, name_start, j, SyntaxTokenType::Keyword);
-        const auto tag_name = text.substr(name_start, j - name_start);
-        bool self_closing = false;
-        while (j < n) {
-            const char c = text[j];
-            if (c == '>') {
-                j++;
-                break;
-            }
-            // '>' の閉じ忘れ。次のタグとして読み直す。
-            if (c == '<') {
-                break;
-            }
-            if (c == '/' && j + 1 < n && text[j + 1] == '>') {
-                j += 2;
-                self_closing = true;
-                break;
-            }
-            if (IsMarkupSpace(c) || c == '/') {
-                j++;
-                continue;
-            }
-            if (c == '"' || c == '\'') {
-                const size_t e = ScanString(text, j, c, true, false);
-                j = EmitRange(tokens, j, e, SyntaxTokenType::String);
-                continue;
-            }
-            if (c == '=') {
-                j = SkipWhile(text, j + 1, IsMarkupSpace);
-                const size_t e = j < n && (text[j] == '"' || text[j] == '\'')
-                                     ? ScanString(text, j, text[j], true, false)
-                                     : SkipWhile(text, j, [](char ch) static noexcept { return !IsMarkupSpace(ch) && ch != '>' && ch != '<'; });
-                j = EmitRange(tokens, j, e, SyntaxTokenType::String);
-                continue;
-            }
-            static constexpr CharSet kAttrNameEnd{ " \t\n=>/<\"'" };
-            const size_t e = SkipWhile(text, j, [](char ch) static noexcept { return !kAttrNameEnd.contains(ch); });
-            j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
-        }
-        i = j;
-        if constexpr (kHtml) {
-            if (!closing && !self_closing) {
-                if (ascii_util::iequal(tag_name, "script")) {
-                    const size_t close = FindClosingTag(text, i, "script");
-                    TokenizeRange<JS_LEXER_CONFIG>(text.substr(0, close), i, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
-                    i = close;
+            // タグ間のテキストだけを探す (& の無い文書でタグごとに末尾まで読まない)
+            const auto between = text.substr(0, text_end);
+            for (size_t amp = between.find('&', i); amp != npos; amp = between.find('&', amp + 1)) {
+                if (const size_t e = ScanHtmlEntity(between, amp); e != npos) {
+                    EmitRange(tokens, amp, e, SyntaxTokenType::Number);
+                    amp = e - 1;
                 }
-                else if (ascii_util::iequal(tag_name, "style")) {
-                    const size_t close = FindClosingTag(text, i, "style");
-                    TokenizeCssRange<false>(text.substr(0, close), i, tokens);
-                    i = close;
+            }
+            if (lt == npos) {
+                break;
+            }
+            const auto rest = text.substr(lt);
+            const auto emit_until = [&](size_t open_length, std::string_view close, SyntaxTokenType type) {
+                const size_t p = text.find(close, lt + open_length);
+                i = p == npos ? n : p + close.size();
+                EmitRange(tokens, lt, i, type);
+            };
+            if (rest.starts_with("<!--")) {
+                emit_until(4, "-->", SyntaxTokenType::Comment);
+                continue;
+            }
+            if (rest.starts_with("<![CDATA[")) {
+                emit_until(9, "]]>", SyntaxTokenType::String);
+                continue;
+            }
+            if (rest.starts_with("<!") || rest.starts_with("<?")) {
+                emit_until(2, ">", SyntaxTokenType::Preprocessor);
+                continue;
+            }
+            const bool closing = rest.starts_with("</");
+            const size_t name_start = lt + (closing ? 2 : 1);
+            const size_t name_end = SkipWhile(text, name_start, IsMarkupNameChar);
+            if (name_end == name_start || !IsIdentStart(text[name_start])) {
+                i = lt + 1;
+                continue;
+            }
+            i = EmitRange(tokens, name_start, name_end, SyntaxTokenType::Keyword);
+            mode = MarkupMode::Tag;
+            if constexpr (kHtml) {
+                const auto tag_name = text.substr(name_start, name_end - name_start);
+                if (!closing && ascii_util::iequal(tag_name, "script")) {
+                    mode = MarkupMode::ScriptTag;
+                }
+                else if (!closing && ascii_util::iequal(tag_name, "style")) {
+                    mode = MarkupMode::StyleTag;
                 }
             }
         }
+        if (mode < MarkupMode::Script) {
+            size_t j = i;
+            bool closed = false;
+            bool self_closing = false;
+            size_t stop = NextStateStop(trace, n);
+            while (j < n) {
+                const char c = text[j];
+                if (IsMarkupSpace(c)) {
+                    j++;
+                    continue;
+                }
+                if (j >= stop) [[unlikely]] {
+                    trace->Set(j, MarkupState(mode));
+                    stop = NextStateStop(trace, n);
+                }
+                if (c == '>') {
+                    j++;
+                    closed = true;
+                    break;
+                }
+                // '>' の閉じ忘れ。次のタグとして読み直す。
+                if (c == '<') {
+                    closed = true;
+                    break;
+                }
+                if (c == '/' && j + 1 < n && text[j + 1] == '>') {
+                    j += 2;
+                    closed = true;
+                    self_closing = true;
+                    break;
+                }
+                if (c == '/') {
+                    j++;
+                    continue;
+                }
+                if (c == '"' || c == '\'') {
+                    const size_t e = ScanString(text, j, c, true, false);
+                    j = EmitRange(tokens, j, e, SyntaxTokenType::String);
+                    continue;
+                }
+                if (c == '=') {
+                    j = SkipWhile(text, j + 1, IsMarkupSpace);
+                    const size_t e = j < n && (text[j] == '"' || text[j] == '\'')
+                                         ? ScanString(text, j, text[j], true, false)
+                                         : SkipWhile(text, j, [](char ch) static noexcept { return !IsMarkupSpace(ch) && ch != '>' && ch != '<'; });
+                    j = EmitRange(tokens, j, e, SyntaxTokenType::String);
+                    continue;
+                }
+                static constexpr CharSet kAttrNameEnd{ " \t\n=>/<\"'" };
+                const size_t e = SkipWhile(text, j, [](char ch) static noexcept { return !kAttrNameEnd.contains(ch); });
+                j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
+            }
+            i = j;
+            if (!closed) {
+                tail = MarkupState(mode);
+                break;
+            }
+            tail = MarkupState(MarkupMode::Text);
+            mode = self_closing || mode == MarkupMode::Tag ? MarkupMode::Text
+                   : mode == MarkupMode::ScriptTag         ? MarkupMode::Script
+                                                           : MarkupMode::Style;
+            css_state = 0;
+            if (mode == MarkupMode::Text) {
+                continue;
+            }
+        }
+        if (mode == MarkupMode::Script) {
+            const size_t close = FindClosingTag(text, i, "script");
+            // 中身はどのトークンの外からでも JS として始め直せる。
+            if (trace && close > i && trace->Wants(close - 1)) {
+                trace->SetRange(i, close, MarkupState(mode));
+            }
+            TokenizeRange<JS_LEXER_CONFIG>(text.substr(0, close), i, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+            tail = MarkupState(close == n ? mode : MarkupMode::Text);
+            i = close;
+        }
+        else {
+            const size_t close = FindClosingTag(text, i, "style");
+            if (trace) {
+                trace->outer = MarkupState(mode);
+            }
+            TokenizeCssRange<false>(text.substr(0, close), i, css_state, tokens, trace);
+            if (trace) {
+                trace->outer = 0;
+            }
+            style_open = close == n;
+            tail = MarkupState(MarkupMode::Text);
+            i = close;
+        }
+        mode = MarkupMode::Text;
+    }
+    if (trace && !style_open) {
+        trace->Set(n, tail);
     }
 }
 
 // ---------- Dockerfile ----------
 
 // 行頭の命令を Keyword とし、引数は継続行も含めてシェルとして色付けする。
-void TokenizeDockerfile(std::string_view text, std::vector<SyntaxToken>& tokens)
+// 状態は継続行の途中かどうか。途中から始めた行は、論理行の終わりまでシェルとして読む。
+void TokenizeDockerfile(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
-    size_t pos = 0;
+    constexpr SyntaxLexState kShellRest = 1;
+    size_t pos = begin;
+    if (state == kShellRest) {
+        const size_t end = SkipToLogicalEol(text, pos);
+        TokenizeShellRange(text, pos, end, tokens);
+        NoteContinuationLines(trace, text, pos, end, state, kShellRest);
+        pos = end + 1;
+    }
     while (pos < text.size()) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, 0);
+        }
         const size_t i = SkipBlanks(text, pos, text.size());
         if (i < text.size() && text[i] == '#') {
             const size_t eol = SkipToEol(text, i);
@@ -1708,7 +1930,11 @@ void TokenizeDockerfile(std::string_view text, std::vector<SyntaxToken>& tokens)
             }
         }
         TokenizeShellRange(text, rest, end, tokens);
+        NoteContinuationLines(trace, text, pos, end, 0, kShellRest);
         pos = end + 1;
+    }
+    if (trace) {
+        trace->Set(text.size(), 0);
     }
 }
 
@@ -1811,53 +2037,82 @@ constexpr size_t FindMakeOperator(std::string_view text, size_t pos, size_t end)
     return npos;
 }
 
-void TokenizeMakefile(std::string_view text, std::vector<SyntaxToken>& tokens)
+// 論理行 [pos, end) を色付けする。レシピの行なら true。in_rule は次の行がレシピになりうるか。
+bool TokenizeMakeLine(std::string_view text, size_t pos, size_t end, bool& in_rule, std::vector<SyntaxToken>& tokens)
 {
+    size_t i = SkipBlanks(text, pos, end);
     // md4c はコードブロック行頭のタブをスペースに展開して渡すので、タブではなく
     // 「ルール行に続くインデント行」をレシピとみなす。
-    bool in_rule = false;
-    size_t pos = 0;
-    while (pos < text.size()) {
-        const size_t end = SkipToLogicalEol(text, pos);
-        size_t i = SkipBlanks(text, pos, end);
-        if (in_rule && i > pos) {
-            TokenizeMakeRecipe(text, i, end, tokens);
-            pos = end + 1;
-            continue;
-        }
-        const size_t j = SkipWhile(text, i, end, IsDashedIdentChar);
-        const auto word = text.substr(i, j - i);
-        if (kw::MAKE_KEYWORDS.contains(word) && (j == end || IsBlank(text[j]) || text[j] == '(')) {
-            EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
-            i = SkipBlanks(text, j, end);
-            // export / override / private の後には代入が続く。それ以外の指令の引数は条件式やファイル名。
-            // 条件分岐はレシピの途中にも書けるので in_rule は変えない。
-            if (word != "export" && word != "override" && word != "private") {
-                TokenizeMakeText(text, i, end, SyntaxTokenType::Plain, tokens);
-                pos = end + 1;
-                continue;
-            }
-        }
-        const size_t op = FindMakeOperator(text, i, end);
-        if (op == npos) {
-            // 空行とコメント行はレシピを終わらせない。
-            in_rule = in_rule && (i == end || text[i] == '#');
+    if (in_rule && i > pos) {
+        TokenizeMakeRecipe(text, i, end, tokens);
+        return true;
+    }
+    const size_t j = SkipWhile(text, i, end, IsDashedIdentChar);
+    const auto word = text.substr(i, j - i);
+    if (kw::MAKE_KEYWORDS.contains(word) && (j == end || IsBlank(text[j]) || text[j] == '(')) {
+        EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
+        i = SkipBlanks(text, j, end);
+        // export / override / private の後には代入が続く。それ以外の指令の引数は条件式やファイル名。
+        // 条件分岐はレシピの途中にも書けるので in_rule は変えない。
+        if (word != "export" && word != "override" && word != "private") {
             TokenizeMakeText(text, i, end, SyntaxTokenType::Plain, tokens);
+            return false;
         }
-        else if (text[op] == ':' && !text.substr(op).starts_with(":=") && !text.substr(op).starts_with("::=")) {
-            in_rule = true;
-            // .PHONY 等の特殊ターゲットは Keyword
-            const bool special = text[i] == '.' && i + 1 < end && IsAsciiAlpha(text[i + 1]);
-            TokenizeMakeText(text, i, op, special ? SyntaxTokenType::Keyword : SyntaxTokenType::Function, tokens);
-            const size_t prerequisites = op + 1 < end && text[op + 1] == ':' ? op + 2 : op + 1;
-            TokenizeMakeText(text, prerequisites, end, SyntaxTokenType::Plain, tokens);
+    }
+    const size_t op = FindMakeOperator(text, i, end);
+    if (op == npos) {
+        // 空行とコメント行はレシピを終わらせない。
+        in_rule = in_rule && (i == end || text[i] == '#');
+        TokenizeMakeText(text, i, end, SyntaxTokenType::Plain, tokens);
+    }
+    else if (text[op] == ':' && !text.substr(op).starts_with(":=") && !text.substr(op).starts_with("::=")) {
+        in_rule = true;
+        // .PHONY 等の特殊ターゲットは Keyword
+        const bool special = text[i] == '.' && i + 1 < end && IsAsciiAlpha(text[i + 1]);
+        TokenizeMakeText(text, i, op, special ? SyntaxTokenType::Keyword : SyntaxTokenType::Function, tokens);
+        const size_t prerequisites = op + 1 < end && text[op + 1] == ':' ? op + 2 : op + 1;
+        TokenizeMakeText(text, prerequisites, end, SyntaxTokenType::Plain, tokens);
+    }
+    else {
+        in_rule = false;
+        TokenizeMakeText(text, i, op, SyntaxTokenType::Type, tokens);
+        TokenizeMakeText(text, text.find('=', op) + 1, end, SyntaxTokenType::Plain, tokens);
+    }
+    return false;
+}
+
+// 状態は次の行がレシピになりうるかと、継続行の途中ならその残りの読み方。残りはレシピならシェル、ほかは変数参照と
+// コメントだけを色付けする (ターゲットや代入の名前が 2 行目より後ろまで続く行は、その分を色付けしない)。
+void TokenizeMakefile(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
+{
+    constexpr SyntaxLexState kInRule = 1;
+    constexpr SyntaxLexState kRecipeRest = 2;
+    constexpr SyntaxLexState kTextRest = 4;
+    bool in_rule = (state & kInRule) != 0;
+    size_t pos = begin;
+    if (const SyntaxLexState rest = state & (kRecipeRest | kTextRest); rest != 0) {
+        const size_t end = SkipToLogicalEol(text, pos);
+        if (rest == kRecipeRest) {
+            TokenizeMakeRecipe(text, pos, end, tokens);
         }
         else {
-            in_rule = false;
-            TokenizeMakeText(text, i, op, SyntaxTokenType::Type, tokens);
-            TokenizeMakeText(text, text.find('=', op) + 1, end, SyntaxTokenType::Plain, tokens);
+            TokenizeMakeText(text, pos, end, SyntaxTokenType::Plain, tokens);
         }
+        NoteContinuationLines(trace, text, pos, end, state, state);
         pos = end + 1;
+    }
+    while (pos < text.size()) {
+        const SyntaxLexState head = in_rule ? kInRule : 0;
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, head);
+        }
+        const size_t end = SkipToLogicalEol(text, pos);
+        const bool recipe = TokenizeMakeLine(text, pos, end, in_rule, tokens);
+        NoteContinuationLines(trace, text, pos, end, head, (in_rule ? kInRule : 0) | (recipe ? kRecipeRest : kTextRest));
+        pos = end + 1;
+    }
+    if (trace) {
+        trace->Set(text.size(), in_rule ? kInRule : 0);
     }
 }
 
@@ -1924,10 +2179,10 @@ constexpr size_t ScanHaskellChar(std::string_view text, size_t pos) noexcept
 }
 
 // 大文字始まりの識別子は型・コンストラクタ、行頭の小文字始まりは定義名 (関数の型注釈と本体) とする。
-void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
+void TokenizeHaskell(std::string_view text, size_t begin, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
-    size_t i = 0;
+    size_t i = begin;
     while (i < n) {
         const char c = text[i];
         const char next = i + 1 < n ? text[i + 1] : '\0';
@@ -2156,103 +2411,123 @@ size_t ScanLispDispatch(std::string_view text, size_t i, std::vector<SyntaxToken
 
 // リストの先頭 (呼び出し位置) のシンボルを Function、特殊形式を Keyword とする。
 // 定義名 (defun foo の foo) は Function、引数リストと let の束縛リストは呼び出しと見ない。
-void TokenizeLisp(std::string_view text, const LispDialect& d, std::vector<SyntaxToken>& tokens)
+constexpr SyntaxLexState kLispCallHead = SyntaxLexState{ 1 } << kPackedDepthBits;
+constexpr SyntaxLexState kLispDefineName = kLispCallHead << 1;
+constexpr SyntaxLexState kLispPlainListNext = kLispCallHead << 2;
+
+constexpr SyntaxLexState LispState(int depth, DepthFlags plain_children, bool call_head, bool define_name, bool plain_list_next) noexcept
+{
+    return PackDepth(depth, plain_children) | (call_head ? kLispCallHead : 0) | (define_name ? kLispDefineName : 0) |
+           (plain_list_next ? kLispPlainListNext : 0);
+}
+
+void TokenizeLisp(std::string_view text, const LispDialect& d, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens,
+                  SyntaxStateTrace* trace)
 {
     const size_t n = text.size();
     // 深さごとに「直下のリストは呼び出しではない」を覚える (let の束縛リスト、cond の節の親)
-    DepthFlags plain_children;
-    int depth = 0;
-    bool call_head = false;       // 次のシンボルが呼び出し位置
-    bool define_name = false;     // 次のシンボルが定義名
-    bool plain_list_next = false; // 次の ( は引数リストか束縛リスト
-    size_t i = 0;
-    while (i < n) {
-        const char c = text[i];
-        if (IsMarkupSpace(c) || c == ',') {
-            i++;
-            continue;
-        }
-        if (c == ';') {
-            i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
-            continue;
-        }
-        if (c == '"') {
-            i = EmitRange(tokens, i, ScanString(text, i, '"', true), SyntaxTokenType::String);
-            call_head = define_name = false;
-            continue;
-        }
-        if (c == '(' || c == '[' || c == '{') {
-            const bool quoted = i > 0 && (text[i - 1] == '\'' || text[i - 1] == '`');
-            const bool plain = quoted || plain_children.test(depth) || plain_list_next;
-            depth++;
-            // 束縛リストの (x 1) も引数リストの (max-level 3) / ((x integer)) も呼び出しではない
-            plain_children.set(depth, c == '(' && plain_list_next);
-            call_head = c == '(' && !plain;
-            define_name = plain_list_next = false;
-            i++;
-            continue;
-        }
-        if (c == ')' || c == ']' || c == '}') {
-            depth = std::max(depth - 1, 0);
-            call_head = define_name = plain_list_next = false;
-            i++;
-            continue;
-        }
-        if (c == '\'' || c == '`') {
-            call_head = false;
-            i++;
-            continue;
-        }
-        if (c == '#') {
-            i = ScanLispDispatch(text, i, tokens);
-            call_head = false;
-            continue;
-        }
-        if (d.clojure_char && c == '\\') {
-            i = EmitRange(tokens, i, ScanLispCharBody(text, i + 1), SyntaxTokenType::String);
-            call_head = false;
-            continue;
-        }
-        if (d.elisp_char && c == '?' && (i == 0 || IsLispDelimiter(text[i - 1]))) {
-            const size_t body = i + 1;
-            const size_t e = body < n && text[body] == '\\' ? ScanLispCharBody(text, body + 1)
-                             : body < n                     ? NextCodePoint(text, body)
-                                                            : n;
-            i = EmitRange(tokens, i, e, SyntaxTokenType::String);
-            call_head = false;
-            continue;
-        }
-        const size_t e = SkipLispSymbol(text, i);
-        const auto sym = text.substr(i, e - i);
-        SyntaxTokenType type = SyntaxTokenType::Plain;
-        // キーワード :key (Clojure の (:require ...) のような呼び出し位置も含む) と &optional 等
-        if (sym.starts_with(':') || sym.starts_with('&')) {
-            type = SyntaxTokenType::Type;
-        }
-        else if (define_name) {
-            type = SyntaxTokenType::Function;
-            define_name = false;
-            plain_list_next = true;
-        }
-        else if (call_head) {
-            type = LispContains(d, d.special, sym) ? SyntaxTokenType::Keyword
-                   : IsLispNumber(sym)             ? SyntaxTokenType::Number
-                                                   : SyntaxTokenType::Function;
-            define_name = LispContains(d, kw::LISP_DEFINERS, sym);
-            plain_list_next = LispContains(d, kw::LISP_PLAIN_LIST_FORMS, sym);
-            if (d.cond_clauses && ascii_util::iequal(sym, "cond")) {
-                plain_children.set(depth, true);
+    DepthFlags plain_children = UnpackDepthFlags(state);
+    int depth = UnpackDepth(state);
+    bool call_head = (state & kLispCallHead) != 0;            // 次のシンボルが呼び出し位置
+    bool define_name = (state & kLispDefineName) != 0;        // 次のシンボルが定義名
+    bool plain_list_next = (state & kLispPlainListNext) != 0; // 次の ( は引数リストか束縛リスト
+    size_t i = begin;
+    for (;;) {
+        const size_t stop = NextStateStop(trace, n);
+        while (i < stop) {
+            const char c = text[i];
+            if (IsMarkupSpace(c) || c == ',') {
+                i++;
+                continue;
             }
+            if (c == ';') {
+                i = EmitRange(tokens, i, SkipToEol(text, i), SyntaxTokenType::Comment);
+                continue;
+            }
+            if (c == '"') {
+                i = EmitRange(tokens, i, ScanString(text, i, '"', true), SyntaxTokenType::String);
+                call_head = define_name = false;
+                continue;
+            }
+            if (c == '(' || c == '[' || c == '{') {
+                const bool quoted = i > 0 && (text[i - 1] == '\'' || text[i - 1] == '`');
+                const bool plain = quoted || plain_children.test(depth) || plain_list_next;
+                depth++;
+                // 束縛リストの (x 1) も引数リストの (max-level 3) / ((x integer)) も呼び出しではない
+                plain_children.set(depth, c == '(' && plain_list_next);
+                call_head = c == '(' && !plain;
+                define_name = plain_list_next = false;
+                i++;
+                continue;
+            }
+            if (c == ')' || c == ']' || c == '}') {
+                depth = std::max(depth - 1, 0);
+                call_head = define_name = plain_list_next = false;
+                i++;
+                continue;
+            }
+            if (c == '\'' || c == '`') {
+                call_head = false;
+                i++;
+                continue;
+            }
+            if (c == '#') {
+                i = ScanLispDispatch(text, i, tokens);
+                call_head = false;
+                continue;
+            }
+            if (d.clojure_char && c == '\\') {
+                i = EmitRange(tokens, i, ScanLispCharBody(text, i + 1), SyntaxTokenType::String);
+                call_head = false;
+                continue;
+            }
+            if (d.elisp_char && c == '?' && (i == 0 || IsLispDelimiter(text[i - 1]))) {
+                const size_t body = i + 1;
+                const size_t e = body < n && text[body] == '\\' ? ScanLispCharBody(text, body + 1)
+                                 : body < n                     ? NextCodePoint(text, body)
+                                                                : n;
+                i = EmitRange(tokens, i, e, SyntaxTokenType::String);
+                call_head = false;
+                continue;
+            }
+            const size_t e = SkipLispSymbol(text, i);
+            const auto sym = text.substr(i, e - i);
+            SyntaxTokenType type = SyntaxTokenType::Plain;
+            // キーワード :key (Clojure の (:require ...) のような呼び出し位置も含む) と &optional 等
+            if (sym.starts_with(':') || sym.starts_with('&')) {
+                type = SyntaxTokenType::Type;
+            }
+            else if (define_name) {
+                type = SyntaxTokenType::Function;
+                define_name = false;
+                plain_list_next = true;
+            }
+            else if (call_head) {
+                type = LispContains(d, d.special, sym) ? SyntaxTokenType::Keyword
+                       : IsLispNumber(sym)             ? SyntaxTokenType::Number
+                                                       : SyntaxTokenType::Function;
+                define_name = LispContains(d, kw::LISP_DEFINERS, sym);
+                plain_list_next = LispContains(d, kw::LISP_PLAIN_LIST_FORMS, sym);
+                if (d.cond_clauses && ascii_util::iequal(sym, "cond")) {
+                    plain_children.set(depth, true);
+                }
+            }
+            else if (LispContains(d, d.constants, sym)) {
+                type = SyntaxTokenType::Keyword;
+            }
+            else if (IsLispNumber(sym)) {
+                type = SyntaxTokenType::Number;
+            }
+            call_head = false;
+            EmitRange(tokens, i, e, type);
+            i = std::max(e, i + 1);
         }
-        else if (LispContains(d, d.constants, sym)) {
-            type = SyntaxTokenType::Keyword;
+        if (trace) {
+            trace->Set(i, LispState(depth, plain_children, call_head, define_name, plain_list_next));
         }
-        else if (IsLispNumber(sym)) {
-            type = SyntaxTokenType::Number;
+        if (i >= n) {
+            break;
         }
-        call_head = false;
-        EmitRange(tokens, i, e, type);
-        i = std::max(e, i + 1);
     }
 }
 
@@ -2535,37 +2810,55 @@ constexpr bool StartsWithVim9Script(std::string_view text) noexcept
     return false;
 }
 
-void TokenizeVim(std::string_view text, bool vim9, std::vector<SyntaxToken>& tokens)
+// ヒアドキュメントの終端の行は長さが決まらないので、状態には 16 bit のハッシュで持つ。途中から始めた本文は
+// ハッシュの合う最初の行で終わる (終端でない行が偶然合うのは 6 万行に 1 行程度)。
+SyntaxLexState VimMarkerHash(std::string_view marker) noexcept
 {
-    vim9 = vim9 || StartsWithVim9Script(text);
-    size_t pos = 0;
-    while (pos < text.size()) {
-        const size_t eol = SkipToEol(text, pos);
-        size_t i = SkipBlanks(text, pos, eol);
-        // 行頭の \ は前の行の続き。コマンド位置ではない
-        const bool continuation = i < eol && text[i] == '\\';
-        const auto heredoc = TokenizeVimLine(text.substr(0, eol), continuation ? i + 1 : i, !continuation, vim9, tokens);
-        pos = eol + 1;
-        if (heredoc.kind == VimHeredoc::Kind::None || pos >= text.size()) {
-            continue;
-        }
+    return static_cast<SyntaxLexState>(RapidHash(marker) & 0xFFFF);
+}
+
+// 状態は、途中から始めること・Vim9 script かどうか・ヒアドキュメントの本文の中ならその種類と trim と終端の行のハッシュ。
+void TokenizeVim(std::string_view text, bool vim9_language, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens,
+                 SyntaxStateTrace* trace)
+{
+    constexpr SyntaxLexState kResumed = 1;
+    constexpr SyntaxLexState kVim9 = 2;
+    constexpr int kKindShift = 2;
+    constexpr SyntaxLexState kTrim = 1 << 4;
+    constexpr int kMarkerShift = 5;
+    static_assert(kMarkerShift + 16 <= kSyntaxLexStateBits);
+    const size_t n = text.size();
+    // Vim9 script かどうかは先頭のコマンドで決まるので、途中から始めるときは状態から取る。
+    const bool vim9 = vim9_language || ((state & kResumed) != 0 ? (state & kVim9) != 0 : StartsWithVim9Script(text));
+    const SyntaxLexState line_state = kResumed | (vim9 ? kVim9 : 0);
+    size_t pos = begin;
+    SyntaxLexState tail = line_state;
+    // pos からの本文を終端の行 (ends が真) の手前まで色付けし、pos を終端の次の行へ進める。
+    const auto scan_heredoc = [&](VimHeredoc::Kind kind, bool trim, SyntaxLexState heredoc_state, auto&& ends) {
+        pos = std::min(pos, n);
         // 終端マーカーの行を探し、本文をまとめて色付けする (Lua の複数行コメント等が行をまたぐため)
-        size_t body_end = text.size();
-        size_t resume = text.size();
-        for (size_t p = pos; p < text.size();) {
+        size_t body_end = n;
+        size_t resume = n;
+        tail = heredoc_state;
+        for (size_t p = pos; p < n;) {
             const size_t line_end = SkipToEol(text, p);
-            const size_t first = heredoc.trim ? SkipBlanks(text, p, line_end) : p;
-            if (text.substr(first, TrimEnd(text, first, line_end) - first) == heredoc.marker) {
+            const size_t first = trim ? SkipBlanks(text, p, line_end) : p;
+            if (ends(text.substr(first, TrimEnd(text, first, line_end) - first))) {
                 body_end = p;
                 resume = line_end + 1;
+                tail = line_state;
                 break;
             }
             p = line_end + 1;
         }
-        if (heredoc.kind == VimHeredoc::Kind::Lua) {
+        // 終端の行の頭から始めても、本文が空のヒアドキュメントとして同じ結果になる。
+        if (trace) {
+            trace->SetRange(pos, std::min(resume, n), heredoc_state);
+        }
+        if (kind == VimHeredoc::Kind::Lua) {
             TokenizeRange<LUA_LEXER_CONFIG>(text.substr(0, body_end), pos, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
         }
-        else if (heredoc.kind == VimHeredoc::Kind::Text) {
+        else if (kind == VimHeredoc::Kind::Text) {
             for (size_t p = pos; p < body_end;) {
                 const size_t line_end = std::min(SkipToEol(text, p), body_end);
                 const size_t first = SkipBlanks(text, p, line_end);
@@ -2574,6 +2867,30 @@ void TokenizeVim(std::string_view text, bool vim9, std::vector<SyntaxToken>& tok
             }
         }
         pos = resume;
+    };
+    if (const auto kind = static_cast<VimHeredoc::Kind>((state >> kKindShift) & 3); kind != VimHeredoc::Kind::None) {
+        const SyntaxLexState hash = (state >> kMarkerShift) & 0xFFFF;
+        scan_heredoc(kind, (state & kTrim) != 0, state, [hash](std::string_view line) { return VimMarkerHash(line) == hash; });
+    }
+    while (pos < n) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, line_state);
+        }
+        tail = line_state;
+        const size_t eol = SkipToEol(text, pos);
+        const size_t i = SkipBlanks(text, pos, eol);
+        // 行頭の \ は前の行の続き。コマンド位置ではない
+        const bool continuation = i < eol && text[i] == '\\';
+        const auto heredoc = TokenizeVimLine(text.substr(0, eol), continuation ? i + 1 : i, !continuation, vim9, tokens);
+        pos = eol + 1;
+        if (heredoc.kind != VimHeredoc::Kind::None) {
+            const SyntaxLexState heredoc_state = line_state | (SyntaxLexState{ std::to_underlying(heredoc.kind) } << kKindShift) |
+                                                 (heredoc.trim ? kTrim : 0) | (VimMarkerHash(heredoc.marker) << kMarkerShift);
+            scan_heredoc(heredoc.kind, heredoc.trim, heredoc_state, [&heredoc](std::string_view line) { return line == heredoc.marker; });
+        }
+    }
+    if (trace) {
+        trace->Set(n, tail);
     }
 }
 
@@ -2712,109 +3029,216 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 }
 
 template <LexerConfig Cfg, class Tokens>
-bool Lex(std::string_view text, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
+bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
 {
-    TokenizeRange<Cfg>(text, 0, keywords, types, tokens);
+    TokenizeRange<Cfg>(text, begin, keywords, types, tokens);
     return true;
 }
 
-// TokenizeRange で解析する言語なら解析して true を返す。
+// TokenizeRange で解析する言語なら解析して true を返す。状態はトークンの中にしか無いので、トークンの外ならどこからでも始められる。
 template <class Tokens>
-bool TokenizeByLexerConfig(std::string_view text, SyntaxLanguage language, Tokens& tokens)
+bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, Tokens& tokens)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
-        return Lex<CPP_LEXER_CONFIG>(text, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+        return Lex<CPP_LEXER_CONFIG>(text, begin, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
     case SyntaxLanguage::Python:
-        return Lex<PYTHON_LEXER_CONFIG>(text, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+        return Lex<PYTHON_LEXER_CONFIG>(text, begin, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
     case SyntaxLanguage::JavaScript:
-        return Lex<JS_LEXER_CONFIG>(text, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+        return Lex<JS_LEXER_CONFIG>(text, begin, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
     case SyntaxLanguage::Go:
-        return Lex<GO_LEXER_CONFIG>(text, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+        return Lex<GO_LEXER_CONFIG>(text, begin, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
     case SyntaxLanguage::Rust:
-        return Lex<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+        return Lex<RUST_LEXER_CONFIG>(text, begin, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
     case SyntaxLanguage::TypeScript:
-        return Lex<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+        return Lex<JS_LEXER_CONFIG>(text, begin, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
     case SyntaxLanguage::Bash:
-        return Lex<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+        return Lex<BASH_LEXER_CONFIG>(text, begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
     case SyntaxLanguage::PowerShell:
-        return Lex<PWSH_LEXER_CONFIG>(text, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+        return Lex<PWSH_LEXER_CONFIG>(text, begin, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
     case SyntaxLanguage::Cmd:
-        return Lex<CMD_LEXER_CONFIG>(text, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+        return Lex<CMD_LEXER_CONFIG>(text, begin, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
     case SyntaxLanguage::Json:
-        return Lex<JSON_LEXER_CONFIG>(text, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+        return Lex<JSON_LEXER_CONFIG>(text, begin, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
     case SyntaxLanguage::Java:
-        return Lex<JAVA_LEXER_CONFIG>(text, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+        return Lex<JAVA_LEXER_CONFIG>(text, begin, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
     case SyntaxLanguage::CSharp:
-        return Lex<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+        return Lex<CSHARP_LEXER_CONFIG>(text, begin, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
     case SyntaxLanguage::Kotlin:
-        return Lex<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+        return Lex<KOTLIN_LEXER_CONFIG>(text, begin, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
     case SyntaxLanguage::Swift:
-        return Lex<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+        return Lex<SWIFT_LEXER_CONFIG>(text, begin, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
     case SyntaxLanguage::Php:
-        return Lex<PHP_LEXER_CONFIG>(text, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+        return Lex<PHP_LEXER_CONFIG>(text, begin, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
     case SyntaxLanguage::Ruby:
-        return Lex<RUBY_LEXER_CONFIG>(text, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+        return Lex<RUBY_LEXER_CONFIG>(text, begin, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
     case SyntaxLanguage::Sql:
-        return Lex<SQL_LEXER_CONFIG>(text, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+        return Lex<SQL_LEXER_CONFIG>(text, begin, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
     case SyntaxLanguage::Zig:
-        return Lex<ZIG_LEXER_CONFIG>(text, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
+        return Lex<ZIG_LEXER_CONFIG>(text, begin, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
     case SyntaxLanguage::Lua:
-        return Lex<LUA_LEXER_CONFIG>(text, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
+        return Lex<LUA_LEXER_CONFIG>(text, begin, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
     default:
         return false;
     }
 }
 
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
+namespace {
+
+// 状態を持たない専用 lexer の解析だった。トークンの頭からなら、どこからでも状態なしで始め直せる。
+void MarkStateless(SyntaxStateTrace* trace) noexcept
 {
-    if (TokenizeByLexerConfig(text, language, tokens)) {
-        return;
+    if (trace) {
+        trace->SetStateless();
     }
+}
+
+// 専用 lexer の言語を begin から解析する。
+void TokenizeStateful(std::string_view text, SyntaxLanguage language, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens,
+                      SyntaxStateTrace* trace)
+{
     switch (language) {
     case SyntaxLanguage::Yaml:
-        return TokenizeYaml(text, tokens);
+        return TokenizeYaml(text, begin, state, tokens, trace);
     case SyntaxLanguage::Toml:
-        return TokenizeToml(text, tokens);
+        return TokenizeToml(text, begin, state, tokens, trace);
     case SyntaxLanguage::Ini:
-        return TokenizeIni(text, tokens);
+        MarkStateless(trace);
+        return TokenizeIni(text, begin, tokens);
     case SyntaxLanguage::Html:
-        return TokenizeMarkup<true>(text, tokens);
+        return TokenizeMarkup<true>(text, begin, state, tokens, trace);
     case SyntaxLanguage::Xml:
-        return TokenizeMarkup<false>(text, tokens);
+        return TokenizeMarkup<false>(text, begin, state, tokens, trace);
     case SyntaxLanguage::Css:
-        return TokenizeCssRange<false>(text, 0, tokens);
+        return TokenizeCssRange<false>(text, begin, state, tokens, trace);
     case SyntaxLanguage::Scss:
-        return TokenizeCssRange<true>(text, 0, tokens);
+        return TokenizeCssRange<true>(text, begin, state, tokens, trace);
     case SyntaxLanguage::Diff:
-        return TokenizeDiff(text, tokens);
+        return TokenizeDiff(text, begin, state, tokens, trace);
     case SyntaxLanguage::Dockerfile:
-        return TokenizeDockerfile(text, tokens);
+        return TokenizeDockerfile(text, begin, state, tokens, trace);
     case SyntaxLanguage::Makefile:
-        return TokenizeMakefile(text, tokens);
+        return TokenizeMakefile(text, begin, state, tokens, trace);
     case SyntaxLanguage::Haskell:
-        return TokenizeHaskell(text, tokens);
+        MarkStateless(trace);
+        return TokenizeHaskell(text, begin, tokens);
     case SyntaxLanguage::Clojure:
-        return TokenizeLisp(text, CLOJURE_DIALECT, tokens);
+        return TokenizeLisp(text, CLOJURE_DIALECT, begin, state, tokens, trace);
     case SyntaxLanguage::EmacsLisp:
-        return TokenizeLisp(text, EMACS_LISP_DIALECT, tokens);
+        return TokenizeLisp(text, EMACS_LISP_DIALECT, begin, state, tokens, trace);
     case SyntaxLanguage::CommonLisp:
-        return TokenizeLisp(text, COMMON_LISP_DIALECT, tokens);
+        return TokenizeLisp(text, COMMON_LISP_DIALECT, begin, state, tokens, trace);
     case SyntaxLanguage::Scheme:
-        return TokenizeLisp(text, SCHEME_DIALECT, tokens);
+        return TokenizeLisp(text, SCHEME_DIALECT, begin, state, tokens, trace);
     case SyntaxLanguage::Vim:
-        return TokenizeVim(text, false, tokens);
+        return TokenizeVim(text, false, begin, state, tokens, trace);
     case SyntaxLanguage::Vim9:
-        return TokenizeVim(text, true, tokens);
+        return TokenizeVim(text, true, begin, state, tokens, trace);
     default:
+        MarkStateless(trace);
         return;
     }
 }
 
-std::vector<SyntaxToken> TokensCrossing(std::string_view text, SyntaxLanguage language, std::span<const size_t> boundaries)
+} // namespace
+
+void SyntaxStateTrace::Reset(SyntaxLexState entry, size_t text_size, std::span<const size_t> wanted)
 {
-    CrossingTokens tokens(text.size(), boundaries);
-    return TokenizeByLexerConfig(text, language, tokens) ? tokens.Take() : Tokenize(text, language);
+    assert(std::ranges::is_sorted(wanted));
+    wanted_.assign_range(wanted);
+    points_.clear();
+    next_wanted_ = wanted_.empty() ? kNone : wanted_.front();
+    text_size_ = text_size;
+    entry_ = { 0, entry };
+    settled_end_ = { text_size, 0 };
+    unsettled_ = false;
+    stateless_ = false;
+    outer = 0;
+}
+
+void SyntaxStateTrace::Set(size_t pos, SyntaxLexState state)
+{
+    const Point point{ pos, state | outer };
+    while (points_.size() < wanted_.size() && wanted_[points_.size()] <= pos) {
+        points_.push_back(point);
+    }
+    next_wanted_ = points_.size() < wanted_.size() ? wanted_[points_.size()] : kNone;
+    if (pos == text_size_ && !unsettled_) {
+        settled_end_ = point;
+    }
+}
+
+void SyntaxStateTrace::SetRange(size_t begin, size_t end, SyntaxLexState state)
+{
+    while (points_.size() < wanted_.size() && wanted_[points_.size()] < end) {
+        points_.push_back({ std::max(begin, wanted_[points_.size()]), state | outer });
+    }
+    next_wanted_ = points_.size() < wanted_.size() ? wanted_[points_.size()] : kNone;
+    if (end == text_size_) {
+        Set(end, state);
+    }
+}
+
+void SyntaxStateTrace::SetUnsettled(size_t pos, SyntaxLexState state, size_t scanned_size) noexcept
+{
+    if (scanned_size == text_size_ && !unsettled_) {
+        settled_end_ = { pos, state | outer };
+        unsettled_ = true;
+    }
+}
+
+SyntaxStateTrace::Point SyntaxStateTrace::For(size_t wanted) const noexcept
+{
+    if (stateless_) {
+        return { wanted, 0 };
+    }
+    // lexer は末尾でも Set を呼ぶので、解析が届かずに残る位置は無いはず。
+    const auto index = static_cast<size_t>(std::ranges::lower_bound(wanted_, wanted) - wanted_.begin());
+    assert(index < points_.size() && wanted_[index] == wanted);
+    return index < points_.size() ? points_[index] : Point{ wanted, 0 };
+}
+
+SyntaxStateTrace::Point SyntaxStateTrace::RestartFor(size_t token_start) const noexcept
+{
+    if (stateless_) {
+        return { token_start, 0 };
+    }
+    const auto after = std::ranges::upper_bound(points_, token_start, {}, &Point::pos);
+    return after != points_.begin() ? *std::prev(after) : entry_;
+}
+
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin, SyntaxLexState state)
+{
+    if (!TokenizeByLexerConfig(text, begin, language, tokens)) {
+        TokenizeStateful(text, language, begin, state, tokens, nullptr);
+    }
+}
+
+std::vector<SyntaxToken> TokensCrossing(std::string_view text, SyntaxLanguage language, std::span<const size_t> boundaries,
+                                        SyntaxLexState state, SyntaxStateTrace* trace)
+{
+    CrossingTokens crossing(text.size(), boundaries);
+    if (TokenizeByLexerConfig(text, 0, language, crossing)) {
+        if (trace) {
+            trace->Reset(0, text.size(), {});
+            trace->SetStateless();
+        }
+        return crossing.Take();
+    }
+    if (trace) {
+        // 末尾に届いたトークンは最後の行にあることが多いので、そこから解析し直せるように最後の行の頭での状態も残す。
+        std::vector<size_t> wanted(boundaries.begin(), boundaries.end());
+        if (const size_t newline = text.rfind('\n'); newline != npos) {
+            wanted.insert(std::ranges::lower_bound(wanted, newline + 1), newline + 1);
+        }
+        const auto [first, last] = std::ranges::unique(wanted);
+        wanted.erase(first, last);
+        trace->Reset(state, text.size(), wanted);
+    }
+    std::vector<SyntaxToken> tokens;
+    tokens.reserve(text.size() / 32);
+    TokenizeStateful(text, language, 0, state, tokens, trace);
+    return tokens;
 }
 
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

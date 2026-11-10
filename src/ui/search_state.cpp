@@ -63,7 +63,7 @@ bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::st
             FindTableMatches(*node.table_data(), query, active_.fold, i);
             scanned_bytes += node.table_data()->concat_text.size();
         }
-        else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
+        else if (const auto& text = node.GetText(); !text.empty() && node.type != NodeType::Diagram) {
             // 検索欄は 1 行なので、改行を挟む継ぎ目はまたがない。
             const bool joined = JoinsNextInline(nodes, static_cast<size_t>(i));
             const size_t from = i == skip_node_ ? skip_bytes_ : 0;

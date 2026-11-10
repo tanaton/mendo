@@ -47,8 +47,10 @@ void MermaidRenderer::Shutdown()
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
-                           PeleFactory make_pele, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
+                           PeleFactory make_pele, ViewerFactory open_viewer, std::move_only_function<void()> on_update,
+                           std::move_only_function<void()> on_viewer_failed)
 {
+    open_viewer_ = open_viewer;
     hwnd_ = hwnd;
     file_cache_ = &file_cache;
     d2d_factory_ = d2d;
@@ -83,22 +85,10 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-const DiagramResult* MermaidRenderer::FindWidthFree(uint64_t width_free_hash, float max_width)
-{
-    const auto* free = cache_.Find(width_free_hash);
-    return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : nullptr;
-}
-
 const DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
 {
-    const auto* free = FindWidthFree(width_free_hash, max_width);
-    return free ? free : cache_.Find(request_hash);
-}
-
-std::shared_ptr<const mermaid_util::DiagramDrawing> MermaidRenderer::FindWidthFreeDrawing(std::string_view code, float max_width, bool dark_mode)
-{
-    const auto* free = FindWidthFree(mermaid_util::DiagramWidthFreeHash(mermaid_util::DiagramCodeHash(code), dark_mode), max_width);
-    return free ? free->drawing : nullptr;
+    const auto* free = cache_.Find(width_free_hash);
+    return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
 }
 
 void MermaidRenderer::SetDiagramError(uint64_t request_hash, DiagramError::Kind kind, std::wstring_view msg)
@@ -115,7 +105,7 @@ void MermaidRenderer::DropQueued()
 {
     // 投入済みの表示用の図の描画とディスクキャッシュの読み込みも取り消す。
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
-    // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。SVG と拡大表示の要求は頼み直す仕組みが無いので残す。
+    // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
     std::erase_if(render_waiting_, [this](const RenderRequest& r) {
         const auto* display = std::get_if<DisplayTarget>(&r.target);
         if (!display) {
@@ -124,11 +114,14 @@ void MermaidRenderer::DropQueued()
         inflight_.erase(display->request_hash);
         return true;
     });
+    // 拡大表示が待っている図も捨てたので頼み直す。本文は見えている図を頼み直すが、拡大表示の図は本文の範囲の外にもある。
+    // 投入済みで取り消した分は、JobDropped が戻ったときに頼み直す (ProcessJobResults)。
+    PollViewerDrawing();
 }
 
 void MermaidRenderer::DropQueuedMath()
 {
-    std::erase_if(render_waiting_, [](const RenderRequest& r) { return r.kind() == RequestKind::Math; });
+    std::erase_if(render_waiting_, [](const RenderRequest& r) { return std::holds_alternative<MathRequest>(r.target); });
 }
 
 bool MermaidRenderer::RequestRender(
@@ -136,32 +129,42 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    const uint64_t code_hash = mermaid_util::DiagramCodeHash(node);
+    const auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
+    if (!result) {
+        return false;
+    }
+    // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
+    diagram_entry.SetResult(*result);
+    return true;
+}
+
+const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
+{
+    const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
     if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
-        // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
-        diagram_entry.SetResult(*cached);
-        return true;
+        return cached;
     }
     if (!inflight_.insert(hash).second) {
-        return false;
+        return nullptr;
     }
 
     const auto hit = file_cache_->Find(width_free_hash, hash, max_width, /*touch=*/true);
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
-        .code = std::string{ node.GetText() },
+        .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
         .target = DisplayTarget{ .request_hash = hash, .width_free_hash = width_free_hash, .width_free = hit && hit->key == width_free_hash },
     };
     if (hit) {
         StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
-        return false;
     }
-    StartRender(std::move(req));
-    return false;
+    else {
+        StartRender(std::move(req));
+    }
+    return nullptr;
 }
 
 template <typename Work>
@@ -169,8 +172,8 @@ void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
 {
     bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind }, work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
                          guard = latch_.Acquire()]() mutable {
-        // インライン数式・SVG・拡大表示は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        const bool dropped = job.req.kind() == RequestKind::Display && drop_gen != drop_gen_.load(std::memory_order_relaxed);
+        // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
+        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
@@ -207,14 +210,15 @@ Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const me
     return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale());
 }
 
-Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing)
+Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width)
 {
+    const auto size = mermaid_util::FittedDiagramSize(drawing, max_width);
     // 大きな図はビットマップの最大辺と画素数の上限に収まるまで縮める。
-    const float w = drawing.width;
-    const float h = drawing.height;
+    const float w = size.width;
+    const float h = size.height;
     const float dpr = std::min({ DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_))), static_cast<float>(MaxBitmapDim(render_target_)) / std::max(w, h),
                                  static_cast<float>(std::sqrt(MAX_EXPORT_PIXELS / (static_cast<double>(w) * h))) });
-    return RasterizeDiagram(d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, dpr, i18n::TextLocale());
+    return RasterizeDiagram(d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, size, dpr, i18n::TextLocale());
 }
 
 void MermaidRenderer::ApplyMathResult(Job& r)
@@ -242,28 +246,12 @@ void MermaidRenderer::ApplyMathResult(Job& r)
 
 bool MermaidRenderer::ApplyJobResult(Job& r)
 {
-    // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
-    switch (r.req.kind()) {
-    case RequestKind::Math:
+    if (std::holds_alternative<MathRequest>(r.req.target)) {
+        // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
         ApplyMathResult(r);
         return false;
-    case RequestKind::View:
-        // 取り消したのは終了のときだけで、結果を待つ窓はもう無い。
-        if (auto& callback = std::get<ViewCallback>(r.req.target); callback && !std::holds_alternative<JobDropped>(r.outcome)) {
-            auto* drawn = std::get_if<JobDrawing>(&r.outcome);
-            std::exchange(callback, {})(drawn ? std::move(drawn->drawing) : nullptr);
-        }
-        return false;
-    case RequestKind::Svg:
-        if (auto& callback = std::get<SvgCallback>(r.req.target)) {
-            const auto* svg = std::get_if<JobSvg>(&r.outcome);
-            std::exchange(callback, {})(svg ? std::string_view{ svg->svg } : std::string_view{});
-        }
-        return false;
-    case RequestKind::Display:
-        return ApplyDisplayResult(r);
     }
-    std::unreachable();
+    return ApplyDisplayResult(r);
 }
 
 bool MermaidRenderer::SettleDisplayError(const DisplayTarget& display, const DiagramError& error)
@@ -315,7 +303,6 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             return false;
         },
         // 表示用の要求には来ない。
-        [](const JobSvg&) -> bool { std::unreachable(); },
         [](const JobMaths&) -> bool { std::unreachable(); },
     }, r.outcome);
     // clang-format on
@@ -347,6 +334,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
+        PollViewerDrawing();
         on_update_();
     }
 }
@@ -389,14 +377,13 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
 {
     using Status = PeleOutcome::Status;
     job.used_pele = true;
-    if (job.req.kind() == RequestKind::Math) {
+    if (std::holds_alternative<MathRequest>(job.req.target)) {
         const auto sources = std::get<MathRequest>(job.req.target).items | std::views::transform([](const auto& item) static noexcept {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
         return JobMaths{ pele_->RenderMaths(sources) };
     }
-    // 拡大表示とクリップボードは本文の幅に縮めない (pele の配置は本文と同じ幅で組む)。
-    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, job.req.kind() == RequestKind::Display);
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width);
     switch (out.status) {
     case Status::Cancelled:
         return JobDropped{};
@@ -409,33 +396,10 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
     case Status::Drawn:
         break;
     }
-    if (job.req.kind() == RequestKind::Svg) {
-        return JobSvg{ DrawingToSvg(out.drawing) };
-    }
-    JobDrawing drawn;
     // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
-    if (job.req.kind() == RequestKind::Display) {
-        drawn.bytes = mermaid_util::SerializeDrawing(out.drawing);
-    }
+    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
     return drawn;
-}
-
-// 数式のラベルも KaTeX で描かず元の文字のまま書く (Office や Inkscape は MathML を読めない)。
-void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
-{
-    // 本文の描画命令を使えるなら pele で描かないので、図の描画の待ちに並べない。
-    if (auto drawing = FindWidthFreeDrawing(code, max_width, dark_mode)) {
-        PostJob({ .target = std::move(callback) }, JobWork::SvgFromDrawing,
-                [drawing = std::move(drawing)](Job&) -> JobOutcome { return JobSvg{ DrawingToSvg(*drawing) }; });
-        return;
-    }
-    StartRender(RenderRequest{
-        .code = std::string{ code },
-        .max_width = max_width,
-        .dark_mode = dark_mode,
-        .target = std::move(callback),
-    });
 }
 
 void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback)
@@ -461,29 +425,31 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = DiagramView::Open(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
+    else if (viewer_.view = open_viewer_(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
         FailViewer();
         return;
     }
     RequestViewerDrawing();
 }
 
-void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
+void MermaidRenderer::SetViewerDarkMode(bool dark_mode, float max_width)
 {
     if (!ViewerOpen()) {
         return;
     }
+    viewer_.max_width = max_width;
     viewer_.dark_mode = dark_mode;
     viewer_.view->SetDarkMode(dark_mode);
     RequestViewerDrawing();
 }
 
-void MermaidRenderer::UpdateViewerCode(std::string_view code)
+void MermaidRenderer::UpdateViewerCode(std::string_view code, float max_width)
 {
     if (!ViewerOpen() || viewer_.code == code) {
         return;
     }
     viewer_.code.assign(code);
+    viewer_.max_width = max_width;
     RequestViewerDrawing();
 }
 
@@ -496,8 +462,7 @@ void MermaidRenderer::ApplyViewerLanguage()
 
 void MermaidRenderer::CloseViewer()
 {
-    InvalidateViewerDrawing();
-    // 窓も壊す。
+    // 窓も壊す。頼んだ図の描画は止めず、結果は本文と同じキャッシュに残る。
     viewer_ = {};
 }
 
@@ -509,27 +474,25 @@ void MermaidRenderer::FailViewer()
 
 void MermaidRenderer::RequestViewerDrawing()
 {
-    const unsigned int render = InvalidateViewerDrawing();
-    if (auto drawing = FindWidthFreeDrawing(viewer_.code, viewer_.max_width, viewer_.dark_mode)) {
-        viewer_.view->SetDrawing(std::move(drawing));
+    viewer_.pending = true;
+    PollViewerDrawing();
+}
+
+void MermaidRenderer::PollViewerDrawing()
+{
+    if (!viewer_.pending || !ViewerOpen()) {
         return;
     }
-    StartRender(RenderRequest{
-        .code = viewer_.code,
-        .max_width = viewer_.max_width,
-        .dark_mode = viewer_.dark_mode,
-        .target = ViewCallback{
-            [this, render](std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) {
-        if (render != viewer_render_ || !ViewerOpen()) {
-            return;
-        }
-        if (drawing) {
-            viewer_.view->SetDrawing(std::move(drawing));
-        }
-        // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
-        else if (!viewer_.view->HasDrawing()) {
-            FailViewer();
-        }
-    } },
-    });
+    const auto* result = FindOrRequest(viewer_.code, viewer_.max_width, viewer_.dark_mode);
+    if (!result) {
+        return;
+    }
+    viewer_.pending = false;
+    if (result->drawing) {
+        viewer_.view->SetDrawing(result->drawing);
+    }
+    // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+    else if (!viewer_.view->HasDrawing()) {
+        FailViewer();
+    }
 }

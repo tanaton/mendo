@@ -4,10 +4,10 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "titlebar.h"
+#include "chrome_layout.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "search_state.h"
-#include "ui_constants.h"
 #include <optional>
 #include <span>
 #include <string_view>
@@ -91,6 +91,17 @@ struct MdPaneParams {
     std::span<const SearchMatch> search_matches;
     int current_match_index = -1;
 };
+
+// 本文ペインの縦スクロールバー。描画 (つまみ) とヒット判定 (バーの上か) で同じものを使う。
+struct MdScrollbar {
+    PaneScrollInfo info;
+    // 計測待ちのノードがあり、内容が伸びうる (ShowsVScrollbar)。
+    bool may_grow = false;
+};
+inline MdScrollbar MdPaneScrollbar(const LayoutCache& cache, const PaneRect& md_rect, float margin_bottom) noexcept
+{
+    return { ComputeScrollInfo(md_rect, 0.0f, ComputeTotalContentHeight(cache, margin_bottom)), cache.HasDirtyNodes() };
+}
 
 struct RenderParams {
     MdPaneParams md;

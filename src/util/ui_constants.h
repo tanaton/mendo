@@ -3,16 +3,9 @@
 #include <d2d1.h>
 #include <algorithm>
 #include <cmath>
-#include <numbers>
-#include <optional>
-#include <utility>
 
-inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
-
-namespace spinner {
-inline constexpr float RADIUS = 20.0f;
-inline constexpr int DOT_COUNT = 8;
-} // namespace spinner
+// layout_cache.h と theme.h を通じて大半の TU が読むので、文書のレイアウトと DPI の換算に要るものだけを置く。
+// ペインの配置は pane_layout.h、本文ペインに重ねる部品 (検索バー・ナビボタン・リンク先の表示など) の幾何は chrome_layout.h。
 
 // Windowsの基準DPI（100%スケーリング時の値）
 inline constexpr float DEFAULT_DPI = 96.0f;
@@ -22,10 +15,6 @@ constexpr float DpiScaleFrom(float dpi) noexcept
 {
     return (dpi > 0.0f) ? (dpi / DEFAULT_DPI) : 1.0f;
 }
-
-inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
-
-inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 
 // テーブル描画で共有するレイアウト定数
 inline constexpr float TABLE_CELL_PADDING = 8.0f;
@@ -41,20 +30,6 @@ inline constexpr float MIN_NODE_CONTENT_WIDTH = 64.0f;
 constexpr float ShrinkKeepingMinContent(float width, float inset) noexcept
 {
     return std::max(width - inset, std::min(width, MIN_NODE_CONTENT_WIDTH));
-}
-
-// 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。
-// 描画 (command_generator) とヒットテスト (app_controller) で同じ式を共有する。
-constexpr float VScrollbarLeftX(float right_edge) noexcept
-{
-    return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
-}
-
-// 縦スクロールバーのヒット判定の X 範囲。細いバーを掴みやすいよう左に広げ、右端の余白は外す
-// (md ペインはウィンドウ右端に接するので、そこはリサイズ枠に譲る)。
-constexpr bool InVScrollbarHitX(float x, float right_edge) noexcept
-{
-    return x >= VScrollbarLeftX(right_edge) - PANE_SCROLLBAR_HIT_PADDING && x <= right_edge - PANE_SCROLLBAR_MARGIN;
 }
 
 // ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
@@ -86,27 +61,6 @@ inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x, float visible_width, fl
         bar_y + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING);
 }
 
-// ナビゲーションオーバーレイボタンの定数（DIP単位）。
-inline constexpr float NAV_BTN_SIZE = 32.0f;
-inline constexpr float NAV_BTN_MARGIN = 16.0f;
-inline constexpr float NAV_BTN_GAP = 2.0f;
-inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
-
-// 描画とヒットテスト (NavButtonHitTest) が共有するナビボタン矩形。テストもこの API で座標を得る。
-inline D2D1_RECT_F NavBackButtonRect(const PaneRect& md_rect) noexcept
-{
-    const float x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-    const float y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-    return D2D1::RectF(x, y, x + NAV_BTN_SIZE, y + NAV_BTN_SIZE);
-}
-
-inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
-{
-    const D2D1_RECT_F back = NavBackButtonRect(md_rect);
-    const float x = back.right + NAV_BTN_GAP;
-    return D2D1::RectF(x, back.top, x + NAV_BTN_SIZE, back.bottom);
-}
-
 // コードブロック・図の右上のボタン (OverlayButtonRect) の定数（DIP単位）。描画とヒット判定で共有する。
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
@@ -119,42 +73,8 @@ inline constexpr float BODY_LINE_HEIGHT_FACTOR = 1.5f;
 inline constexpr float TASK_CHECKBOX_HEIGHT_FACTOR = 1.5f;
 inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 
-inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
-
 // 無効状態の UI (ペインヘッダーボタン・メニュー項目) の不透明度
 inline constexpr float DISABLED_UI_ALPHA = 0.35f;
-
-// ペインヘッダーのボタン。右端から 閉じる・更新・「現在のファイルの場所へ移動」の順に並ぶ。
-enum class PaneHeaderButton : uint8_t {
-    None,
-    Close,
-    Refresh, // ファイルペインのみ
-    Reveal,  // ファイルペインのみ
-};
-
-// ペインヘッダー内のボタン矩形を返す（ペインローカル座標）。None は渡さない。
-inline D2D1_RECT_F PaneHeaderButtonRect(float pane_width, float header_height, PaneHeaderButton button) noexcept
-{
-    const float slot = static_cast<float>(std::to_underlying(button) - 1);
-    const float btn_size = header_height - 2.0f * PANE_CLOSE_BTN_MARGIN;
-    const float btn_x = pane_width - btn_size - PANE_CLOSE_BTN_MARGIN - slot * (btn_size + PANE_CLOSE_BTN_MARGIN);
-    const float btn_y = (header_height - btn_size) / 2.0f;
-    return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
-}
-
-// ペインヘッダーの見出し矩形（ペインローカル座標）。ウィンドウが狭くサイド幅が縮小されると
-// ボタンだけで埋まり矩形が反転するため、その場合は nullopt (見出しを描かない)。
-inline std::optional<D2D1_RECT_F> PaneHeaderTextRect(float pane_width, float header_height, bool with_file_buttons) noexcept
-{
-    constexpr float TEXT_LEFT = 8.0f;
-    constexpr float BUTTON_GAP = 4.0f;
-    const D2D1_RECT_F leftmost_button = PaneHeaderButtonRect(pane_width, header_height, with_file_buttons ? PaneHeaderButton::Reveal : PaneHeaderButton::Close);
-    const float right = leftmost_button.left - BUTTON_GAP;
-    if (right <= TEXT_LEFT) {
-        return std::nullopt;
-    }
-    return D2D1::RectF(TEXT_LEFT, 0.0f, right, header_height);
-}
 
 // DIP 値を物理ピクセル境界にスナップする。
 // スクロール位置に適用すれば ClearType ヒンティングのフレーム間変動による
@@ -187,160 +107,6 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
 {
     return { PixelToDip(static_cast<float>(px), dpi_scale), PixelToDip(static_cast<float>(py), dpi_scale) };
 }
-
-// 検索バーの定数（DIP単位）
-inline constexpr float SEARCH_BAR_HEIGHT = 36.0f;
-inline constexpr float SEARCH_BAR_PADDING = 6.0f;
-inline constexpr float SEARCH_INPUT_MAX_WIDTH = 400.0f;
-inline constexpr float SEARCH_BTN_SIZE = 28.0f;
-inline constexpr float SEARCH_BAR_GAP = 4.0f;
-inline constexpr float SEARCH_INPUT_HEIGHT = 24.0f;
-inline constexpr float SEARCH_INPUT_TEXT_PAD_LEFT = 6.0f;
-inline constexpr float SEARCH_INPUT_TEXT_PAD_RIGHT = 4.0f;
-inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
-
-// 検索バーのフォントサイズ（DIP）。枠の寸法は本文ズームに追従しないので、
-// 文字も固定値にして枠からのはみ出しを防ぐ。
-inline constexpr float SEARCH_INPUT_FONT_SIZE = 13.0f;
-
-// 検索バーの各要素の矩形を保持する構造体。
-// 描画・ヒットテスト・ホバー判定の3箇所で共有し、レイアウト計算の重複を防ぐ。
-struct SearchBarLayout {
-    D2D1_RECT_F input_rect{};
-    D2D1_RECT_F up_btn{};
-    D2D1_RECT_F down_btn{};
-    D2D1_RECT_F count_rect{};
-    D2D1_RECT_F case_btn{};
-    D2D1_RECT_F highlight_btn{};
-    D2D1_RECT_F close_btn{};
-    D2D1_RECT_F icon_rect{};
-    // バー全体。ペインの下端に幅いっぱいに敷く。
-    D2D1_RECT_F bar_rect{};
-
-    // 検索入力のテキスト描画領域。描画(EmitSearchBar)とヒットテスト(app)で共有する。
-    constexpr float text_left() const noexcept
-    {
-        return input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
-    }
-    constexpr float text_right() const noexcept
-    {
-        return input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT;
-    }
-    constexpr float text_width() const noexcept
-    {
-        return text_right() - text_left();
-    }
-};
-
-inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_query) noexcept
-{
-    SearchBarLayout l;
-    const float bar_left = md_rect.x;
-    const float bar_right = md_rect.x + md_rect.width;
-    const float bar_bottom = md_rect.y + md_rect.height;
-    const float bar_top = bar_bottom - SEARCH_BAR_HEIGHT;
-    l.bar_rect = D2D1::RectF(bar_left, bar_top, bar_right, bar_bottom);
-
-    const float center_y = bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
-    const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
-
-    float x = bar_left + SEARCH_BAR_PADDING;
-    const auto place = [&x](float w, float top, float bottom) noexcept {
-        const D2D1_RECT_F r = D2D1::RectF(x, top, x + w, bottom);
-        x += w + SEARCH_BAR_GAP;
-        return r;
-    };
-    const auto place_btn = [&] { return place(SEARCH_BTN_SIZE, center_y, center_bottom); };
-
-    l.icon_rect = place(SEARCH_BTN_SIZE, bar_top, bar_bottom);
-    l.input_rect = place(std::min(SEARCH_INPUT_MAX_WIDTH, (bar_right - bar_left) * 0.5f), center_y, center_bottom);
-    l.up_btn = place_btn();
-    l.down_btn = place_btn();
-    if (has_query) {
-        l.count_rect = place(SEARCH_MATCH_COUNT_WIDTH, bar_top, bar_bottom);
-    }
-    l.case_btn = place_btn();
-    l.highlight_btn = place_btn();
-    // close_btn だけバー右端へ寄せる。狭幅で左側ボタン群と重なる場合は従来の左詰め位置 x へフォールバック
-    const float close_x = std::max(x, bar_right - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
-    l.close_btn = D2D1::RectF(close_x, center_y, close_x + SEARCH_BTN_SIZE, center_bottom);
-
-    return l;
-}
-
-// 検索バーのヒット判定結果。クリック／ホバー／Controller で共有する。
-enum class SearchBarHitZone : uint8_t {
-    None,
-    Up,
-    Down,
-    CaseSensitive,
-    Highlight,
-    Close,
-    Input,
-};
-
-constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
-{
-    if (y < sbl.bar_rect.top) {
-        return SearchBarHitZone::None;
-    }
-    const struct {
-        const D2D1_RECT_F& rect;
-        SearchBarHitZone zone;
-    } targets[] = {
-        { sbl.up_btn,        SearchBarHitZone::Up            },
-        { sbl.down_btn,      SearchBarHitZone::Down          },
-        { sbl.case_btn,      SearchBarHitZone::CaseSensitive },
-        { sbl.highlight_btn, SearchBarHitZone::Highlight     },
-        { sbl.close_btn,     SearchBarHitZone::Close         },
-        { sbl.input_rect,    SearchBarHitZone::Input         },
-    };
-    for (const auto& t : targets) {
-        if (PointInRect(x, y, t.rect)) {
-            return t.zone;
-        }
-    }
-    return SearchBarHitZone::None;
-}
-
-// マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
-// PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
-inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
-
-// 本文のリンクを指している間、本文ペインの下端に出すリンクの行き先 (Chrome の左下の表示と同じ)。
-inline constexpr float LINK_STATUS_HEIGHT = 22.0f;
-inline constexpr float LINK_STATUS_PADDING_X = 8.0f;
-inline constexpr float LINK_STATUS_CORNER = 4.0f;
-
-// 行き先の表示を寄せる側。ポインタが表示と同じ高さにあるときは、ポインタと反対の半分に寄せて指しているリンクを隠さない。
-enum class LinkStatusDock : uint8_t {
-    // 左端から、帯の幅いっぱいまで伸ばす。
-    Left,
-    LeftHalf,
-    RightHalf,
-};
-
-// 行き先の表示を置ける帯。本文ペインの下端 (検索バーを出していればその上) で、右端はナビボタンとスクロールバーの手前まで。
-// 描画とホバーの判定 (ポインタが帯の高さにあるか) で共有する。
-inline D2D1_RECT_F LinkStatusBand(const PaneRect& md_rect, bool search_bar_visible) noexcept
-{
-    const float bottom = md_rect.y + md_rect.height - (search_bar_visible ? SEARCH_BAR_HEIGHT : 0.0f);
-    const float right = std::max(md_rect.x, NavBackButtonRect(md_rect).left - NAV_BTN_GAP);
-    return D2D1::RectF(md_rect.x, bottom - LINK_STATUS_HEIGHT, right, bottom);
-}
-
-// 半分に寄せたときは帯の中央で分ける (EmitLinkStatus)。
-inline LinkStatusDock LinkStatusDockAt(const D2D1_RECT_F& band, DipPoint pointer) noexcept
-{
-    if (pointer.y < band.top) {
-        return LinkStatusDock::Left;
-    }
-    return pointer.x < RectCenter(band).x ? LinkStatusDock::RightHalf : LinkStatusDock::LeftHalf;
-}
-
-inline constexpr float GESTURE_OVERLAY_WIDTH = 280.0f;
-
-inline constexpr float TOAST_OVERLAY_HEIGHT = 48.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 COPY_BTN_GAP で並ぶ。

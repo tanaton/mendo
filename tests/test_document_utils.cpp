@@ -1411,12 +1411,24 @@ std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> ru
     return out;
 }
 
-void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::vector<Node>& nodes)
+// ignored_tail_lines > 0 なら、各ノードの末尾のその行数から始まるトークンは比べない (続きのノードを先読みできない言語のため)。
+void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::vector<Node>& nodes, size_t ignored_tail_lines = 0)
 {
-    const auto expected = TokenizeRunAtOnce(nodes);
+    auto expected = TokenizeRunAtOnce(nodes);
     for (size_t i = 0; i < nodes.size(); ++i) {
         SCOPED_TRACE(i);
-        const auto actual = TokenizeCodeNode(nodes[i]);
+        auto actual = TokenizeCodeNode(nodes[i]);
+        if (ignored_tail_lines > 0) {
+            const std::string_view text = nodes[i].GetText();
+            size_t cutoff = text.size();
+            for (size_t k = 0; k < ignored_tail_lines && cutoff > 0; ++k) {
+                const size_t newline = text.rfind('\n', cutoff - 1);
+                cutoff = newline == std::string_view::npos ? 0 : newline;
+            }
+            const auto in_tail = [cutoff](const SyntaxToken& t) { return t.start >= cutoff; };
+            std::erase_if(actual, in_tail);
+            std::erase_if(expected[i], in_tail);
+        }
         ASSERT_EQ(actual.size(), expected[i].size());
         for (size_t k = 0; k < actual.size(); ++k) {
             EXPECT_EQ(actual[k].start, expected[i][k].start) << "k=" << k;
@@ -1641,6 +1653,183 @@ TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
     const auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 24u);
     ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+namespace {
+
+// lines (改行で終わる) を count 回並べる。周期のある繰り返しだと継ぎ目が毎回同じ行に来るので、行末に足す空白の数を
+// 周期の無い並び (線形合同法) でずらす。
+std::string RepeatLines(std::string_view lines, size_t count)
+{
+    std::string out;
+    out.reserve((lines.size() + 2) * count);
+    uint32_t seed = 1;
+    for (size_t i = 0; i < count; ++i) {
+        out += lines;
+        seed = seed * 1103515245u + 12345u;
+        out.insert(out.size() - 1, (seed >> 16) % 3, ' ');
+    }
+    return out;
+}
+
+// 行や入れ子の状態を持つ言語のコードを区切っても、続きのノードが 1 度にトークン化したのと同じ色分けになる。
+// 並びを窓 (8 ノード) ごとに解析するので、窓をいくつもまたぐ長さにする。
+void ExpectStatefulChunksMatch(std::string_view language, const std::string& code, size_t ignored_tail_lines = 0)
+{
+    SCOPED_TRACE(language);
+    const std::string md = std::format("```{}\n{}```\n", language, code);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 20u);
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes, ignored_tail_lines);
+}
+
+} // namespace
+
+TEST(ChunkCopy, HtmlScriptStaysScriptAcrossChunks)
+{
+    ExpectStatefulChunksMatch("html", "<html><body>\n<script>\n" +
+                                          RepeatLines("for (let i = 0; i < n; i++) { total += f(i, \"s\"); } // c\n/* block\n   comment */ const x = `t`;\n", 4000) +
+                                          "</script>\n<p class=\"a\">after &amp; text</p>\n</body></html>\n");
+}
+
+TEST(ChunkCopy, HtmlStyleStaysStyleAcrossChunks)
+{
+    ExpectStatefulChunksMatch("html", "<html><head>\n<style>\n" +
+                                          RepeatLines(".a > b {\n  color: red;\n  margin: 0 auto;\n}\n@media (max-width: 600px) {\n  .c { padding: 1px 2em; }\n}\n", 4000) +
+                                          "</style>\n</head><body id=\"x\">text</body></html>\n");
+}
+
+// 属性を行に分けたタグの途中で区切れても、続きは属性として読む。
+TEST(ChunkCopy, MarkupTagAttributesContinueAcrossChunks)
+{
+    const std::string tags = RepeatLines("<div\n  class=\"a b\"\n  id='x1'\n  data-n=1\n  hidden>text &amp; more</div>\n<br/>\n<!-- a\n     comment -->\n", 5000);
+    ExpectStatefulChunksMatch("html", tags);
+    ExpectStatefulChunksMatch("xml", tags);
+    // <script> の開きタグの属性の途中で区切れても、閉じた後ろを JS として読む。
+    ExpectStatefulChunksMatch("html", RepeatLines("<script\n  type=\"module\"\n  async>\nconst a = b < c; // d\n</script>\n<p>x</p>\n", 6000));
+}
+
+TEST(ChunkCopy, CssBlockDepthContinuesAcrossChunks)
+{
+    const std::string code = ".a {\n" + RepeatLines("  color: red;\n  margin: 0 auto;\n  background: url(x.png) no-repeat;\n", 4000) +
+                             "}\n@media screen and (min-width: 10px) {\n" + RepeatLines("  .b:hover { padding: 1px; }\n  #c, .d { top: -2em !important; }\n", 3000) +
+                             "}\n.e { color: blue; }\n";
+    ExpectStatefulChunksMatch("css", code);
+    ExpectStatefulChunksMatch("scss", code);
+}
+
+// ブロックの中の文がセレクタか宣言かは '{' と ';' のどちらが先に来るかで決まる。文がノードの末尾をまたぐと、
+// そのノードは先を読めずに宣言として色付けするが (末尾の 1 行は比べない)、続きのノードは正しい状態から始まる。
+TEST(ChunkCopy, CssStatementAcrossChunkKeepsLaterChunksExact)
+{
+    const std::string code = "@media screen {\n" + RepeatLines("  .first-selector,\n  .second-selector { color: red; }\n", 9000) + "}\n";
+    ExpectStatefulChunksMatch("css", code, 1);
+    ExpectStatefulChunksMatch("scss", code, 1);
+}
+
+TEST(ChunkCopy, YamlBlockScalarContinuesAcrossChunks)
+{
+    ExpectStatefulChunksMatch("yaml", "name: test\nscript: |\n" + RepeatLines("  echo key: value # not a comment\n  - item: 12\n", 4000) +
+                                          "after: 1\nitems:\n  - text: >-\n" + RepeatLines("      folded: line \"x\"\n", 5000) + "  - n: 2\n" +
+                                          RepeatLines("key: |\n  body: 1\nother: [a, b]\n", 4000));
+}
+
+// ```vim と書いた Vim9 script は、先頭の vim9script で決めた規則 (# がコメント) を続きのノードでも使う。
+TEST(ChunkCopy, Vim9ScriptStaysVim9AcrossChunks)
+{
+    ExpectStatefulChunksMatch("vim", "vim9script\n" + RepeatLines("var name = \"value\" # trailing comment\n# full line comment\ndef F(n: number): string\n", 5000) + "enddef\n");
+}
+
+TEST(ChunkCopy, VimHeredocContinuesAcrossChunks)
+{
+    ExpectStatefulChunksMatch("vim", "let g:a = 1\nlua << EOF\n" + RepeatLines("local t = { 1, \"s\" } -- comment\n--[[ long\n     comment ]] print(t)\n", 3000) +
+                                         "EOF\nlet lines =<< trim END\n" + RepeatLines("  some text \" not a comment\n  let x = 1\n", 4000) +
+                                         "  END\nlet g:b = \"s\" \" comment\npython3 << EOF\n" + RepeatLines("let x = \"y\"\n", 8000) + "EOF\nlet g:c = 2\n" +
+                                         RepeatLines("lua << EOF\nprint(\"x\") -- c\nEOF\nlet g:d = 3 \" c\n", 3000));
+}
+
+// md4c がタブを空白に広げるので、レシピの行は空白で字下げして書く。
+TEST(ChunkCopy, MakefileRecipeContinuesAcrossChunks)
+{
+    ExpectStatefulChunksMatch("make", "CC = gcc\nall: a b\n" + RepeatLines("    @echo $(CC) -o out: file=x > log.txt\n    rm -f $@ # comment\n", 3000) +
+                                          "\nSRCS = first.c \\\n" + RepeatLines("    name.c other=1.c \\\n", 5000) + "    last.c\n\nclean:\n" +
+                                          RepeatLines("    $(CC) a.c && \\\n        echo \"done: x\"\n", 3000) + "X = 1\n" +
+                                          RepeatLines("target: dep \\\n        dep2\n    echo $< \"s\"\nV := a \\\n    b\n", 3000));
+}
+
+TEST(ChunkCopy, DockerfileContinuationLinesStayShellAcrossChunks)
+{
+    ExpectStatefulChunksMatch("dockerfile", "FROM alpine AS build\nRUN apk update && \\\n" + RepeatLines("    add-pkg \"name\" && \\\n    run --flag from as copy && \\\n", 3000) +
+                                                "    true\nCOPY a b\n" + RepeatLines("RUN echo \"a\" && \\\n    copy x y\nENV A=1\n", 4000));
+}
+
+TEST(ChunkCopy, TomlArrayAndInlineTableContinueAcrossChunks)
+{
+    ExpectStatefulChunksMatch("toml", "[server]\nlist = [\n" + RepeatLines("  { name = \"a\", n = 1, on = true },\n  [1, 2.5, 1979-05-27],\n  \"text = not a key\",\n", 4000) +
+                                          "]\nkey = 2\n[[item]]\nname = \"x\"\n" + RepeatLines("arr = [\n  1,\n  { k = \"v\" },\n]\nt = { a = [1, 2], b = \"s\" }\n", 3000));
+}
+
+TEST(ChunkCopy, LispNestingContinuesAcrossChunks)
+{
+    const std::string code = "(defun f (x)\n  (cond\n" + RepeatLines("    ((= x 1) (foo \"s\" 1))\n    ((bar x) nil)\n", 4000) + "    (t (baz))))\n(let (\n" +
+                             RepeatLines("      (v1 (compute 1))\n      (v2 'sym)\n", 4000) + "     )\n  (message \"%d\" v1))\n(next 1)\n" +
+                             RepeatLines("(defun g (a b)\n  (let ((x 1)\n        (y (h a)))\n    (when x\n      (cond ((p y) 1)\n            (t 2)))))\n", 2000);
+    ExpectStatefulChunksMatch("elisp", code);
+    ExpectStatefulChunksMatch("lisp", code);
+    ExpectStatefulChunksMatch("scheme", code);
+    ExpectStatefulChunksMatch("clojure", code);
+}
+
+// ハンクの中では、"-- " を消した行も "--- " で始まる。
+TEST(ChunkCopy, DiffHunkContinuesAcrossChunks)
+{
+    ExpectStatefulChunksMatch("diff", "diff --git a/x.sql b/x.sql\n--- a/x.sql\n+++ b/x.sql\n@@ -1,3 +1,3 @@\n" +
+                                          RepeatLines("--- old sql comment\n+++ new sql comment\n context line\n-removed\n+added\n", 6000) +
+                                          "diff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n");
+}
+
+// 次のファイルのヘッダは "--- " "+++ " "@@" の 3 行が並ぶことで見分ける。ノードの末尾 2 行にあるヘッダは先を読めずに
+// 削除行・追加行の色になるが (末尾の 2 行は比べない)、続きのノードは正しい状態から始まる。
+TEST(ChunkCopy, DiffHeaderAcrossChunkKeepsLaterChunksExact)
+{
+    ExpectStatefulChunksMatch("diff", RepeatLines("--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n--- removed comment\n", 12000), 2);
+}
+
+// 状態を持たない言語も、コメントや文字列が継ぎ目をまたぐ。
+TEST(ChunkCopy, HaskellAndIniChunksMatch)
+{
+    ExpectStatefulChunksMatch("haskell", RepeatLines("module M where\n{- nested {- comment -}\n   continues -}\nmain :: IO ()\nmain = putStrLn \"x\" -- c\n", 4000));
+    ExpectStatefulChunksMatch("ini", RepeatLines("[section]\nkey = \"value\"\n; comment\nn: 12\n", 10000));
+}
+
+// 行の中で完結する言語 (INI) は、行の頭で区切った並びを前から解析しない。長い 1 行を途中で区切った並びは解析し、
+// 続きのノードに文字列を引き継ぐ。
+TEST(ChunkCopy, IniLongLineCarriesStringAcrossChunks)
+{
+    const std::string md = "```ini\n[s]\nkey = \"" + std::string(60000, 'A') + "\"\nn = 1\n```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 3u);
+    EXPECT_GT(nodes[1].code_lead_length(), 0u);
+    EXPECT_EQ(nodes[1].code_lead_type(), SyntaxTokenType::String);
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+// 字句解析を始める状態が変わった続きのノードは、中身が同じでも色分けが変わるので、変わらなかったノードに数えない。
+TEST(FindUnchangedEnds, ContinuedCodeWithChangedLexStateIsChanged)
+{
+    const std::string body = RepeatLines("  color: red;\n", 4000);
+    // どちらもブロックの中から始まるが、深さが違う。
+    const std::string old_md = "```css\n@media x {\n.a {\n" + body + "```\n";
+    const std::string new_md = "```css\n@media x {\n.a  \n" + body + "```\n";
+    const auto old_nodes = ParseNodes(old_md);
+    const auto same_nodes = ParseNodes(old_md);
+    const auto new_nodes = ParseNodes(new_md);
+    ASSERT_EQ(old_nodes.size(), new_nodes.size());
+    ASSERT_GE(new_nodes.size(), 3u);
+    EXPECT_EQ(old_nodes.back().GetText(), new_nodes.back().GetText());
+    EXPECT_EQ(old_nodes.back().code_lead_length(), new_nodes.back().code_lead_length());
+    EXPECT_EQ(FindUnchangedEnds(old_nodes, same_nodes).head, old_nodes.size());
+    EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
 }
 
 TEST(HandleLinkClickTest, ClassifiesLinks)

@@ -225,6 +225,18 @@ size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
     return bytes;
 }
 
+mermaid_util::DiagramSize mermaid_util::FittedDiagramSize(const DiagramDrawing& drawing, float max_width) noexcept
+{
+    float w = drawing.width;
+    float h = drawing.height;
+    if (!(max_width > 0.0f && w > max_width)) {
+        return { w, h };
+    }
+    h = h * max_width / w;
+    w = max_width;
+    return { std::ceil(std::floor(w * 64.0f) / 64.0f), std::ceil(std::floor(h * 64.0f) / 64.0f) };
+}
+
 std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstring_view payload)
 {
     std::wstring_view s = payload;
@@ -351,9 +363,4 @@ uint64_t mermaid_util::DiagramRequestHash(uint64_t code_hash, float max_width, b
 uint64_t mermaid_util::DiagramWidthFreeHash(uint64_t code_hash, bool dark_mode) noexcept
 {
     return MixDiagramKey(code_hash, 1, dark_mode);
-}
-
-uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
-{
-    return DiagramRequestHash(DiagramCodeHash(node), max_width, dark_mode);
 }

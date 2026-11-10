@@ -1,11 +1,11 @@
 #pragma once
 #include "document_utils.h"
 #include "nav.h"
+#include "chrome_layout.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "titlebar.h"
 #include "tooltip.h"
-#include "ui_constants.h"
 #include <array>
 #include <memory>
 #include <variant>
