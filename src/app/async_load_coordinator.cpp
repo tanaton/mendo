@@ -318,7 +318,7 @@ ReloadCommand ReloadScheduler::OnLoadStarted(bool same_file)
 {
     // 進行中の読み込みは置き換わる。
     if (same_file) {
-        return Enter(Reloading{});
+        return IsLoadingOther() ? LeaveOtherLoad(Reloading{}) : Enter(Reloading{});
     }
     // 待っていた読み直しと、取り消される読み直しは、差し替えずに終わったときに読み直す。
     bool changed = true;
@@ -334,7 +334,7 @@ ReloadCommand ReloadScheduler::OnLoadStarted(bool same_file)
 ReloadCommand ReloadScheduler::OnLoadFinished(ParseCompleteStep step, bool selecting)
 {
     if (const auto* o = std::get_if<LoadingOther>(&state_)) {
-        return step == ParseCompleteStep::ReplaceWithResult ? Enter(Idle{}) : Settle(o->changed);
+        return step == ParseCompleteStep::ReplaceWithResult ? Enter(Idle{}) : LeaveOtherLoad(SettledState(o->changed));
     }
     const auto* r = std::get_if<Reloading>(&state_);
     // 読み込みは必ず OnLoadStarted か start_reload で始まるので、ほかの段階で結果は来ない。
@@ -381,7 +381,7 @@ ReloadCommand ReloadScheduler::OnLoadFinished(ParseCompleteStep step, bool selec
 ReloadCommand ReloadScheduler::OnOtherLoadCancelled()
 {
     if (const auto* o = std::get_if<LoadingOther>(&state_)) {
-        return Settle(o->changed);
+        return LeaveOtherLoad(SettledState(o->changed));
     }
     return {};
 }
