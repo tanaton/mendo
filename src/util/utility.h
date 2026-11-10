@@ -107,6 +107,10 @@ public:
         const Slot& slot = slots_[Probe(key)];
         return slot.used ? std::addressof(slot.value) : nullptr;
     }
+    V* Find(uint64_t key) noexcept
+    {
+        return const_cast<V*>(std::as_const(*this).Find(key));
+    }
 
     // key が無ければ既定値で足す。second は足したとき true。
     std::pair<V*, bool> TryEmplace(uint64_t key)

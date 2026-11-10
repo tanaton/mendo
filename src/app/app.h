@@ -27,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -127,9 +128,15 @@ public:
         return in_modal_loop_;
     }
 
-    HANDLE GetFileWatchEvent() const noexcept
+    // 文書と本文中の画像の監視のイベントを out に入れ、数を返す。out は kMaxFileWatchEvents 以上。
+    static constexpr size_t kMaxFileWatchEvents = 1 + ResourceManager::kMaxImageWatchEvents;
+    size_t GetFileWatchEvents(std::span<HANDLE> out) const noexcept
     {
-        return file_watcher_.GetEventHandle();
+        size_t count = 0;
+        if (const HANDLE doc = file_watcher_.GetEventHandle()) {
+            out[count++] = doc;
+        }
+        return count + resource_manager_.ImageWatchEvents(out.subspan(count));
     }
     void OnFileWatchEvent();
     // 次のフレームを描いてよくなるまで (前のフレームの表示待ちの間) だけ返す。メッセージループはこれを待つ間

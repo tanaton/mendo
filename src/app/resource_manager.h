@@ -1,5 +1,6 @@
 #pragma once
 #include "app_constants.h"
+#include "file_watcher.h"
 #include "layout_computer.h"
 #include "utility.h"
 #include <array>
@@ -9,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 struct AppState;
 struct InlineDrawings;
@@ -96,6 +98,19 @@ public:
     // 旧デバイスのビットマップと図のコマンドリストを捨て、新しい RT で読み直す。
     void OnRenderDeviceRecreated();
 
+    // 本文中の画像のファイルが更新されたら読み直す。監視するのは src を解決した (先読み範囲に入ったことのある) 画像で、
+    // 文書のフォルダが変わるまで続ける。
+    // メッセージループが待つ、画像のフォルダの監視のイベント。out は kMaxImageWatchEvents 以上。数を返す。
+    static constexpr size_t kMaxImageWatchEvents = ImageFolderWatcher::kMaxFolders;
+    size_t ImageWatchEvents(std::span<HANDLE> out) const noexcept
+    {
+        return image_watcher_.EventHandles(out);
+    }
+    // ImageWatchEvents のどれかが立った。更新された画像を控え、IMAGE_RELOAD タイマーを掛ける。
+    void OnImageFolderEvent();
+    // 控えた画像を読み直させる。
+    void OnImageReloadTimer();
+
 private:
     // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
     // 描画命令は作らないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
@@ -154,5 +169,8 @@ private:
     float last_request_scroll_ = 0.0f;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::wstring resolved_dir_;
+    // resolved_image_paths_ に入れた画像のファイルの監視と、更新の通知が来て IMAGE_RELOAD タイマーを待っているパス。
+    ImageFolderWatcher image_watcher_;
+    std::vector<std::wstring> changed_image_paths_;
     std::chrono::steady_clock::time_point last_flush_time_{};
 };

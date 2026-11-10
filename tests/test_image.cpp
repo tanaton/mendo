@@ -1372,3 +1372,74 @@ TEST(ImageLoaderInfoTest, ClearsWhenFull)
     EXPECT_EQ(loader.FindImageInfo(L"img_0.png"), nullptr);
     EXPECT_NE(loader.FindImageInfo(L"overflow.png"), nullptr);
 }
+
+// 更新されたファイルの画像は、読み直すまで前の寸法のまま stale になる。寸法だけの読み直しでも寸法が入れ替わり、
+// 前のビットマップの解像度は使わせない。
+TEST_F(ImageLoaderAsyncTest, InvalidateMarksStaleUntilReloaded)
+{
+    ASSERT_TRUE(CreateTestImage(L"inv.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"inv.png");
+    LoadedImage first;
+    ASSERT_TRUE(LoadAndGet(path, first));
+    ASSERT_FALSE(loader_.FindImageInfo(path)->stale);
+
+    ASSERT_TRUE(CreateTestImage(L"inv.png", GUID_ContainerFormatPng, 60, 20));
+    loader_.Invalidate(path);
+    const auto* info = loader_.FindImageInfo(path);
+    ASSERT_NE(info, nullptr);
+    EXPECT_TRUE(info->stale);
+    EXPECT_FLOAT_EQ(info->pixel_width, 40.0f);
+
+    loader_.RequestSizeAsync(path);
+    ASSERT_TRUE(DrainDecodes());
+    info = loader_.FindImageInfo(path);
+    EXPECT_FALSE(info->stale);
+    EXPECT_FLOAT_EQ(info->pixel_width, 60.0f);
+    EXPECT_TRUE(loader_.NeedsSharperDecode(*info, 10.0f));
+
+    LoadedImage second;
+    ASSERT_TRUE(LoadAndGet(path, second));
+    EXPECT_NE(second.bitmap, nullptr);
+    EXPECT_FLOAT_EQ(second.width, 60.0f);
+    EXPECT_FLOAT_EQ(second.height, 20.0f);
+}
+
+// 読むのをあきらめた画像も、ファイルが更新されたら読み直せる。
+TEST_F(ImageLoaderAsyncTest, InvalidateAllowsRetryAfterGivingUp)
+{
+    const auto path = GetTestImagePath(L"inv_fail.png");
+    ASSERT_TRUE(FailLoads(path, 3));
+    ASSERT_TRUE(loader_.HasGivenUp(path));
+
+    ASSERT_TRUE(CreateTestImage(L"inv_fail.png", GUID_ContainerFormatPng, 40, 30));
+    loader_.Invalidate(path);
+    EXPECT_FALSE(loader_.HasGivenUp(path));
+    LoadedImage entry;
+    EXPECT_TRUE(LoadAndGet(path, entry));
+}
+
+// 読んでいる間に更新されたファイルの結果は、更新の前の中身かもしれないので stale で入れ、次の読み込みで stale を外す。
+// 失敗は数えない。
+TEST_F(ImageLoaderAsyncTest, InvalidateWhilePendingKeepsResultStale)
+{
+    ASSERT_TRUE(CreateTestImage(L"inv_pending.png", GUID_ContainerFormatPng, 40, 30));
+    const auto path = GetTestImagePath(L"inv_pending.png");
+    loader_.RequestLoadAsync(path, 0.0f);
+    loader_.Invalidate(path);
+    ASSERT_TRUE(DrainDecodes());
+    ASSERT_NE(loader_.FindImageInfo(path), nullptr);
+    EXPECT_TRUE(loader_.FindImageInfo(path)->stale);
+    EXPECT_NE(loader_.TakeDelivered().Find(path), nullptr);
+
+    loader_.RequestLoadAsync(path, 0.0f);
+    ASSERT_TRUE(DrainDecodes());
+    EXPECT_FALSE(loader_.FindImageInfo(path)->stale);
+
+    const auto missing = GetTestImagePath(L"inv_missing.png");
+    for (int i = 0; i < 4; ++i) {
+        loader_.RequestLoadAsync(missing, 0.0f);
+        loader_.Invalidate(missing);
+        ASSERT_TRUE(DrainDecodes());
+    }
+    EXPECT_FALSE(loader_.HasGivenUp(missing));
+}

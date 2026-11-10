@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 #include "file_watcher.h"
 #include "test_helpers.h"
+#include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -166,6 +169,96 @@ TEST_F(FileWatcherTest, StartWatchingWithoutFolderStopsWatching)
     EXPECT_EQ(missing.filename, L"a.md");
     watcher.StartWatching(std::move(missing), []() static {});
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+}
+
+// ---- ImageFolderWatcher ----
+
+class ImageFolderWatcherTest : public TempDirTestBase {
+protected:
+    // 通知を待って調べ、更新された画像が出たら返す。出なければ空。
+    std::vector<std::wstring> WaitForChanges(ImageFolderWatcher& watcher, std::chrono::milliseconds timeout = std::chrono::seconds(5))
+    {
+        std::vector<std::wstring> changed;
+        PollUntil([&] {
+            HANDLE events[ImageFolderWatcher::kMaxFolders];
+            if (const size_t count = watcher.EventHandles(events)) {
+                WaitForMultipleObjects(static_cast<DWORD>(count), events, FALSE, 20);
+            }
+            watcher.CheckForChanges(changed);
+            return !changed.empty();
+        }, timeout);
+        return changed;
+    }
+    size_t EventCount(const ImageFolderWatcher& watcher)
+    {
+        HANDLE events[ImageFolderWatcher::kMaxFolders];
+        return watcher.EventHandles(events);
+    }
+};
+
+// 登録した画像の更新だけを、登録したパスで知らせる。同じフォルダのほかのファイルの更新は知らせない。
+TEST_F(ImageFolderWatcherTest, ReportsOnlyWatchedImages)
+{
+    const auto a = WriteTempFile(L"a.png", "1").native();
+    const auto b = WriteTempFile(L"b.png", "1").native();
+    WriteTempFile(L"other.png", "1");
+
+    ImageFolderWatcher watcher;
+    watcher.Watch(a);
+    watcher.Watch(b);
+    EXPECT_EQ(EventCount(watcher), 1u) << "同じフォルダの読み取りは 1 つ";
+
+    WriteTempFile(L"other.png", "2");
+    EXPECT_TRUE(WaitForChanges(watcher, std::chrono::milliseconds(100)).empty());
+
+    WriteTempFile(L"B.PNG", "2");
+    const auto changed = WaitForChanges(watcher);
+    ASSERT_FALSE(changed.empty());
+    EXPECT_TRUE(std::ranges::all_of(changed, [&](const std::wstring& path) { return path == b; }));
+    EXPECT_EQ(EventCount(watcher), 1u) << "次の読み取りを発行している";
+}
+
+// まだ無い画像も、置かれたら知らせる (読めなかった画像を読み直すため)。一時ファイルから改名して置き換える保存も知らせる。
+TEST_F(ImageFolderWatcherTest, ReportsCreatedAndRenamedOverImages)
+{
+    const auto path = (temp_dir_ / L"later.png").native();
+    ImageFolderWatcher watcher;
+    watcher.Watch(path);
+
+    WriteTempFile(L"later.png", "1");
+    EXPECT_FALSE(WaitForChanges(watcher).empty());
+
+    const auto tmp = WriteTempFile(L"later.png.tmp", "2");
+    // 作った一時ファイルの通知を先に流す。
+    (void)WaitForChanges(watcher, std::chrono::milliseconds(100));
+    ASSERT_TRUE(MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING));
+    const auto changed = WaitForChanges(watcher);
+    ASSERT_FALSE(changed.empty());
+    EXPECT_EQ(changed.front(), path);
+}
+
+// フォルダは kMaxFolders 個まで監視し、超えた分と開けないフォルダの画像は監視しない。Clear でやめる。
+TEST_F(ImageFolderWatcherTest, WatchesUpToMaxFolders)
+{
+    ImageFolderWatcher watcher;
+    watcher.Watch(L"C:\\__mendo_no_such_dir__\\a.png");
+    EXPECT_EQ(EventCount(watcher), 0u);
+    watcher.Clear();
+
+    for (size_t i = 0; i < ImageFolderWatcher::kMaxFolders + 2; ++i) {
+        const auto dir = temp_dir_ / std::to_wstring(i);
+        std::filesystem::create_directory(dir);
+        watcher.Watch((dir / L"a.png").native());
+    }
+    EXPECT_EQ(EventCount(watcher), ImageFolderWatcher::kMaxFolders);
+
+    WriteTempFile(std::to_wstring(ImageFolderWatcher::kMaxFolders) + L"\\a.png", "1");
+    EXPECT_TRUE(WaitForChanges(watcher, std::chrono::milliseconds(100)).empty());
+    WriteTempFile(L"0\\a.png", "1");
+    EXPECT_FALSE(WaitForChanges(watcher).empty());
+
+    watcher.Clear();
+    EXPECT_EQ(EventCount(watcher), 0u);
 }
 
 // NotifyBufferHasTargetChange は ReadDirectoryChangesW の生バッファを解析する。

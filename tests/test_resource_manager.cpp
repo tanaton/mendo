@@ -303,6 +303,19 @@ protected:
         return false;
     }
 
+    // 画像のフォルダの通知を待ち、更新された画像を控えて IMAGE_RELOAD タイマーが掛かれば true。
+    bool WaitForImageReloadTimer()
+    {
+        return PollUntil([&] {
+            HANDLE events[ResourceManager::kMaxImageWatchEvents];
+            if (const size_t count = rm_.ImageWatchEvents(events)) {
+                WaitForMultipleObjects(static_cast<DWORD>(count), events, FALSE, 20);
+            }
+            rm_.OnImageFolderEvent();
+            return host_.last_set_timer_id == app_timer::Id::IMAGE_RELOAD;
+        });
+    }
+
     ScopedTempDir dir_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
     Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt_;
@@ -459,6 +472,58 @@ TEST_F(ResourceManagerImageFileTest, ReturningDocumentKeepsSizesAndReloadsBitmap
     EXPECT_EQ(host_.inline_updates, updates + 1);
     EXPECT_FALSE(host_.last_pending_resolved) << "寸法は変わらないので組み直さない";
     EXPECT_FALSE(host_.last_sizes_changed);
+}
+
+// 読んだ後に更新された画像のファイルは、通知から間を置いて読み直し、寸法とビットマップを入れ替える。読めるまでは前の寸法と
+// ビットマップのまま出す。
+TEST_F(ResourceManagerImageFileTest, UpdatedImageFileIsReloaded)
+{
+    const auto path = dir_.path() / L"a.png";
+    WritePng(path);
+    LoadMarkdown("![a](a.png)\n", 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    ASSERT_TRUE(SettleLoads());
+    ASSERT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
+    const auto* const before = inline_drawings_.FindImage(InlineImageKey("a.png"));
+    ASSERT_NE(before, nullptr);
+
+    // 3x2 の PNG。
+    static constexpr unsigned char kWidePng[] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0x12, 0x16, 0xF1, 0x4D, 0x00, 0x00, 0x00, 0x12, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF,
+        0xC0, 0x00, 0x41, 0x50, 0xEA, 0x3F, 0x03, 0x03, 0x00, 0x41, 0xD2, 0x05, 0xFB, 0x25, 0xD1, 0x7C, 0x26, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    };
+    ASSERT_TRUE(WriteAllBytes(path, kWidePng, sizeof(kWidePng), false));
+    ASSERT_TRUE(WaitForImageReloadTimer()) << "更新の通知でタイマーが掛からない";
+    rm_.LoadImages();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_FALSE(image_loader_.ProcessCompletedDecodes(kNoDeadline)) << "タイマーまでは読み直さない";
+
+    rm_.OnImageReloadTimer();
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } })) << "読めるまで前の寸法";
+    EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("a.png")), before);
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 3.0f, 2.0f } }));
+    EXPECT_TRUE(host_.last_sizes_changed) << "寸法が変わったので組み直す";
+    const auto* const after = inline_drawings_.FindImage(InlineImageKey("a.png"));
+    ASSERT_NE(after, nullptr);
+    EXPECT_NE(after, before);
+}
+
+// 読めなかった画像 (alt を出している) も、ファイルが置かれたら読む。
+TEST_F(ResourceManagerImageFileTest, CreatedImageFileIsLoaded)
+{
+    const auto path = dir_.path() / L"a.png";
+    LoadMarkdown("![a](a.png)\n", 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    ASSERT_TRUE(SettleLoads());
+    ASSERT_EQ(Entry("a.png").state, InlineImageState::Unavailable);
+
+    WritePng(path);
+    ASSERT_TRUE(WaitForImageReloadTimer()) << "更新の通知でタイマーが掛からない";
+    rm_.OnImageReloadTimer();
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
+    EXPECT_TRUE(HasBitmap("a.png"));
 }
 
 // ---- 画像経路: ApplyCachedImageSizes (issue #148) ----

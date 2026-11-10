@@ -6,6 +6,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <windows.h>
 
 // ReadDirectoryChangesW の通知列に監視対象 (name、または空でなければ 8.3 短縮名 short_name。大小無視) の
@@ -23,6 +24,10 @@ struct DirectoryChangeRead {
 
     // 次の読み取りを発行する。発行できなければ false。
     bool Begin() noexcept;
+    // 発行した読み取りの結果を待たずに確かめる。Ready なら届いた通知列を notified に入れる (次の Begin まで有効。空なら
+    // バッファ溢れ)。Failed と Ready の後は読み取りが発行されていないので、続けるなら Begin を呼ぶ。
+    enum class Poll { Waiting, Failed, Ready };
+    Poll Take(std::span<const std::byte>& notified) noexcept;
 
     UniqueHandle dir;
     UniqueNullHandle event;
@@ -70,4 +75,37 @@ public:
 private:
     FileWatchTarget target_;
     ChangeCallback on_change_;
+};
+
+// 本文中の画像のファイルの監視。画像のあるフォルダごとに読み取りを 1 つ発行し、通知の名前を登録した画像と照らす。
+// 更新時刻を定期的に見る形は、画像の枚数ぶんの問い合わせがネットワーク上で往復になるので採らなかった。
+// 文書のフォルダは FileWatcher も監視しているが、読み取りは共用しない (対象の差し替えの時期が違う。増えるのはハンドルと
+// バッファ 64KB)。
+class ImageFolderWatcher {
+public:
+    // 監視するフォルダの数の上限。待つハンドルはメッセージループの MsgWaitForMultipleObjects に足すので増やしすぎない。
+    // 超えた分のフォルダの画像は、保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
+    static constexpr size_t kMaxFolders = 8;
+
+    // abs_path の画像を監視に足す。初めてのフォルダなら開いて読み取りを発行する (UI スレッドで開く。フォルダごとに 1 回)。
+    // 画像を最初に読む前に呼べば、読んでから後の更新を取りこぼさない。まだ無いファイルも、置かれたら知らせる。
+    void Watch(const std::wstring& abs_path);
+    void Clear() noexcept
+    {
+        folders_.clear();
+    }
+    // 読み取りを待っているフォルダのイベントを out に入れ、その数を返す。out は kMaxFolders 以上。
+    size_t EventHandles(std::span<HANDLE> out) const noexcept;
+    // 届いた通知を調べ、更新された画像 (Watch に渡したパス) を changed に足す。同じパスが重なる (1 回の保存で通知が続く)。
+    // 通知が溢れたフォルダは、登録した画像を全部足す。
+    void CheckForChanges(std::vector<std::wstring>& changed);
+
+private:
+    struct Folder {
+        std::wstring dir;
+        // 開けなかったフォルダは null のまま残し、画像のたびに開き直さない。
+        std::unique_ptr<DirectoryChangeRead> read;
+        std::vector<std::wstring> paths;
+    };
+    std::vector<Folder> folders_;
 };
