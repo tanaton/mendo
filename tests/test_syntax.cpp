@@ -484,6 +484,9 @@ TEST(Syntax, TokenCount)
         { "Vim9Comment", "vim9script\nvar x = 1 # comment\n# whole line", Vim, Comment, 2 },
         { "Vim9StringIsNotComment", "vim9script\necho \"a", Vim, Comment, 0 },
         { "Vim9Language", "def F(x: number): string\n  return 'a' # c\nenddef", Vim9, Comment, 1 },
+        // dict は Vim9 では型名、legacy では関数の属性
+        { "Vim9DictIsType", "var d: dict<string> = {}", Vim9, Type, 2 },
+        { "VimDictIsKeyword", "function F() dict\nendfunction", Vim, Type, 0 },
         { "VimLuaHeredoc/Keyword", kVimLuaHeredoc, Vim, Keyword, 3 },
         { "VimLuaHeredoc/Type", kVimLuaHeredoc, Vim, Type, 1 },
         { "VimLuaInline", "lua require('x').setup()", Vim, Function, 1 },
