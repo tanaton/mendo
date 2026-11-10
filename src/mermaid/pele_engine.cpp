@@ -282,7 +282,7 @@ bool PeleEngine::EnsurePele(PeleContext& context)
     // links・images: mermaid の securityLevel 'strict' と同じく、図からの遷移と外部の画像を許さない。
     // autoDirection: 狭いときに LR を TB に替えさせず、書いた向きのまま縮める。
     // katexHtml はラベルに $$ があるときだけ渡す。KaTeX は JS のスタックを深く使い、pele の配置の奥 (math オプション) で動かすと
-    // 512KB の上限を超えるので、pele と同じ正規表現でコードから TeX を拾い、最上位で HTML にしてから配置させる。
+    // pele の分だけ描ける入れ子の段数が減るので、pele と同じ正規表現でコードから TeX を拾い、最上位で HTML にしてから配置させる。
     // pele が切り出した TeX が拾ったものと違えば (文字参照を解いたものなど)、その TeX も HTML にしてもう一度配置する。
     constexpr std::string_view kWrapper =
         "(pele, measurer, layoutMath) => (code, maxWidth, fontFamily, fontFamilyMono, katexHtml) => {"

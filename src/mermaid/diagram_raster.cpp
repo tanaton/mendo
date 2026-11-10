@@ -2311,11 +2311,11 @@ void PeleSvgResolver::AppendPaint(std::string& out, std::string_view name, const
     std::optional<Rgba> color = SolidColor(paint, s);
     if (paint.kind == Paint::Kind::Url) {
         if (const auto gradient = GradientRef(paint.url, paint_opacity); !gradient.empty()) {
-            out += ' ';
-            out += name;
-            out += "=\"url(#";
-            out += gradient;
-            out += ")\"";
+            AppendAttrWith(out, name, [&] {
+                out += "url(#";
+                out += gradient;
+                out += ')';
+            });
             return;
         }
         if (paint.has_fallback) {
@@ -2323,9 +2323,7 @@ void PeleSvgResolver::AppendPaint(std::string& out, std::string_view name, const
         }
     }
     if (!color) {
-        out += ' ';
-        out += name;
-        out += "=\"none\"";
+        AppendAttr(out, name, "none"sv);
         return;
     }
     AppendAttr(out, name, *color);
@@ -2846,13 +2844,14 @@ enum class KFamily : uint8_t {
     Typewriter
 };
 
-struct KFaceEntry {
-    KFamily family;
-    bool bold;
-    bool italic;
+struct KFont {
+    KFamily family = KFamily::Main;
+    bool bold = false;
+    bool italic = false;
 };
+
 // kKatexFontFiles と同じ順。
-constexpr KFaceEntry kKatexFaces[]{
+constexpr KFont kKatexFaces[]{
     { KFamily::AMS,         false, false },
     { KFamily::Caligraphic, true,  false },
     { KFamily::Caligraphic, false, false },
@@ -2876,18 +2875,12 @@ constexpr KFaceEntry kKatexFaces[]{
 };
 static_assert(std::size(kKatexFaces) == std::size(kKatexFontFiles));
 
-struct KFont {
-    KFamily family = KFamily::Main;
-    bool bold = false;
-    bool italic = false;
-};
-
 // CSS の書体の選び方。字形の傾きを先に合わせ、無ければ斜体を合成する。太さが無ければ太字を合成する。
 // 斜体しか無い書体 (KaTeX_Math) に立体を求めたときは、合成せずに斜体を使う。
 std::pair<size_t, uint32_t> MatchKatexFace(const KFont& font) noexcept
 {
     const auto has = [&](bool italic) {
-        return std::ranges::any_of(kKatexFaces, [&](const KFaceEntry& e) { return e.family == font.family && e.italic == italic; });
+        return std::ranges::any_of(kKatexFaces, [&](const KFont& e) { return e.family == font.family && e.italic == italic; });
     };
     const bool style_found = has(font.italic);
     const bool italic = style_found ? font.italic : !font.italic;

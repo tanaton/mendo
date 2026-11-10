@@ -91,16 +91,6 @@ const DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t
     return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
 }
 
-void MermaidRenderer::SetDiagramError(uint64_t request_hash, DiagramError::Kind kind, std::wstring_view msg)
-{
-    // 枠に収まらない分は描くときに省略記号で切る (placeholder_text の書式)。pele の文言は長さに上限が無いので、
-    // キャッシュと TextLayoutCache のキーに丸ごと持つ量だけをここで抑える。
-    constexpr size_t MAX_ERROR_LEN = 1024;
-    InsertCache(request_hash, DiagramResult{
-                                  .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) }
-    });
-}
-
 void MermaidRenderer::DropQueued()
 {
     // 投入済みの表示用の図の描画とディスクキャッシュの読み込みも取り消す。
@@ -253,7 +243,12 @@ bool MermaidRenderer::ApplyJobResult(Job& r)
 
 bool MermaidRenderer::SettleDisplayError(const DisplayTarget& display, const DiagramError& error)
 {
-    SetDiagramError(display.request_hash, error.kind, error.message);
+    // 枠に収まらない分は描くときに省略記号で切る (placeholder_text の書式)。pele の文言は長さに上限が無いので、
+    // キャッシュと TextLayoutCache のキーに丸ごと持つ量だけをここで抑える。
+    constexpr size_t MAX_ERROR_LEN = 1024;
+    InsertCache(display.request_hash, DiagramResult{
+                                          .error = { error.kind, mermaid_util::SanitizeErrorMessage(error.message, MAX_ERROR_LEN) }
+    });
     inflight_.erase(display.request_hash);
     return true;
 }
