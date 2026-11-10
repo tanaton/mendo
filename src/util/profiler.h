@@ -12,8 +12,7 @@
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージのデバッグログ ("[mendo] " 付き)。
 //   MENDO_TRACEF(fmt, ...)           : std::format 形式のデバッグログ ("{}", "{:.1f}" 等)。
-//   MENDO_STATF(fmt, ...)            : std::format 形式の統計値ログ。
-//   MENDO_LOGF(fmt, ...)             : 上記 2 つの共通実装。prefix は呼び出し側で fmt に連結する。
+//   MENDO_LOGF(fmt, ...)             : MENDO_TRACEF の実装。prefix は呼び出し側で fmt に連結する。
 //                                      fmt は std::format のコンパイル時チェック対象のため
 //                                      文字列リテラル必須 (std::format_to_n に渡される)。
 
@@ -55,7 +54,6 @@
 // TracyMessageL はリテラル前提（NULL 終端の文字列をそのまま参照保持する）。
 #define MENDO_TRACE(msg) TracyMessageL("[mendo] " msg)
 #define MENDO_TRACEF(fmt_str, ...) MENDO_LOGF("[mendo] " fmt_str __VA_OPT__(, ) __VA_ARGS__)
-#define MENDO_STATF(fmt_str, ...) MENDO_LOGF("[mendo-stat] " fmt_str __VA_OPT__(, ) __VA_ARGS__)
 
 #else
 
@@ -66,6 +64,5 @@
 #define MENDO_LOGF(fmt, ...) ((void)0)
 #define MENDO_TRACE(msg) ((void)0)
 #define MENDO_TRACEF(fmt, ...) ((void)0)
-#define MENDO_STATF(fmt, ...) ((void)0)
 
 #endif

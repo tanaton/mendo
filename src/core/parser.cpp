@@ -1294,10 +1294,8 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
     // 段落とコードは kTextChunkTarget 前後で区切るので、current_text はほぼこの長さに収まる。
     ctx.current_text.reserve(kTextChunkTarget + kTextChunkWindow);
-    const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
-    ctx.nodes.reserve(nodes_reserve);
+    ctx.nodes.reserve(std::max(input_size / kInputBytesPerNode, 64uz));
     ctx.list_counter.reserve(8);
-    MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
 }
 
 } // namespace
