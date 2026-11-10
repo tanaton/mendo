@@ -153,7 +153,7 @@ protected:
     {
         ++updates_;
         if (request_viewer_) {
-            renderer_.RequestViewerDrawing(viewer_width_, viewer_dark_);
+            renderer_.RequestViewerDrawing(viewer_width_, viewer_.dark);
         }
     }
 
@@ -231,7 +231,6 @@ protected:
     // 偽なら通知を受けても拡大表示の図を頼まない (別の文書を読み込み中の ResourceManager)。
     bool request_viewer_ = true;
     float viewer_width_ = kMaxWidth;
-    bool viewer_dark_ = false;
 };
 
 // 描き終えるまでは要求し直しても描き直さない。描いた図はキャッシュから答え、幅の上限より狭いので幅を混ぜないキーでディスクに置く。
@@ -563,7 +562,6 @@ TEST_F(MermaidRendererTest, ViewerFollowsTheme)
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_EQ(viewer_.drawings[0]->background, kDiagramLightBackground);
-    viewer_dark_ = true;
     renderer_.SetViewerDarkMode(true);
     EXPECT_TRUE(viewer_.dark);
     ASSERT_TRUE(AwaitViewerDrawings(2));

@@ -97,7 +97,6 @@ public:
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
-    // 図はここでは頼まず、on_update を受けた側が RequestViewerDrawing で頼む (テーマの切り替えと保存への追従も同じ)。
     void OpenViewer(std::string_view code, int node, bool dark_mode);
     void CloseViewer();
     // 拡大表示は本文と同じ結果 (cache_) を使う。本文が描いた図はその描画命令をそのまま出し、無ければ表示用の要求として

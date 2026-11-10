@@ -1133,8 +1133,8 @@ void App::ToggleDarkMode()
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
-    mermaid_renderer_.SetViewerDarkMode(dark);
     RelayoutViewport();
+    mermaid_renderer_.SetViewerDarkMode(dark);
     session::SaveDarkMode(config_, dark);
 }
 
