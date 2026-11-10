@@ -85,7 +85,7 @@ bool App::Init(HWND hwnd)
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_,
                            &MermaidRenderer::CreateBundledPele, &DiagramView::Open, [this]() {
-        // 結果を待っていた図を要求し直して反映する。
+        // 結果を待っていた図と、拡大表示に出す図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
 
@@ -914,7 +914,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     Dispatch(ReloadSettledAction{});
 
     if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), mermaid_renderer_.ViewerNode(), NodeType::Diagram)) {
-        mermaid_renderer_.UpdateViewerCode(node->GetText(), MdContentWidth(state_));
+        mermaid_renderer_.UpdateViewerCode(node->GetText());
     }
 }
 
@@ -1133,8 +1133,8 @@ void App::ToggleDarkMode()
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
-    mermaid_renderer_.SetViewerDarkMode(dark, MdContentWidth(state_));
     RelayoutViewport();
+    mermaid_renderer_.SetViewerDarkMode(dark);
     session::SaveDarkMode(config_, dark);
 }
 
@@ -1380,7 +1380,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramView:
         if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), hit.node, NodeType::Diagram)) {
-            mermaid_renderer_.OpenViewer(node->GetText(), hit.node, MdContentWidth(state_), dark);
+            mermaid_renderer_.OpenViewer(node->GetText(), hit.node, dark);
         }
         return;
     case OverlayButton::DiagramCopy:

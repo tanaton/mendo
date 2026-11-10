@@ -340,6 +340,8 @@ void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
     const bool dark_mode = state_.theme->dark;
     InvalidateDiagramsForRequestChange(content_width, dark_mode);
     DropQueuesIfJumped();
+    // 拡大表示の図は本文の範囲の外にもあるので、範囲に依らず頼む。見ている窓の図なので本文より先に並べる。
+    mermaid_.RequestViewerDrawing(content_width, dark_mode);
     const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
     for (const size_t i : slices | std::views::join) {
         RequestDiagramRender(i, content_width, dark_mode, changed);

@@ -67,7 +67,8 @@ public:
     // dw は図の文字を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
     // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
-    // on_update は結果が出たときに呼ぶ。結果を待つ図を要求し直させる。
+    // on_update は結果が出たときと、拡大表示に出す図が変わったときに呼ぶ。受けた側は本文の図と拡大表示の図
+    // (RequestViewerDrawing) を要求し直す。
     // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
               PeleFactory make_pele, ViewerFactory open_viewer, std::move_only_function<void()> on_update,
@@ -96,12 +97,13 @@ public:
 
     // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
     // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
-    // max_width は今の本文の幅。本文と同じ要求にして同じ図を 2 回描かないよう、テーマの切り替えと保存への追従でも渡し直す
-    // (開いたときの幅のままだと、本体の幅を変えた後は幅に収まらない図を本文用と別に描く)。
-    void OpenViewer(std::string_view code, int node, float max_width, bool dark_mode);
+    void OpenViewer(std::string_view code, int node, bool dark_mode);
     void CloseViewer();
+    // 拡大表示は本文と同じ結果 (cache_) を使う。本文が描いた図はその描画命令をそのまま出し、無ければ表示用の要求として
+    // 描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。
+    void RequestViewerDrawing(float max_width, bool dark_mode) override;
     // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
-    void SetViewerDarkMode(bool dark_mode, float max_width);
+    void SetViewerDarkMode(bool dark_mode);
     // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
     std::optional<std::string_view> ViewerCode() const noexcept
     {
@@ -117,7 +119,7 @@ public:
         viewer_.node = node;
     }
     // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
-    void UpdateViewerCode(std::string_view code, float max_width);
+    void UpdateViewerCode(std::string_view code);
     void ApplyViewerLanguage();
 
 private:
@@ -154,9 +156,7 @@ private:
         // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
         std::string code;
         int node = -1;
-        float max_width = 0.0f;
-        bool dark_mode = false;
-        // 要求した図の結果をまだ窓に渡していない。
+        // code の図の結果をまだ窓に渡していない。
         bool pending = false;
     };
 
@@ -218,12 +218,8 @@ private:
     {
         return viewer_.view && viewer_.view->IsOpen();
     }
-    // 拡大表示は本文と同じ結果 (cache_) を使う。本文が描いた図はその描画命令をそのまま出し、無ければ表示用の要求として
-    // 描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。
-    void RequestViewerDrawing();
-    // 拡大表示が待っている図の結果を引き、出ていれば窓に渡す。まだなら頼む (頼んであれば何もしない)。結果が出たときと、
-    // 待ちの表示用の要求を捨てたときに呼ぶ。呼び漏らすと窓が読み込み中のまま残る。
-    void PollViewerDrawing();
+    // 拡大表示に出す図が変わった。待ちの印を付け、on_update で頼ませる (印だけだと窓が読み込み中のまま残る)。
+    void AwaitViewerDrawing();
     void FailViewer();
 
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
@@ -265,7 +261,6 @@ private:
     Viewer viewer_;
     std::move_only_function<void()> on_viewer_failed_;
 
-    // 結果が出たときに呼ぶ。
     std::move_only_function<void()> on_update_;
 
     // 待機中・読み込み中・描画中の表示用リクエストのキー (request_hash。コード・量子化した幅・テーマ)。未完了の図はスクロールのたびに

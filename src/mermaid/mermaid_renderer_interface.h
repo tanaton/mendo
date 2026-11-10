@@ -23,6 +23,10 @@ public:
     // 捨てた図は再要求される。
     virtual void DropQueued()
     {}
+    // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。待っていなければ何もしない。
+    // 本文の図と同じ所から呼ぶ (頼んでよいかの判断と、本文と同じ要求になる幅を 1 か所で決める)。
+    virtual void RequestViewerDrawing(float /*max_width*/, bool /*dark_mode*/)
+    {}
     // 図の保存・コピーに使う画像を描く。max_width (本文の幅) に収まらない図は、本文と同じくその幅まで縮めた大きさで描く。
     // 描けなければ null。
     virtual Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& /*drawing*/, float /*max_width*/)

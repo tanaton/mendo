@@ -114,9 +114,6 @@ void MermaidRenderer::DropQueued()
         inflight_.erase(display->request_hash);
         return true;
     });
-    // 拡大表示が待っている図も捨てたので頼み直す。本文は見えている図を頼み直すが、拡大表示の図は本文の範囲の外にもある。
-    // 投入済みで取り消した分は、JobDropped が戻ったときに頼み直す (ProcessJobResults)。
-    PollViewerDrawing();
 }
 
 void MermaidRenderer::DropQueuedMath()
@@ -334,7 +331,6 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
-        PollViewerDrawing();
         on_update_();
     }
 }
@@ -409,7 +405,7 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBa
     });
 }
 
-void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_width, bool dark_mode)
+void MermaidRenderer::OpenViewer(std::string_view code, int node, bool dark_mode)
 {
     const bool open = ViewerOpen();
     viewer_.node = node;
@@ -420,8 +416,6 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
         }
     }
     viewer_.code.assign(code);
-    viewer_.max_width = max_width;
-    viewer_.dark_mode = dark_mode;
     if (open) {
         viewer_.view->ShowLoading();
     }
@@ -429,28 +423,25 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, float max_widt
         FailViewer();
         return;
     }
-    RequestViewerDrawing();
+    AwaitViewerDrawing();
 }
 
-void MermaidRenderer::SetViewerDarkMode(bool dark_mode, float max_width)
+void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
 {
     if (!ViewerOpen()) {
         return;
     }
-    viewer_.max_width = max_width;
-    viewer_.dark_mode = dark_mode;
     viewer_.view->SetDarkMode(dark_mode);
-    RequestViewerDrawing();
+    AwaitViewerDrawing();
 }
 
-void MermaidRenderer::UpdateViewerCode(std::string_view code, float max_width)
+void MermaidRenderer::UpdateViewerCode(std::string_view code)
 {
     if (!ViewerOpen() || viewer_.code == code) {
         return;
     }
     viewer_.code.assign(code);
-    viewer_.max_width = max_width;
-    RequestViewerDrawing();
+    AwaitViewerDrawing();
 }
 
 void MermaidRenderer::ApplyViewerLanguage()
@@ -472,18 +463,18 @@ void MermaidRenderer::FailViewer()
     on_viewer_failed_();
 }
 
-void MermaidRenderer::RequestViewerDrawing()
+void MermaidRenderer::AwaitViewerDrawing()
 {
     viewer_.pending = true;
-    PollViewerDrawing();
+    on_update_();
 }
 
-void MermaidRenderer::PollViewerDrawing()
+void MermaidRenderer::RequestViewerDrawing(float max_width, bool dark_mode)
 {
     if (!viewer_.pending || !ViewerOpen()) {
         return;
     }
-    const auto* result = FindOrRequest(viewer_.code, viewer_.max_width, viewer_.dark_mode);
+    const auto* result = FindOrRequest(viewer_.code, max_width, dark_mode);
     if (!result) {
         return;
     }

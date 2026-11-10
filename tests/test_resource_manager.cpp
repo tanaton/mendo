@@ -67,6 +67,12 @@ public:
         drop_queued_count++;
     }
     int drop_queued_count = 0;
+
+    void RequestViewerDrawing(float max_width, bool dark_mode) override
+    {
+        viewer_requests.emplace_back(max_width, dark_mode);
+    }
+    std::vector<std::pair<float, bool>> viewer_requests;
 };
 
 // ResourceManagerHost の各呼び出しを記録する。
@@ -1015,6 +1021,37 @@ TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
     host_.loading_other = false;
     rm_.OnBitmapManageTimer();
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
+}
+
+// 拡大表示の図は本文の図と同じ走査で、今の本文の幅とテーマで頼む。本文に図が無くても、範囲の外でも頼む。
+TEST_F(ResourceManagerTest, ViewerDrawingRequestedWithBodyWidthAndTheme)
+{
+    LoadMarkdown("text\n");
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(mock_mermaid_.viewer_requests.size(), 1u);
+    EXPECT_FLOAT_EQ(mock_mermaid_.viewer_requests[0].first, kContentWidth);
+    EXPECT_FALSE(mock_mermaid_.viewer_requests[0].second);
+
+    theme_.dark = true;
+    rm_.FlushPendingResources();
+    ASSERT_EQ(mock_mermaid_.viewer_requests.size(), 2u);
+    EXPECT_TRUE(mock_mermaid_.viewer_requests[1].second);
+}
+
+// 別の文書を読み込んでいる間は、拡大表示の図も頼まない (開いた文書の最初の図を待たせる)。差し替えずに終わったら頼む。
+TEST_F(ResourceManagerTest, NoViewerDrawingRequestWhileLoadingOtherDocument)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    host_.loading_other = true;
+    rm_.DropQueues();
+    rm_.RequestMermaidRenders();
+    rm_.FlushPendingResources();
+    rm_.OnBitmapManageTimer();
+    EXPECT_TRUE(mock_mermaid_.viewer_requests.empty());
+
+    host_.loading_other = false;
+    rm_.OnBitmapManageTimer();
+    EXPECT_EQ(mock_mermaid_.viewer_requests.size(), 1u);
 }
 
 // 画像も同じ。捨てた要求が読まずに戻っても (待つ間に頼み直してあると読み直させる)、読み込み中は頼み直さない。
