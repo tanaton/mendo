@@ -97,7 +97,7 @@ public:
 
     // wanted は状態を知りたい位置 (昇順)。位置 0 の状態は entry。
     void Reset(SyntaxLexState entry, size_t text_size, std::span<const size_t> wanted);
-    // どのトークンの頭からでも状態なしで始め直せる言語 (LexerConfig) の解析だった。
+    // どのトークンの頭からでも状態なしで始め直せる言語 (LexerConfig の言語と、状態を持たない専用 lexer) の解析だった。
     void SetStateless() noexcept
     {
         stateless_ = true;

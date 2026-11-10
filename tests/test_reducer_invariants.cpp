@@ -154,7 +154,7 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
 {
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(lc.sections), .md_height = lc.md_height });
     if (lc.max_scroll) {
-        h.ResizeMdPane(MdScrollInfo(h.state, ComputePaneLayout(h.state)).total_content - *lc.max_scroll);
+        h.ResizeMdPane(MdScrollInfo(h.state).total_content - *lc.max_scroll);
     }
     const auto anchors = CollectHeadingAnchors(h);
     std::mt19937 rng(seed);

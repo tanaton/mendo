@@ -26,7 +26,6 @@
 
 #include <tracy/Tracy.hpp>
 #include <format>
-#include <string_view>
 
 // Tracy の ZoneScopedN は固定変数名 `___tracy_scoped_zone` を生成するため、
 // 同一スコープに 2 個書くと再定義エラーになる。__LINE__ で固有名を作る

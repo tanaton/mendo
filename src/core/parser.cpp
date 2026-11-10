@@ -1290,11 +1290,11 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 // arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
 constexpr size_t kInputBytesPerNode = 128;
 
-void ReserveForInput(ParseContext& ctx, size_t input_size)
+void ReserveForInput(ParseContext& ctx)
 {
     // 段落とコードは kTextChunkTarget 前後で区切るので、current_text はほぼこの長さに収まる。
     ctx.current_text.reserve(kTextChunkTarget + kTextChunkWindow);
-    ctx.nodes.reserve(std::max(input_size / kInputBytesPerNode, 64uz));
+    ctx.nodes.reserve(std::max(ctx.markdown.size() / kInputBytesPerNode, 64uz));
     ctx.list_counter.reserve(8);
 }
 
@@ -1303,11 +1303,10 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
 NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
 {
     MENDO_PROFILE("ParseMarkdown");
-    const size_t input_size = markdown_text.size();
     ParseContext ctx;
     ctx.stop_token = std::move(stop_token);
     ctx.markdown = markdown_text;
-    ReserveForInput(ctx, input_size);
+    ReserveForInput(ctx);
 
     MD_PARSER parser{};
     // Alert は引用の先頭の段落から自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。

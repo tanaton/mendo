@@ -3348,7 +3348,6 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
     }
 
     const float em = inh.font_size;
-    own = {};
     if (any({ "katex-base", "katex-strut", "mspace", "frac-line", "nulldelimiter", "katex-rule", "overline-line", "underline-line",
               "katex-hline", "katex-hdashline", "vertical-separator", "arraycolsep", "katex-fix", "reflectbox", "cd-vert-arrow", "katex-vbox",
               "katex-thinbox", "llap", "rlap", "clap" })) {
@@ -3844,6 +3843,7 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
 
     float cw = content.w;
     float top = 0.0f, bottom = 0.0f; // 内容の箱 (ベースラインからの y)
+    const float cb_x = own.margin_l + bl;
     if (own.display == KDisplay::Inline) {
         out.w = edge_l + content.w + edge_r;
         out.asc = content.asc;
@@ -3889,7 +3889,6 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
         out.has_content = true;
         top -= va;
         bottom -= va;
-        const float pad_l = own.margin_l + bl;
         const float pad_w = own.padding_l + cw + own.padding_r;
         const float outer_top = top - bt;
         const float outer_w = bl + pad_w + br;
@@ -3909,14 +3908,13 @@ KBox KatexLayout::Element(uint32_t i, const KInherit& parent, const KCtx& ctx, b
             out.items.emplace_back(MathDrawing::Rect{ own.margin_l, outer_top, bl, outer_h, Side::Left, own.dashed[3], border_color });
         }
         if (br > 0.0f) {
-            out.items.emplace_back(MathDrawing::Rect{ pad_l + pad_w, outer_top, br, outer_h, Side::Right, own.dashed[1], border_color });
+            out.items.emplace_back(MathDrawing::Rect{ cb_x + pad_w, outer_top, br, outer_h, Side::Right, own.dashed[1], border_color });
         }
         AppendItems(out, std::move(content), edge_l + AlignOffset(inh.align, cw - content.w), -va);
     }
 
     // 絶対位置の子。位置指定した要素なら自分の詰め物の箱、そうでなければ祖先の箱の幅を基準に、自分の内容の左上から置く。
     const bool positioned = own.position != KPosition::Static;
-    const float cb_x = own.margin_l + bl;
     const float cb_w = own.padding_l + cw + own.padding_r;
     for (const uint32_t a : absolutes) {
         const auto& an = doc_.nodes[a];

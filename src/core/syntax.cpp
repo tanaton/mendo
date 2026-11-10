@@ -3028,6 +3028,8 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
+namespace {
+
 template <LexerConfig Cfg, class Tokens>
 bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
 {
@@ -3082,8 +3084,6 @@ bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage l
         return false;
     }
 }
-
-namespace {
 
 // 状態を持たない専用 lexer の解析だった。トークンの頭からなら、どこからでも状態なしで始め直せる。
 void MarkStateless(SyntaxStateTrace* trace) noexcept

@@ -812,7 +812,7 @@ struct MdPaneEmitter : CmdWriter {
     D2D1::Matrix3x2F pane_transform;
     NodeOverhang overhang;
 
-    void GenerateNode(const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top)
+    void GenerateNode(const Node& node, const NodeLayoutEntry& entry, int node_index, float entry_text_top)
     {
         const float x = layout::NodeBlockX(node, theme);
         const float cw = NodeContentWidth(node, theme, content_width);
@@ -820,7 +820,7 @@ struct MdPaneEmitter : CmdWriter {
 
         // ブロック横スクロール対象 (テーブル/コードブロック) の内容を clip + 平行移動で囲み、
         // 直後にスクロールバーを積む。幾何はヒットテスト/reducer と共有の GetBlockHScrollGeometry に寄せる。
-        const auto gen_h_scroll_block = [&](const D2D1_RECT_F& clip, float pad_y, auto&& gen_content) {
+        const auto gen_h_scroll_block = [&](const D2D1_RECT_F& clip, auto&& gen_content) {
             const auto geom = GetBlockHScrollGeometry(p.nodes, p.cache, static_cast<size_t>(node_index), cw);
             const float scroll_x = LookupBlockScrollX(p.block_h_scroll.scroll_x, geom);
             // スクロールできるなら scroll_x が 0 でも右端で切る (ペインの余白に内容がはみ出る)。
@@ -837,7 +837,7 @@ struct MdPaneEmitter : CmdWriter {
             if (geom.can_scroll()) {
                 out.emplace_back(PopClipCmd{});
             }
-            EmitBlockHScrollbarIfActive(node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad_y), geom, scroll_x);
+            EmitBlockHScrollbarIfActive(node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, NodeBoxPadBottom(node, theme)), geom, scroll_x);
         };
 
         switch (node.type) {
@@ -848,11 +848,11 @@ struct MdPaneEmitter : CmdWriter {
         case NodeType::Table:
             gen_h_scroll_block(
                 D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-                NodeBoxPadBottom(node, theme),
                 [&](float scroll_x) { GenTable(node, entry, node_index, x, cw, entry_text_top, scroll_x); });
             return;
 
-        case NodeType::Diagram:
+        case NodeType::Diagram: {
+            const DiagramEntry* diagram = p.cache.FindDiagram(node_index);
             if (diagram && diagram->commands) {
                 const auto dest = DiagramRect(diagram->width, diagram->height, x, cw, entry_text_top);
                 out.emplace_back(DrawDiagramCmd{ diagram->commands.Get(), dest, diagram->width });
@@ -862,13 +862,14 @@ struct MdPaneEmitter : CmdWriter {
                 GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? DiagramErrorText(diagram->error) : std::wstring_view{});
             }
             return;
+        }
 
         case NodeType::CodeBlock: {
-            const float pad_bottom = NodeBoxPadBottom(node, theme);
-            const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - NodeBoxPadTop(node, theme), x + cw, entry_text_top + entry.height + pad_bottom);
+            const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - NodeBoxPadTop(node, theme), x + cw,
+                                                entry_text_top + entry.height + NodeBoxPadBottom(node, theme));
             GenCodeBlockBg(box, !node.continues_prev(), !node.continues_next());
             // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
-            gen_h_scroll_block(box, pad_bottom, [&](float scroll_x) {
+            gen_h_scroll_block(box, [&](float scroll_x) {
                 GenNodeTextDecorations(node, entry, node_index, text_x, entry_text_top, box.left + scroll_x, box.right + scroll_x);
             });
             GenOverlayButtons(node, x, cw, entry_text_top, node_index);
@@ -1172,13 +1173,9 @@ struct MdPaneEmitter : CmdWriter {
     void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error)
     {
         GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
-        const auto origin = D2D1::Point2F(x, y);
-        const auto box = D2D1::SizeF(w, h);
-        if (!error.empty()) {
-            Text(error, formats.placeholder_text.Get(), origin, box, BrushId::AlertCaution);
-            return;
-        }
-        Text(i18n::S().loading, formats.placeholder_text.Get(), origin, box, BrushId::BlockquoteText);
+        const bool failed = !error.empty();
+        Text(failed ? error : std::wstring_view{ i18n::S().loading }, formats.placeholder_text.Get(), D2D1::Point2F(x, y), D2D1::SizeF(w, h),
+             failed ? BrushId::AlertCaution : BrushId::BlockquoteText);
     }
 
     // selection はテーブル全体の選択範囲 (concat_text 上の UTF-8 byte)。
@@ -1432,8 +1429,7 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
             break;
         }
         const Node& node = nodes[i];
-        const DiagramEntry* diagram = node.type == NodeType::Diagram ? cache.FindDiagram(i) : nullptr;
-        e.GenerateNode(node, cache[i], diagram, i, local_text_top);
+        e.GenerateNode(node, cache[i], i, local_text_top);
         ++visible_count;
     }
 

@@ -9,9 +9,7 @@
 #include <windows.h>
 #include <wrl/client.h>
 #include <memory>
-#include <string>
 #include <string_view>
-#include <utility>
 #include <variant>
 #include <vector>
 

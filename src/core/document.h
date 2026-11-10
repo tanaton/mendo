@@ -8,7 +8,6 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 // 原文と、それをパースした結果。ノードのテキストは raw か parsed.arena を指すので、1 つの共有で寿命をそろえる。

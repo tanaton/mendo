@@ -12,7 +12,6 @@
 #include <vector>
 #include <span>
 #include <cstdint>
-#include <utility>
 
 // 色はすべて固定ブラシ (BrushId) で指定する。半透明は opacity で掛ける。
 struct FillRectCmd {

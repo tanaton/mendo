@@ -389,12 +389,10 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         const std::string_view head = run[next - 1].GetText();
         seg.reserve(end - restart);
         seg.assign(head.substr(std::min(restart - begins[next - 1], head.size())));
+        boundaries.clear();
         for (size_t j = next; j < last; ++j) {
             seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
-        }
-        boundaries.clear();
-        for (size_t k = next; k < last; ++k) {
-            boundaries.push_back(begins[k] - restart);
+            boundaries.push_back(begins[j] - restart);
         }
         const auto tokens = TokensCrossing(seg, run.front().code_language, boundaries, restart_state, &trace);
 

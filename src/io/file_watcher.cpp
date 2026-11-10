@@ -235,7 +235,7 @@ void ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
                 // なるので、当たらなかった短縮名の形 (12 文字以内で ~ と数字を含む) の名前だけ長い名前に直して照らす。
                 // ~ だけで問い合わせると、エディタの一時ファイル (~$x.docx・x.md~) の通知のたびに走る。
                 const size_t tilde = name.find(L'~');
-                const bool short_form = name.size() <= 12 && tilde != name.npos && tilde + 1 < name.size() && name[tilde + 1] >= L'0' && name[tilde + 1] <= L'9';
+                const bool short_form = name.size() <= 12 && tilde != name.npos && tilde + 1 < name.size() && ascii_util::IsAsciiDigit(name[tilde + 1]);
                 if (!add_named(name) && short_form) {
                     const std::wstring short_path = f.dir + L'\\' + std::wstring{ name };
                     add_named(path_util::FilenameView(QueryPath([&](wchar_t* b, UINT n) { return GetLongPathNameW(short_path.c_str(), b, n); })));

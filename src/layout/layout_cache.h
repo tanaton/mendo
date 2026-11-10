@@ -644,7 +644,7 @@ public:
     {
         return std::exchange(released_layouts_, {});
     }
-    // D2D のビットマップは UI スレッドで解放させる。残りはどのスレッドで破棄してもよい。
+    // 図の描画命令 (ID2D1CommandList) は UI スレッドで解放させる。残りはどのスレッドで破棄してもよい。
     void ReleaseDiagrams() noexcept
     {
         diagrams_.clear();

@@ -272,13 +272,13 @@ inline BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, i
 }
 // 総コンテンツ高はアクションのペイロードで運ばず、都度導出する
 // (運ぶと、遅延レイアウト進行中にドラッグ開始と移動で別計測の値が混ざり、つまみの位置が跳ねる)。
-inline PaneScrollInfo MdScrollInfo(const AppState& state, const PaneLayout& layout) noexcept
+inline PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
 {
-    return MdPaneScrollbar(state.document.layout_cache, layout.md_rect, state.theme->margin_bottom).info;
+    return MdPaneScrollbar(state.document.layout_cache, ComputePaneLayout(state).md_rect, state.theme->margin_bottom).info;
 }
 inline float MdMaxScroll(const AppState& state) noexcept
 {
-    return MdScrollInfo(state, ComputePaneLayout(state)).max_scroll;
+    return MdScrollInfo(state).max_scroll;
 }
 inline SearchBarLayout SearchBarLayoutFor(const AppState& state, const PaneRect& md_rect) noexcept
 {
