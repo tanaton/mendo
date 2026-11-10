@@ -233,7 +233,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
     Microsoft::WRL::ComPtr<IDXGISwapChain2> swap_chain_;
-    UniqueEventHandle frame_latency_waitable_;
+    UniqueNullHandle frame_latency_waitable_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 

@@ -247,7 +247,7 @@ public:
     InterProcessFileLock& operator=(const InterProcessFileLock&) = delete;
 
 private:
-    UniqueEventHandle mutex_;
+    UniqueNullHandle mutex_;
     bool owned_ = false;
 };
 

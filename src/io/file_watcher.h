@@ -25,7 +25,7 @@ struct DirectoryChangeRead {
     bool Begin() noexcept;
 
     UniqueHandle dir;
-    UniqueEventHandle event;
+    UniqueNullHandle event;
     OVERLAPPED overlapped{};
     // 溢れると貯まった通知が捨てられ (0 バイトで返り、変更として扱う)、無関係な変更の多いフォルダで読み直しが増える。
     // ネットワーク越しで許される上限の 64KB にする。
