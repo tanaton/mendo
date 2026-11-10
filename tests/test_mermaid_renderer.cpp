@@ -143,9 +143,18 @@ protected:
         file_cache_.Init(file_scheduler_);
         viewer_ = {};
         renderer_.Init(
-            window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), file_cache_, scheduler_, NewEngine, OpenFakeViewer, [this] { ++updates_; },
+            window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), file_cache_, scheduler_, NewEngine, OpenFakeViewer, [this] { OnUpdate(); },
             [this] { ++viewer_failed_; });
         renderer_.SetRenderTarget(rt_.Get());
+    }
+
+    // 通知のたびに、拡大表示の図を今の本文の幅とテーマで頼む (ResourceManager::RequestVisibleDiagrams と同じ)。
+    void OnUpdate()
+    {
+        ++updates_;
+        if (request_viewer_) {
+            renderer_.RequestViewerDrawing(viewer_width_, viewer_dark_);
+        }
     }
 
     static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID2D1Factory*, IDWriteFactory*, IWICImagingFactory*, bool dark,
@@ -156,7 +165,8 @@ protected:
 
     void OpenViewer(std::string_view code, int node = 0, float max_width = kMaxWidth)
     {
-        renderer_.OpenViewer(code, node, max_width, /*dark_mode=*/false);
+        viewer_width_ = max_width;
+        renderer_.OpenViewer(code, node, /*dark_mode=*/false);
     }
 
     // 拡大表示に渡した図が count 個になるのを待つ。
@@ -218,6 +228,10 @@ protected:
     MessageOnlyWindow window_;
     MermaidRenderer renderer_;
     int updates_ = 0;
+    // 偽なら通知を受けても拡大表示の図を頼まない (別の文書を読み込み中の ResourceManager)。
+    bool request_viewer_ = true;
+    float viewer_width_ = kMaxWidth;
+    bool viewer_dark_ = false;
 };
 
 // 描き終えるまでは要求し直しても描き直さない。描いた図はキャッシュから答え、幅の上限より狭いので幅を混ぜないキーでディスクに置く。
@@ -501,12 +515,12 @@ TEST_F(MermaidRendererTest, ViewerFollowsCodeAndKeepsDrawingOnError)
 {
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
-    renderer_.UpdateViewerCode(kBeta, kMaxWidth);
+    renderer_.UpdateViewerCode(kBeta);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
     EXPECT_EQ(viewer_.loading, 0);
 
-    renderer_.UpdateViewerCode(kBroken, kMaxWidth);
+    renderer_.UpdateViewerCode(kBroken);
     // 同じ壊れた図の本文の結果が確定するころには、先に頼んだ拡大表示の分も済んでいる。
     const DiagramDoc broken(kBroken);
     DiagramEntry entry;
@@ -549,14 +563,38 @@ TEST_F(MermaidRendererTest, ViewerFollowsTheme)
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_EQ(viewer_.drawings[0]->background, kDiagramLightBackground);
-    renderer_.SetViewerDarkMode(true, kMaxWidth);
+    viewer_dark_ = true;
+    renderer_.SetViewerDarkMode(true);
     EXPECT_TRUE(viewer_.dark);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_EQ(viewer_.drawings[1]->background, kDiagramDarkBackground);
     EXPECT_EQ(viewer_.loading, 0);
 }
 
-// 描画待ちを捨てても (大きな移動・幅やテーマの変更)、拡大表示の図は描く。待ちにあっても、投入済みでも。
+// 拡大表示の図は RequestViewerDrawing で頼まれるまで描かない。開く・テーマ・コードの追従・待ちを捨てる・ほかの図の結果、
+// のどれからも自分では頼まない (別の文書を読み込み中に、旧文書の図を描き始めない)。
+TEST_F(MermaidRendererTest, ViewerDrawingIsRequestedOnlyThroughRequestViewerDrawing)
+{
+    request_viewer_ = false;
+    OpenViewer(kAlpha);
+    renderer_.SetViewerDarkMode(false);
+    renderer_.UpdateViewerCode(kBeta);
+    renderer_.DropQueued();
+    // 同時に描くのは 1 つなので、頼んでいれば gamma より先に描き終えている。
+    const DiagramDoc gamma(kGamma);
+    const DiagramDoc beta(kBeta);
+    DiagramEntry eg;
+    DiagramEntry eb;
+    ASSERT_TRUE(RenderUntilSettled(gamma, eg));
+    EXPECT_TRUE(viewer_.drawings.empty());
+    EXPECT_FALSE(Request(beta, eb));
+
+    request_viewer_ = true;
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
+}
+
+// 描画待ちを捨てても (大きな移動・幅やテーマの変更)、戻ってきた要求の通知で拡大表示の図を頼み直す。待ちにあっても、投入済みでも。
 TEST_F(MermaidRendererTest, ViewerDrawingSurvivesDropQueued)
 {
     const DiagramDoc alpha(kAlpha);
