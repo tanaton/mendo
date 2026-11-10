@@ -532,7 +532,9 @@ void App::OnDropFiles(HDROP hDrop)
 
 void App::OnFileWatchEvent()
 {
+    // どのイベントが立ったかは見分けず、両方を確かめる (届いていなければ何もしない)。
     file_watcher_.CheckForChanges();
+    resource_manager_.OnImageFolderEvent();
 }
 
 // AppState を更新するタイマーだけ reducer に渡し、サービスを進めるだけのものはここで直接呼ぶ。
@@ -594,6 +596,9 @@ void App::HandleTimer(UINT_PTR timer_id)
         return;
     case FILE_RELOAD:
         RunReloadCommand(reload_.OnTimer(state_.view.IsSelectingText()));
+        return;
+    case IMAGE_RELOAD:
+        resource_manager_.OnImageReloadTimer();
         return;
     }
 }

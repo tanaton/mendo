@@ -51,6 +51,8 @@ public:
         // 最後に読んだビットマップは、この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
         // 寸法だけを読んだ (RequestSizeAsync) なら 0。
         UINT sharp_width_px = UINT_MAX;
+        // 読んだ後にファイルが更新された (Invalidate)。寸法は読み直すまで前のものを使わせ、組んだ本文を動かさない。
+        bool stale = false;
     };
     // 次に寸法の表を変える (ProcessCompletedDecodes) まで有効。
     const ImageInfo* FindImageInfo(const std::wstring& abs_path) const noexcept;
@@ -58,7 +60,7 @@ public:
     {
         return infos_.size();
     }
-    // 寸法の表の件数の上限。1 枠 24 バイト (4096 件で 200KB ほど) なので大きく取り、超えたら空にして数え直す。
+    // 寸法の表の件数の上限。1 枠 32 バイト (4096 件で 260KB ほど) なので大きく取り、超えたら空にして数え直す。
     static constexpr size_t kMaxImageInfos = 4096;
     // 受け取ったビットマップを渡し、ImageLoader には残さない。
     DeliveredImages TakeDelivered() noexcept
@@ -107,6 +109,10 @@ public:
     {
         failed_paths_.clear();
     }
+    // abs_path のファイルが更新された。読んだ寸法に stale を立て、失敗の記録を消して読み直せるようにする。
+    // 読み直しは呼び出し側が頼む (stale の画像は、寸法もビットマップも持っていても頼み直す)。読めなければ stale のまま
+    // kMaxImageRetries 回で止まり、描く側は前のビットマップを出し続ける (書き込みの途中で読んだときは、続きの通知で読み直す)。
+    void Invalidate(const std::wstring& abs_path);
 
     void Shutdown();
 
@@ -183,6 +189,9 @@ private:
         // 待つ間に要求し直された。読まずに返ったら要求し直させる。文書を切り替えて捨てた要求の結果で旧文書の画像を
         // 読み直さないよう、要求し直されたものだけ読み直させる。取り消したら、寸法だけを頼まれていたときだけ残す。
         bool requested_again = false;
+        // 待つ間にファイルが更新された (Invalidate)。更新の前の中身を読んだかもしれないので、結果は stale で入れて
+        // もう一度読ませる。
+        bool invalidated = false;
     };
     // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。
     std::unordered_map<std::wstring, PendingDecode> pending_paths_;

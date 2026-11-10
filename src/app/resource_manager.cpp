@@ -240,6 +240,9 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
     if (doc_dir != resolved_dir_) {
         resolved_image_paths_.clear();
+        // 監視も前のフォルダの画像の分をやめる。ImageLoader に残る寸法は更新を知らないままになるが、戻ったときは
+        // ビットマップを読み直すので、そのデコードの結果で寸法も入れ替わる。
+        image_watcher_.Clear();
         resolved_dir_ = doc_dir;
     }
     const float content_width = MdContentWidth(state_);
@@ -289,19 +292,23 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     }
     const bool may_request = !host_.IsLoadingOtherDocument();
     if (!needs_bitmap) {
-        // 届いたビットマップも捨て、範囲に入ったら読み直す。
-        if (!info && may_request) {
+        // 届いたビットマップも捨て、範囲に入ったら読み直す。ファイルが更新された画像は、行の高さが変わりうるので寸法を読み直す。
+        if ((!info || info->stale) && may_request) {
             image_loader_.RequestSizeAsync(*abs_path);
         }
         return;
     }
+    const bool stale = info && info->stale;
     if (ID2D1Bitmap* const received = delivered->Find(*abs_path)) {
         auto& bitmap = *inline_drawings_.images.TryEmplace(key).first;
         if (bitmap.Get() != received) {
             bitmap = received;
             update.bitmaps_changed = true;
         }
-        return;
+        // 読む間にファイルが更新されたビットマップは、出しておいてもう一度読む。
+        if (!stale) {
+            return;
+        }
     }
     if (!may_request) {
         return;
@@ -309,8 +316,9 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     // 描くビットマップが無ければ読む (保持範囲の外や別の文書から戻ったときは寸法が残っているので組み直さない)。
     // 持っている間は読み直さない。件数に上限のあるキャッシュに置いていた頃は、表の画像が 128 種類を超えると読み込みが
     // 互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた (4db8079b)。
-    // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-    if (!inline_drawings_.FindImage(key) || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
+    // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。ファイルが更新された画像も、前の絵を描きながら
+    // 読み直す (読めるまで寸法もビットマップも前のままなので、ちらつかない)。
+    if (!inline_drawings_.FindImage(key) || stale || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }
 }
@@ -371,8 +379,33 @@ const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, cons
     auto it = resolved_image_paths_.find(src);
     if (it == resolved_image_paths_.end()) {
         it = resolved_image_paths_.emplace(std::string{ src }, ResolveLocalPath(src, doc_dir)).first;
+        // 読むのは解決した後なので、ここで監視に足せば読んだ後の更新を取りこぼさない。
+        if (!it->second.empty()) {
+            image_watcher_.Watch(it->second);
+        }
     }
     return it->second.empty() ? nullptr : &it->second;
+}
+
+void ResourceManager::OnImageFolderEvent()
+{
+    const bool waiting = !changed_image_paths_.empty();
+    image_watcher_.CheckForChanges(changed_image_paths_);
+    // 書き込みの途中で読まないよう、最初の通知から間を置く (文書の読み直しと同じ)。待つ間の通知ではタイマーを延ばさない。
+    // 延ばすと、短い間隔で書き出され続ける画像がいつまでも出ない。
+    if (!waiting && !changed_image_paths_.empty()) {
+        host_.SetTimer(app_timer::Id::IMAGE_RELOAD, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+    }
+}
+
+void ResourceManager::OnImageReloadTimer()
+{
+    host_.KillTimer(app_timer::Id::IMAGE_RELOAD);
+    for (const std::wstring& path : std::exchange(changed_image_paths_, {})) {
+        image_loader_.Invalidate(path);
+    }
+    // 先読み範囲の画像はここで読み直しを頼む。範囲の外の画像は、入ったときの走査が頼む。
+    LoadImages();
 }
 
 void ResourceManager::DropQueuesIfJumped()

@@ -239,22 +239,40 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         const ImageInfo& info = decoded ? decoded->info : std::get<SizeRead>(r.outcome).info;
         const auto* bitmap_request = pending ? std::get_if<ReadingBitmap>(&pending.mapped().reading) : nullptr;
         const bool cancelled = bitmap_request && bitmap_request->cancelled->load(std::memory_order_relaxed);
+        const bool stale = pending && pending.mapped().invalidated;
         if ((!decoded || cancelled) && info.pixel_width > 0) {
             // 寸法だけの要求と、デコードの後で取り消した要求。ビットマップは載せず、前に読んだ解像度 (sharp_width_px) も消さない。
-            if (!FindImageInfo(r.path)) {
-                StoreResult(r.path, { info.pixel_width, info.pixel_height, 0 }, nullptr);
+            // 更新されたファイルの寸法は入れ替える (前のビットマップは古いので、解像度も読んでいない扱いにする)。
+            if (const auto* known = FindImageInfo(r.path); !known || known->stale) {
+                StoreResult(r.path, { info.pixel_width, info.pixel_height, 0, stale }, nullptr);
             }
             return;
         }
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         if (decoded && decoded->bitmap && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(decoded->bitmap.Get(), &bitmap)) && bitmap) {
-            StoreResult(r.path, info, std::move(bitmap));
+            ImageInfo stored = info;
+            stored.stale = stale;
+            StoreResult(r.path, stored, std::move(bitmap));
             return;
         }
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
-        ++failed_paths_[r.path];
+        // 待つ間に更新されたファイルの失敗は、更新の前の中身のものかもしれないので数えない。
+        if (!stale) {
+            ++failed_paths_[r.path];
+        }
     });
     return request_again;
+}
+
+void ImageLoader::Invalidate(const std::wstring& abs_path)
+{
+    failed_paths_.erase(abs_path);
+    if (auto* const info = infos_.Find(PathKey(abs_path))) {
+        info->stale = true;
+    }
+    if (const auto it = pending_paths_.find(abs_path); it != pending_paths_.end()) {
+        it->second.invalidated = true;
+    }
 }
 
 void ImageLoader::CancelStaleBitmapRequests() noexcept

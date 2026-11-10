@@ -227,12 +227,8 @@ std::optional<int> Win32Window::PumpMessages(const bool& done)
 
     for (;;) {
         // ハンドルは DispatchMessageW 中に変わりうるため毎回取得
-        HANDLE handles[2];
-        DWORD count = 0;
-        const HANDLE watch_evt = app_->GetFileWatchEvent();
-        if (watch_evt) {
-            handles[count++] = watch_evt;
-        }
+        HANDLE handles[App::kMaxFileWatchEvents + 1];
+        DWORD count = static_cast<DWORD>(app_->GetFileWatchEvents(handles));
         // 前のフレームの表示待ちの間は WM_PAINT で起きず、フレームが取れるのを待つ。
         // 描画側と同じ期限を付け、GPU が止まっても抜けられるようにする。
         const HANDLE frame_evt = app_->GetFrameWaitHandle();
