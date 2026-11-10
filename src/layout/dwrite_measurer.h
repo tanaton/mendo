@@ -7,8 +7,6 @@
 #include <span>
 #include <thread>
 
-struct NodeTableData;
-struct TableLayoutData;
 class InlineMathTable;
 class InlineImageTable;
 
@@ -93,7 +91,7 @@ private:
         float widest_image = 0.0f;
     };
     RunFormatResult ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, const RunFormat& format) const;
-    // MeasureTableCells と RestoreEvictedTableRows で共通。空セルは null。仮に組んだ数式か画像があれば pending_inline を立てる。
+    // MeasureTableCells・FinalizeTableLayout・RestoreEvictedTableRows で共通。空セルは null。仮に組んだ数式か画像があれば pending_inline を立てる。
     // image_fit_width > 0 なら、それより広い画像をその幅に縮める (列幅を決めた後)。image_cell があれば min_width と image_width を書く。
     Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c,
                                                                float image_fit_width, TableLayoutData::ImageCell* image_cell = nullptr) const;

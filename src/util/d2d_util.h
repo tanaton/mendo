@@ -95,7 +95,7 @@ inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origi
 
 // CreateSolidColorBrush のフェイルセーフラッパ。失敗時は Magenta で再試行し、
 // nullptr ブラシが DrawXXX に渡るのを防ぐ。重い失敗 (D2DERR_RECREATE_TARGET 等) は
-// EndDraw 経路で検知されて次フレームの BeginFrame で作り直される想定。
+// EndDraw 経路で検知されて次フレームの前にデバイスごと作り直される想定。
 // ReleaseAndGetAddressOf を使い、既存 brush を持つ ComPtr が渡されても assert/leak
 // しないように防御する。
 inline void CreateSolidColorBrushOrFallback(

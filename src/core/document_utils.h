@@ -129,7 +129,8 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 // 並び全体のトークンを一度に持たない。
 void AnnotateCodeChunkLeads(std::span<Node> run);
 
-// source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
+// diff_offset 以下で最も後ろの source_offset を持つノードのうち、先頭のものを返す (位置を受け継いだノードより前)。
+// 該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;
 
 struct LinkClickResult {
@@ -170,6 +171,7 @@ std::wstring ToDisplayUrl(std::wstring_view text);
 // 文書に書かれたパス (UTF-8、%XX のエンコード可) を絶対パスにする。相対パスは doc_dir から引く。
 // 開かないもの (URL・ネットワーク上の絶対パス・使えない文字を含むパス・解決の失敗) は空。画像とリンクで共有する。
 std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir);
+// 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。
 bool IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
 // 16 進 2 桁が続かない % はそのまま残す。

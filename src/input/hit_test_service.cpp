@@ -98,10 +98,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
     }
-    if (!entry.text_layout()) {
-        return { direct.node_index, static_cast<uint32_t>(node.GetText().size()) };
-    }
-
+    // FindDirectHit は表か、text_layout を持つノードしか返さない。
     const float local_x = dip_x - NodeBlockX(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
     const float local_y = dip_y - direct.text_top;
 

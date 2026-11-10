@@ -108,7 +108,7 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
     return { PixelToDip(static_cast<float>(px), dpi_scale), PixelToDip(static_cast<float>(py), dpi_scale) };
 }
 
-// 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
+// 要素の右上を基準にオーバーレイボタン（コピー/保存/拡大表示）の矩形を返す。
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 COPY_BTN_GAP で並ぶ。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept

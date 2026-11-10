@@ -28,10 +28,9 @@ public:
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
     // drawing は図の描画命令 (DiagramEntry::drawing)。null なら何もしない。md_width は本文の幅 (DIP) で、収まらない図は
     // 本文と同じくその幅まで縮めた大きさの画像にする。画像は保存先を選んだ後に描く (取り消したら描かない)。
-    void SaveDiagramAsPng(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const;
+    void SaveDiagramAsPng(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const;
     // drawing から描いた画像を CF_DIB に、SVG を image/svg+xml に書く。画像は md_width まで縮め、SVG は縮めない大きさ。
-    void CopyDiagramToClipboard(const Document& doc, int node_index, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing,
-                                float md_width) const;
+    void CopyDiagramToClipboard(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const;
 
 private:
     // CF_DIB 用 GlobalMem を作る。失敗/空は空を返す。

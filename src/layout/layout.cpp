@@ -5,6 +5,7 @@
 #include "viewport_manager.h"
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cmath>
 #include <ranges>
 #include <utility>
@@ -36,10 +37,10 @@ int MeasureIndicesParallel(
             }
             auto& entry = cache[i];
             // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
-            const DiagramEntry* bitmap = nodes[i].type == NodeType::Diagram ? cache.FindDiagram(i) : nullptr;
+            const DiagramEntry* diagram = nodes[i].type == NodeType::Diagram ? cache.FindDiagram(i) : nullptr;
             // 例外はノード単位で捕まえ、同じ chunk の残りも計測する。
             try {
-                MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), bitmap);
+                MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), diagram);
             } catch (...) {
                 MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
             }

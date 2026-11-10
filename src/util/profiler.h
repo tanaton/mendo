@@ -7,7 +7,7 @@
 //
 // マクロ一覧:
 //   MENDO_PROFILE(label)             : スコープ計測。label は文字列リテラル必須。
-//   MENDO_FRAME_MARK()               : フレーム境界マーカー。OnPaint 末尾で 1 回呼ぶ。
+//   MENDO_FRAME_MARK()               : フレーム境界マーカー。起動の先頭と OnPaint 末尾で呼ぶ。
 //   MENDO_PLOT(label, value)         : 数値の時系列プロット。double / int 受け入れ可。
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージのデバッグログ ("[mendo] " 付き)。

@@ -88,7 +88,7 @@ struct ViewState {
     std::variant<std::monostate, ScrollTarget, std::string> pending_scroll;
     NavHistory nav_history;
 
-    // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
+    // ブロック単位の横スクロール。キーは BlockHScrollGeometry::scroll_key (区切ったコードブロックは並びの先頭のノード)。
     // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::unordered_map<int, float> block_scroll_x;

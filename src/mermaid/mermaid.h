@@ -211,9 +211,6 @@ private:
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
-    // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は pele の文言で、空なら汎用の文言を出す。
-    void SetDiagramError(uint64_t request_hash, DiagramError::Kind kind, std::wstring_view msg);
-
     bool ViewerOpen() const noexcept
     {
         return viewer_.view && viewer_.view->IsOpen();
@@ -241,7 +238,7 @@ private:
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
-    // 表示用の要求のエラーを確定させ、再要求させない。
+    // 表示用の要求のエラーを確定させ、再要求させない (issue #271)。error.message は pele の文言で、空なら汎用の文言を出す。
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
@@ -277,7 +274,7 @@ private:
     // DropQueued / Shutdown で進め、投入済みの表示用の図の描画とディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
 
-    // 最初に図を描くときに作る。終了時は描き終わりを待ってから捨てる。
+    // 最初に図か数式を描くときに作る (EnsurePele)。終了時は描き終わりを待ってから捨てる。
     PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
     // PeleEngine で描く要求のうち、上限を超えて待っているものと、bg で走っている数。

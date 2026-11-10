@@ -225,8 +225,8 @@ LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme
 
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
-    // 図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
-    // 描画時にビットマップが後続ノードへはみ出すため既存値を維持する。
+    // 図の高さは寸法が届いた時点で DiagramNodeHeight が決める。推定で上書きすると
+    // 描画時に図が後続ノードへはみ出すため既存値を維持する。
     if (node.type == NodeType::Diagram) {
         return;
     }

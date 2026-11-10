@@ -1428,7 +1428,7 @@ protected:
         SetWindowSize(state, 1048.0f, theme.pane_header_height + 280.0f);
     }
 
-    // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
+    // App::OpenDocument と同じく現在ファイルも登録する。
     void OpenDocument(const wchar_t* name)
     {
         SetDocument(state, "x", (dir_ / name).wstring());

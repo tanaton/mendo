@@ -81,9 +81,9 @@ HitResult HitTestTable(
 
 NavDirection NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 
-// 可視ノードのオーバーレイボタン (コードのコピー / 図の保存・コピー) のうちマウス位置にあるもの。
+// 可視ノードのオーバーレイボタン (コードのコピー / 図の保存・コピー・拡大表示) のうちマウス位置にあるもの。
 OverlayButtonHit OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept;
-// マウスが node_index の図の画像の上にあり、その図に保存・コピーのボタンを出せるか。
+// マウスが node_index の図の画像の上にあり、その図に保存・コピー・拡大表示のボタンを出せるか。
 bool DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) noexcept;
 // node_index のブロック横スクロールバー (ヒット余白込み) 上か。
 bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept;

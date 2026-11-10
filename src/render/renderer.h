@@ -120,7 +120,7 @@ public:
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
     };
-    // params.loading_angle があれば、本文ペイン・検索バー・スクロールバーの代わりにスピナーを描く。
+    // params.loading_angle があれば、本文ペイン・検索バー・スクロールバー・ナビボタンの代わりにスピナーを描く。
     FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
@@ -152,7 +152,7 @@ public:
     // ライト/ダーク切替。寸法とフォントは共通なのでテキストレイアウトを維持し、ブラシの色だけ差し替える。
     // デバイスを作ったときも、ここでブラシを作る。
     void OnThemeColorsChanged();
-    // ズーム。大きさがズームに従う書式 (本文の記号・番号・プレースホルダ・画像の alt) だけ作り直す。タイトルバーやサイドペインの書式は
+    // ズーム。大きさがズームに従う書式 (本文の記号・番号・プレースホルダ) だけ作り直す。タイトルバーやサイドペインの書式は
     // ズームしないので、それらで作ったレイアウトも残す (作り直すと 1 段ごとに 80 個ほどで約 2.7ms)。
     void OnThemeMetricsChanged()
     {
@@ -233,7 +233,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
     Microsoft::WRL::ComPtr<IDXGISwapChain2> swap_chain_;
-    UniqueEventHandle frame_latency_waitable_;
+    UniqueNullHandle frame_latency_waitable_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 

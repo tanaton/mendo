@@ -310,7 +310,9 @@ SearchInputMetrics MeasureSearchInput(TextLayoutCache& text_layouts, IDWriteText
     }
 
     // コンポジション中はその末尾に置く。
-    FLOAT px, py;
+    // 失敗しても未初期化の値を読まない (キャレットは左端になる)。
+    FLOAT px = 0.0f;
+    FLOAT py = 0.0f;
     DWRITE_HIT_TEST_METRICS htm{};
     layout->HitTestTextPosition(static_cast<UINT32>(caret + comp_len), false, &px, &py, &htm);
     m.caret_x = px;
@@ -1167,7 +1169,7 @@ struct MdPaneEmitter : CmdWriter {
     }
 
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
-    void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error = {})
+    void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error)
     {
         GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
         const auto origin = D2D1::Point2F(x, y);

@@ -186,7 +186,7 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
-        // ビットマップを描くノードの高さはビットマップ側で決まるので残す。
+        // 図のノードの高さは図の寸法で決まるので残す。
         if (nodes[i].type != NodeType::Diagram) {
             e.height = 0.0f;
         }
@@ -224,7 +224,7 @@ bool LayoutCache::InvalidateLayoutsOf(std::span<const size_t> indices) noexcept
     return !indices.empty();
 }
 
-void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
+void LayoutCache::InvalidateAllDiagramCommands() noexcept
 {
     for (auto& d : diagrams_ | std::views::values) {
         d.EvictForRetry();
