@@ -36,7 +36,7 @@ public:
     // 別の文書を読み込んでいる。この間は表示中の文書の画像と図 (拡大表示の図も) を新たに頼まない (届いた画像は取り込む)。
     // 読み始めに待ちを捨てても、進行中の 1 件が終わるか捨てた要求が読まずに戻ると次の取り込みが頼み直し、開いた文書の
     // 最初の図と画像を旧文書の描画・デコード (始まると取り消せない) の後回しにしていた。
-    // 差し替えずに終わったら、呼び出し側が ScheduleBitmapManage で頼み直させる。
+    // 差し替えずに終わったら ScheduleBitmapManage で頼み直す (ReloadCommand::resume_resources)。
     virtual bool IsLoadingOtherDocument() const = 0;
 
 protected:

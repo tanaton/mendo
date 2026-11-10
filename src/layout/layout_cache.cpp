@@ -3,7 +3,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cassert>
-#include <optional>
 #include <ranges>
 
 NodeLayoutEntry::Aux::~Aux() = default;

@@ -2781,11 +2781,14 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             else if (scoped) {
                 type = SyntaxTokenType::Type;
             }
+            // dict は両方の表にある。Vim9 では型名 (dict<string>)、legacy では関数の属性 (function F() dict) として扱う。
+            else if (vim9 && kw::VIM_TYPES.contains(word)) {
+                // 型引数の < はキー表記 (<CR>) の始まりではないので、list<string> の string も型名として読めるよう飛ばす。
+                i = EmitRange(tokens, i, e, SyntaxTokenType::Type) + (e < eol && text[e] == '<');
+                continue;
+            }
             else if (kw::VIM_EXPR_KEYWORDS.contains(word)) {
                 type = SyntaxTokenType::Keyword;
-            }
-            else if (vim9 && kw::VIM_TYPES.contains(word)) {
-                type = SyntaxTokenType::Type;
             }
             i = EmitRange(tokens, i, e, type);
             continue;
@@ -3028,6 +3031,8 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
+namespace {
+
 template <LexerConfig Cfg, class Tokens>
 bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
 {
@@ -3082,8 +3087,6 @@ bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage l
         return false;
     }
 }
-
-namespace {
 
 // 状態を持たない専用 lexer の解析だった。トークンの頭からなら、どこからでも状態なしで始め直せる。
 void MarkStateless(SyntaxStateTrace* trace) noexcept

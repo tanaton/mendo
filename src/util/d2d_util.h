@@ -6,7 +6,6 @@
 #include <dwrite_3.h>
 #include <wrl/client.h>
 #include <windows.h>
-#include <cstddef>
 
 // テキスト書式の作り方。描画・計測・ポップアップで共有する。
 struct TextFormatSpec {

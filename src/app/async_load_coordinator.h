@@ -249,6 +249,8 @@ struct ReloadCommand {
     bool apply_result = false;
     // 開けない状態が長引いていることを一度だけ知らせる。
     bool notify_locked = false;
+    // 別の文書の読み込みを、文書を差し替えずに抜けた。読み始めに捨てて止めていた、表示を続ける文書の画像と図を頼み直す。
+    bool resume_resources = false;
 };
 
 // 表示中のファイルの読み直しを、変更の通知・FILE_RELOAD タイマー・読み込みの開始と結果で進める。
@@ -328,11 +330,22 @@ private:
     // タイマーは前後の段階の待ち時間から決める (Win32 のタイマーは繰り返すので、同じ間隔で待ち続けるなら掛け直さない)。
     ReloadCommand Enter(State next);
     // 読み終えた。読み始めた後の変更があれば最初の通知として待ち直す。
+    static State SettledState(bool changed)
+    {
+        return changed ? State{ Waiting{} } : State{ Idle{} };
+    }
     ReloadCommand Settle(bool changed)
     {
-        return changed ? Enter(Waiting{}) : Enter(Idle{});
+        return Enter(SettledState(changed));
     }
     ReloadCommand StartReload(Attempts attempts);
+    // 別の文書の読み込みを、文書を差し替えずに抜ける。
+    ReloadCommand LeaveOtherLoad(State next)
+    {
+        ReloadCommand cmd = Enter(std::move(next));
+        cmd.resume_resources = true;
+        return cmd;
+    }
 
     State state_;
 };

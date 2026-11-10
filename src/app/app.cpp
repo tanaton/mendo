@@ -719,6 +719,10 @@ void App::RunReloadCommand(const ReloadCommand& cmd)
     if (cmd.notify_locked) {
         ShowToast(FileLoadErrorMessage(FileLoadError::Locked, i18n::S()));
     }
+    if (cmd.resume_resources) {
+        // 読み込み中は頼まない (IsLoadingOtherDocument) が、reload_ はもう読み込み中を抜けている。
+        resource_manager_.ScheduleBitmapManage();
+    }
     if (cmd.start_reload) {
         // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
         BeginAsyncLoad(state_.document.doc.GetFilePath(), /*show_animation=*/false);
@@ -735,7 +739,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
         return;
     }
     // 旧文書の画像・図の待ちはもう要らないので捨て、読み込みの間は新たに頼まない (IsLoadingOtherDocument)。
-    // 文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す (OnParseComplete・CancelOtherFileLoad)。
+    // 文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す (ReloadCommand::resume_resources)。
     // 開いている文書を開き直すとリロードとして扱われ、図と画像はコードやパスがキーなので待ちをそのまま使える。
     const bool same_file = path_util::iequal(path, state_.document.doc.GetFilePath());
     if (!same_file) {
@@ -754,7 +758,6 @@ void App::CancelOtherFileLoad()
     StopLoadingAnimation();
     load_coordinator_.Cancel();
     RunReloadCommand(reload_.OnOtherLoadCancelled());
-    resource_manager_.ScheduleBitmapManage();
 }
 
 // Init より前に呼ばれるため、推定用のテーマは設定から直接作る。
@@ -795,13 +798,6 @@ void App::OnParseComplete()
 
     const ReloadCommand reload = reload_.OnLoadFinished(step, state_.view.IsSelectingText());
     RunReloadCommand(reload);
-
-    // 読み始めに捨てた画像・図の待ちを、文書を差し替えずに終わるなら要求し直す。ApplyReload は ReloadDocument が要求する
-    // (ドラッグの後に回すときも、読み直しの結果でここか ReloadDocument を通る)。
-    // 読み込み中は頼まない (IsLoadingOtherDocument) ので、reload_ に読み終えたことを知らせた後で呼ぶ。
-    if (step != ParseCompleteStep::ReplaceWithResult && step != ParseCompleteStep::ApplyReload) {
-        resource_manager_.ScheduleBitmapManage();
-    }
 
     // Fail のときだけ結果が無い。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;

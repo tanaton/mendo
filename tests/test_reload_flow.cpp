@@ -357,11 +357,16 @@ TEST(ReloadScheduler, ChangeDuringOtherLoadReloadsUnlessReplaced)
         EXPECT_EQ(s.OnFileChanged().set_timer_ms, 0u);
         const auto cmd = cancel ? s.OnOtherLoadCancelled() : s.OnLoadFinished(Step::Fail, false);
         EXPECT_EQ(cmd.set_timer_ms, kDebounceMs) << cancel;
+        // 表示を続ける文書の画像と図を頼み直す。
+        EXPECT_TRUE(cmd.resume_resources) << cancel;
     }
     ReloadScheduler s;
     (void)s.OnLoadStarted(false);
     (void)s.OnFileChanged();
-    EXPECT_EQ(s.OnLoadFinished(Step::ReplaceWithResult, false).set_timer_ms, 0u);
+    const auto replaced = s.OnLoadFinished(Step::ReplaceWithResult, false);
+    EXPECT_EQ(replaced.set_timer_ms, 0u);
+    // 開いた文書のぶんは開く側が頼む。
+    EXPECT_FALSE(replaced.resume_resources);
     EXPECT_TRUE(In<RS::Idle>(s));
 }
 
@@ -393,6 +398,18 @@ TEST(ReloadScheduler, ReopeningShownFileIsReload)
     EXPECT_FALSE(cmd.start_reload);
     EXPECT_TRUE(In<RS::Reloading>(s));
     EXPECT_FALSE(s.IsLoadingOther());
+    EXPECT_FALSE(cmd.resume_resources);
+
+    // 別のファイルの読み込み中に表示中のファイルを開き直すと、止めていた画像と図をそこで頼み直す。
+    ReloadScheduler other;
+    (void)other.OnLoadStarted(false);
+    EXPECT_TRUE(other.OnLoadStarted(true).resume_resources);
+    // 読み直しの結果では頼み直さない (読み直しの間は止めていない)。
+    EXPECT_FALSE(other.OnLoadFinished(Step::ReloadUnchanged, false).resume_resources);
+    // 読み込み中でないときの取り消しも、別の文書を開いたときも頼み直さない。
+    EXPECT_FALSE(other.OnOtherLoadCancelled().resume_resources);
+    (void)other.OnLoadStarted(false);
+    EXPECT_FALSE(other.OnDocumentReplaced().resume_resources);
 }
 
 TEST(ReloadScheduler, DocumentReplacedStopsWaiting)

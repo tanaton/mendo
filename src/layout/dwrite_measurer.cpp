@@ -223,7 +223,7 @@ std::optional<float> MeasureWithoutTextLayout(const Node& node, const Theme& the
 }
 
 // 既存の text_layout を SetMaxWidth で再計測する。中身が変わる経路 (ズームの InvalidateAllLayouts、数式や画像の
-// InvalidatePendingInlineLayouts、読み直しの新しいキャッシュ) は text_layout を捨てるので、
+// InvalidatePendingInlineLayouts、画像の寸法が変わったときの InvalidateLayoutsOf、読み直しの新しいキャッシュ) は text_layout を捨てるので、
 // 現存していればテキスト/runs/フォント幾何は一致している。SetMaxWidth の後の GetMetrics は解析からやり直すので
 // 作り直しより 1〜16% 速いだけだが、装飾の付け直しは要らない。
 float RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)

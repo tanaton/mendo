@@ -165,27 +165,27 @@ void ScrollToNode(AppState& state, int node, float offset)
     viewport.ScrollTo(node >= 0 ? NodeOffsetToScrollY(state.document.layout_cache, node, offset) : viewport.GetScrollY(), MdMaxScroll(state));
 }
 
-// new_value は差分ではなく絶対値。
-bool SetBlockScrollX(AppState& state, float new_value, const BlockHScrollGeometry& geom)
+// new_value は差分ではなく絶対値。変わったら描き直す。
+void SetBlockScrollX(ReduceContext& c, float new_value, const BlockHScrollGeometry& geom)
 {
+    auto& view = c.state.view;
     const float clamped = geom.ClampScrollX(new_value);
-    const float prev = state.view.GetBlockScrollX(geom);
-    if (std::abs(prev - clamped) < 1e-3f) {
-        return false;
+    if (std::abs(view.GetBlockScrollX(geom) - clamped) < 1e-3f) {
+        return;
     }
     if (clamped <= 0.0f) {
-        state.view.block_scroll_x.erase(geom.scroll_key);
+        view.block_scroll_x.erase(geom.scroll_key);
     }
     else {
-        state.view.block_scroll_x[geom.scroll_key] = clamped;
+        view.block_scroll_x[geom.scroll_key] = clamped;
     }
-    return true;
+    Invalidate(c);
 }
 
 void On(ReduceContext& c, const KeyScrollAction& a)
 {
     auto& viewport = c.state.view.viewport;
-    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
+    const auto info = MdScrollInfo(c.state);
     const float page_size = info.content_height;
     const float max_scroll = info.max_scroll;
     switch (a.type) {
@@ -253,9 +253,7 @@ void On(ReduceContext& c, const HWheelAction& a)
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (SetBlockScrollX(c.state, c.state.view.GetBlockScrollX(geom) + dx, geom)) {
-            Invalidate(c);
-        }
+        SetBlockScrollX(c, c.state.view.GetBlockScrollX(geom) + dx, geom);
         return;
     }
 
@@ -291,9 +289,7 @@ void MoveBlockHScrollDrag(ReduceContext& c, const left_drag::BlockHScroll& drag,
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (SetBlockScrollX(c.state, drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
-        Invalidate(c);
-    }
+    SetBlockScrollX(c, drag.start_scroll + dip_delta * scroll_max / drag_range, geom);
 }
 
 void ApplyNavResult(ReduceContext& c, NavEntry&& entry)
@@ -572,7 +568,7 @@ void MoveSearchInputDrag(ReduceContext& c, int anchor, int caret)
 
 void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
 {
-    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
+    const auto info = MdScrollInfo(c.state);
     auto& viewport = c.state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
     c.state.view.drag = left_drag::MdScrollbar{ grip.drag_offset };
@@ -585,7 +581,7 @@ void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
 void MoveMdScrollbarDrag(AppState& state, float grip_offset, float dip_y)
 {
     const float new_thumb_y = dip_y - grip_offset;
-    const auto info = MdScrollInfo(state, ComputePaneLayout(state));
+    const auto info = MdScrollInfo(state);
     state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y), info.max_scroll);
 }
 
@@ -691,7 +687,7 @@ void ScrollToCurrentMatch(ReduceContext& c)
 
     // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
     c.layout.EnsureNodeLayout(match.node_index);
-    const auto info = MdScrollInfo(c.state, ComputePaneLayout(c.state));
+    const auto info = MdScrollInfo(c.state);
     const auto& entry = cache[match.node_index];
     // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
     //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
@@ -939,9 +935,8 @@ void ReduceSidePaneZoom(ReduceContext& c, PaneTarget pane, const ZoomAction& a)
         return;
     }
     // 先頭に見えていた項目が先頭に残るよう、スクロール位置も倍率の比で動かす。
-    auto& scroll_y = c.state.view.panes.SidePaneScroll(pane);
-    scroll_y *= zoom.Value() / old_zoom;
-    scroll_y = std::clamp(scroll_y, 0.0f, GetSidePaneContext(c.state, pane).info.max_scroll);
+    const auto ctx = GetSidePaneContext(c.state, pane);
+    ctx.scroll_y = std::clamp(ctx.scroll_y * (zoom.Value() / old_zoom), 0.0f, ctx.info.max_scroll);
     Invalidate(c);
 }
 
