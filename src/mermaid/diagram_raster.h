@@ -76,9 +76,9 @@ struct PeleMathLabel {
     std::shared_ptr<const MathDrawing> drawing;
 };
 
-// pele の SVG を描画命令にする。max_width は pele に渡した幅の上限で、SVG はブラウザと同じく max-width:100% で縮める (0 なら縮めない)。
+// pele の SVG を、縮めない大きさの描画命令にする。幅の上限に合わせるのは描くとき (DiagramRect・FittedDiagramSize)。
 // 書き出せない要素 (<foreignObject> や image など) を含む SVG と壊れた SVG は nullopt。
-std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, float max_width, DiagramTextMeasurer& measurer,
+std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(std::string_view svg, bool dark, DiagramTextMeasurer& measurer,
                                                                std::span<const PeleMathLabel> maths = {});
 
 // 描画命令をそのまま 1 枚の SVG (UTF-8) にする。クリップボード用で、Office や Inkscape が読めるよう CSS を使わず属性だけで書く。
@@ -91,10 +91,11 @@ Microsoft::WRL::ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarge
 Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
                                                        const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale);
 
-// 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの画像)。CSS px を dpr 倍した 32bpp PBGRA に描く。
-// locale は文字の書式のロケール。描けなければ null。
+// 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの画像)。図を size (CSS px) に伸縮し、
+// dpr 倍した 32bpp PBGRA に描く。locale は文字の書式のロケール。描けなければ null。
 Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                                    const mermaid_util::DiagramDrawing& drawing, float dpr, const wchar_t* locale);
+                                                    const mermaid_util::DiagramDrawing& drawing, mermaid_util::DiagramSize size, float dpr,
+                                                    const wchar_t* locale);
 
 // ---------------------------------------------------------------------------------------------------------------
 // KaTeX の HTML 出力を、ブラウザを使わずに配置して描く。

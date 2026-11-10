@@ -5,15 +5,19 @@
 #include "pele_test_assets.h"
 #include "string_convert.h"
 #include "test_helpers.h"
+#include "ui_constants.h"
 #include "wic_util.h"
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#include <process.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <string>
 #include <thread>
@@ -261,50 +265,153 @@ TEST_F(PeleEngineTest, RendersConcurrentlyAndAfterTrim)
     EXPECT_EQ(engine_->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
 }
 
+// 取り消した後は、HTML を覚えている数式も描かない。
 TEST_F(PeleEngineTest, CancelStopsRendering)
 {
     const auto engine = NewEngine();
+    const PeleEngine::MathSource source{ "x", 16.0f };
+    ASSERT_NE(engine->RenderMaths({ &source, 1 })[0], nullptr);
     engine->Cancel();
     EXPECT_EQ(engine->Render("flowchart LR\n  A --> B", false, 800.0f).status, Status::Cancelled);
-    const PeleEngine::MathSource source{ "x", 16.0f };
     EXPECT_EQ(engine->RenderMaths({ &source, 1 })[0], nullptr);
 }
 
-// 拡大表示とクリップボードは本文の幅に縮めない。
-TEST_F(PeleEngineTest, KeepsNaturalSizeWhenNotFitting)
+// KaTeX の HTML は文字の大きさに依らないので覚えておき、別の大きさ (ズーム) では配置だけをやり直す。
+// 覚えた HTML から組んでも初めて描いたときと同じになり、描けない TeX は覚えた後も null。
+TEST_F(PeleEngineTest, ReusedKatexHtmlMatchesFreshRender)
 {
-    constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
-    const auto fitted = engine_->Render(kWide, false, 200.0f);
-    const auto natural = engine_->Render(kWide, false, 200.0f, false);
-    ASSERT_EQ(fitted.status, Status::Drawn);
-    ASSERT_EQ(natural.status, Status::Drawn);
-    EXPECT_LE(fitted.drawing.width, 200.0f);
-    EXPECT_GT(natural.drawing.width, 200.0f);
+    constexpr std::string_view kTex = "\\sqrt{x+1} + \\frac{a}{b} + \\text{日本}";
+    const PeleEngine::MathSource first[]{ { kTex, 16.0f }, { "\\frac{a}", 16.0f } };
+    const PeleEngine::MathSource resized[]{ { kTex, 24.0f }, { "\\frac{a}", 24.0f } };
+    const auto engine = NewEngine();
+    ASSERT_NE(engine->RenderMaths(first)[0], nullptr);
+    const auto reused = engine->RenderMaths(resized);
+    const auto fresh = NewEngine()->RenderMaths(resized);
+    ASSERT_TRUE(reused[0] && fresh[0]);
+    EXPECT_EQ(reused[0]->width, fresh[0]->width);
+    EXPECT_EQ(reused[0]->height, fresh[0]->height);
+    EXPECT_EQ(reused[0]->depth, fresh[0]->depth);
+    const auto kinds = [](const MathDrawing& math) {
+        return math.items | std::views::transform([](const MathDrawing::Item& item) { return item.index(); }) | std::ranges::to<std::vector>();
+    };
+    EXPECT_EQ(kinds(*reused[0]), kinds(*fresh[0]));
+    EXPECT_EQ(reused[1], nullptr);
+    EXPECT_EQ(fresh[1], nullptr);
 }
 
-// 覚えておいた pele の出力をテーマか fit を変えて解き直しても、初めて描いたときと同じになる。
-// 最初はライト・fit ありで描くので、テーマだけ・fit だけを変えた 2 通りで足りる (エンジンを作るのは 1 回 25ms ほど)。
+namespace {
+
+// "a" を open と close で depth 段くるんだ数式。
+std::string NestedTex(std::string_view open, std::string_view close, int depth)
+{
+    std::string tex = "a";
+    for (int i = 0; i < depth; ++i) {
+        tex = std::string{ open } + tex + std::string{ close };
+    }
+    return tex;
+}
+
+// スタックの予約が reserve バイトのスレッドで f を走らせる (std::thread は exe の既定の大きさになる)。
+template <class F>
+void RunOnThreadWithStack(size_t reserve, F f)
+{
+    const auto run = [](void* p) -> unsigned {
+        (*static_cast<F*>(p))();
+        return 0;
+    };
+    const auto thread = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, static_cast<unsigned>(reserve), run, &f, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr));
+    ASSERT_NE(thread, nullptr);
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+}
+
+} // namespace
+
+// 分数・根号・行列を深く入れ子にした数式も描く。JS のスタックが 512KB だった頃は、分数と上付き 3 段・根号 4 段・行列 2 段を
+// 超えると "Maximum call stack size exceeded" で描けず、原文のまま出ていた。
+TEST_F(PeleEngineTest, RendersDeeplyNestedMaths)
+{
+    EXPECT_NE(Math("\\sqrt{\\frac{\\sqrt{\\frac{a}{b}}}{\\frac{c}{d}}}"), nullptr);
+    EXPECT_NE(Math(NestedTex("\\frac{", "}{b}", 16)), nullptr);
+    EXPECT_NE(Math(NestedTex("\\sqrt{", "}", 16)), nullptr);
+    EXPECT_NE(Math(NestedTex("\\cfrac{1}{1+", "}", 16)), nullptr);
+    EXPECT_NE(Math(NestedTex("x^{", "}", 16)), nullptr);
+    EXPECT_NE(Math(NestedTex("\\begin{pmatrix}", " & b \\\\ c & d\\end{pmatrix}", 12)), nullptr);
+}
+
+// 上限を超える深さの数式は、スタックを溢れさせずに描けない式として返す。その後も描ける。
+TEST_F(PeleEngineTest, TooDeepMathFailsWithoutOverflowingStack)
+{
+    EXPECT_EQ(Math(NestedTex("\\frac{", "}{b}", 300)), nullptr);
+    EXPECT_EQ(Math(NestedTex("{", "}", 3000)), nullptr);
+    EXPECT_NE(Math("\\frac{x}{y}"), nullptr);
+}
+
+// スタックの小さいスレッドでは JS に使わせる量も減らし、深い数式は溢れさせずに描けない式として返す。
+// 別のスレッドで作ったランタイムを使い回しても、走らせるスレッドのスタックで決める。
+TEST_F(PeleEngineTest, SmallStackThreadLimitsNestingInsteadOfOverflowing)
+{
+    const auto engine = NewEngine();
+    const auto math = [&](const std::string& tex) {
+        const PeleEngine::MathSource source{ tex, 16.0f };
+        return engine->RenderMaths({ &source, 1 })[0];
+    };
+    ASSERT_NE(math("x"), nullptr);
+    RunOnThreadWithStack(1u << 20, [&] {
+        EXPECT_EQ(math(NestedTex("\\frac{", "}{b}", 12)), nullptr);
+        EXPECT_NE(math("y^2"), nullptr);
+    });
+    EXPECT_NE(math(NestedTex("\\frac{", "}{c}", 12)), nullptr);
+}
+
+// 幅の上限に収まらない図も、縮めない大きさの描画命令にする (縮めるのは描くとき)。図形の変換は小数 3 桁に丸めて書き、
+// 文字の変換は丸めないので、拡大率を描画命令に書くと図形と文字がずれる。どちらにも拡大率を書かず、描くときに同じ拡大率を掛ける。
+TEST_F(PeleEngineTest, WideDiagramKeepsNaturalSizeWithoutBakedScale)
+{
+    constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
+    const auto out = engine_->Render(kWide, false, 200.0f);
+    ASSERT_EQ(out.status, Status::Drawn);
+    EXPECT_GT(out.drawing.width, 200.0f);
+    size_t texts = 0;
+    for (const auto& layer : out.drawing.layers) {
+        EXPECT_EQ(layer.shapes.find("matrix("), std::string::npos) << layer.shapes;
+        for (const auto& t : layer.texts) {
+            const auto& m = t.at.transform;
+            EXPECT_EQ((std::array{ m[0], m[1], m[2], m[3] }), (std::array{ 1.0f, 0.0f, 0.0f, 1.0f })) << string_convert::WideToUtf8(t.text);
+            ++texts;
+        }
+    }
+    EXPECT_EQ(texts, 4u);
+}
+
+// 幅の上限に収まる図は、上限が変わっても同じ描画命令になる (幅に縛られない結果のキャッシュの前提)。
+TEST_F(PeleEngineTest, FittingDiagramDoesNotDependOnMaxWidth)
+{
+    constexpr std::string_view kCode = "flowchart LR\n  A[開始] --> B[終了]";
+    const auto narrow = engine_->Render(kCode, false, 600.0f);
+    const auto wide = engine_->Render(kCode, false, 1600.0f);
+    ASSERT_EQ(narrow.status, Status::Drawn);
+    ASSERT_EQ(wide.status, Status::Drawn);
+    ASSERT_LT(narrow.drawing.width, 600.0f);
+    EXPECT_EQ(narrow.drawing, wide.drawing);
+}
+
+// 覚えておいた pele の出力をテーマを変えて解き直しても、初めて描いたときと同じになる。
 TEST_F(PeleEngineTest, ReusedPeleOutputMatchesFreshRender)
 {
     constexpr std::string_view kCode = "flowchart LR\n  A[\"面積 $$x^2$$\"] --> B[bbbbbbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccc]";
     ASSERT_EQ(engine_->Render(kCode, false, 300.0f).status, Status::Drawn);
-    constexpr std::pair<bool, bool> kVariants[]{
-        { true,  true  },
-        { false, false }
-    };
-    for (const auto [dark, fit] : kVariants) {
-        const auto reused = engine_->Render(kCode, dark, 300.0f, fit);
-        const auto fresh = NewEngine()->Render(kCode, dark, 300.0f, fit);
-        ASSERT_EQ(reused.status, Status::Drawn);
-        ASSERT_EQ(fresh.status, Status::Drawn);
-        EXPECT_EQ(reused.drawing, fresh.drawing) << "dark=" << dark << " fit=" << fit;
-    }
+    const auto reused = engine_->Render(kCode, true, 300.0f);
+    const auto fresh = NewEngine()->Render(kCode, true, 300.0f);
+    ASSERT_EQ(reused.status, Status::Drawn);
+    ASSERT_EQ(fresh.status, Status::Drawn);
+    EXPECT_EQ(reused.drawing, fresh.drawing);
 }
 
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。
 TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[\"a &\"] --> B[円]", true, 800.0f, false);
+    const auto out = engine_->Render("flowchart LR\n  A[\"a &\"] --> B[円]", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     const std::string svg = DrawingToSvg(out.drawing);
     EXPECT_TRUE(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
@@ -321,7 +428,7 @@ TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
 // 数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ の文字にする。
 TEST_F(PeleEngineTest, DrawingToSvgWritesMathLabelsAsTex)
 {
-    const auto out = engine_->Render("flowchart LR\n  A[\"$$a<b$$\"]", false, 800.0f, false);
+    const auto out = engine_->Render("flowchart LR\n  A[\"$$a<b$$\"]", false, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     const std::string svg = DrawingToSvg(out.drawing);
     EXPECT_NE(svg.find("xml:space=\"preserve\">$$a&lt;b$$</text>"), std::string::npos) << svg;
@@ -467,4 +574,37 @@ TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
     masks.Reset(nullptr);
     Draw(canvas, { math.get(), 1 }, &masks);
     EXPECT_EQ(masks.Count(), 0u);
+}
+
+// 幅の上限に収まらない図の、表示の矩形と保存・コピーの画像の大きさ。幅は上限に合わせ、高さはブラウザのレイアウトと同じく
+// 1/64 px に切り捨ててから切り上げる。
+TEST_F(MathDrawTest, WideDiagramFitsDisplayRectAndExportedBitmap)
+{
+    constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]";
+    for (const float max_width : { 200.0f, 333.5f }) {
+        const auto out = engine_->Render(kWide, false, max_width);
+        ASSERT_EQ(out.status, Status::Drawn);
+        const float w = out.drawing.width;
+        const float h = out.drawing.height;
+        ASSERT_GT(w, max_width);
+        const float fit_w = std::ceil(std::floor(max_width * 64.0f) / 64.0f);
+        const float fit_h = std::ceil(std::floor(h * max_width / w * 64.0f) / 64.0f);
+
+        // 表示は端数のまま縮めるので、高さは切り上げた値と 1px 未満ずれる。
+        const D2D1_RECT_F rect = DiagramRect(w, h, 10.0f, max_width, 20.0f);
+        EXPECT_NEAR(rect.left, 10.0f, 0.001f);
+        EXPECT_NEAR(rect.right - rect.left, max_width, 0.001f);
+        EXPECT_EQ(rect.top, 20.0f);
+        EXPECT_NEAR(rect.bottom - rect.top, fit_h, 1.0f);
+
+        const auto size = mermaid_util::FittedDiagramSize(out.drawing, max_width);
+        for (const float dpr : { 1.0f, 1.5f }) {
+            const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), out.drawing, size, dpr, L"ja-jp");
+            ASSERT_NE(bitmap, nullptr);
+            UINT pw = 0, ph = 0;
+            ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&pw, &ph));
+            EXPECT_EQ(pw, static_cast<UINT>(std::ceil(fit_w * dpr))) << max_width;
+            EXPECT_EQ(ph, static_cast<UINT>(std::ceil(fit_h * dpr))) << max_width;
+        }
+    }
 }

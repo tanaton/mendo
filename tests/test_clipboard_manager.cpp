@@ -2,16 +2,17 @@
 #include "clipboard_manager.h"
 #include "document.h"
 #include "document_test_helpers.h"
+#include "i18n.h"
 #include "mermaid_renderer_interface.h"
-#include <optional>
+#include "mermaid_util.h"
+#include <memory>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace {
 
-// SVG リクエスト引数とコールバックを記録するモック。
+// 画像の要求の引数を記録するモック。画像は返さない。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
     bool RequestRender(const Node&, DiagramEntry&, float, bool) override
@@ -19,31 +20,17 @@ public:
         return false;
     }
 
-    void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback cb) override
+    Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override
     {
-        ++request_count;
-        last_code.assign(code);
+        ++bitmap_count;
+        last_drawing = &drawing;
         last_width = max_width;
-        last_dark = dark_mode;
-        callbacks.push_back(std::move(cb));
+        return nullptr;
     }
 
-    // index 番目 (既定は最後) の要求の結果を返す。結果は 1 回だけ返す。
-    void FireCallback(std::string_view svg, std::optional<size_t> index = {})
-    {
-        if (callbacks.empty()) {
-            return;
-        }
-        if (auto cb = std::exchange(callbacks[index.value_or(callbacks.size() - 1)], {})) {
-            cb(svg);
-        }
-    }
-
-    int request_count = 0;
-    std::string last_code;
+    int bitmap_count = 0;
+    const mermaid_util::DiagramDrawing* last_drawing = nullptr;
     float last_width = 0.0f;
-    bool last_dark = false;
-    std::vector<SvgCallback> callbacks;
 };
 
 constexpr float kDefaultMdWidth = 800.0f;
@@ -67,20 +54,15 @@ protected:
         return FindFirstNodeIndexByType(doc_.GetNodes(), type);
     }
 
-    void CopyDiagram(int node_index, float md_width = kDefaultMdWidth, bool dark = false)
-    {
-        manager_.CopyDiagramToClipboard(doc_, node_index, nullptr, md_width, dark);
-    }
-
     Document doc_;
     MockMermaidRenderer renderer_;
     std::vector<std::wstring> toasts_;
     ClipboardManager manager_;
+    std::shared_ptr<const mermaid_util::DiagramDrawing> drawing_ =
+        std::make_shared<const mermaid_util::DiagramDrawing>(mermaid_util::DiagramDrawing{ .width = 1200.0f, .height = 600.0f });
 };
 
-// ---- 入力検証 ----
-
-// 範囲外・種別違いのノードと、描いた絵の無い図は何もしない (トーストも出さず、図も頼まない)。
+// 範囲外・種別違いのノードと、描いた絵の無い図は何もしない (トーストも出さず、画像も描かない)。
 TEST_F(ClipboardManagerTest, InvalidTargetsAreNoOps)
 {
     Load("paragraph text");
@@ -90,78 +72,39 @@ TEST_F(ClipboardManagerTest, InvalidTargetsAreNoOps)
 
     const int code = Load("```cpp\nint main(){}\n```\n", NodeType::CodeBlock);
     ASSERT_GE(code, 0);
-    manager_.SaveDiagramAsPng(doc_, code, {});
+    manager_.SaveDiagramAsPng(doc_, code, drawing_, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard(doc_, code, drawing_, kDefaultMdWidth);
 
     const int diagram = Load(kMermaidMd);
     ASSERT_GE(diagram, 0);
-    manager_.SaveDiagramAsPng(doc_, -1, {});
-    manager_.SaveDiagramAsPng(doc_, 9999, {});
-    manager_.SaveDiagramAsPng(doc_, diagram, {});
-    CopyDiagram(-1);
-    CopyDiagram(9999);
+    manager_.SaveDiagramAsPng(doc_, -1, drawing_, kDefaultMdWidth);
+    manager_.SaveDiagramAsPng(doc_, 9999, drawing_, kDefaultMdWidth);
+    manager_.SaveDiagramAsPng(doc_, diagram, {}, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard(doc_, -1, drawing_, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard(doc_, 9999, drawing_, kDefaultMdWidth);
+    manager_.CopyDiagramToClipboard(doc_, diagram, {}, kDefaultMdWidth);
 
-    EXPECT_EQ(renderer_.request_count, 0);
+    EXPECT_EQ(renderer_.bitmap_count, 0);
     EXPECT_TRUE(toasts_.empty());
 }
 
-// ---- CopyDiagramToClipboard 主要パス ----
-
-// 図のコード・幅・ダークモードを渡して SVG を頼み、待つ間のトーストを出す。
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeWidthAndDarkModeToRenderer)
+// コピーは押したその場で終わる。画像は受け取った描画命令から本文の幅で描かせ、結果のトーストを 1 回だけ出す
+// (画像が無ければクリップボードに触れず、失敗と知らせる)。
+TEST_F(ClipboardManagerTest, CopyDiagramDrawsBitmapAtBodyWidthAndToastsOnce)
 {
-    const int cb_idx = Load("```mermaid\ngraph LR; X-->Y\n```\n");
-    ASSERT_GE(cb_idx, 0);
+    const int diagram = Load(kMermaidMd);
+    ASSERT_GE(diagram, 0);
 
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 1);
-    EXPECT_FALSE(toasts_.empty());
+    manager_.CopyDiagramToClipboard(doc_, diagram, drawing_, kDefaultMdWidth);
+    EXPECT_EQ(renderer_.bitmap_count, 1);
+    EXPECT_EQ(renderer_.last_drawing, drawing_.get());
     EXPECT_FLOAT_EQ(renderer_.last_width, kDefaultMdWidth);
-    EXPECT_FALSE(renderer_.last_dark);
-    EXPECT_TRUE(renderer_.last_code.contains("graph LR"));
-    renderer_.FireCallback({});
+    ASSERT_EQ(toasts_.size(), 1u);
+    EXPECT_EQ(toasts_[0], i18n::S().toast_diagram_copy_failed);
 
-    CopyDiagram(cb_idx, 1024.0f, true);
-    EXPECT_EQ(renderer_.request_count, 2);
+    // 同じ図を押し直しても、別の図を押しても、毎回その図を描いて知らせる。
+    manager_.CopyDiagramToClipboard(doc_, diagram, drawing_, 1024.0f);
+    EXPECT_EQ(renderer_.bitmap_count, 2);
     EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
-    EXPECT_TRUE(renderer_.last_dark);
-    renderer_.FireCallback({});
-}
-
-// 同じ図を待っている間に押し直しても頼み直さない。頼み直すと、待っている要求の結果が古い扱いになりトーストが出ない。
-// 結果 (描けなかったときも) が届いたら次の要求を受け付ける。
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardInFlightGuardBlocksReentry)
-{
-    const int cb_idx = Load(kMermaidMd);
-    ASSERT_GE(cb_idx, 0);
-
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 1);
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 1);
-
-    // 描けなかった結果で in-flight を解除する (svg_cache に何も入れない)。
-    const auto before = toasts_.size();
-    renderer_.FireCallback({});
-    EXPECT_EQ(toasts_.size(), before + 1);
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 2);
-}
-
-// 待っている間に別の図をコピーしたら、後から押した方に置き換える。先に頼んだ結果は書かず、トーストも出さない。
-TEST_F(ClipboardManagerTest, CopyOfAnotherDiagramReplacesPending)
-{
-    Load("```mermaid\ngraph TD; A-->B\n```\n\n```mermaid\ngraph TD; C-->D\n```\n");
-    const auto& diagrams = doc_.GetDiagramNodeIndices();
-    ASSERT_EQ(diagrams.size(), 2u);
-
-    CopyDiagram(static_cast<int>(diagrams[0]));
-    CopyDiagram(static_cast<int>(diagrams[1]));
-    ASSERT_EQ(renderer_.request_count, 2);
-    EXPECT_EQ(renderer_.last_code, "graph TD; C-->D");
-
-    const auto before = toasts_.size();
-    renderer_.FireCallback({}, 0);
-    EXPECT_EQ(toasts_.size(), before) << "置き換えた要求の結果";
-    renderer_.FireCallback({}, 1);
-    EXPECT_EQ(toasts_.size(), before + 1);
+    EXPECT_EQ(toasts_.size(), 2u);
 }

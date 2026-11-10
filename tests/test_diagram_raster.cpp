@@ -32,7 +32,7 @@ protected:
 
     ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing, float dpr = 1.0f)
     {
-        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, dpr, L"ja-jp");
+        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, { drawing.width, drawing.height }, dpr, L"ja-jp");
     }
 
     // 32bpp PBGRA の 1 画素を 0xAARRGGBB で返す。
@@ -82,6 +82,28 @@ TEST_F(DiagramRasterTest, DrawsShapesScaledByDprOnOpaqueBackground)
     EXPECT_EQ(Pixel(bitmap.Get(), 19, 10), 0xFF1E1E1Eu);
     EXPECT_EQ(Pixel(bitmap.Get(), 21, 10), 0xFFFF0000u);
     EXPECT_EQ(Pixel(bitmap.Get(), 39, 19), 0xFFFF0000u);
+}
+
+// 幅の上限に収まらない図の保存・コピーの画像は、縮めた大きさ x dpr の画素数で、図全体をその大きさに縮めて描く。
+TEST_F(DiagramRasterTest, DrawsWholeDrawingShrunkToGivenSize)
+{
+    const mermaid_util::DiagramDrawing drawing{
+        .width = 40.0f,
+        .height = 20.0f,
+        .background = 0x1E1E1E,
+        .layers = { { .shapes = R"svg(<rect x="20" y="0" width="20" height="20" fill="#ff0000"/>)svg" } },
+    };
+    const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, mermaid_util::FittedDiagramSize(drawing, 10.0f), 2.0f, L"ja-jp");
+    ASSERT_NE(bitmap, nullptr);
+    UINT w = 0;
+    UINT h = 0;
+    ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&w, &h));
+    EXPECT_EQ(w, 20u);
+    EXPECT_EQ(h, 10u);
+    // 図の右半分 (x=20〜40) は物理 px の 10〜20。下端まで背景か図形で埋まる。
+    EXPECT_EQ(Pixel(bitmap.Get(), 8, 9), 0xFF1E1E1Eu);
+    EXPECT_EQ(Pixel(bitmap.Get(), 11, 0), 0xFFFF0000u);
+    EXPECT_EQ(Pixel(bitmap.Get(), 19, 9), 0xFFFF0000u);
 }
 
 // 層の図形は図に 1 つの <defs> を参照できる。
@@ -225,8 +247,7 @@ protected:
         measurer_.emplace(dw_.Get(), L"ja-jp");
     }
 
-    std::optional<mermaid_util::DiagramDrawing> Resolve(std::string_view body, bool dark = false, float max_width = 800.0f,
-                                                        std::string_view root_class = "pele")
+    std::optional<mermaid_util::DiagramDrawing> Resolve(std::string_view body, bool dark = false, std::string_view root_class = "pele")
     {
         std::string svg = R"svg(<svg xmlns="http://www.w3.org/2000/svg" class=")svg";
         svg += root_class;
@@ -236,7 +257,7 @@ protected:
                R"svg(font-family:var(--pele-font,&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;)" fill="var(--_fg)">)svg";
         svg += body;
         svg += "</svg>";
-        return DrawingFromPeleSvg(svg, dark, max_width, *measurer_);
+        return DrawingFromPeleSvg(svg, dark, *measurer_);
     }
 
     float Width(std::wstring_view text, float size = 16.0f)
@@ -275,18 +296,18 @@ TEST_F(PeleSvgTest, LightThemeRecolorsPartsLikeMermaid)
         R"svg(<g class="pele-notes"><rect x="0" y="20" width="10" height="10" fill="var(--_a,#e6e6e6)"/></g>)svg"
         R"svg(<g class="pele-edge-label"><rect x="0" y="40" width="10" height="10" fill="var(--_bg)"/></g>)svg"
         R"svg(<g class="pele-activations"><rect x="0" y="60" width="10" height="10" fill="var(--_s)" stroke="var(--_b,#8a8a8a)"/></g>)svg";
-    const auto flowchart = Resolve(body, false, 800.0f, "pele pele-flowchart");
+    const auto flowchart = Resolve(body, false, "pele pele-flowchart");
     ASSERT_TRUE(flowchart);
     EXPECT_EQ(flowchart->layers[0].shapes,
               R"svg(<rect x="0" y="0" width="10" height="10" fill="#ffffbd" stroke="#aaaa33"/>)svg"
               R"svg(<rect x="0" y="20" width="10" height="10" fill="#fff5ad"/>)svg"
               R"svg(<rect x="0" y="40" width="10" height="10" fill="#e8e8e8" fill-opacity="0.8"/>)svg"
               R"svg(<rect x="0" y="60" width="10" height="10" fill="#f4f4f4" stroke="#666666"/>)svg");
-    const auto state = Resolve(body, false, 800.0f, "pele pele-state");
+    const auto state = Resolve(body, false, "pele pele-state");
     ASSERT_TRUE(state);
     EXPECT_NE(state->layers[0].shapes.find(R"svg(height="10" fill="#e6e6e6" stroke="#8a8a8a"/>)svg"), std::string::npos);
     EXPECT_NE(state->layers[0].shapes.find(R"svg(fill="#fff5ad")svg"), std::string::npos);
-    const auto dark = Resolve(body, true, 800.0f, "pele pele-flowchart");
+    const auto dark = Resolve(body, true, "pele pele-flowchart");
     ASSERT_TRUE(dark);
     for (const auto* color : { "#ffffbd", "#aaaa33", "#fff5ad", "#e8e8e8", "#f4f4f4" }) {
         EXPECT_EQ(dark->layers[0].shapes.find(color), std::string::npos) << color;
@@ -420,15 +441,17 @@ TEST_F(PeleSvgTest, StartsLayerOnlyWhenShapeCoversText)
     EXPECT_FALSE(over->layers[1].shapes.empty());
 }
 
-// ページと同じく max-width:100% で幅の上限まで縮める。
-TEST_F(PeleSvgTest, ShrinksToMaxWidth)
+// 根の max-width:100% では縮めず、縮めない大きさの描画命令にする (縮めるのは描くとき)。図形にも文字にも拡大率を書かない
+// ので、描くときに同じ拡大率が掛かる。
+TEST_F(PeleSvgTest, KeepsNaturalSizeDespiteMaxWidthStyle)
 {
-    const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="10"/>)svg", false, 100.0f);
+    const auto drawing = Resolve(R"svg(<rect x="0" y="0" width="10" height="10"/><text x="20" y="40">AB</text>)svg");
     ASSERT_TRUE(drawing);
-    EXPECT_EQ(drawing->width, 100.0f);
-    EXPECT_EQ(drawing->height, 50.0f);
-    EXPECT_NE(drawing->layers[0].shapes.find(R"svg(transform="matrix(0.5 0 0 0.5 0 0)")svg"), std::string::npos)
-        << drawing->layers[0].shapes;
+    EXPECT_EQ(drawing->width, 200.0f);
+    EXPECT_EQ(drawing->height, 100.0f);
+    EXPECT_EQ(drawing->layers[0].shapes, R"svg(<rect x="0" y="0" width="10" height="10" fill="#1f1f1f"/>)svg");
+    ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
+    EXPECT_EQ(drawing->layers[0].texts[0].at.transform, (std::array<float, 6>{ 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f }));
 }
 
 // 入れ子の svg (アイコン) は viewBox で縮め、currentColor は継承した color で塗る。
@@ -474,7 +497,7 @@ TEST_F(PeleSvgTest, RejectsUnsupportedOrMalformedSvg)
 {
     EXPECT_FALSE(Resolve(R"svg(<foreignObject x="0" y="0" width="10" height="10"/>)svg"));
     EXPECT_FALSE(Resolve("<g><rect/>"));
-    EXPECT_FALSE(DrawingFromPeleSvg("not svg", false, 800.0f, *measurer_));
+    EXPECT_FALSE(DrawingFromPeleSvg("not svg", false, *measurer_));
 }
 
 // pele は小さな箱の角丸を min() で縮める。

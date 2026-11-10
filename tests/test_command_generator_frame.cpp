@@ -2,6 +2,7 @@
 #include "cmd_gen_mock_test_base.h"
 #include "d2d_util.h"
 #include "hit_test_service.h"
+#include "chrome_layout.h"
 #include "pane_layout.h"
 #include "search_state.h"
 #include "test_nodes.h"

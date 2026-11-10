@@ -14,15 +14,25 @@ add_compile_options(/MP)
 # /GL: プログラム全体の最適化（コンパイル時にLTCGを有効化）
 # /Gy: 関数レベルリンク（リンカが未使用関数を除去可能にする）
 # /Gw: グローバルデータも COMDAT 化し、/OPT:REF で未使用分を除去させる
-add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/Gw>)
+# quickjs だけは /GL を付けない (理由は quickjs の節)。
+add_compile_options(
+    $<$<AND:$<CONFIG:Release>,$<NOT:$<STREQUAL:$<TARGET_PROPERTY:NAME>,quickjs>>>:/GL>
+    $<$<CONFIG:Release>:/Gy>
+    $<$<CONFIG:Release>:/Gw>
+)
 
 # /LTCG: リンク時コード生成
 # /OPT:REF: 未参照の関数/データを除去
 # /OPT:ICF: 同一COMDATの統合
+# /STACK: スレッドのスタックの予約を既定の 1MB から 8MB にする。QuickJS は JS の 1 呼び出しで C スタックを約 4.8KB 使い、
+#   1MB (JS に 512KB) では KaTeX が分数 3 段・行列 2 段の入れ子までしか描けなかった (PeleEngine の kJsStackBytes)。
+#   JS はワーカーでも、テストとベンチの主スレッドでも走るので、スレッドごとではなく exe の既定を変える。
+#   予約だけなので、空の文書でも test.md でも commit・private WS は変わらない (使った分だけコミットされる)。
 add_link_options(
     $<$<CONFIG:Release>:/LTCG>
     $<$<CONFIG:Release>:/OPT:REF>
     $<$<CONFIG:Release>:/OPT:ICF>
+    /STACK:8388608
 )
 
 # 静的ライブラリにもリンカが処理できるよう/LTCGが必要
@@ -78,6 +88,9 @@ target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
+# quickjs は /GL (LTCG) から外す。LTCG の下で組むと解釈実行が遅く、外すと test.md の図 27 個が 942 → 708ms、数式 978 個が
+# 1187 → 991ms になる (エンジン単体、2026-11-10)。リンクのたびのコード生成も無くなり mendo.exe のリンクが 8.2 → 6.5 秒、exe は 6.6KB 増える。
+# 外すのは先頭の add_compile_options の条件で行う (ここで /GL- を足すと、ファイルごとに警告 D9025 が出る)。
 # clang-cl で組むと test.md の図 27 個が 790 → 500ms、数式 978 個が 283 → 233ms に縮む (#411) が、MSVC に戻した。
 # 手元と CI で clang の版が揃わず (23.1.3 と 20.1.8)、無い環境では MSVC に落ちて速さが変わるのを管理する手間に対し、
 # 体感できる差は大きな図を描くときに限られるため。MSVC の /Ob3 は 3% で揺れの内だった。

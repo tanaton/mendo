@@ -7,9 +7,11 @@
 #include <expected>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 class KatexAssets;
@@ -46,11 +48,11 @@ public:
     PeleEngine(const PeleEngine&) = delete;
     PeleEngine& operator=(const PeleEngine&) = delete;
 
-    // fit は本文と同じく max_width まで縮める。拡大表示とクリップボードは縮めずに図の大きさのまま描く。
+    // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
     // ラベルの $$...$$ は KaTeX で描く。
-    // pele の出力 (SVG とラベルの数式) はテーマにも fit にも依らないので覚えておき、テーマの切り替えや縮めた図の拡大表示では
-    // JS を走らせずに解き直すだけにする (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
-    PeleOutcome Render(std::string_view code, bool dark, float max_width, bool fit = true);
+    // pele の出力 (SVG とラベルの数式) はテーマに依らないので覚えておき、テーマの切り替えでは JS を走らせずに解き直すだけにする
+    // (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
+    PeleOutcome Render(std::string_view code, bool dark, float max_width);
 
     struct MathSource {
         std::string_view tex;
@@ -89,10 +91,21 @@ private:
     std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
     std::shared_ptr<const PeleSvg> FindSvg(uint64_t key);
     void StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg);
+    // 覚えていなければ nullopt。KaTeX が描けなかった TeX は null を覚えている。
+    std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
+    void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);
 
     // 図の数は文書の図の数ほどで足りる。大きさは pele の SVG の合計で抑える (図 1 個は数 KB〜数十 KB)。
     static constexpr size_t kMaxSvgEntries = 64;
     static constexpr size_t kMaxSvgBytes = 4u * 1024 * 1024;
+    // KaTeX の HTML は 1 式 0.5〜2.2KB (分数や添字だけの式〜根号・行列・積分の式)。数式 978 個 (HTML 0.54MB) の文書を
+    // 最後まで読むと commit +0.8MB (1.8%)・private WS +0.8MB (3.5%)、963 個 (2.16MB) で +2.6MB (5.3%)・+2.5MB (9.7%)。
+    // 実際の増分は数えた量の約 1.15〜1.2 倍で、上限いっぱいだと commit 約 9%・private WS 約 17% 増える。private WS の 1 割に
+    // 収まるのは 2MB だが、根号や行列の多い式は約 840 個で溢れ、溢れると全部捨てるのでズームに効かなくなる。4MB (同じ式で
+    // 約 1700 個、軽い式で約 6000 個) はユーザーが選んだ。
+    static constexpr size_t kMaxHtmlBytes = 4u * 1024 * 1024;
+    // 表の節・文字列の本体・共有の管理ブロックの見込み。描けない TeX (HTML なし) だけでも表が膨らみ続けないように数える。
+    static constexpr size_t kHtmlEntryBytes = 128;
 
     std::span<const std::byte> pele_bytecode_;
     std::span<const std::byte> katex_bytecode_;
@@ -107,4 +120,9 @@ private:
     // (コード, 幅の上限) → pele の出力。
     std::mutex svg_mutex_;
     TranspositionCache<uint64_t, std::shared_ptr<const PeleSvg>, kMaxSvgEntries> svgs_;
+    // TeX のハッシュ → KaTeX の HTML。KaTeX に渡すのは TeX だけで、文字の大きさは配置にしか使わないので、ズームや
+    // 見出しと本文の同じ式では JS を走らせずに配置だけをやり直す (根号や行列の多い 707 式で 650 → 32ms。BM_MathRender)。
+    std::mutex html_mutex_;
+    std::unordered_map<uint64_t, std::shared_ptr<const std::string>> htmls_;
+    size_t html_bytes_ = 0;
 };

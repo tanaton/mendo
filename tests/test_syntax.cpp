@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -1090,4 +1091,213 @@ TEST(SyntaxSequence, TokenStartCharsReachTheirBranches)
     ExpectTokenSequence("=begin\na\n=end", Ruby, { { "=begin\na\n=end", Comment } });
     ExpectTokenSequence("rem a", Cmd, { { "rem a", Comment } });
     ExpectTokenSequence("REM a", Cmd, { { "REM a", Comment } });
+}
+
+namespace {
+
+// begin から後ろで始まるトークン。begin がトークンの途中なら nullopt。
+std::optional<std::vector<SyntaxToken>> TokensFrom(const std::vector<SyntaxToken>& tokens, size_t begin)
+{
+    const auto first = std::ranges::upper_bound(tokens, begin, {}, [](const SyntaxToken& t) { return size_t{ t.start } + t.length; });
+    if (first != tokens.end() && first->start < begin) {
+        return std::nullopt;
+    }
+    return std::vector<SyntaxToken>(first, tokens.end());
+}
+
+// begin での状態から解析を始めた結果。状態は、先頭から解析したときに残るものを使う。
+std::vector<SyntaxToken> ResumeAt(std::string_view text, SyntaxLanguage language, size_t begin)
+{
+    SyntaxStateTrace trace;
+    const size_t wanted[]{ begin };
+    TokensCrossing(text, language, wanted, 0, &trace);
+    std::vector<SyntaxToken> resumed;
+    AppendTokens(text, language, resumed, begin, trace.For(begin).state);
+    return resumed;
+}
+
+// 区切ったコードの続きのノードは、行の頭から、そこでの状態だけを頼りに解析する。トークンの外にあるどの行の頭から
+// 始めても、先頭から解析したのと同じトークンになること。
+void ExpectResumableAtLineStarts(SyntaxLanguage language, std::string_view text)
+{
+    SCOPED_TRACE(static_cast<int>(language));
+    const auto full = Tokenize(text, language);
+    size_t checked = 0;
+    for (size_t newline = text.find('\n'); newline != std::string_view::npos; newline = text.find('\n', newline + 1)) {
+        const size_t begin = newline + 1;
+        const auto expected = TokensFrom(full, begin);
+        if (!expected) {
+            continue;
+        }
+        ASSERT_TRUE(ResumeAt(text, language, begin) == *expected) << "begin=" << begin << " 続き=" << text.substr(begin, 40);
+        ++checked;
+    }
+    EXPECT_GT(checked, 3u);
+}
+
+} // namespace
+
+TEST(SyntaxResume, Html)
+{
+    constexpr std::string_view kTags = "<div\n  class=\"a b\"\n  id='x1'\n  data-n=1\n  hidden>text &amp; more</div>\n"
+                                       "<img src=\"x.png\"\n     alt=\"multi\nline\"/>\n<!-- a\n     comment -->\n<p>after</p>\n";
+    const std::string html = std::format(
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<style>\n.a > b {{\n  color: red;\n  margin: 0 auto;\n}}\n@media (max-width: 600px) {{\n"
+        "  .c,\n  .d {{ padding: 1px 2em; }}\n}}\n</style>\n<script\n  type=\"module\">\nfor (let i = 0; i < n; i++) {{\n  total += f(i, \"s\"); // c\n}}\n"
+        "/* block\n   comment */ const x = `t\n u`;\n</script>\n<style></style>\n</head>\n<body>\n{}</body>\n</html>\n",
+        kTags);
+    ExpectResumableAtLineStarts(SyntaxLanguage::Html, html);
+    ExpectResumableAtLineStarts(SyntaxLanguage::Xml, kTags);
+    // 閉じタグの無い <script> / <style> は末尾まで中身。
+    ExpectResumableAtLineStarts(SyntaxLanguage::Html, "<script>\nlet a = 1;\nif (a < 2) {\n  f();\n}\n// end\n");
+    ExpectResumableAtLineStarts(SyntaxLanguage::Html, "<style>\n.a {\n  color: red;\n}\n.b {\n  top: 0;\n");
+}
+
+TEST(SyntaxResume, CssAndScss)
+{
+    constexpr std::string_view kCss = "@import url(foo.css);\n.a {\n  color: red;\n  margin: 0 auto;\n  .b,\n  .c {\n    width: calc(100% - 2px);\n  }\n"
+                                      "  font-family: \"A\",\n    serif;\n}\n@media screen and (min-width: 10px) {\n  #d { left: -2em !important; }\n}\n"
+                                      "/* comment\n   more */\n.e { color: blue; }\n";
+    ExpectResumableAtLineStarts(SyntaxLanguage::Css, kCss);
+    ExpectResumableAtLineStarts(SyntaxLanguage::Scss, kCss);
+    ExpectResumableAtLineStarts(SyntaxLanguage::Scss, "$w: 10px;\n.a {\n  // line comment\n  $x: 1;\n  &:hover { top: $w; }\n  @include m(1px);\n}\n@mixin m($a) {\n  left: $a;\n}\n");
+}
+
+TEST(SyntaxResume, Yaml)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Yaml,
+                                "name: test\nscript: |\n  echo key: value # not a comment\n  - item: 12\n\n  more\nafter: 1\nitems:\n  - text: >-\n"
+                                "      folded: line \"x\"\n      next\n  - n: 2\n  - |\n   indented\nkey: [a, b]\n--- \nlast: ~\n");
+}
+
+TEST(SyntaxResume, Toml)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Toml,
+                                "[server]\nhost = \"localhost\"\nlist = [\n  { name = \"a\", n = 1, on = true },\n  [1, 2.5,\n   1979-05-27],\n"
+                                "  \"text = not a key\",\n]\nkey = 2\nt = { a = [1, 2], b = \"s\" }\nstr = \"\"\"\nmulti\n\"\"\"\n[[item]]\nname = \"x\"\n");
+}
+
+TEST(SyntaxResume, Lisp)
+{
+    constexpr std::string_view kCode = "(defun f (x &optional y)\n  \"Doc.\"\n  (cond\n    ((= x 1) (foo \"s\" 1))\n    ((bar x) nil)\n    (t (baz))))\n"
+                                       "(let (\n      (v1 (compute 1))\n      (v2 'sym)\n     )\n  (message \"%d\" v1))\n(defvar\n  name\n  (list 1 2))\n"
+                                       "(defun\n  g\n  (a b)\n  (h a))\n'(a\n  b)\n(next\n  1)\n";
+    for (const SyntaxLanguage language : { SyntaxLanguage::EmacsLisp, SyntaxLanguage::CommonLisp, SyntaxLanguage::Scheme, SyntaxLanguage::Clojure }) {
+        ExpectResumableAtLineStarts(language, kCode);
+    }
+}
+
+// 入れ子の深さごとの印 (cond の節や束縛リストは呼び出しではない) は内側の 16 段だけを持ち越す。16 段より外側にある印は
+// 忘れるので、そこまで抜けた後の cond の節を呼び出しとして色付けする。
+TEST(SyntaxResume, LispKeepsInnermostSixteenLevels)
+{
+    const auto code_with_depth = [](int inner) {
+        std::string code = "(cond\n";
+        for (int i = 0; i < inner; ++i) {
+            code += "((a\n";
+        }
+        code += "x\n";
+        code += std::string(static_cast<size_t>(inner) * 2, ')');
+        code += "\n(clause 1)\n)\n";
+        return code;
+    };
+    // cond の段と合わせて 15 段。
+    ExpectResumableAtLineStarts(SyntaxLanguage::EmacsLisp, code_with_depth(7));
+
+    const std::string deep = code_with_depth(8);
+    const size_t innermost = deep.find("x\n");
+    const auto full = Tokenize(deep, SyntaxLanguage::EmacsLisp);
+    const auto resumed = ResumeAt(deep, SyntaxLanguage::EmacsLisp, innermost);
+    const auto is_clause = [&](const SyntaxToken& t) { return deep.substr(t.start, t.length) == "clause"; };
+    EXPECT_TRUE(std::ranges::none_of(full, is_clause));
+    EXPECT_TRUE(std::ranges::any_of(resumed, is_clause));
+}
+
+TEST(SyntaxResume, Diff)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Diff,
+                                "diff --git a/x.sql b/x.sql\nindex 1..2\n--- a/x.sql\n+++ b/x.sql\n@@ -1,3 +1,3 @@\n--- old sql comment\n+++ new sql comment\n"
+                                " context\n-removed\n+added\ndiff --git a/y b/y\n--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b\n");
+}
+
+TEST(SyntaxResume, Vim)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Vim,
+                                "let g:a = 1 \" comment\nlua << EOF\nlocal t = { 1, \"s\" } -- comment\n--[[ long\n     comment ]] print(t)\nEOF\n"
+                                "let lines =<< trim END\n  some text \" not a comment\n  let x = 1\n  END\npython3 << EOF\nlet x = \"y\"\nEOF\n"
+                                "function! F(a)\n  return a:a\nendfunction\nlua << EOF\nprint(1)\n");
+    // ```vim と書いた Vim9 script。# がコメントで、閉じていない " はコメントではない。
+    constexpr std::string_view kVim9 = "vim9script\nvar name = \"value\" # trailing comment\n# full line comment\ndef F(n: number): string\n  return \"x\n"
+                                       "enddef\n";
+    ExpectResumableAtLineStarts(SyntaxLanguage::Vim, kVim9);
+    ExpectResumableAtLineStarts(SyntaxLanguage::Vim9, kVim9);
+}
+
+TEST(SyntaxResume, Makefile)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Makefile,
+                                "CC = gcc\nSRCS = first.c \\\n    name.c \\\n    last.c\nall: a b\n    @echo $(CC) -o out: file=x > log.txt\n"
+                                "    $(CC) a.c && \\\n        echo \"done: x\" \\\n        more\n\n    rm -f $@ # comment\nifeq ($(X),1)\nX = 1\nendif\n"
+                                "clean: dep \\\n       dep2\n    rm x\n");
+}
+
+// 継続行の途中から始めると、残りは変数参照とコメントだけを色付けする。ターゲットの名前が 2 行目まで続く行では
+// 名前に色が付かないが、続く行がレシピになることは持ち越す。
+TEST(SyntaxResume, MakefileTargetNameOnContinuationLineIsPlain)
+{
+    constexpr std::string_view kCode = "first \\\n  second: dep\n    echo $(X)\n";
+    const size_t line2 = kCode.find("  second");
+    const auto full = Tokenize(kCode, SyntaxLanguage::Makefile);
+    const auto resumed = ResumeAt(kCode, SyntaxLanguage::Makefile, line2);
+    const size_t recipe = kCode.find("    echo");
+    EXPECT_NE(TokensFrom(full, line2), resumed);
+    EXPECT_EQ(TokensFrom(full, recipe), TokensFrom(resumed, recipe));
+    EXPECT_FALSE(TokensFrom(resumed, recipe)->empty());
+}
+
+TEST(SyntaxResume, Dockerfile)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Dockerfile,
+                                "FROM alpine AS build\n# comment\nRUN apk update && \\\n    add-pkg \"name\" && \\\n    run --flag from as copy\nCOPY a b\n"
+                                "ENV A=1 \\\n    B=2\nRUN echo \"multi \\\n    line\" && \\\n    true\n");
+}
+
+// 状態を持たない言語は、状態 0 のままどの行の頭からでも始められる。
+TEST(SyntaxResume, StatelessLanguages)
+{
+    ExpectResumableAtLineStarts(SyntaxLanguage::Ini, "[section]\nkey = \"value\"\n; comment\nn: 12\n[other]\nx = true\n");
+    ExpectResumableAtLineStarts(SyntaxLanguage::Haskell, "module M where\n{- nested {- comment -}\n   continues -}\nmain :: IO ()\nmain = putStrLn \"x\" -- c\n#if X\nf x = 1\n");
+    ExpectResumableAtLineStarts(SyntaxLanguage::Cpp, "#include <a>\nint f() { return 1; } // c\n/* block\n   comment */ #define X\nconst char* s = \"a\";\n");
+}
+
+// IsLineLocalLanguage の言語は、行の頭で区切ったコードの並びを前から解析せずに済ませる (AnnotateCodeChunkLeads)。
+// トークンが改行をまたがず、どの行の頭から状態なしで始めても同じ結果になること。言語を足したら断片も見直す。
+TEST(SyntaxResume, LineLocalLanguagesNeedNoState)
+{
+    constexpr std::string_view kPieces[] = {
+        "[", "]", "=", ":", ";", "#", "\"", "'", " ", " ", "\t", "\n", "\n", "\n", "key", "1.5", "true", "\\", "値",
+    };
+    for (int l = 0; l <= kLastLanguage; ++l) {
+        const auto language = static_cast<SyntaxLanguage>(l);
+        if (!IsLineLocalLanguage(language)) {
+            continue;
+        }
+        for (uint32_t seed = 0; seed < 200; ++seed) {
+            std::mt19937 rng(seed);
+            std::string text;
+            for (size_t i = rng() % 200; i > 0; --i) {
+                text += kPieces[rng() % std::size(kPieces)];
+            }
+            const auto full = Tokenize(text, language);
+            for (const auto& t : full) {
+                ASSERT_FALSE(GetTokenText(text, t).contains('\n')) << std::format("language={} seed={} text={}", l, seed, utf8_fuzz::HexEscape(text));
+            }
+            for (size_t newline = text.find('\n'); newline != std::string::npos; newline = text.find('\n', newline + 1)) {
+                std::vector<SyntaxToken> resumed;
+                AppendTokens(text, language, resumed, newline + 1);
+                ASSERT_TRUE(resumed == TokensFrom(full, newline + 1))
+                    << std::format("language={} seed={} begin={} text={}", l, seed, newline + 1, utf8_fuzz::HexEscape(text));
+            }
+        }
+    }
 }

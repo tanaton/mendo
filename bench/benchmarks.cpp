@@ -287,6 +287,8 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, js_calls, "js", "a.b(c,d);")->UseManualTime
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, html, "html", kHtmlSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, yaml, "yaml", kYamlSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTime()->Unit(benchmark::kMillisecond);
+// 行の中で完結する言語。行の頭で区切った並びは、続きのノードのための字句解析をしない。
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, ini, "ini", "[section]\nkey = \"value\"\n; comment\ncount = 12\nflag: true\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 
 void BM_NormalizeSource(benchmark::State& state)
 {
@@ -1211,6 +1213,44 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
 }
 BENCHMARK_CAPTURE(BM_MathFrameDraw, fractions, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_MathFrameDraw, shapes, true)->Unit(benchmark::kMicrosecond);
+
+// 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
+// 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
+// HTML の合計は約 1.5MB で、PeleEngine が覚える上限 (4MB) に収まる。
+void BM_MathRender(benchmark::State& state, bool resized)
+{
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    const auto doc = Document::FromMarkdown(InlineMathMd(64) + ShapeMathMd(160), L"bench.md");
+    InlineMathPlan plan;
+    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), GetLightTheme());
+    std::vector<PeleEngine::MathSource> sources;
+    for (const auto& chunk : plan.Chunks()) {
+        for (const auto& item : chunk.items) {
+            sources.push_back({ item.tex, 16.0f });
+        }
+    }
+    auto bigger = sources;
+    for (auto& s : bigger) {
+        s.font_size = 20.0f;
+    }
+    const PeleEngine::MathSource warmup{ "\\sqrt{\\text{あ}}", 16.0f };
+    size_t drawn = 0;
+    for (auto _ : state) {
+        const auto engine = assets.NewEngine(SharedDWriteFactory());
+        engine->RenderMaths({ &warmup, 1 });
+        const double first = SecondsOf([&] { drawn = std::ranges::count_if(engine->RenderMaths(sources), [](const auto& m) { return m != nullptr; }); });
+        const double again = SecondsOf([&] { benchmark::DoNotOptimize(engine->RenderMaths(bigger)); });
+        state.SetIterationTime(resized ? again : first);
+    }
+    state.counters["maths"] = static_cast<double>(sources.size());
+    state.counters["drawn"] = static_cast<double>(drawn);
+}
+BENCHMARK_CAPTURE(BM_MathRender, first, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_MathRender, resized, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
 // 大きな表 (evict 前提) の計測。ワーカー 8 本。
 class TableMeasure : public benchmark::Fixture {

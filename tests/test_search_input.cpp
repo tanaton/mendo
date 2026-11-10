@@ -5,7 +5,7 @@
 #include "draw_cmd_test_util.h"
 #include "render_params.h"
 #include "test_helpers.h"
-#include "ui_constants.h"
+#include "chrome_layout.h"
 #include <algorithm>
 #include <string>
 #include <utility>

@@ -33,7 +33,8 @@ public:
     // 9: 図の text-decoration:line-through と calc() の足し引きを描くようにした。
     // 10: ライトの配色を mermaid の既定のテーマに寄せた。
     // 11: 図のコードのハッシュを FNV-1a から rapidhash に、幅を混ぜる係数を kGoldenRatio64 に替え、ファイル名が変わった。
-    static constexpr uint32_t VERSION = 11;
+    // 12: 幅の上限に収まらない図も、縮めない大きさの描画命令で置く (縮めるのは描くとき)。索引の寸法も縮めない大きさ。
+    static constexpr uint32_t VERSION = 12;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();

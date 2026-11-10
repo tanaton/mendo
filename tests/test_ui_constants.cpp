@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <format>
 #include <iterator>
+#include "chrome_layout.h"
+#include "pane_layout.h"
 #include "ui_constants.h"
 
 // ═══════════════════════════════════════════════

@@ -57,7 +57,6 @@ constexpr std::wstring_view i18n::Strings::* kStringFields[] = {
     &i18n::Strings::toast_file_read_failed,
     &i18n::Strings::toast_image_saved,
     &i18n::Strings::toast_image_save_failed,
-    &i18n::Strings::toast_diagram_copying,
     &i18n::Strings::toast_diagram_copied,
     &i18n::Strings::toast_diagram_copy_failed,
     &i18n::Strings::toast_diagram_view_failed,

@@ -12,8 +12,7 @@ struct MathDrawing;
 
 namespace mermaid_util {
 
-uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
-// NodeDiagramHash のうちノードのテキストだけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
+// 図のキーのうちノードのテキストだけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
 // 結果を待つ図を要求し直すたびに計算し直す。DiagramEntry に覚えておくのは #434 でやめた。test.md の図 28 個 (29KB) を
 // 全部引いても 0.9µs で、コードを替えたら覚えた値を捨てるという約束のほうが重い。
 uint64_t DiagramCodeHash(const Node& node) noexcept;
@@ -93,7 +92,7 @@ struct DrawingLayer {
 // pele の SVG から作った描画命令。
 // 層は SVG の文書の順の重なりを保つためのもの。図形がその層の文字と重なるときだけ、次の層を始める。
 struct DiagramDrawing {
-    float width = 0.0f; // 図の大きさ (CSS px、切り上げ済み)
+    float width = 0.0f; // 図の縮めない大きさ (CSS px、切り上げ済み)。幅の上限より広いことがある
     float height = 0.0f;
     uint32_t background = 0; // 0xRRGGBB
     std::string defs;        // 層の図形が参照する <defs> の中身 (グラデーション)
@@ -114,5 +113,15 @@ std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
 size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
+
+// 図を描く大きさ (CSS px)。
+struct DiagramSize {
+    float width = 0.0f;
+    float height = 0.0f;
+};
+// 幅の上限 max_width に収まらない図を、縦横比を保って上限まで縮めた大きさ (切り上げ済み)。収まる図はそのまま。
+// 保存・コピーの画像の大きさ。ブラウザが SVG の max-width:100% で縮めたときのレイアウトと同じく、1/64 px に切り捨ててから
+// 切り上げる (837x520 を幅 800 にすると高さ 497.013 → 497)。本文の表示は端数のまま縮める (DiagramRect)。
+DiagramSize FittedDiagramSize(const DiagramDrawing& drawing, float max_width) noexcept;
 
 } // namespace mermaid_util

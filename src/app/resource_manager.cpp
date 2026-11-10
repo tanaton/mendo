@@ -104,7 +104,10 @@ void ResourceManager::LoadImages()
     const auto request = [this](const DeliveredImages& delivered) {
         InlineImageUpdate update;
         ApplyCachedImagesIn(PrioritizedSlices(state_.document.doc.GetImageNodeIndices()), &delivered, update);
-        image_loader_.CancelStaleBitmapRequests();
+        // 頼み直していない走査の後で取り消すと、進行中のデコードの結果まで捨てる。
+        if (!host_.IsLoadingOtherDocument()) {
+            image_loader_.CancelStaleBitmapRequests();
+        }
         return update;
     };
     const InlineImageUpdate update = request(image_loader_.TakeDelivered());
@@ -284,9 +287,10 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!delivered) {
         return;
     }
+    const bool may_request = !host_.IsLoadingOtherDocument();
     if (!needs_bitmap) {
         // 届いたビットマップも捨て、範囲に入ったら読み直す。
-        if (!info) {
+        if (!info && may_request) {
             image_loader_.RequestSizeAsync(*abs_path);
         }
         return;
@@ -297,6 +301,9 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
             bitmap = received;
             update.bitmaps_changed = true;
         }
+        return;
+    }
+    if (!may_request) {
         return;
     }
     // 描くビットマップが無ければ読む (保持範囲の外や別の文書から戻ったときは寸法が残っているので組み直さない)。
@@ -325,7 +332,8 @@ void ResourceManager::NotifyInlineImages(const InlineImageUpdate& update)
 void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
 {
     const float content_width = MdContentWidth(state_);
-    if (content_width <= 0.0f) {
+    // 図は届いた結果の反映も RequestRender が行うので、読み込み中に届いた結果は差し替えずに終わった後の要求で反映する。
+    if (content_width <= 0.0f || host_.IsLoadingOtherDocument()) {
         return;
     }
 

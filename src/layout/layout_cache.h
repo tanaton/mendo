@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "pane_layout.h"
 #include "ui_constants.h"
 #include <cmath>
 #include <cstdint>
@@ -483,8 +482,8 @@ struct DiagramEntry : DiagramResult {
         static_cast<DiagramResult&>(*this) = std::move(r);
         stale = false;
     }
-    // 保存・コピーの元があるか (ボタンを出すか)。仮表示の絵は前のコード・幅・テーマのもので、コピーの SVG
-    // (今の幅・テーマで描く) と食い違うので、描き直すまでボタンを出さない。
+    // 保存・コピーの元があるか (ボタンを出すか)。仮表示の絵は前のコード・幅・テーマのもので、いまの文書の図と
+    // 食い違うので、描き直すまでボタンを出さない。
     bool CanExport() const noexcept
     {
         return HasImage() && drawing && !stale;
@@ -690,17 +689,6 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, float margin
         return 0.0f;
     }
     return cache.Bottom(cache.size() - 1) + margin_bottom;
-}
-
-// 本文ペインの縦スクロールバー。描画 (つまみ) とヒット判定 (バーの上か) で同じものを使う。
-struct MdScrollbar {
-    PaneScrollInfo info;
-    // 計測待ちのノードがあり、内容が伸びうる (ShowsVScrollbar)。
-    bool may_grow = false;
-};
-inline MdScrollbar MdPaneScrollbar(const LayoutCache& cache, const PaneRect& md_rect, float margin_bottom) noexcept
-{
-    return { ComputeScrollInfo(md_rect, 0.0f, ComputeTotalContentHeight(cache, margin_bottom)), cache.HasDirtyNodes() };
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。

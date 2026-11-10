@@ -80,7 +80,6 @@ struct Strings {
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
     std::wstring_view toast_image_save_failed;
-    std::wstring_view toast_diagram_copying;
     std::wstring_view toast_diagram_copied;
     std::wstring_view toast_diagram_copy_failed;
     std::wstring_view toast_diagram_view_failed;
@@ -157,7 +156,6 @@ inline constexpr Strings kJa = {
     .toast_file_read_failed = L"ファイルの読み込みに失敗しました",
     .toast_image_saved = L"画像を保存しました",
     .toast_image_save_failed = L"画像の保存に失敗しました",
-    .toast_diagram_copying = L"クリップボードにコピー中...",
     .toast_diagram_copied = L"クリップボードにコピーしました",
     .toast_diagram_copy_failed = L"コピーに失敗しました",
     .toast_diagram_view_failed = L"図を開けませんでした",
@@ -223,7 +221,6 @@ inline constexpr Strings kEn = {
     .toast_file_read_failed = L"Failed to read file",
     .toast_image_saved = L"Image saved",
     .toast_image_save_failed = L"Failed to save image",
-    .toast_diagram_copying = L"Copying to clipboard...",
     .toast_diagram_copied = L"Copied to clipboard",
     .toast_diagram_copy_failed = L"Copy failed",
     .toast_diagram_view_failed = L"Could not open the diagram",
@@ -289,7 +286,6 @@ inline constexpr Strings kZh = {
     .toast_file_read_failed = L"读取文件失败",
     .toast_image_saved = L"已保存图像",
     .toast_image_save_failed = L"保存图像失败",
-    .toast_diagram_copying = L"正在复制到剪贴板...",
     .toast_diagram_copied = L"已复制到剪贴板",
     .toast_diagram_copy_failed = L"复制失败",
     .toast_diagram_view_failed = L"无法打开图表",
@@ -355,7 +351,6 @@ inline constexpr Strings kZhHant = {
     .toast_file_read_failed = L"無法讀取檔案",
     .toast_image_saved = L"已儲存圖片",
     .toast_image_save_failed = L"無法儲存圖片",
-    .toast_diagram_copying = L"正在複製到剪貼簿...",
     .toast_diagram_copied = L"已複製到剪貼簿",
     .toast_diagram_copy_failed = L"複製失敗",
     .toast_diagram_view_failed = L"無法開啟圖表",
@@ -421,7 +416,6 @@ inline constexpr Strings kKo = {
     .toast_file_read_failed = L"파일을 읽지 못했습니다",
     .toast_image_saved = L"이미지를 저장했습니다",
     .toast_image_save_failed = L"이미지를 저장하지 못했습니다",
-    .toast_diagram_copying = L"클립보드에 복사하는 중...",
     .toast_diagram_copied = L"클립보드에 복사했습니다",
     .toast_diagram_copy_failed = L"복사하지 못했습니다",
     .toast_diagram_view_failed = L"다이어그램을 열 수 없습니다",

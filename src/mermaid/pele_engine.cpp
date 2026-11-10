@@ -3,6 +3,7 @@
 #include "string_convert.h"
 #include "utility.h"
 #include <quickjs.h>
+#include <algorithm>
 #include <bit>
 #include <format>
 #include <optional>
@@ -13,9 +14,28 @@ using namespace std::literals;
 
 namespace {
 
-// QuickJS のスタックの上限。ワーカーは既定の 1MB のスタックで動く。pele は 60 段の入れ子の subgraph や
-// 1000 ノードの鎖でも 512KB で足りた。残りは測定器から呼ぶ DirectWrite に残す。
-constexpr size_t kJsStackBytes = 512 * 1024;
+// QuickJS に使わせる C スタックの上限。JS の 1 呼び出しが約 4.8KB を使い、KaTeX は入れ子 1 段で分数・上付き約 100KB、
+// 根号約 90KB、行列約 140KB を使う。512KB (スタックが 1MB だった頃の半分) では分数 3 段・行列 2 段までしか描けなかった。
+// 4MB で分数 38 段・行列 28 段。pele は 60 段の入れ子の subgraph や 1000 ノードの鎖でも 512KB で足りる。
+// スレッドのスタックは 8MB にしてある (CMakeLists.txt の /STACK)。使ったスタックはスレッドが終わるまでコミットされたまま
+// なので、上限まで使う式を描いたワーカーは 1 本あたり 4MB 残る (普通の式は 1MB に届かない)。
+constexpr size_t kJsStackBytes = 4 * 1024 * 1024;
+// JS の中から呼ぶ測定器の DirectWrite に残す分。JS を出た後の配置 (LayoutKatexHtml の再帰) は JS が使った量の 1 割に
+// 満たない (4MB いっぱいの式で 0.35MB) ので、JS の上限が配置の深さも抑える。
+constexpr size_t kNativeStackBytes = 512 * 1024;
+
+// このスレッドで JS に使わせるスタック。スタックの小さいスレッド (/STACK を付けずに組んだ exe など) でも本物の
+// スタックオーバーフローにせず、描けない式・図として返させる。
+size_t JsStackBudget() noexcept
+{
+    ULONG_PTR low = 0;
+    ULONG_PTR high = 0;
+    GetCurrentThreadStackLimits(&low, &high);
+    const size_t free_bytes = reinterpret_cast<ULONG_PTR>(&high) - low;
+    // 0 は QuickJS では上限なしになるので渡さない。
+    return std::clamp<size_t>(free_bytes > kNativeStackBytes ? free_bytes - kNativeStackBytes : 0, 1, kJsStackBytes);
+}
+
 // 壊れたコードで止まらずに確保し続けても、プロセスを道連れにしない。
 constexpr size_t kJsMemoryBytes = 256 * 1024 * 1024;
 
@@ -197,6 +217,7 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
             // 前に別のスレッドで使ったランタイムでも、このスレッドのスタックで上限を測らせる。
             if (context->rt) {
                 JS_UpdateStackTop(context->rt);
+                JS_SetMaxStackSize(context->rt, JsStackBudget());
             }
             return context;
         }
@@ -218,7 +239,7 @@ bool PeleEngine::EnsureRuntime(PeleContext& context)
         if (!context.rt) {
             return false;
         }
-        JS_SetMaxStackSize(context.rt, kJsStackBytes);
+        JS_SetMaxStackSize(context.rt, JsStackBudget());
         JS_SetMemoryLimit(context.rt, kJsMemoryBytes);
         JS_SetInterruptHandler(context.rt, CheckCancel, &cancel_);
     }
@@ -368,6 +389,10 @@ std::shared_ptr<const MathDrawing> PeleEngine::LayoutHtml(std::string_view html,
 
 std::shared_ptr<const MathDrawing> PeleEngine::LayoutMath(PeleContext& context, std::string_view tex, float font_size)
 {
+    const uint64_t key = RapidHash(tex);
+    if (const auto known = FindHtml(key)) {
+        return *known ? LayoutHtml(**known, font_size) : nullptr;
+    }
     if (!EnsureKatex(context)) {
         return nullptr;
     }
@@ -377,16 +402,43 @@ std::shared_ptr<const MathDrawing> PeleEngine::LayoutMath(PeleContext& context, 
     JS_FreeValue(ctx, arg);
     if (JS_IsException(html)) {
         JS_FreeValue(ctx, JS_GetException(ctx));
+        // 取り消しで止めた式は TeX の誤りではないので覚えない。
+        if (!Cancelled()) {
+            StoreHtml(key, nullptr);
+        }
         return nullptr;
     }
     std::shared_ptr<const MathDrawing> out;
     size_t length = 0;
     if (const char* s = JS_ToCStringLen(ctx, &length, html)) {
-        out = LayoutHtml({ s, length }, font_size);
+        auto kept = std::make_shared<const std::string>(s, length);
         JS_FreeCString(ctx, s);
+        out = LayoutHtml(*kept, font_size);
+        StoreHtml(key, std::move(kept));
     }
     JS_FreeValue(ctx, html);
     return out;
+}
+
+std::optional<std::shared_ptr<const std::string>> PeleEngine::FindHtml(uint64_t key)
+{
+    const std::lock_guard lock(html_mutex_);
+    const auto it = htmls_.find(key);
+    return it == htmls_.end() ? std::nullopt : std::optional{ it->second };
+}
+
+void PeleEngine::StoreHtml(uint64_t key, std::shared_ptr<const std::string> html)
+{
+    const size_t bytes = kHtmlEntryBytes + (html ? html->size() : 0);
+    const std::lock_guard lock(html_mutex_);
+    // 古い順を持たずに全部捨てる。上限は文書 1 つの数式が収まる大きさなので、超えるのは文書を渡り歩いた後。
+    if (html_bytes_ + bytes > kMaxHtmlBytes) {
+        htmls_.clear();
+        html_bytes_ = 0;
+    }
+    if (htmls_.insert_or_assign(key, std::move(html)).second) {
+        html_bytes_ += bytes;
+    }
 }
 
 std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::span<const MathSource> maths)
@@ -439,7 +491,7 @@ void PeleEngine::StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg)
     svgs_.TrimToBudget(kMaxSvgBytes, [](const std::shared_ptr<const PeleSvg>& s) static noexcept { return s->svg.size(); });
 }
 
-PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, bool fit)
+PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width)
 {
     using Status = PeleOutcome::Status;
     if (Cancelled()) {
@@ -463,7 +515,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         }
     }
     if (svg) {
-        auto drawing = DrawingFromPeleSvg(svg->svg, dark, fit ? max_width : 0.0f, *context->measurer, svg->labels);
+        auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
         if (drawing) {
             out.drawing = std::move(*drawing);

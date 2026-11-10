@@ -50,7 +50,7 @@ public:
     // 測った高さを返す。測れなければ nullopt (例外と同じく再試行しない)。
     // entry にはレイアウトなどの計測の産物だけを書き、高さと dirty の確定は MeasureEntry (CommitMeasured) に任せる。
     // 並列計測では worker ごとに別ノード・別 entry を渡す。
-    // ビットマップを描くノード (IsBitmapDrawNode) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
+    // 図のノード (NodeType::Diagram) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
     virtual std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const = 0;
     // dirty でないテーブルの、viewport (エントリ上端からのローカル座標) 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
@@ -73,7 +73,7 @@ protected:
 inline void MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* bitmap)
 {
-    const std::optional<float> height = IsBitmapDrawNode(node)
+    const std::optional<float> height = node.type == NodeType::Diagram
                                             ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, measurer.GetTheme())
                                             : measurer.MeasureNode(node, entry, node_width);
     if (height) {

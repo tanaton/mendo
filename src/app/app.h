@@ -198,6 +198,10 @@ private:
     {
         ::KillTimer(hwnd_, std::to_underlying(id));
     }
+    bool IsLoadingOtherDocument() const noexcept override
+    {
+        return reload_.IsLoadingOther();
+    }
     void ShowToast(std::wstring_view message);
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
     static void ShellOpenAsync(std::wstring target);

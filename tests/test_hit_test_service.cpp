@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
+#include "document_utils.h"
 #include "hit_test_service.h"
-#include "selection_html.h"
 #include "mock_text_measurer.h"
+#include "chrome_layout.h"
 #include "syntax.h"
 #include "ui_constants.h"
 #include "ui_types.h"

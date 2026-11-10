@@ -12,7 +12,6 @@
 #include "document_utils.h"
 #include "hit_test_service.h"
 #include "layout_computer.h"
-#include "selection_html.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <string_view>

@@ -173,6 +173,15 @@ std::string_view TocHeadingText(const Node& heading, std::string& scratch)
     return scratch;
 }
 
+namespace {
+
+// node の pos を含む run。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の offset。
+// base は run の start を node のテキストの位置に直す差 (表のセルの開始位置)。無ければ (セルの区切り文字も) run は null。
+struct NodeRunHit {
+    const TextRun* run = nullptr;
+    uint32_t base = 0;
+};
+
 NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
 {
     const auto* tbl = node.table_data();
@@ -189,6 +198,28 @@ NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
         return {};
     }
     return { RunContaining(tbl->CellRuns(idx), pos - base), base };
+}
+
+} // namespace
+
+std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
+{
+    const auto link_urls = node.view_link_urls();
+    const TextRun* run = FindRunAt(node, text_pos).run;
+    if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
+        return std::nullopt;
+    }
+    const auto index = static_cast<uint32_t>(run->link_url_index);
+    return LinkHit{ link_urls[index], index };
+}
+
+std::optional<ImageHit> FindImageHitAtPosition(const Node& node, uint32_t text_pos)
+{
+    const auto [run, base] = FindRunAt(node, text_pos);
+    if (!run || !run->image()) {
+        return std::nullopt;
+    }
+    return ImageHit{ node.image_src(*run), ImageAlt(node.GetText().substr(base), *run), base + run->start };
 }
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
@@ -229,12 +260,12 @@ namespace {
 
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
-    // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
+    // 続きのコードの色分けは、前のノードから続くトークン (code_lead_*) と字句解析を始める状態 (code_lex_state) でも決まる。
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
         a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
         a.heading_level != b.heading_level || a.code_language != b.code_language || a.flags_ != b.flags_ ||
         a.list_number() != b.list_number() ||
-        a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
+        a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type() || a.code_lex_state() != b.code_lex_state()) {
         return false;
     }
     const auto* at = a.table_data();
@@ -302,19 +333,18 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
 {
     const std::string_view text = node.GetText();
     const uint32_t lead = node.code_lead_length();
-    if (lead == 0) {
+    const SyntaxLexState state = node.code_lex_state();
+    if (lead == 0 && state == 0) {
         return Tokenize(text, node.code_language);
     }
     // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
-    // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外から解析を始めたのと同じになる。
-    const std::string_view rest = text.substr(lead);
+    // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外からその状態で解析を始めたのと同じになる。
     std::vector<SyntaxToken> tokens;
-    tokens.reserve(rest.size() / 32 + 1);
-    tokens.push_back({ 0, lead, node.code_lead_type() });
-    AppendTokens(rest, node.code_language, tokens);
-    for (auto& t : std::span{ tokens }.subspan(1)) {
-        t.start += lead;
+    tokens.reserve((text.size() - lead) / 32 + 1);
+    if (lead > 0) {
+        tokens.push_back({ 0, lead, node.code_lead_type() });
     }
+    AppendTokens(text, node.code_language, tokens, lead, state);
     return tokens;
 }
 
@@ -323,6 +353,11 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     MENDO_PROFILE("AnnotateCodeChunkLeads");
     const size_t n = run.size();
     if (n < 2) {
+        return;
+    }
+    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い (16MB の INI のパースが 79 → 56ms)。
+    // 長い 1 行を途中で区切った並びは解析する。
+    if (IsLineLocalLanguage(run.front().code_language) && std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk)) {
         return;
     }
     std::vector<size_t> begins(n);
@@ -341,10 +376,12 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     constexpr size_t kWindowNodes = 8;
     std::string seg;
     std::vector<size_t> boundaries;
+    SyntaxStateTrace trace;
     // next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
-    // (トークンの先頭か、どのトークンにも入らない位置)。
+    // (トークンの先頭か、どのトークンにも入らない位置) で、restart_state はそこでの状態。
     size_t next = 1;
     size_t restart = 0;
+    SyntaxLexState restart_state = 0;
     size_t window = kWindowNodes;
     while (next < n) {
         const size_t last = std::min(n, next + window);
@@ -359,26 +396,38 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         for (size_t k = next; k < last; ++k) {
             boundaries.push_back(begins[k] - restart);
         }
-        const auto tokens = TokensCrossing(seg, run.front().code_language, boundaries);
+        const auto tokens = TokensCrossing(seg, run.front().code_language, boundaries, restart_state, &trace);
 
-        // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、その先頭から解析し直す。
-        size_t limit = end;
-        if (last < n && !tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
-            limit = restart + tokens.back().start;
+        // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、解析を始め直せる位置から次の窓を読む。
+        // 先読みが窓の端に届いた所から後ろも、続きを読むまで決まらない。
+        SyntaxStateTrace::Point stop = trace.SettledEnd();
+        if (last == n) {
+            stop.pos = end - restart;
         }
+        else if (!tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
+            if (const auto again = trace.RestartFor(tokens.back().start); again.pos < stop.pos) {
+                stop = again;
+            }
+        }
+        const size_t limit = restart + stop.pos;
         size_t t = 0;
         for (; next < last && begins[next] <= limit; ++next) {
             const size_t b = begins[next];
             while (t < tokens.size() && restart + tokens[t].start + tokens[t].length <= b) {
                 ++t;
             }
+            // 続くトークンがあれば、その後ろから解析を始める。
+            size_t resume = b;
+            SyntaxTokenType lead_type = SyntaxTokenType::Plain;
             if (t < tokens.size() && restart + tokens[t].start < b) {
-                const size_t token_end = restart + tokens[t].start + tokens[t].length;
-                run[next].set_code_lead(static_cast<uint32_t>(std::min(token_end, run_end(next)) - b), tokens[t].type);
+                resume = std::min(restart + tokens[t].start + tokens[t].length, run_end(next));
+                lead_type = tokens[t].type;
             }
+            run[next].set_code_lead(static_cast<uint32_t>(resume - b), lead_type, trace.For(b - restart).state);
         }
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
         window = limit == restart ? window * 2 : kWindowNodes;
+        restart_state = stop.state;
         restart = limit;
     }
 }
