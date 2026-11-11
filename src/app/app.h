@@ -373,7 +373,7 @@ private:
     std::chrono::steady_clock::time_point last_inline_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
-    FileWatcher file_watcher_;
+    FileWatcher file_watcher_{ &scheduler_ };
     ConfigService& config_;
     ThemeService theme_service_;
     // 起動時の読み込み (preload) も Init より前にここで始め、通知先は LoadInitialDocument の Attach で渡す。
