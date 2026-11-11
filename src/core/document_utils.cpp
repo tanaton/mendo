@@ -421,12 +421,12 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
                 }
                 // 状態を残した位置は継ぎ目かその後ろ。
                 const auto point = trace.For(b);
-                size_t pos = point.pos;
+                size_t candidate = point.pos;
                 if (const auto after = std::ranges::upper_bound(tokens, b, {}, &SyntaxToken::start); after != tokens.begin()) {
-                    pos = std::max(pos, size_t{ std::prev(after)->start } + std::prev(after)->length);
+                    candidate = std::max(candidate, size_t{ std::prev(after)->start } + std::prev(after)->length);
                 }
-                if (pos <= latest) {
-                    stop = { pos, point.state };
+                if (candidate <= latest) {
+                    stop = { candidate, point.state };
                     break;
                 }
             }
