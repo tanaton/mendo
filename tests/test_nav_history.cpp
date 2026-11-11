@@ -139,6 +139,47 @@ TEST_F(NavHistoryTest, ChainedGoBackRollsBackTogether)
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
+// 開けなかった移動先だけを外す。続けて押した分の手前の履歴と、反対側の履歴は残す。
+TEST_F(NavHistoryTest, FailPendingDropsOnlyTheTarget)
+{
+    hist_.Push({ L"w.md", 0, 0.0f });
+    hist_.Push({ L"x.md", 1, 0.0f });
+    hist_.Push({ L"y.md", 2, 0.0f });
+
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    ASSERT_EQ(out.file_path, L"x.md");
+    hist_.FailPending();
+    EXPECT_EQ(hist_.BackSize(), 2u);
+    EXPECT_FALSE(hist_.CanGoForward());
+
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"y.md");
+    hist_.CommitOpened({ L"a.md", 3, 0.0f });
+    ASSERT_TRUE(hist_.GoBack({ L"y.md", 2, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"w.md");
+    hist_.CommitOpened({ L"y.md", 2, 0.0f });
+
+    // 進む側も同じ。
+    ASSERT_TRUE(hist_.GoForward({ L"w.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"y.md");
+    hist_.FailPending();
+    ASSERT_TRUE(hist_.GoForward({ L"w.md", 0, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"a.md");
+}
+
+// 開くのに失敗したときと、確定待ちが無いときは、取り消すだけで履歴を減らさない。
+TEST_F(NavHistoryTest, FailPendingWithoutTraverseOnlyRollsBack)
+{
+    hist_.Push({ L"x.md", 1, 0.0f });
+    hist_.FailPending();
+    EXPECT_EQ(hist_.BackSize(), 1u);
+    hist_.PushPending({ L"a.md", 2, 0.0f });
+    hist_.FailPending();
+    EXPECT_EQ(hist_.BackSize(), 1u);
+}
+
 // ─── ロード中に表示中の文書の中で移動 ───
 
 namespace {

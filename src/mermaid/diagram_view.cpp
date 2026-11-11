@@ -642,8 +642,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
     case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL: {
         // ホイールはスクロール (GitHub と同じ)。Shift で横。倍率はボタンとキーで変える。
-        UINT lines = 3;
-        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+        const UINT lines = WheelScrollLines();
         const float notches = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
         const bool horizontal = msg == WM_MOUSEHWHEEL || (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT);
         const float step = lines == WHEEL_PAGESCROLL ? (horizontal ? view_width_ : view_height_) * kPageRatio : kLineStep * static_cast<float>(lines);

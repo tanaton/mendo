@@ -128,6 +128,24 @@ TEST_F(ReducerTest, MouseWheel_ScrollsMdPane)
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
+// OS の「一度にスクロールする行数」に比例させ、「1 画面ずつ」は PageDown と同じだけ進める。
+TEST_F(ReducerTest, MouseWheel_FollowsSystemScrollLines)
+{
+    Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = 6 });
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll * 2);
+
+    Reduce(state, MouseWheelAction{ .delta = WHEEL_DELTA, .scroll_lines = 6 });
+    Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = 0 });
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+
+    Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = WHEEL_PAGESCROLL });
+    const float paged = state.view.viewport.GetScrollY();
+    state.view.viewport.SetScrollY(0.0f);
+    Reduce(state, KeyScrollAction{ ScrollType::PageDown });
+    EXPECT_GT(paged, 0.0f);
+    EXPECT_FLOAT_EQ(paged, state.view.viewport.GetScrollY());
+}
+
 TEST_F(ReducerTest, MouseWheel_ClampedAtMax)
 {
     auto effects = Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA * 1000 });
@@ -873,6 +891,16 @@ TEST_F(ReducerTest, VWheel_CancelsSwipeOverlay)
     ASSERT_NE(kill, nullptr);
     EXPECT_EQ(kill->id, app_timer::Id::SWIPE_OVERLAY);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// Shift+ホイールは横スクロールできるブロックを送るだけで、ブロックの外では履歴のスワイプに数えない。
+TEST_F(ReducerTest, ShiftWheel_OutsideScrollableBlockDoesNotSwipe)
+{
+    for (uint64_t i = 0; i < 8; ++i) {
+        EXPECT_TRUE(Reduce(state, HWheelAction{ 120, 1000 + i * 10, /*swipe=*/false }).empty());
+    }
+    EXPECT_FALSE(state.interaction.swipe_detector.IsOverlayVisible());
+    EXPECT_FALSE(HasEffect<effect::LoadFile>(Reduce(state, SwipeOverlayTimeoutAction{})));
 }
 
 // 直後の水平ホイールは軸ロックで無視する。
@@ -1705,7 +1733,7 @@ TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
 
 // 戻る先のファイルが削除済み等でロードに失敗した場合、その復元情報が次に開く別ファイルへ
 // 持ち越されると、無関係なノード位置へスクロールする。
-// 履歴も戻る前に戻す (残すと、進むで今いるファイルへ「移動」するだけになる)。
+// 履歴も戻る前に戻し (残すと、進むで今いるファイルへ「移動」するだけになる)、開けなかった戻り先だけを外す。
 TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"C:\\current.md");
@@ -1715,7 +1743,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     ASSERT_TRUE(state.view.HasPendingScroll());
 
     Reduce(state, LoadFailedAction{});
-    EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+    EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
 
     // 続けてユーザーが別ファイルを開き、ロードに成功する。
@@ -1724,6 +1752,23 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     Reduce(state, DocumentOpenedAction{});
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+}
+
+// 戻る先が開けなかったら、その履歴だけを外す。残すと、戻るを押すたびに同じファイルで失敗し、その先へ戻れない。
+TEST_F(ReducerTest, LoadFailed_DropsUnopenableEntrySoBackReachesOlderOnes)
+{
+    SetDocument(state, "# C", L"C:\\c.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\a.md", 0, 0.0f });
+    state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 0, 0.0f });
+
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
+    ASSERT_EQ(FindEffect<effect::LoadFile>(effects)->path, L"C:\\deleted.md");
+    Reduce(state, LoadFailedAction{});
+
+    effects = Reduce(state, NavigateHistoryAction{ .forward = false });
+    const auto* load = FindEffect<effect::LoadFile>(effects);
+    ASSERT_NE(load, nullptr);
+    EXPECT_EQ(load->path, L"C:\\a.md");
 }
 
 // 開けなかったファイルの分の履歴は取り消す。残すと戻る履歴に現在位置が重複し、進む履歴も消える。
@@ -1957,7 +2002,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
 }
 
 // 開く (ロード中) → 別ファイルへ戻る: 開く分を取り消して戻る先をロードする。
-// 失敗なら戻る前の履歴に戻り、成功なら戻る先の位置へ復元して進む履歴に元の位置が残る。
+// 失敗なら開けなかった戻り先だけを履歴から外し、成功なら戻る先の位置へ復元して進む履歴に元の位置が残る。
 TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
 {
     for (const bool succeed : { false, true }) {
@@ -1973,7 +2018,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
 
         if (!succeed) {
             Reduce(state, LoadFailedAction{});
-            EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+            EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
             EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
             EXPECT_FALSE(state.view.HasPendingScroll());
             continue;
@@ -2009,7 +2054,7 @@ TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
 }
 
 // ファイルをまたいで戻るを続けると、ロード中の移動先を起点にもう 1 段戻る。
-// 失敗すると連続した戻るはまとめて取り消す。
+// 失敗すると連続した戻るはまとめて取り消し、最後に開こうとした b だけを履歴から外す。
 TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
 {
     for (const bool succeed : { false, true }) {
@@ -2024,8 +2069,9 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
 
         if (!succeed) {
             Reduce(state, LoadFailedAction{});
-            EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
+            EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
             EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+            EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = false })), L"C:\\c.md");
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");

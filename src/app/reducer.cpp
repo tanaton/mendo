@@ -230,14 +230,25 @@ void NotifyVWheel(ReduceContext& c, uint64_t tick)
 void ReduceWheelScroll(ReduceContext& c, const MouseWheelAction& a)
 {
     NotifyVWheel(c, a.tick);
-    const float amount = -static_cast<float>(a.delta) * MOUSE_WHEEL_SCROLL_MULTIPLIER;
+    // 行数の設定に従う (図の拡大表示と同じ)。「1 画面ずつ」はキーの PageDown と同じ量にする。
+    const auto amount = [&](float page_height) {
+        // 既定の行数は割り算をせずに返す (ホイールの Reduce は数 ns の差が 1 割に当たる)。
+        if (a.scroll_lines == DEFAULT_WHEEL_SCROLL_LINES) {
+            return -static_cast<float>(a.delta) * MOUSE_WHEEL_SCROLL_MULTIPLIER;
+        }
+        const float per_delta = a.scroll_lines == WHEEL_PAGESCROLL
+                                    ? page_height * SCROLL_PAGE_FACTOR / WHEEL_DELTA
+                                    : MOUSE_WHEEL_SCROLL_MULTIPLIER * static_cast<float>(a.scroll_lines) / DEFAULT_WHEEL_SCROLL_LINES;
+        return -static_cast<float>(a.delta) * per_delta;
+    };
     const auto pane = ToPaneTarget(a.zone);
     if (!pane) {
-        c.state.view.viewport.DirectScrollBy(amount, MdMaxScroll(c.state));
+        const auto info = MdScrollInfo(c.state);
+        c.state.view.viewport.DirectScrollBy(amount(info.content_height), info.max_scroll);
         return;
     }
     const auto ctx = GetSidePaneContext(c.state, *pane);
-    if (c.state.view.panes.ScrollSidePaneBy(*pane, amount, ctx.info.max_scroll)) {
+    if (c.state.view.panes.ScrollSidePaneBy(*pane, amount(ctx.info.content_height), ctx.info.max_scroll)) {
         Invalidate(c);
     }
 }
@@ -254,6 +265,9 @@ void On(ReduceContext& c, const HWheelAction& a)
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
         SetBlockScrollX(c, c.state.view.GetBlockScrollX(geom) + dx, geom);
+        return;
+    }
+    if (!a.swipe) {
         return;
     }
 
@@ -1126,6 +1140,7 @@ void On(ReduceContext& c, const ReloadSettledAction&)
 
 void On(ReduceContext& c, const LoadFailedAction&)
 {
+    c.state.view.nav_history.FailPending();
     DiscardPendingLoad(c.state);
 }
 

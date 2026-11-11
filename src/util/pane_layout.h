@@ -249,7 +249,9 @@ constexpr bool InVScrollbarHitX(float x, float right_edge) noexcept
     return x >= VScrollbarLeftX(right_edge) - PANE_SCROLLBAR_HIT_PADDING && x <= right_edge - PANE_SCROLLBAR_MARGIN;
 }
 
+// ホイールの生の delta に掛ける DIP。OS の既定の 3 行で 1 ノッチ 96 DIP になり、行数の設定に比例させる。
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
+inline constexpr unsigned DEFAULT_WHEEL_SCROLL_LINES = 3;
 
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 

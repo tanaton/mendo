@@ -25,6 +25,14 @@ inline bool IsKeyDown(int vk) noexcept
     return (GetKeyState(vk) & 0x8000) != 0;
 }
 
+// OS の「一度にスクロールする行数」。WHEEL_PAGESCROLL なら 1 画面ずつ。読めなければ Windows の既定の 3 行。
+inline UINT WheelScrollLines() noexcept
+{
+    UINT lines = 3;
+    SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+    return lines;
+}
+
 // リソースはプロセスのアドレス空間にマップされておりコピー不要。
 inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
 {
