@@ -137,7 +137,7 @@ constexpr ThemeColor kThemeColors[]{
     { BrushId::BlockquoteBar, Rgb(0xdfe2e5), Rgb(0x505050) },
     // 引用と h6 の薄い文字色。ライトは GitHub の fgColor-muted。ダークは背景が GitHub (#0d1117) と違うので、
     // GitHub の #9198a1 ではなく本文と同じ無彩色の灰色にしている。
-    { BrushId::BlockquoteText, Rgb(0x59636e), Rgb(0x9e9e9e) },
+    { BrushId::MutedText, Rgb(0x59636e), Rgb(0x9e9e9e) },
 
     Shared(BrushId::CodeBg, &SharedColors::code_bg),
     Shared(BrushId::CodeText, &SharedColors::code_text),

@@ -111,14 +111,14 @@ TEST_F(HighlightOrderTest, QuotedBlocksUseBlockquoteTextColor)
         SCOPED_TRACE(md);
         const auto ids = brushes(md);
         ASSERT_FALSE(ids.empty());
-        EXPECT_EQ(std::ranges::count(ids, BrushId::BlockquoteText), std::ssize(ids));
+        EXPECT_EQ(std::ranges::count(ids, BrushId::MutedText), std::ssize(ids));
     }
     for (const char* md : { "- item", "1. item", "| a | b |\n|---|---|\n| 1 | 2 |", "## Head", "##### h5", "> [!NOTE]\n> - item\n>\n> | a |\n> |---|\n> | 1 |",
                             "> ```\n> code\n> ```" }) {
         SCOPED_TRACE(md);
         const auto ids = brushes(md);
         ASSERT_FALSE(ids.empty());
-        EXPECT_EQ(std::ranges::count(ids, BrushId::BlockquoteText), 0);
+        EXPECT_EQ(std::ranges::count(ids, BrushId::MutedText), 0);
     }
 }
 

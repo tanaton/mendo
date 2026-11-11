@@ -180,7 +180,7 @@ private:
     // 一辺 size の正方形に、枠と山と太陽の絵 (画像のアイコン) を描く。寸法は一辺 16 の格子で決める。
     void DrawBrokenImageIcon(float x, float y, float size) const noexcept
     {
-        auto* b = BrushOr(BrushId::BlockquoteText);
+        auto* b = BrushOr(BrushId::MutedText);
         const float k = size / 16.0f;
         const float stroke = std::max(1.2f * k, 1.0f);
         const auto at = [&](float px, float py) { return D2D1::Point2F(x + px * k, y + py * k); };

@@ -758,12 +758,12 @@ bool UsesBlockquoteText(const Node& node) noexcept
 BrushId GetNodeBaseBrush(const Node& node) noexcept
 {
     if (UsesBlockquoteText(node)) {
-        return BrushId::BlockquoteText;
+        return BrushId::MutedText;
     }
     switch (node.type) {
     case NodeType::Heading:
         // GitHub は h6 だけ引用と同じ薄い色にしている。
-        return node.heading_level == 6 ? BrushId::BlockquoteText : BrushId::Heading;
+        return node.heading_level == 6 ? BrushId::MutedText : BrushId::Heading;
     case NodeType::CodeBlock:
         return BrushId::CodeText;
     case NodeType::Paragraph:
@@ -1187,7 +1187,7 @@ struct MdPaneEmitter : CmdWriter {
         GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
         const bool failed = !error.empty();
         Text(failed ? error : std::wstring_view{ i18n::S().loading }, formats.placeholder_text.Get(), D2D1::Point2F(x, y), D2D1::SizeF(w, h),
-             failed ? BrushId::AlertCaution : BrushId::BlockquoteText);
+             failed ? BrushId::AlertCaution : BrushId::MutedText);
     }
 
     // selection はテーブル全体の選択範囲 (concat_text 上の UTF-8 byte)。

@@ -18,7 +18,8 @@ enum class BrushId : uint8_t {
     Link,
     Hr,
     BlockquoteBar,
-    BlockquoteText,
+    // 薄い文字色。引用の中・h6・図の読み込み中の文字・読めない画像のアイコン。
+    MutedText,
     Selection,
     TableStripe,
     // SyntaxTokenType の Keyword 以降と同じ順 (SyntaxBrushId)。

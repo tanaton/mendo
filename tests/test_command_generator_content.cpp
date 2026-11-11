@@ -246,7 +246,7 @@ TEST_F(CmdGenContentTest, ListInBlockQuoteStartsWithDisc)
 {
     const auto cmds = Generate("> - a\n>   - b");
     // 記号は引用の文字色 (GitHub は blockquote の色を li が継承する)。
-    const auto quoted = [](const auto& r) static { return r.brush_id == BrushId::BlockquoteText && r.radius > 0.0f; };
+    const auto quoted = [](const auto& r) static { return r.brush_id == BrushId::MutedText && r.radius > 0.0f; };
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, quoted), 1);
     EXPECT_EQ(CountCmd<DrawRoundedRectCmd>(cmds, quoted), 1);
 }
