@@ -748,15 +748,25 @@ void EmitSidePanes(CmdWriter w, const SidePaneFormats& fmts, const Theme& theme,
 
 namespace {
 
+// 引用の文字色で描くノードか。GitHub は blockquote に色を指定し、中の p・li・th・td・h1〜h5 は色を持たないので継承する
+// (リストの記号や表のヘッダ行も)。pre は自分の色を持つので変わらない。アラートは blockquote ではないので通常の色。
+bool UsesBlockquoteText(const Node& node) noexcept
+{
+    return node.quote_depth > 0 && node.alert_type == AlertType::None && node.type != NodeType::CodeBlock;
+}
+
 BrushId GetNodeBaseBrush(const Node& node) noexcept
 {
+    if (UsesBlockquoteText(node)) {
+        return BrushId::MutedText;
+    }
     switch (node.type) {
     case NodeType::Heading:
-        return BrushId::Heading;
-    case NodeType::Paragraph:
-        return (node.quote_depth > 0 && node.alert_type == AlertType::None) ? BrushId::BlockquoteText : BrushId::Text;
+        // GitHub は h6 だけ引用と同じ薄い色にしている。
+        return node.heading_level == 6 ? BrushId::MutedText : BrushId::Heading;
     case NodeType::CodeBlock:
         return BrushId::CodeText;
+    case NodeType::Paragraph:
     case NodeType::HorizontalRule:
     case NodeType::ListItem:
     case NodeType::Table:
@@ -944,7 +954,7 @@ struct MdPaneEmitter : CmdWriter {
         const float icon_size = theme.font_size_body;
         const float cb_x = x - theme.list_bullet_offset;
         Text(icon, formats.checkbox.Get(), D2D1::Point2F(cb_x, entry_text_top),
-             D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), BrushId::Text);
+             D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), GetNodeBaseBrush(node));
     }
 
     void GenHorizontalRule(float x, float w, float entry_text_top)
@@ -1026,12 +1036,14 @@ struct MdPaneEmitter : CmdWriter {
     void GenListBullet(const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
     {
         const float first_line_h = GetFirstLineHeight(entry, theme.font_size_body);
+        // 記号と番号は本文と同じ色 (引用の中では引用の文字色)。
+        const BrushId brush = GetNodeBaseBrush(node);
         if (node.list_ordered()) {
             std::array<wchar_t, kListNumberMaxLen> num_buf;
             Text(FormatListNumber(num_buf, node.list_number(), node.list_depth()), formats.list_number.Get(),
                  D2D1::Point2F(x - theme.list_bullet_offset - LIST_NUMBER_PAD_RIGHT, entry_text_top),
                  D2D1::SizeF(theme.list_bullet_offset + LIST_NUMBER_PAD_RIGHT - LIST_NUMBER_PAD_LEFT, first_line_h),
-                 BrushId::Text);
+                 brush);
             return;
         }
 
@@ -1042,19 +1054,19 @@ struct MdPaneEmitter : CmdWriter {
         const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, dpi_scale);
         switch (ListStyleIndex(node.list_depth(), kListBulletStyles)) {
         case 0:
-            out.emplace_back(FillRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, BrushId::Text });
+            out.emplace_back(FillRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, brush });
             break;
         case 1:
-            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, 1.0f, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, r), r, 1.0f, brush });
             break;
         case 2:
-            out.emplace_back(FillRectCmd{ SquareAround(bullet_x, bullet_y, h), BrushId::Text });
+            out.emplace_back(FillRectCmd{ SquareAround(bullet_x, bullet_y, h), brush });
             break;
         default: {
             // 線は辺を中心に引かれるので、太さを物理ピクセルの整数にして半分だけ内側に引き、■ と同じ外形で画素に揃える。
             const float stroke = std::max(1.0f, std::round(dpi_scale)) / dpi_scale;
             const float e = h - stroke * 0.5f;
-            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, e), 0.0f, stroke, BrushId::Text });
+            out.emplace_back(DrawRoundedRectCmd{ SquareAround(bullet_x, bullet_y, e), 0.0f, stroke, brush });
             break;
         }
         }
@@ -1175,7 +1187,7 @@ struct MdPaneEmitter : CmdWriter {
         GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
         const bool failed = !error.empty();
         Text(failed ? error : std::wstring_view{ i18n::S().loading }, formats.placeholder_text.Get(), D2D1::Point2F(x, y), D2D1::SizeF(w, h),
-             failed ? BrushId::AlertCaution : BrushId::BlockquoteText);
+             failed ? BrushId::AlertCaution : BrushId::MutedText);
     }
 
     // selection はテーブル全体の選択範囲 (concat_text 上の UTF-8 byte)。
@@ -1217,6 +1229,8 @@ struct MdPaneEmitter : CmdWriter {
         const float table_width = tl.TableWidth();
 
         const auto selection = p.selection.RangeIn(node_index, node.GetText().size());
+        const BrushId cell_brush = GetNodeBaseBrush(node);
+        const BrushId header_brush = UsesBlockquoteText(node) ? cell_brush : BrushId::Heading;
 
         // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
         // (FindTableRow と同じパターン)。巨大テーブルで
@@ -1255,7 +1269,7 @@ struct MdPaneEmitter : CmdWriter {
                     if (selection.end > selection.start) {
                         GenCellSelection(*tbl, r, c, cell_layout, selection, text_x, text_y);
                     }
-                    out.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, text_y), cell_layout, row_h, is_header_row ? BrushId::Heading : BrushId::Text, visible));
+                    out.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, text_y), cell_layout, row_h, is_header_row ? header_brush : cell_brush, visible));
                 }
             }
             y += row_h + border;
