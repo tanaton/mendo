@@ -175,12 +175,18 @@ TEST_F(FileWatcherTest, StartWatchingWithoutFolderStopsWatching)
 
 class ImageFolderWatcherTest : public TempDirTestBase {
 protected:
+    void TearDown() override
+    {
+        scheduler_.Shutdown();
+        TempDirTestBase::TearDown();
+    }
+
     // 通知を待って調べ、更新された画像が出たら返す。出なければ空。
     std::vector<std::wstring> WaitForChanges(ImageFolderWatcher& watcher, std::chrono::milliseconds timeout = std::chrono::seconds(5))
     {
         std::vector<std::wstring> changed;
         PollUntil([&] {
-            HANDLE events[ImageFolderWatcher::kMaxFolders];
+            HANDLE events[ImageFolderWatcher::kMaxEvents];
             if (const size_t count = watcher.EventHandles(events)) {
                 WaitForMultipleObjects(static_cast<DWORD>(count), events, FALSE, 20);
             }
@@ -191,10 +197,71 @@ protected:
     }
     size_t EventCount(const ImageFolderWatcher& watcher)
     {
-        HANDLE events[ImageFolderWatcher::kMaxFolders];
+        HANDLE events[ImageFolderWatcher::kMaxEvents];
         return watcher.EventHandles(events);
     }
+    // worker がフォルダを開き終えた結果を受け取る。path のフォルダを開いている最中でなくなれば true。
+    bool WaitUntilOpened(ImageFolderWatcher& watcher, const std::wstring& path)
+    {
+        std::vector<std::wstring> changed;
+        return PollUntil([&] {
+            watcher.CheckForChanges(changed);
+            return !watcher.IsOpening(path);
+        });
+    }
+
+    TaskScheduler scheduler_{ 2 };
 };
+
+// フォルダは worker で開く。Watch は読み取りを発行せずに返り、開き終えるまで IsOpening が真で、開き終えたことを
+// CheckForChanges が知らせる (UI スレッドではファイルに触れない)。
+TEST_F(ImageFolderWatcherTest, OpensFolderOnWorker)
+{
+    const auto a = WriteTempFile(L"a.png", "1").native();
+    ImageFolderWatcher watcher;
+    std::vector<std::wstring> changed;
+    {
+        const WorkerGate gate(scheduler_, 2);
+        watcher.Watch(a, &scheduler_);
+        EXPECT_TRUE(watcher.IsOpening(a));
+        EXPECT_TRUE(watcher.IsOpening((temp_dir_ / L"b.png").native())) << "同じフォルダの画像も待たせる";
+        EXPECT_FALSE(watcher.IsOpening(L"C:\\__mendo_other_dir__\\a.png"));
+        EXPECT_EQ(EventCount(watcher), 1u) << "worker の結果を待つイベントだけ";
+        EXPECT_FALSE(watcher.CheckForChanges(changed));
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_TRUE(watcher.CheckForChanges(changed)) << "開き終えたことを知らせる";
+    EXPECT_FALSE(watcher.IsOpening(a));
+    EXPECT_EQ(EventCount(watcher), 1u) << "フォルダの読み取りだけ";
+    EXPECT_FALSE(watcher.CheckForChanges(changed));
+
+    // 開いている最中に登録した画像の更新も知らせる。
+    WriteTempFile(L"a.png", "2");
+    EXPECT_FALSE(WaitForChanges(watcher).empty());
+}
+
+// 開いている最中に Clear したフォルダの読み取りは受け取らず、同じフォルダを開き直した監視と取り違えない。
+TEST_F(ImageFolderWatcherTest, ClearWhileOpeningDropsTheResult)
+{
+    const auto a = WriteTempFile(L"a.png", "1").native();
+    ImageFolderWatcher watcher;
+    std::vector<std::wstring> changed;
+    {
+        const WorkerGate gate(scheduler_, 2);
+        watcher.Watch(a, &scheduler_);
+        watcher.Clear();
+        EXPECT_FALSE(watcher.IsOpening(a));
+        watcher.Watch(a, &scheduler_);
+        EXPECT_TRUE(watcher.IsOpening(a));
+    }
+    ASSERT_TRUE(WaitUntilOpened(watcher, a));
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    watcher.CheckForChanges(changed);
+    EXPECT_EQ(EventCount(watcher), 1u) << "開き直した方の読み取りだけ";
+
+    WriteTempFile(L"a.png", "2");
+    EXPECT_FALSE(WaitForChanges(watcher).empty());
+}
 
 // 登録した画像の更新だけを、登録したパスで知らせる。同じフォルダのほかのファイルの更新は知らせない。
 TEST_F(ImageFolderWatcherTest, ReportsOnlyWatchedImages)
@@ -204,8 +271,9 @@ TEST_F(ImageFolderWatcherTest, ReportsOnlyWatchedImages)
     WriteTempFile(L"other.png", "1");
 
     ImageFolderWatcher watcher;
-    watcher.Watch(a);
-    watcher.Watch(b);
+    watcher.Watch(a, &scheduler_);
+    watcher.Watch(b, &scheduler_);
+    ASSERT_TRUE(WaitUntilOpened(watcher, a));
     EXPECT_EQ(EventCount(watcher), 1u) << "同じフォルダの読み取りは 1 つ";
 
     WriteTempFile(L"other.png", "2");
@@ -223,7 +291,8 @@ TEST_F(ImageFolderWatcherTest, ReportsCreatedAndRenamedOverImages)
 {
     const auto path = (temp_dir_ / L"later.png").native();
     ImageFolderWatcher watcher;
-    watcher.Watch(path);
+    watcher.Watch(path, &scheduler_);
+    ASSERT_TRUE(WaitUntilOpened(watcher, path));
 
     WriteTempFile(L"later.png", "1");
     EXPECT_FALSE(WaitForChanges(watcher).empty());
@@ -241,15 +310,34 @@ TEST_F(ImageFolderWatcherTest, ReportsCreatedAndRenamedOverImages)
 TEST_F(ImageFolderWatcherTest, WatchesUpToMaxFolders)
 {
     ImageFolderWatcher watcher;
-    watcher.Watch(L"C:\\__mendo_no_such_dir__\\a.png");
+    const std::wstring missing = L"C:\\__mendo_no_such_dir__\\a.png";
+    watcher.Watch(missing, &scheduler_);
+    ASSERT_TRUE(WaitUntilOpened(watcher, missing));
     EXPECT_EQ(EventCount(watcher), 0u);
     watcher.Clear();
 
+    // worker が無ければ監視しない。
+    watcher.Watch((temp_dir_ / L"a.png").native(), nullptr);
+    EXPECT_FALSE(watcher.IsOpening((temp_dir_ / L"a.png").native()));
+    EXPECT_EQ(EventCount(watcher), 0u);
+
+    std::wstring last_watched;
     for (size_t i = 0; i < ImageFolderWatcher::kMaxFolders + 2; ++i) {
         const auto dir = temp_dir_ / std::to_wstring(i);
         std::filesystem::create_directory(dir);
-        watcher.Watch((dir / L"a.png").native());
+        const auto path = (dir / L"a.png").native();
+        watcher.Watch(path, &scheduler_);
+        EXPECT_EQ(watcher.IsOpening(path), i < ImageFolderWatcher::kMaxFolders) << i;
+        if (i < ImageFolderWatcher::kMaxFolders) {
+            last_watched = path;
+        }
     }
+    // 結果は投函した順に届くとは限らないので、全部を待つ。
+    ASSERT_TRUE(PollUntil([&] {
+        std::vector<std::wstring> changed;
+        watcher.CheckForChanges(changed);
+        return EventCount(watcher) == ImageFolderWatcher::kMaxFolders && !watcher.IsOpening(last_watched);
+    }));
     EXPECT_EQ(EventCount(watcher), ImageFolderWatcher::kMaxFolders);
 
     WriteTempFile(std::to_wstring(ImageFolderWatcher::kMaxFolders) + L"\\a.png", "1");

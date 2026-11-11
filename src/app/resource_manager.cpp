@@ -219,6 +219,8 @@ void ResourceManager::ForgetInlineImages()
 {
     inline_images_.Clear();
     inline_drawings_.images = {};
+    resolved_image_paths_.clear();
+    image_watcher_.Clear();
 }
 
 void ResourceManager::OnRenderDeviceRecreated()
@@ -237,7 +239,8 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     if (doc_dir.empty()) {
         return;
     }
-    // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
+    // 解決結果は src と文書フォルダだけで決まるので、同じ文書のリロードでは使い回す。別の文書を開いたときは
+    // ForgetInlineImages が捨てる。ここは、それより前に新しい文書で走査が走ったときの備え。
     if (doc_dir != resolved_dir_) {
         resolved_image_paths_.clear();
         // 監視も前のフォルダの画像の分をやめる。ImageLoader に残る寸法は更新を知らないままになるが、戻ったときは
@@ -290,7 +293,8 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!delivered) {
         return;
     }
-    const bool may_request = !host_.IsLoadingOtherDocument();
+    // フォルダの監視を開いている最中の画像は、開き終えてから読む (OnImageFolderEvent)。
+    const bool may_request = !host_.IsLoadingOtherDocument() && !image_watcher_.IsOpening(*abs_path);
     if (!needs_bitmap) {
         // 届いたビットマップも捨て、範囲に入ったら読み直す。ファイルが更新された画像は、行の高さが変わりうるので寸法を読み直す。
         if ((!info || info->stale) && may_request) {
@@ -379,9 +383,9 @@ const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, cons
     auto it = resolved_image_paths_.find(src);
     if (it == resolved_image_paths_.end()) {
         it = resolved_image_paths_.emplace(std::string{ src }, ResolveLocalPath(src, doc_dir)).first;
-        // 読むのは解決した後なので、ここで監視に足せば読んだ後の更新を取りこぼさない。
+        // 読むのは解決した後で、フォルダを開き終えるまでは読まない (IsOpening) ので、読んだ後の更新を取りこぼさない。
         if (!it->second.empty()) {
-            image_watcher_.Watch(it->second);
+            image_watcher_.Watch(it->second, image_loader_.scheduler());
         }
     }
     return it->second.empty() ? nullptr : &it->second;
@@ -390,11 +394,14 @@ const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, cons
 void ResourceManager::OnImageFolderEvent()
 {
     const bool waiting = !changed_image_paths_.empty();
-    image_watcher_.CheckForChanges(changed_image_paths_);
+    const bool opened = image_watcher_.CheckForChanges(changed_image_paths_);
     // 書き込みの途中で読まないよう、最初の通知から間を置く (文書の読み直しと同じ)。待つ間の通知ではタイマーを延ばさない。
     // 延ばすと、短い間隔で書き出され続ける画像がいつまでも出ない。
     if (!waiting && !changed_image_paths_.empty()) {
         host_.SetTimer(app_timer::Id::IMAGE_RELOAD, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+    }
+    if (opened) {
+        LoadImages();
     }
 }
 

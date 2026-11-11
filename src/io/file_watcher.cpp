@@ -1,8 +1,10 @@
 #include "file_watcher.h"
 #include "file_io.h"
+#include "task_scheduler.h"
 #include "win32_util.h"
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace {
 
@@ -170,28 +172,98 @@ void FileWatcher::CheckForChanges()
     }
 }
 
-void ImageFolderWatcher::Watch(const std::wstring& abs_path)
+ImageFolderWatcher::Inbox::Inbox() : event(CreateEventW(nullptr, TRUE, FALSE, nullptr))
+{}
+
+void ImageFolderWatcher::Inbox::Put(WorkerResult result)
+{
+    if (results.Push(std::move(result))) {
+        SetEvent(event.get());
+    }
+}
+
+std::vector<ImageFolderWatcher::WorkerResult> ImageFolderWatcher::Inbox::Take()
+{
+    // 倒してから取り出す。逆だと、その間に空の受け箱へ入った結果のシグナルを消してしまう。
+    // この順では、取り出した結果のシグナルが残って空の取り出しが 1 回余分に起きることがあるだけ。
+    ResetEvent(event.get());
+    return results.TakeAll();
+}
+
+bool ImageFolderWatcher::PostWork(std::move_only_function<void(Inbox&)> task)
+{
+    if (!inbox_) {
+        inbox_ = std::make_shared<Inbox>();
+    }
+    if (!scheduler_->Post([inbox = inbox_, task = std::move(task)]() mutable { task(*inbox); })) {
+        return false;
+    }
+    ++awaited_results_;
+    return true;
+}
+
+template <class T>
+void ImageFolderWatcher::DisposeOnWorker(T obj) noexcept
+{
+    // 投函できなければ (Shutdown 後・確保の失敗) ここで解放される。
+    try {
+        scheduler_->Post([o = std::move(obj)] {});
+    } catch (...) {
+    }
+}
+
+void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* scheduler)
 {
     auto dir = path_util::ParentDirectory(abs_path);
-    if (dir.empty()) {
+    if (dir.empty() || !scheduler) {
         return;
     }
+    scheduler_ = scheduler;
     auto it = std::ranges::find_if(folders_, [&](const Folder& f) { return path_util::iequal(f.dir, dir); });
     if (it == folders_.end()) {
         if (folders_.size() >= kMaxFolders) {
             return;
         }
-        auto read = OpenDirectoryRead(dir);
-        it = folders_.insert(folders_.end(), Folder{ .dir = std::move(dir), .read = std::move(read) });
+        const uint64_t id = next_folder_id_++;
+        const bool posted = PostWork([id, dir](Inbox& inbox) { inbox.Put({ .folder_id = id, .opened = true, .read = OpenDirectoryRead(dir) }); });
+        it = folders_.insert(folders_.end(), Folder{ .id = id, .dir = std::move(dir), .opening = posted });
     }
-    if (it->read) {
+    if (it->opening || it->read) {
         it->paths.push_back(abs_path);
+    }
+}
+
+bool ImageFolderWatcher::IsOpening(std::wstring_view abs_path) const noexcept
+{
+    // 画像の走査のたびに画像ごとに呼ばれる。開いている最中のフォルダは結果を待っているので、待ちが無ければパスを見ずに返す。
+    if (awaited_results_ == 0) {
+        return false;
+    }
+    // パスをフォルダに分けず (確保が要る)、フォルダの後ろがファイル名だけかを見る。
+    const size_t name_size = path_util::FilenameView(abs_path).size();
+    return std::ranges::any_of(folders_, [&](const Folder& f) {
+        if (!f.opening || abs_path.size() <= f.dir.size() || !path_util::iequal(abs_path.substr(0, f.dir.size()), f.dir)) {
+            return false;
+        }
+        // フォルダが区切りで終わる (ドライブの直下) なら、その後ろがすぐファイル名。
+        const size_t rest = abs_path.size() - f.dir.size();
+        return rest == name_size || (rest == name_size + 1 && path_util::IsPathSlash(abs_path[f.dir.size()]));
+    });
+}
+
+void ImageFolderWatcher::Clear() noexcept
+{
+    if (!folders_.empty()) {
+        DisposeOnWorker(std::exchange(folders_, {}));
     }
 }
 
 size_t ImageFolderWatcher::EventHandles(std::span<HANDLE> out) const noexcept
 {
     size_t count = 0;
+    if (awaited_results_ > 0) {
+        out[count++] = inbox_->event.get();
+    }
     for (const Folder& f : folders_) {
         if (f.read && f.read->pending) {
             out[count++] = f.read->event.get();
@@ -200,8 +272,47 @@ size_t ImageFolderWatcher::EventHandles(std::span<HANDLE> out) const noexcept
     return count;
 }
 
-void ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
+bool ImageFolderWatcher::AddNamed(const Folder& folder, std::wstring_view name, std::vector<std::wstring>& changed)
 {
+    // フォルダのほかのファイルの通知でも登録した画像を全部見るので、大小無視の比較の前に長さで弾く。
+    bool found = false;
+    for (const std::wstring& path : folder.paths) {
+        if (const auto watched = path_util::FilenameView(path); watched.size() == name.size() && path_util::iequal(watched, name)) {
+            changed.push_back(path);
+            found = true;
+        }
+    }
+    return found;
+}
+
+bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
+{
+    bool any_opened = false;
+    if (awaited_results_ > 0) {
+        for (WorkerResult& result : inbox_->Take()) {
+            --awaited_results_;
+            const auto it = std::ranges::find(folders_, result.folder_id, &Folder::id);
+            if (it == folders_.end()) {
+                // Clear でやめたフォルダの結果。
+                if (result.read) {
+                    DisposeOnWorker(std::move(result.read));
+                }
+                continue;
+            }
+            if (result.opened) {
+                it->opening = false;
+                it->read = std::move(result.read);
+                if (!it->read) {
+                    it->paths.clear();
+                }
+                any_opened = true;
+            }
+            else {
+                AddNamed(*it, result.long_name, changed);
+            }
+        }
+    }
+
     using Poll = DirectoryChangeRead::Poll;
     for (Folder& f : folders_) {
         std::span<const std::byte> notified;
@@ -211,7 +322,7 @@ void ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         }
         if (poll == Poll::Failed) {
             // フォルダが消えたなど。このフォルダの監視をやめる。
-            f.read.reset();
+            DisposeOnWorker(std::move(f.read));
             continue;
         }
         if (notified.empty()) {
@@ -219,32 +330,25 @@ void ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             changed.append_range(f.paths);
         }
         else {
-            // フォルダのほかのファイルの通知でも登録した画像を全部見るので、大小無視の比較の前に長さで弾く。
-            const auto add_named = [&](std::wstring_view name) {
-                bool found = false;
-                for (const std::wstring& path : f.paths) {
-                    if (const auto watched = path_util::FilenameView(path); watched.size() == name.size() && path_util::iequal(watched, name)) {
-                        changed.push_back(path);
-                        found = true;
-                    }
-                }
-                return found;
-            };
             AnyUpdatedName(notified, [&](std::wstring_view name) {
                 // 通知は 8.3 短縮名で来ることがある (未規定)。短縮名を画像ごとに前もって問い合わせると枚数ぶんの往復に
                 // なるので、当たらなかった短縮名の形 (12 文字以内で ~ と数字を含む) の名前だけ長い名前に直して照らす。
                 // ~ だけで問い合わせると、エディタの一時ファイル (~$x.docx・x.md~) の通知のたびに走る。
+                // 問い合わせはファイルに触れるので worker でし、結果は次の CheckForChanges で照らす。
                 const size_t tilde = name.find(L'~');
                 const bool short_form = name.size() <= 12 && tilde != name.npos && tilde + 1 < name.size() && ascii_util::IsAsciiDigit(name[tilde + 1]);
-                if (!add_named(name) && short_form) {
-                    const std::wstring short_path = f.dir + L'\\' + std::wstring{ name };
-                    add_named(path_util::FilenameView(QueryPath([&](wchar_t* b, UINT n) { return GetLongPathNameW(short_path.c_str(), b, n); })));
+                if (!AddNamed(f, name, changed) && short_form) {
+                    PostWork([id = f.id, short_path = f.dir + L'\\' + std::wstring{ name }](Inbox& inbox) {
+                        const auto long_path = QueryPath([&](wchar_t* b, UINT n) { return GetLongPathNameW(short_path.c_str(), b, n); });
+                        inbox.Put({ .folder_id = id, .long_name = std::wstring{ path_util::FilenameView(long_path) } });
+                    });
                 }
                 return false;
             });
         }
         if (!f.read->Begin()) {
-            f.read.reset();
+            DisposeOnWorker(std::move(f.read));
         }
     }
+    return any_opened;
 }

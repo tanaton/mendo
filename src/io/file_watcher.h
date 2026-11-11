@@ -1,13 +1,17 @@
 #pragma once
 #include "win_handle.h"
+#include "worker_latch.h"
 #include <functional>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <windows.h>
+
+class TaskScheduler;
 
 // ReadDirectoryChangesW の通知列に監視対象 (name、または空でなければ 8.3 短縮名 short_name。大小無視) の
 // 更新 (削除・改名元以外) が含まれるか。空の buf はカーネルが内容を捨てたバッファ溢れなので取りこぼし回避で true。
@@ -81,31 +85,74 @@ private:
 // 更新時刻を定期的に見る形は、画像の枚数ぶんの問い合わせがネットワーク上で往復になるので採らなかった。
 // 文書のフォルダは FileWatcher も監視しているが、読み取りは共用しない (対象の差し替えの時期が違う。増えるのはハンドルと
 // バッファ 64KB)。
+//
+// フォルダを開く・短縮名を長い名前に直す・読み取りを取り消して閉じる、はどれも worker で行い、UI スレッドではファイルに
+// 触れない (文書の監視と同じ。切断されたネットワークドライブの画像を参照する文書で、フォルダごとに数秒〜数十秒
+// ウィンドウが固まる)。Watch・Clear・EventHandles・CheckForChanges・IsOpening は UI スレッドから呼ぶ。
 class ImageFolderWatcher {
 public:
     // 監視するフォルダの数の上限。待つハンドルはメッセージループの MsgWaitForMultipleObjects に足すので増やしすぎない。
     // 超えた分のフォルダの画像は、保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
     static constexpr size_t kMaxFolders = 8;
+    // EventHandles が返すイベントの数の上限。フォルダごとの読み取りと、worker の結果が届いたことを知らせる 1 つ。
+    static constexpr size_t kMaxEvents = kMaxFolders + 1;
 
-    // abs_path の画像を監視に足す。初めてのフォルダなら開いて読み取りを発行する (UI スレッドで開く。フォルダごとに 1 回)。
-    // 画像を最初に読む前に呼べば、読んでから後の更新を取りこぼさない。まだ無いファイルも、置かれたら知らせる。
-    void Watch(const std::wstring& abs_path);
-    void Clear() noexcept
-    {
-        folders_.clear();
-    }
-    // 読み取りを待っているフォルダのイベントを out に入れ、その数を返す。out は kMaxFolders 以上。
+    // abs_path の画像を監視に足す。初めてのフォルダなら scheduler の worker で開いて読み取りを発行する (フォルダごとに 1 回)。
+    // 開き終えるまで IsOpening が真になる。その間は画像を読まずに待てば、読んでから後の更新を取りこぼさない。
+    // まだ無いファイルも、置かれたら知らせる。scheduler が無ければ監視しない。
+    void Watch(const std::wstring& abs_path, TaskScheduler* scheduler);
+    // abs_path のフォルダを開いている最中か。開き終えたら (開けなくても) CheckForChanges が true を返す。
+    bool IsOpening(std::wstring_view abs_path) const noexcept;
+    // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。
+    void Clear() noexcept;
+    // 待つイベントを out に入れ、その数を返す。out は kMaxEvents 以上。
     size_t EventHandles(std::span<HANDLE> out) const noexcept;
     // 届いた通知を調べ、更新された画像 (Watch に渡したパス) を changed に足す。同じパスが重なる (1 回の保存で通知が続く)。
-    // 通知が溢れたフォルダは、登録した画像を全部足す。
-    void CheckForChanges(std::vector<std::wstring>& changed);
+    // 通知が溢れたフォルダは、登録した画像を全部足す。開き終えたフォルダがあれば true (待たせていた画像を読ませる)。
+    bool CheckForChanges(std::vector<std::wstring>& changed);
 
 private:
     struct Folder {
+        // worker の結果の宛先。Clear の後に届いた結果を、同じフォルダを開き直したものと取り違えない。
+        uint64_t id = 0;
         std::wstring dir;
+        bool opening = false;
         // 開けなかったフォルダは null のまま残し、画像のたびに開き直さない。
         std::unique_ptr<DirectoryChangeRead> read;
         std::vector<std::wstring> paths;
     };
+    // worker の結果。opened ならフォルダを開いた結果 (read は開けなければ null)、そうでなければ短縮名を直した長い名前
+    // (直せなければ空)。
+    struct WorkerResult {
+        uint64_t folder_id = 0;
+        bool opened = false;
+        std::unique_ptr<DirectoryChangeRead> read;
+        std::wstring long_name;
+    };
+    // worker が結果を置く受け箱。worker のタスクが共有して持つので、監視より長生きできる。
+    // 知らせは投函ではなくイベントにする (フォルダの通知と同じ待ちに載せる)。
+    struct Inbox {
+        Inbox();
+        void Put(WorkerResult result);
+        std::vector<WorkerResult> Take();
+
+        PostedInbox<WorkerResult> results;
+        // 手動リセット。空の受け箱に 1 件目が入ったら立ち、取り出す前に倒す。
+        UniqueNullHandle event;
+    };
+
+    // task を worker で走らせる。結果は必ず 1 つ置かせる。投函できなければ false。
+    bool PostWork(std::move_only_function<void(Inbox&)> task);
+    // 読み取りを発行したままの解放は、取り消して書き終わるのを待つので worker でする。
+    template <class T>
+    void DisposeOnWorker(T obj) noexcept;
+    // folder の画像のうち、ファイル名が name のものを changed に足す。あれば true。
+    static bool AddNamed(const Folder& folder, std::wstring_view name, std::vector<std::wstring>& changed);
+
     std::vector<Folder> folders_;
+    std::shared_ptr<Inbox> inbox_;
+    TaskScheduler* scheduler_ = nullptr;
+    uint64_t next_folder_id_ = 1;
+    // 投函して、まだ結果を受け取っていないタスクの数。
+    size_t awaited_results_ = 0;
 };
