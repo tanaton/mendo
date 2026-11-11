@@ -889,22 +889,22 @@ void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::ve
     TokenizeRange<BASH_LEXER_CONFIG>(text.substr(0, end), begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
 }
 
-// 行末の '\' でつないだ論理行 [begin, end) の 2 行目から後ろは、行の途中から続ける状態 rest で始め直せる。head は begin での状態。
-// '\' で終わったままテキストが尽きた行は続きが次の窓にあるので、最後の行の頭から解析し直させる。
-void NoteContinuationLines(SyntaxStateTrace* trace, std::string_view text, size_t begin, size_t end, SyntaxLexState head, SyntaxLexState rest)
+// 行 (行末の '\' でつないだ論理行も) [begin, end) の頭より後ろは、行の途中から続ける状態 rest で始め直せる。head は begin での状態。
+// 長い 1 行を途中で区切った続きのノードは行の途中から始まるので、行の頭の状態を渡すと、続きを行の頭として読んでしまう
+// (文脈の行の続きの + を追加行にする、値の中の語をキーやコマンドにする、など)。
+// 改行が無いままテキストが尽きた行は、続きが次の窓にあるかもしれないので、最後の行の頭から後ろを決まっていないものとする
+// (読む側は行の頭から解析し直すか、頭を十分に読んでいれば行の途中の継ぎ目から続ける。AnnotateCodeChunkLeads)。
+void NoteLineInterior(SyntaxStateTrace* trace, std::string_view text, size_t begin, size_t end, SyntaxLexState head, SyntaxLexState rest)
 {
-    if (!trace || end == begin) {
+    // 行ごとに呼ぶので、知りたい位置が行の中に無く、テキストの末尾でもない行はすぐ返す。
+    if (!trace || end == begin || (trace->next_wanted() > end && end != text.size())) {
         return;
     }
-    if (const size_t first_eol = SkipToEol(text, begin); first_eol < end) {
-        trace->SetRange(first_eol + 1, std::min(end + 1, text.size()), rest);
-    }
+    trace->SetRange(begin + 1, std::min(end + 1, text.size()), rest);
     if (end == text.size()) {
         const size_t newline = text.rfind('\n', end - 1);
         const size_t last_line = newline != npos && newline >= begin ? newline + 1 : begin;
-        if (const size_t last = TrimEnd(text, last_line, end); last > last_line && text[last - 1] == '\\') {
-            trace->SetUnsettled(last_line, last_line == begin ? head : rest, text.size());
-        }
+        trace->SetUnsettledLine(last_line, last_line == begin ? head : rest, text.size());
     }
 }
 
@@ -1006,12 +1006,14 @@ SyntaxTokenType DiffLineType(std::string_view line) noexcept
     }
 }
 
-// 状態はハンクの中かどうかと、直前の行が旧ファイルのヘッダかどうか。
+// 状態はハンクの中かどうかと、直前の行が旧ファイルのヘッダかどうかと、行の途中から始めること。
 // 続きのノードは自分のテキストしか読めないので、ノードの末尾 2 行にある "--- " はヘッダでも先読みできず、削除行の色になる。
+// 色の付く行は行全体が 1 つのトークンなので、行の途中から始めた残りに出すトークンは無い (残りの 2 つは行を読んだ後の値)。
 void TokenizeDiff(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     constexpr SyntaxLexState kInHunk = 1;
     constexpr SyntaxLexState kAfterOldHeader = 2;
+    constexpr SyntaxLexState kMidLine = 4;
     const auto starts_with_at = [text](size_t pos, std::string_view prefix) {
         return pos < text.size() && text.substr(pos).starts_with(prefix);
     };
@@ -1020,9 +1022,16 @@ void TokenizeDiff(std::string_view text, size_t begin, SyntaxLexState state, std
     bool in_hunk = (state & kInHunk) != 0;
     bool after_old_header = (state & kAfterOldHeader) != 0;
     const auto packed = [&]() -> SyntaxLexState { return (in_hunk ? kInHunk : 0) | (after_old_header ? kAfterOldHeader : 0); };
-    for (size_t pos = begin; pos < text.size();) {
+    size_t pos = begin;
+    if ((state & kMidLine) != 0) {
+        const size_t eol = SkipToEol(text, pos);
+        NoteLineInterior(trace, text, pos, eol, state, state);
+        pos = eol + 1;
+    }
+    while (pos < text.size()) {
+        const SyntaxLexState head = packed();
         if (trace && trace->Wants(pos)) {
-            trace->Set(pos, packed());
+            trace->Set(pos, head);
         }
         const size_t eol = SkipToEol(text, pos);
         const auto line = text.substr(pos, eol - pos);
@@ -1038,6 +1047,7 @@ void TokenizeDiff(std::string_view text, size_t begin, SyntaxLexState state, std
         after_old_header = old_header_candidate && type == SyntaxTokenType::Keyword;
         in_hunk = in_hunk || type == SyntaxTokenType::Type;
         EmitRange(tokens, pos, eol, type);
+        NoteLineInterior(trace, text, pos, eol, head, packed() | kMidLine);
         pos = eol + 1;
     }
     if (trace) {
@@ -1090,13 +1100,47 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::vector<Sy
     return pos;
 }
 
+// YAML の状態はブロックスカラーの親の桁 + 1 で、本文の外は 0。254 桁より深い親は 254 桁として扱う。
+constexpr SyntaxLexState YamlBlockScalarState(size_t parent_indent) noexcept
+{
+    return static_cast<SyntaxLexState>(std::min<size_t>(parent_indent, 254) + 1);
+}
+
+// 行の値の途中。続きを行の頭として読むと、フローの並びの要素をキーや 1 つのスカラーにしてしまう。
+struct YamlValueResume {
+    // 値の最初のトークンの前 (ブロックスカラーの | と > を見分ける)。
+    bool first = true;
+    // 255 段より深いフローの入れ子は 255 段として扱う。
+    int flow_depth = 0;
+    // ブロックスカラーが始まるときの親の桁。
+    size_t indent = 0;
+
+    static constexpr SyntaxLexState kMidLine = 1 << 8;
+    static constexpr SyntaxLexState kFirst = 1 << 9;
+    static constexpr int kFlowShift = 10;
+    static_assert(kFlowShift + 8 <= kSyntaxLexStateBits);
+
+    constexpr SyntaxLexState State() const noexcept
+    {
+        return kMidLine | (first ? kFirst : 0) | (static_cast<SyntaxLexState>(std::min(flow_depth, 255)) << kFlowShift) | YamlBlockScalarState(indent);
+    }
+    static constexpr YamlValueResume From(SyntaxLexState state) noexcept
+    {
+        return { (state & kFirst) != 0, static_cast<int>((state >> kFlowShift) & 0xFF), (state & 0xFF) - 1 };
+    }
+};
+
 // キーの後（またはシーケンス要素）の値を行末まで読む。ブロックスカラー（| / >）が始まるなら true。
-bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<SyntaxToken>& tokens)
+// at は値の途中から読むときの状態で、trace があれば値の途中の状態を残す。
+bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<SyntaxToken>& tokens, YamlValueResume at, SyntaxStateTrace* trace)
 {
     static constexpr CharSet kFlowIndicators{ ",[]{}" };
-    int flow_depth = 0;
-    for (bool first = true;; first = false) {
+    int flow_depth = at.flow_depth;
+    for (bool first = at.first;; first = false) {
         i = SkipBlanks(text, i, eol);
+        if (trace && trace->Wants(i)) {
+            trace->Set(i, YamlValueResume{ first, flow_depth, at.indent }.State());
+        }
         if (i >= eol) {
             return false;
         }
@@ -1153,12 +1197,6 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<Synt
     }
 }
 
-// YAML の状態はブロックスカラーの親の桁 + 1 で、本文の外は 0。254 桁より深い親は 254 桁として扱う。
-constexpr SyntaxLexState YamlBlockScalarState(size_t parent_indent) noexcept
-{
-    return static_cast<SyntaxLexState>(std::min<size_t>(parent_indent, 254) + 1);
-}
-
 // インデントが parent_indent より深い行（と空行）をブロックスカラーの本文として String にする。返り値は本文直後の行頭。
 size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_indent, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
@@ -1189,7 +1227,27 @@ void TokenizeYaml(std::string_view text, size_t begin, SyntaxLexState state, std
         pos = ScanYamlBlockScalar(text, pos, parent_indent, tokens, trace);
         tail = pos >= text.size() ? YamlBlockScalarState(parent_indent) : 0;
     };
-    if (state != 0) {
+    // 行を読み終えた後。改行が無いままテキストが尽きた行は NoteLineInterior と同じく、行の頭 (状態は head) から後ろを決めない。
+    const auto end_line = [&](size_t eol, SyntaxLexState head, bool block_scalar, size_t indent) {
+        if (trace && eol >= text.size() && eol > pos) {
+            trace->SetUnsettledLine(pos, head, text.size());
+        }
+        pos = eol + 1;
+        if (block_scalar) {
+            scan_block_scalar(indent);
+        }
+    };
+    if ((state & YamlValueResume::kMidLine) != 0) {
+        const auto at = YamlValueResume::From(state);
+        const size_t eol = SkipToEol(text, pos);
+        size_t i = pos;
+        // 値の前から始めるのは、継ぎ目をまたいだキーの直後。
+        if (const size_t colon = SkipBlanks(text, i, eol); at.first && IsYamlMappingColon(text, colon, eol)) {
+            i = colon + 1;
+        }
+        end_line(eol, state, ScanYamlValue(text.substr(0, eol), i, eol, tokens, at, trace), at.indent);
+    }
+    else if (state != 0) {
         scan_block_scalar(state - 1);
     }
     while (pos < text.size()) {
@@ -1222,11 +1280,7 @@ void TokenizeYaml(std::string_view text, size_t begin, SyntaxLexState state, std
                 indent = key_start - pos;
             }
         }
-        const bool block_scalar = ScanYamlValue(until_eol, i, eol, tokens);
-        pos = eol + 1;
-        if (block_scalar) {
-            scan_block_scalar(indent);
-        }
+        end_line(eol, 0, ScanYamlValue(until_eol, i, eol, tokens, { .indent = indent }, trace), indent);
     }
     if (trace) {
         trace->Set(text.size(), tail);
@@ -1415,40 +1469,77 @@ void TokenizeToml(std::string_view text, size_t begin, SyntaxLexState state, std
 
 // ---------- INI ----------
 
-void TokenizeIni(std::string_view text, size_t begin, std::vector<SyntaxToken>& tokens)
+// 状態は行の途中から始めるときの読み方で、行から行へは持ち越さない。長い 1 行を途中で区切った続きを行の頭として読むと、
+// [section] や値の後ろ、区切りの無い行の続きにある '=' でキーを始めてしまう。
+// 区切りまでは行の頭の状態 (0) のままでよい (続くキーの後ろから読めば、同じ区切りを見つける)。
+void TokenizeIni(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
-    for (size_t pos = begin; pos < text.size();) {
-        const size_t eol = SkipToEol(text, pos);
-        const size_t i = SkipBlanks(text, pos, eol);
-        const size_t end = TrimEnd(text, i, eol);
-        pos = eol + 1;
-        if (i == end) {
-            continue;
-        }
-        const char c = text[i];
-        if (c == ';' || c == '#') {
-            EmitRange(tokens, i, end, SyntaxTokenType::Comment);
-            continue;
-        }
-        // 探索は行内で止める (区切りの無い行が続く入力で文書末尾まで読まない)
-        const auto line = text.substr(0, end);
-        if (c == '[') {
-            const size_t close = line.find(']', i);
-            EmitRange(tokens, i, close < end ? close + 1 : end, SyntaxTokenType::Keyword);
-            continue;
-        }
-        const size_t sep = line.find_first_of("=:", i);
-        if (sep >= end) {
-            continue;
-        }
-        EmitRange(tokens, i, TrimEnd(text, i, sep), SyntaxTokenType::Type);
-        const size_t v = SkipBlanks(text, sep + 1, end);
+    // 区切りの後ろで、値の頭まで。
+    constexpr SyntaxLexState kValue = 1;
+    // 値・コメント・[section]・区切りの無い行の、頭より後ろ。行末まで何も出さない (続くトークンは継ぎ目が持つ)。
+    constexpr SyntaxLexState kRest = 2;
+    // [from, end) の値を読む。返り値は値の頭。
+    const auto scan_value = [&](size_t from, size_t end) {
+        const size_t v = SkipBlanks(text, from, end);
         if (v < end && (text[v] == '"' || text[v] == '\'')) {
             EmitRange(tokens, v, std::min(ScanString(text, v, text[v], false, false), end), SyntaxTokenType::String);
         }
         else {
             EmitRange(tokens, v, end, ClassifyScalar(text.substr(v, end - v)));
         }
+        return v;
+    };
+    // 行 [pos, eol) の途中の状態を残す。value_from より前は行の頭、rest_from より前は kValue、その後ろは kRest。head は pos での状態。
+    const auto note_line = [&](size_t pos, size_t eol, SyntaxLexState head, size_t value_from, size_t rest_from) {
+        if (!trace || (trace->next_wanted() > eol && eol != text.size())) {
+            return;
+        }
+        const size_t line_end = std::min(eol + 1, text.size());
+        trace->SetRange(pos + 1, std::min(value_from, line_end), 0);
+        trace->SetRange(value_from, std::min(rest_from, line_end), kValue);
+        NoteLineInterior(trace, text, pos, eol, head, kRest);
+    };
+    size_t pos = begin;
+    if (state != 0 && pos < text.size()) {
+        const size_t eol = SkipToEol(text, pos);
+        const size_t rest_from = state == kValue ? scan_value(pos, TrimEnd(text, pos, eol)) + 1 : pos + 1;
+        note_line(pos, eol, state, pos + 1, rest_from);
+        pos = eol + 1;
+    }
+    for (size_t eol = 0; pos < text.size(); pos = eol + 1) {
+        if (trace && trace->Wants(pos)) {
+            trace->Set(pos, 0);
+        }
+        eol = SkipToEol(text, pos);
+        const size_t i = SkipBlanks(text, pos, eol);
+        const size_t end = TrimEnd(text, i, eol);
+        if (i == end) {
+            note_line(pos, eol, 0, eol + 1, eol + 1);
+            continue;
+        }
+        const char c = text[i];
+        // 探索は行内で止める (区切りの無い行が続く入力で文書末尾まで読まない)
+        const auto line = text.substr(0, end);
+        size_t sep = npos;
+        if (c == ';' || c == '#') {
+            EmitRange(tokens, i, end, SyntaxTokenType::Comment);
+        }
+        else if (c == '[') {
+            const size_t close = line.find(']', i);
+            EmitRange(tokens, i, close < end ? close + 1 : end, SyntaxTokenType::Keyword);
+        }
+        else {
+            sep = line.find_first_of("=:", i);
+        }
+        if (sep >= end) {
+            note_line(pos, eol, 0, i + 1, i + 1);
+            continue;
+        }
+        EmitRange(tokens, i, TrimEnd(text, i, sep), SyntaxTokenType::Type);
+        note_line(pos, eol, 0, sep + 1, scan_value(sep + 1, end) + 1);
+    }
+    if (trace) {
+        trace->Set(text.size(), 0);
     }
 }
 
@@ -1888,7 +1979,7 @@ void TokenizeMarkup(std::string_view text, size_t begin, SyntaxLexState state, s
 // ---------- Dockerfile ----------
 
 // 行頭の命令を Keyword とし、引数は継続行も含めてシェルとして色付けする。
-// 状態は継続行の途中かどうか。途中から始めた行は、論理行の終わりまでシェルとして読む。
+// 状態は行の途中 (継続行と、長い行を区切った続き) かどうか。途中から始めた行は、論理行の終わりまでシェルとして読む。
 void TokenizeDockerfile(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     constexpr SyntaxLexState kShellRest = 1;
@@ -1896,7 +1987,7 @@ void TokenizeDockerfile(std::string_view text, size_t begin, SyntaxLexState stat
     if (state == kShellRest) {
         const size_t end = SkipToLogicalEol(text, pos);
         TokenizeShellRange(text, pos, end, tokens);
-        NoteContinuationLines(trace, text, pos, end, state, kShellRest);
+        NoteLineInterior(trace, text, pos, end, state, kShellRest);
         pos = end + 1;
     }
     while (pos < text.size()) {
@@ -1930,7 +2021,7 @@ void TokenizeDockerfile(std::string_view text, size_t begin, SyntaxLexState stat
             }
         }
         TokenizeShellRange(text, rest, end, tokens);
-        NoteContinuationLines(trace, text, pos, end, 0, kShellRest);
+        NoteLineInterior(trace, text, pos, end, 0, kShellRest);
         pos = end + 1;
     }
     if (trace) {
@@ -2081,8 +2172,8 @@ bool TokenizeMakeLine(std::string_view text, size_t pos, size_t end, bool& in_ru
     return false;
 }
 
-// 状態は次の行がレシピになりうるかと、継続行の途中ならその残りの読み方。残りはレシピならシェル、ほかは変数参照と
-// コメントだけを色付けする (ターゲットや代入の名前が 2 行目より後ろまで続く行は、その分を色付けしない)。
+// 状態は次の行がレシピになりうるかと、行の途中 (継続行と、長い行を区切った続き) ならその残りの読み方。残りはレシピならシェル、
+// ほかは変数参照とコメントだけを色付けする (ターゲットや代入の名前が途中より後ろまで続く行は、その分を色付けしない)。
 void TokenizeMakefile(std::string_view text, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens, SyntaxStateTrace* trace)
 {
     constexpr SyntaxLexState kInRule = 1;
@@ -2098,7 +2189,7 @@ void TokenizeMakefile(std::string_view text, size_t begin, SyntaxLexState state,
         else {
             TokenizeMakeText(text, pos, end, SyntaxTokenType::Plain, tokens);
         }
-        NoteContinuationLines(trace, text, pos, end, state, state);
+        NoteLineInterior(trace, text, pos, end, state, state);
         pos = end + 1;
     }
     while (pos < text.size()) {
@@ -2108,7 +2199,7 @@ void TokenizeMakefile(std::string_view text, size_t begin, SyntaxLexState state,
         }
         const size_t end = SkipToLogicalEol(text, pos);
         const bool recipe = TokenizeMakeLine(text, pos, end, in_rule, tokens);
-        NoteContinuationLines(trace, text, pos, end, head, (in_rule ? kInRule : 0) | (recipe ? kRecipeRest : kTextRest));
+        NoteLineInterior(trace, text, pos, end, head, (in_rule ? kInRule : 0) | (recipe ? kRecipeRest : kTextRest));
         pos = end + 1;
     }
     if (trace) {
@@ -2820,7 +2911,9 @@ SyntaxLexState VimMarkerHash(std::string_view marker) noexcept
     return static_cast<SyntaxLexState>(RapidHash(marker) & 0xFFFF);
 }
 
-// 状態は、途中から始めること・Vim9 script かどうか・ヒアドキュメントの本文の中ならその種類と trim と終端の行のハッシュ。
+// 状態は、途中から始めること・Vim9 script かどうか・ヒアドキュメントの本文の中ならその種類と trim と終端の行のハッシュと、
+// 行の途中から始めること。行の途中から始めた残りは式として読み (コマンドの位置にしない)、ヒアドキュメントを始める行の残りは
+// 色付けせずに本文へ進む。
 void TokenizeVim(std::string_view text, bool vim9_language, size_t begin, SyntaxLexState state, std::vector<SyntaxToken>& tokens,
                  SyntaxStateTrace* trace)
 {
@@ -2829,7 +2922,8 @@ void TokenizeVim(std::string_view text, bool vim9_language, size_t begin, Syntax
     constexpr int kKindShift = 2;
     constexpr SyntaxLexState kTrim = 1 << 4;
     constexpr int kMarkerShift = 5;
-    static_assert(kMarkerShift + 16 <= kSyntaxLexStateBits);
+    constexpr SyntaxLexState kMidLine = 1 << (kMarkerShift + 16);
+    static_assert(kMarkerShift + 16 < kSyntaxLexStateBits);
     const size_t n = text.size();
     // Vim9 script かどうかは先頭のコマンドで決まるので、途中から始めるときは状態から取る。
     const bool vim9 = vim9_language || ((state & kResumed) != 0 ? (state & kVim9) != 0 : StartsWithVim9Script(text));
@@ -2871,26 +2965,44 @@ void TokenizeVim(std::string_view text, bool vim9_language, size_t begin, Syntax
         }
         pos = resume;
     };
-    if (const auto kind = static_cast<VimHeredoc::Kind>((state >> kKindShift) & 3); kind != VimHeredoc::Kind::None) {
+    // pos の行 (行末が eol) を from から読む。head は pos での状態。
+    const auto scan_line = [&](size_t eol, size_t from, bool command_pos, SyntaxLexState head) {
+        tail = line_state;
+        const auto heredoc = TokenizeVimLine(text.substr(0, eol), from, command_pos, vim9, tokens);
+        const SyntaxLexState after = heredoc.kind == VimHeredoc::Kind::None
+                                         ? line_state
+                                         : line_state | (SyntaxLexState{ std::to_underlying(heredoc.kind) } << kKindShift) |
+                                               (heredoc.trim ? kTrim : 0) | (VimMarkerHash(heredoc.marker) << kMarkerShift);
+        NoteLineInterior(trace, text, pos, eol, head, after | kMidLine);
+        pos = eol + 1;
+        if (heredoc.kind != VimHeredoc::Kind::None) {
+            scan_heredoc(heredoc.kind, heredoc.trim, after, [&heredoc](std::string_view line) { return line == heredoc.marker; });
+        }
+    };
+    const auto entry_kind = static_cast<VimHeredoc::Kind>((state >> kKindShift) & 3);
+    if ((state & kMidLine) != 0) {
+        const size_t eol = SkipToEol(text, pos);
+        if (entry_kind == VimHeredoc::Kind::None) {
+            scan_line(eol, pos, false, state);
+        }
+        else {
+            NoteLineInterior(trace, text, pos, eol, state, state);
+            pos = eol + 1;
+        }
+    }
+    if (entry_kind != VimHeredoc::Kind::None) {
         const SyntaxLexState hash = (state >> kMarkerShift) & 0xFFFF;
-        scan_heredoc(kind, (state & kTrim) != 0, state, [hash](std::string_view line) { return VimMarkerHash(line) == hash; });
+        scan_heredoc(entry_kind, (state & kTrim) != 0, state & ~kMidLine, [hash](std::string_view line) { return VimMarkerHash(line) == hash; });
     }
     while (pos < n) {
         if (trace && trace->Wants(pos)) {
             trace->Set(pos, line_state);
         }
-        tail = line_state;
         const size_t eol = SkipToEol(text, pos);
         const size_t i = SkipBlanks(text, pos, eol);
         // 行頭の \ は前の行の続き。コマンド位置ではない
         const bool continuation = i < eol && text[i] == '\\';
-        const auto heredoc = TokenizeVimLine(text.substr(0, eol), continuation ? i + 1 : i, !continuation, vim9, tokens);
-        pos = eol + 1;
-        if (heredoc.kind != VimHeredoc::Kind::None) {
-            const SyntaxLexState heredoc_state = line_state | (SyntaxLexState{ std::to_underlying(heredoc.kind) } << kKindShift) |
-                                                 (heredoc.trim ? kTrim : 0) | (VimMarkerHash(heredoc.marker) << kMarkerShift);
-            scan_heredoc(heredoc.kind, heredoc.trim, heredoc_state, [&heredoc](std::string_view line) { return line == heredoc.marker; });
-        }
+        scan_line(eol, continuation ? i + 1 : i, !continuation, line_state);
     }
     if (trace) {
         trace->Set(n, tail);
@@ -3106,8 +3218,7 @@ void TokenizeStateful(std::string_view text, SyntaxLanguage language, size_t beg
     case SyntaxLanguage::Toml:
         return TokenizeToml(text, begin, state, tokens, trace);
     case SyntaxLanguage::Ini:
-        MarkStateless(trace);
-        return TokenizeIni(text, begin, tokens);
+        return TokenizeIni(text, begin, state, tokens, trace);
     case SyntaxLanguage::Html:
         return TokenizeMarkup<true>(text, begin, state, tokens, trace);
     case SyntaxLanguage::Xml:
@@ -3155,6 +3266,7 @@ void SyntaxStateTrace::Reset(SyntaxLexState entry, size_t text_size, std::span<c
     entry_ = { 0, entry };
     settled_end_ = { text_size, 0 };
     unsettled_ = false;
+    unsettled_line_ = false;
     stateless_ = false;
     outer = 0;
 }
@@ -3188,6 +3300,12 @@ void SyntaxStateTrace::SetUnsettled(size_t pos, SyntaxLexState state, size_t sca
         settled_end_ = { pos, state | outer };
         unsettled_ = true;
     }
+}
+
+void SyntaxStateTrace::SetUnsettledLine(size_t pos, SyntaxLexState state, size_t scanned_size) noexcept
+{
+    unsettled_line_ = unsettled_line_ || (scanned_size == text_size_ && !unsettled_);
+    SetUnsettled(pos, state, scanned_size);
 }
 
 SyntaxStateTrace::Point SyntaxStateTrace::For(size_t wanted) const noexcept

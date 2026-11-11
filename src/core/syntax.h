@@ -51,7 +51,8 @@ constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
     return lang == SyntaxLanguage::Mermaid;
 }
 
-// トークンが行をまたがず、行から行へ持ち越す状態も無い言語。行の頭からなら、前を読まずに先頭と同じように解析できる。
+// トークンが行をまたがず、行から行へ持ち越す状態も無い言語。行の頭からなら、前を読まずに先頭と同じように解析できる
+// (状態を持つのは、長い 1 行を途中で区切った続きだけ)。
 constexpr bool IsLineLocalLanguage(SyntaxLanguage lang) noexcept
 {
     return lang == SyntaxLanguage::Ini;
@@ -123,6 +124,9 @@ public:
     // 先読みが scanned_size (読んでいるテキストの長さ) に届き、pos (そこでの状態が state) から後ろの結果が続きを読むまで
     // 決まらない。テキストの一部だけを読む入れ子の lexer の末尾は、テキストの末尾ではないので数えない。
     void SetUnsettled(size_t pos, SyntaxLexState state, size_t scanned_size) noexcept;
+    // 改行が無いままテキストが尽きた行の頭が pos (そこでの状態が state)。続きが次の窓にあるかもしれないので、SetUnsettled と
+    // 同じく pos から後ろは決まらない。行の途中から続ける状態を残す lexer だけが呼ぶ (UnsettledAtLineHead)。
+    void SetUnsettledLine(size_t pos, SyntaxLexState state, size_t scanned_size) noexcept;
 
     // --- 結果 ---
 
@@ -134,6 +138,12 @@ public:
     Point SettledEnd() const noexcept
     {
         return settled_end_;
+    }
+
+    // SettledEnd が、改行が無いままテキストが尽きた行の頭。行の中の知りたい位置には、行の途中から続ける状態が残っている。
+    bool UnsettledAtLineHead() const noexcept
+    {
+        return unsettled_line_;
     }
 
     // 入れ子の lexer (HTML の <style> の中の CSS) が残す状態に重ねる、外側の lexer の状態。
@@ -150,6 +160,7 @@ private:
     Point entry_;
     Point settled_end_;
     bool unsettled_ = false;
+    bool unsettled_line_ = false;
     bool stateless_ = false;
 };
 
