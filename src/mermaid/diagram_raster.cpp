@@ -398,10 +398,18 @@ constexpr LengthUnit kLengthUnits[]{
     { "mm", 96.0 / 25.4 },
 };
 
+// calc()・min()・max()・color-mix() の入れ子と、var() の参照をたどる深さの上限。図の style や classDef に書いた値は SVG にそのまま届くので、
+// 上限が無いと数万段の入れ子でワーカーのスタックを使い切る (JS 側のスタックの上限は C++ の再帰に効かない)。
+// 超えた値は読めない宣言として捨てる。
+constexpr int kMaxFunctionNesting = 16;
+
 // 長さ。単位なしと px は CSS px。% は相手が要るので読めない扱い。pele は小さな箱の角丸に min() を使い、
 // px 以外の線の太さの縁取りを calc(<太さ> + 4px) と書く。calc() は足し算と引き算だけを読む。
-std::optional<float> ParseLength(std::string_view v, float font_size)
+std::optional<float> ParseLength(std::string_view v, float font_size, int depth = 0)
 {
+    if (depth > kMaxFunctionNesting) {
+        return std::nullopt;
+    }
     v = Trim(v);
     if (ascii_util::istarts_with(v, "calc(") && v.ends_with(')')) {
         // 括弧の外の空白で切ると項と演算子が交互に並ぶ (CSS は + と - の前後に空白が要るので、符号や 1e-3 の - は切らない)。
@@ -418,7 +426,7 @@ std::optional<float> ParseLength(std::string_view v, float font_size)
                 want_term = true;
                 return part == "+" || part == "-";
             }
-            const auto term = ParseLength(part, font_size);
+            const auto term = ParseLength(part, font_size, depth + 1);
             total += sign * term.value_or(0.0f);
             want_term = false;
             return term.has_value();
@@ -429,7 +437,7 @@ std::optional<float> ParseLength(std::string_view v, float font_size)
     if ((is_min || ascii_util::istarts_with(v, "max(")) && v.ends_with(')')) {
         std::optional<float> out;
         const bool ok = ForEachTopLevel(v.substr(4, v.size() - 5), ',', [&](std::string_view arg) {
-            const auto x = ParseLength(arg, font_size);
+            const auto x = ParseLength(arg, font_size, depth + 1);
             if (x) {
                 out = !out ? *x : is_min ? std::min(*out, *x)
                                          : std::max(*out, *x);
@@ -1352,10 +1360,10 @@ bool ParseHslFunction(std::string_view args, Rgba& out)
     return true;
 }
 
-bool ParseColor(std::string_view v, const Rgba& current, Rgba& out);
+bool ParseColor(std::string_view v, const Rgba& current, Rgba& out, int depth = 0);
 
 // color-mix(in srgb, A [p%], B [q%])。乗算済みの sRGB で混ぜる (CSS Color 5)。
-bool ParseColorMix(std::string_view args, const Rgba& current, Rgba& out)
+bool ParseColorMix(std::string_view args, const Rgba& current, Rgba& out, int depth)
 {
     std::string_view parts[3];
     size_t n = 0;
@@ -1383,7 +1391,7 @@ bool ParseColorMix(std::string_view args, const Rgba& current, Rgba& out)
                  ParseNumberOrPercent(part.substr(0, first_space), 100.0f, p[i])) {
             part = Trim(part.substr(first_space + 1));
         }
-        if (!ParseColor(part, current, c[i])) {
+        if (!ParseColor(part, current, c[i], depth + 1)) {
             return false;
         }
     }
@@ -1408,8 +1416,11 @@ bool ParseColorMix(std::string_view args, const Rgba& current, Rgba& out)
     return true;
 }
 
-bool ParseColor(std::string_view v, const Rgba& current, Rgba& out)
+bool ParseColor(std::string_view v, const Rgba& current, Rgba& out, int depth)
 {
+    if (depth > kMaxFunctionNesting) {
+        return false;
+    }
     v = Trim(v);
     if (v.empty()) {
         return false;
@@ -1452,7 +1463,7 @@ bool ParseColor(std::string_view v, const Rgba& current, Rgba& out)
         return ParseHslFunction(args, out);
     }
     if (ascii_util::iequal(name, "color-mix")) {
-        return ParseColorMix(args, current, out);
+        return ParseColorMix(args, current, out, depth);
     }
     return false;
 }
@@ -1718,7 +1729,7 @@ size_t FindVar(std::string_view s) noexcept
 // var() を置き換える。参照先が無く代わりの値も無ければ false (計算値の時点で無効)。
 bool SubstituteVars(std::string_view in, const Vars* vars, std::string& out, int depth = 0)
 {
-    if (depth > 16) {
+    if (depth > kMaxFunctionNesting) {
         return false;
     }
     for (;;) {
