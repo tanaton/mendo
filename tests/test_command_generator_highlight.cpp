@@ -87,6 +87,41 @@ protected:
 
 } // namespace
 
+// 引用の中は、段落だけでなくリスト (記号・番号・チェックボックスも)・表 (ヘッダ行も)・見出しも引用の文字色で描く。
+// GitHub は blockquote に色を指定し、中の li・th・td・h1〜h5 は色を持たないので継承する。pre は自分の色を持つので変わらない。
+// アラートの中は通常の色 (.markdown-alert は blockquote ではない)。h6 は引用の外でも同じ薄い色。
+TEST_F(HighlightOrderTest, QuotedBlocksUseBlockquoteTextColor)
+{
+    // 文字と、箇条書きの記号の色。
+    const auto brushes = [&](std::string_view md) {
+        const auto pl = ParseAndLayout(md);
+        std::vector<BrushId> ids;
+        for (const auto& cmd : Draw(pl)) {
+            if (const auto* text = std::get_if<DrawTextLayoutCmd>(&cmd)) {
+                ids.push_back(text->brush_id);
+            }
+            else if (const auto* disc = std::get_if<FillRoundedRectCmd>(&cmd)) {
+                ids.push_back(disc->brush_id);
+            }
+        }
+        return ids;
+    };
+    for (const char* md : { "###### h6", "> - item", "> 1. item", "> - [ ] task\n> - [x] done", "> | a | b |\n> |---|---|\n> | 1 | 2 |", "> ## Head",
+                            "> - outer\n>   - inner\n>     - deep" }) {
+        SCOPED_TRACE(md);
+        const auto ids = brushes(md);
+        ASSERT_FALSE(ids.empty());
+        EXPECT_EQ(std::ranges::count(ids, BrushId::BlockquoteText), std::ssize(ids));
+    }
+    for (const char* md : { "- item", "1. item", "| a | b |\n|---|---|\n| 1 | 2 |", "## Head", "##### h5", "> [!NOTE]\n> - item\n>\n> | a |\n> |---|\n> | 1 |",
+                            "> ```\n> code\n> ```" }) {
+        SCOPED_TRACE(md);
+        const auto ids = brushes(md);
+        ASSERT_FALSE(ids.empty());
+        EXPECT_EQ(std::ranges::count(ids, BrushId::BlockquoteText), 0);
+    }
+}
+
 // 検索ハイライト → 選択ハイライト → 本文（DrawTextLayoutCmd）の順序を検証する。
 // この順序が崩れると、選択中のテキストが検索ハイライトに塗り潰される、または
 // 本文が両ハイライトの下に隠れる、という視覚的不具合が発生する。
