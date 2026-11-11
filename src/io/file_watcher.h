@@ -58,7 +58,11 @@ struct FileWatchTarget {
 
 class FileWatcher {
 public:
-    FileWatcher() = default;
+    // disposer があれば、やめた監視の読み取りをその worker で取り消して閉じる。取り消しは読み取りが終わるのを待ち、
+    // フォルダを閉じるのもネットワーク越しでは往復が入るので、UI スレッドですると切断されたドライブで固まる。
+    // 無いか投函できなければ (Shutdown 後) 呼んだスレッドで閉じる。
+    explicit FileWatcher(TaskScheduler* disposer = nullptr) noexcept : disposer_(disposer)
+    {}
     ~FileWatcher();
 
     FileWatcher(const FileWatcher&) = delete;
@@ -79,6 +83,7 @@ public:
 private:
     FileWatchTarget target_;
     ChangeCallback on_change_;
+    TaskScheduler* disposer_ = nullptr;
 };
 
 // 本文中の画像のファイルの監視。画像のあるフォルダごとに読み取りを 1 つ発行し、通知の名前を登録した画像と照らす。

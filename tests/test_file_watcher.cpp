@@ -46,6 +46,32 @@ TEST_F(FileWatcherTest, WatcherDetectsChange)
     EXPECT_TRUE(changed);
 }
 
+// 監視をやめるときの取り消しと、フォルダを閉じるのは worker に任せる。worker が塞がっていても待たず、やめた監視の
+// 通知は届かず、同じファイルをすぐ監視し直せる。
+TEST_F(FileWatcherTest, StopWatchingDisposesOnWorker)
+{
+    auto path = WriteTempFile(L"dispose.md", "original");
+    TaskScheduler scheduler(1);
+    FileWatcher watcher(&scheduler);
+    int old_changes = 0;
+    bool changed = false;
+    {
+        const WorkerGate gate(scheduler, 1);
+        watcher.StartWatching(OpenWatchTarget(path.native()), [&] { ++old_changes; });
+        watcher.StopWatching();
+        EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+        watcher.StartWatching(OpenWatchTarget(path.native()), [&] { changed = true; });
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler));
+    ModifyAndWait(watcher, L"dispose.md", "modified");
+    EXPECT_TRUE(changed);
+    EXPECT_EQ(old_changes, 0);
+    scheduler.Shutdown();
+    // Shutdown の後は呼んだスレッドで閉じる。
+    watcher.StopWatching();
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+}
+
 TEST_F(FileWatcherTest, WatcherDoesNotFireWithoutChange)
 {
     auto path = WriteTempFile(L"nochange.md", "content");
