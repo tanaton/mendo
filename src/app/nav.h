@@ -28,6 +28,9 @@ public:
     // 文書を差し替えずに確定する (戻る/進むで表示中の文書の中の位置へ移った)。表示していた文書は最後に操作した時点の位置で入る。
     void CommitPending();
     void RollbackPending() noexcept;
+    // 確定待ちの読み込みが失敗した。取り消したうえで、戻る/進むの移動先だったファイルを履歴から外す。
+    // 残すと、押すたびに同じファイルで失敗し、その先の履歴へ移れない (読み込みの間に続けて押さない限り)。
+    void FailPending() noexcept;
     bool GoBack(NavEntry current, NavEntry& out);
     bool GoForward(NavEntry current, NavEntry& out);
 

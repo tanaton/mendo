@@ -11,6 +11,7 @@
 #include <dwmapi.h>
 #include <commctrl.h>
 #include <imm.h>
+#include <shellapi.h>
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -52,6 +53,39 @@ FrameMetrics GetFrameMetrics(HWND hwnd) noexcept
         .frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + padded,
         .right_border = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + padded,
     };
+}
+
+// 最大化したウィンドウのクライアント領域 rc を、hwnd のモニタで自動的に隠れるタスクバーのある辺だけ内側へ寄せる。
+// 「タスクバーを自動的に隠す」のモニタでは作業領域がモニタ全体なので、枠を除いたクライアント領域がモニタの矩形と一致する。
+// シェルはそれを全画面のウィンドウとみなし、画面の端にポインタを当ててもタスクバーを出さない。標準の枠を持たない
+// ウィンドウに共通の問題で、Chromium も同じ 2px を空けている。
+void InsetForAutoHideTaskbar(HWND hwnd, RECT& rc) noexcept
+{
+    constexpr int kGapPx = 2;
+    APPBARDATA state{ .cbSize = sizeof(state) };
+    if ((SHAppBarMessage(ABM_GETSTATE, &state) & ABS_AUTOHIDE) == 0) {
+        return;
+    }
+    MONITORINFO mi{ .cbSize = sizeof(mi) };
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) {
+        return;
+    }
+    const auto has_bar = [&](UINT edge) noexcept {
+        APPBARDATA bar{ .cbSize = sizeof(bar), .uEdge = edge, .rc = mi.rcMonitor };
+        return SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &bar) != 0;
+    };
+    if (has_bar(ABE_BOTTOM)) {
+        rc.bottom -= kGapPx;
+    }
+    else if (has_bar(ABE_TOP)) {
+        rc.top += kGapPx;
+    }
+    else if (has_bar(ABE_LEFT)) {
+        rc.left += kGapPx;
+    }
+    else if (has_bar(ABE_RIGHT)) {
+        rc.right -= kGapPx;
+    }
 }
 
 // IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
@@ -312,6 +346,7 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
         rc.left += right_border;
         rc.right -= right_border;
         rc.bottom -= frame_y;
+        InsetForAutoHideTaskbar(hwnd_, rc);
     }
     return 0;
 }
@@ -457,7 +492,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
-            app_->Dispatch(HWheelAction{ -wheel_delta, GetTickCount64() });
+            app_->Dispatch(HWheelAction{ -wheel_delta, GetTickCount64(), /*swipe=*/false });
         }
         else {
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta, false);
@@ -571,6 +606,15 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_ACTIVATE:
         app_->Dispatch(ActivateAction{ LOWORD(wParam) != WA_INACTIVE });
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
+    case WM_SETFOCUS:
+        // 検索バーを開いたまま本体が再びアクティブになる (ほかのアプリやポップアップから戻る) と、DefWindowProc はフォーカスを
+        // 本体に置く。入力欄へ渡さないと、キャレットは出ているのに文字が入らず、Ctrl+F はバーを閉じる。
+        // 閉じるときの SetFocus(hwnd_) (UnfocusSearch) は、バーを非表示にした後なのでここを通らない。
+        if (search_edit_ && app_->IsSearchBarVisible()) {
+            SetFocus(search_edit_);
+        }
+        return 0;
 
     case WM_ACTIVATEAPP:
         app_->OnActivateApp(wParam != FALSE);

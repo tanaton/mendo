@@ -93,20 +93,24 @@ public:
     void OnBitmapManageTimer();
     // 図の描画待ちと画像のデコード待ちを捨てる (描画中の分は残る)。
     void DropQueues();
-    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。
+    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。解決したパスと監視も
+    // 前の文書の画像の分なので捨てる。フォルダが変わったときだけ捨てていた頃は、同じフォルダの文書を渡り歩くと前の文書の
+    // 画像のフォルダが監視の枠 (ImageFolderWatcher::kMaxFolders) を占め続け、使い切った後の文書では更新が出なかった。
     void ForgetInlineImages();
     // 旧デバイスのビットマップと図のコマンドリストを捨て、新しい RT で読み直す。
     void OnRenderDeviceRecreated();
 
     // 本文中の画像のファイルが更新されたら読み直す。監視するのは src を解決した (先読み範囲に入ったことのある) 画像で、
-    // 文書のフォルダが変わるまで続ける。
+    // 別の文書を開くまで続ける。フォルダは worker で開き、開き終えるまでそのフォルダの画像は読まない
+    // (読んでから監視を始めるまでの更新を取りこぼさない)。
     // メッセージループが待つ、画像のフォルダの監視のイベント。out は kMaxImageWatchEvents 以上。数を返す。
-    static constexpr size_t kMaxImageWatchEvents = ImageFolderWatcher::kMaxFolders;
+    static constexpr size_t kMaxImageWatchEvents = ImageFolderWatcher::kMaxEvents;
     size_t ImageWatchEvents(std::span<HANDLE> out) const noexcept
     {
         return image_watcher_.EventHandles(out);
     }
-    // ImageWatchEvents のどれかが立った。更新された画像を控え、IMAGE_RELOAD タイマーを掛ける。
+    // ImageWatchEvents のどれかが立った。更新された画像を控え、IMAGE_RELOAD タイマーを掛ける。フォルダを開き終えていたら、
+    // 待たせていた画像を読ませる。
     void OnImageFolderEvent();
     // 控えた画像を読み直させる。
     void OnImageReloadTimer();

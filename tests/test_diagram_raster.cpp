@@ -359,6 +359,40 @@ TEST_F(PeleSvgTest, ReadsCalcSumsOfLengths)
     EXPECT_NE(shapes.find(R"svg(stroke-width="3")svg"), std::string::npos) << shapes;
 }
 
+// calc()・min()・max() と color-mix() は入れ子にできる。深すぎる入れ子は読めない宣言として捨て、再帰でスタックを使い切らない
+// (図の style や classDef に書いた値が SVG に届くと、数万段でワーカーのスタックがあふれてプロセスごと落ちる)。
+TEST_F(PeleSvgTest, DeeplyNestedFunctionsAreInvalidNotStackOverflow)
+{
+    const auto nested = [](std::string_view open, std::string_view innermost, std::string_view close, size_t depth) {
+        std::string s;
+        for (size_t i = 0; i < depth; ++i) {
+            s += open;
+        }
+        s += innermost;
+        for (size_t i = 0; i < depth; ++i) {
+            s += close;
+        }
+        return s;
+    };
+    const auto path = [](std::string_view width, std::string_view stroke) {
+        return std::format(R"svg(<path d="M0 0L10 0" stroke="{}" style="stroke-width:3;stroke-width:{}"/>)svg", stroke, width);
+    };
+    // 浅い入れ子は読む。
+    const auto shallow = Resolve(path(nested("calc(", "5px", ")", 4), nested("color-mix(in srgb,", "#f00", ",#f00)", 4)));
+    ASSERT_TRUE(shallow);
+    EXPECT_NE(shallow->layers[0].shapes.find(R"svg(stroke="#ff0000" stroke-width="5")svg"), std::string::npos) << shallow->layers[0].shapes;
+
+    constexpr size_t kDeep = 30000;
+    for (const auto& width : { nested("calc(", "5px", ")", kDeep), nested("min(", "5px", ")", kDeep), nested("max(1px,", "5px", ")", kDeep) }) {
+        const auto drawing = Resolve(path(width, "#000"));
+        ASSERT_TRUE(drawing);
+        EXPECT_NE(drawing->layers[0].shapes.find(R"svg(stroke-width="3")svg"), std::string::npos);
+    }
+    const auto mixed = Resolve(path("3", nested("color-mix(in srgb,", "#f00", ",#f00)", kDeep)));
+    ASSERT_TRUE(mixed);
+    EXPECT_EQ(mixed->layers[0].shapes.find("stroke="), std::string::npos);
+}
+
 // 読めない宣言は CSS と同じく捨て、同じ性質の前の宣言か表示の属性を使う。var() の宣言は解けなければ、前の宣言ではなく
 // 親の値になる (計算値の時点で無効)。大きさの無い font の一括指定は宣言ごと捨てる。
 TEST_F(PeleSvgTest, InvalidDeclarationFallsBackToEarlierOne)

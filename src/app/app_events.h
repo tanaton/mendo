@@ -41,6 +41,8 @@ struct MouseWheelAction {
     bool ctrl = false;
     PaneZone zone = PaneZone::MdPane;
     uint64_t tick = 0;
+    // OS の「一度にスクロールする行数」(SPI_GETWHEELSCROLLLINES)。WHEEL_PAGESCROLL なら 1 画面ずつ。
+    unsigned scroll_lines = DEFAULT_WHEEL_SCROLL_LINES;
 };
 
 // 選択範囲をコピーする。formatted なら HTML (書式付き) も載せる。
@@ -237,6 +239,9 @@ struct LoadFailedAction {};
 struct HWheelAction {
     int delta; // 生の WHEEL_DELTA 単位
     uint64_t tick;
+    // 偽なら横スクロールできるブロックを送るだけで、履歴を移るスワイプには数えない (Shift+ホイール)。スワイプは
+    // タッチパッドの横送りのためのもので、ホイールでは表やコードからポインタが外れただけで 4 ノッチで文書が切り替わる。
+    bool swipe = true;
 };
 
 struct BlockHScrollDragStartedAction {

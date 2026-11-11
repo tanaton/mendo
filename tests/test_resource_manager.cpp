@@ -288,6 +288,22 @@ protected:
         LoadMarkdown(md, 100.0f, (dir_.path() / L"test.md").wstring().c_str());
     }
 
+    // 画像のフォルダの監視は worker で開き、開き終えるまでそのフォルダの画像を読まない。文書を開いたら、画像を頼まずに
+    // 開き終えるところまで進めておく (App では、開き終えた知らせで待たせていた画像を読む)。
+    void LoadMarkdown(std::string_view md, float block_height = 100.0f, const wchar_t* doc_path = kTestDocPath)
+    {
+        ResourceManagerTest::LoadMarkdown(md, block_height, doc_path);
+        OpenImageFolderWatches();
+    }
+    void OpenImageFolderWatches()
+    {
+        host_.loading_other = true;
+        rm_.LoadImages();
+        ASSERT_TRUE(DrainScheduler(scheduler_));
+        rm_.OnImageFolderEvent();
+        host_.loading_other = false;
+    }
+
     // 読み込みが止まるまで、要求と取り込みを繰り返す。止まれば true。
     bool SettleLoads()
     {
@@ -458,10 +474,12 @@ TEST_F(ResourceManagerImageFileTest, ReturningDocumentKeepsSizesAndReloadsBitmap
     ASSERT_NE(inline_drawings_.FindImage(InlineImageKey("a.png")), nullptr);
 
     LoadMarkdown("other\n", 100.0f, (dir_.path() / L"other.md").wstring().c_str());
-    LoadMarkdown("![a](a.png)\n", 100.0f, doc_path.c_str());
+    // 寸法は監視を開くより前、組む前に入る。
+    ResourceManagerTest::LoadMarkdown("![a](a.png)\n", 100.0f, doc_path.c_str());
     EXPECT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
     EXPECT_EQ(inline_drawings_.FindImage(InlineImageKey("a.png")), nullptr);
+    OpenImageFolderWatches();
 
     rm_.LoadImages();
     ASSERT_TRUE(DrainScheduler(scheduler_));
@@ -521,6 +539,53 @@ TEST_F(ResourceManagerImageFileTest, CreatedImageFileIsLoaded)
     WritePng(path);
     ASSERT_TRUE(WaitForImageReloadTimer()) << "更新の通知でタイマーが掛からない";
     rm_.OnImageReloadTimer();
+    ASSERT_TRUE(SettleLoads());
+    EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
+    EXPECT_TRUE(HasBitmap("a.png"));
+}
+
+// 同じフォルダの文書を渡り歩いても、前の文書の画像のフォルダが監視の枠 (kMaxFolders) を占め続けない。
+// 占め続けると、枠を使い切った後の文書では画像を更新しても表示に出ない。
+TEST_F(ResourceManagerImageFileTest, WatchSlotsAreFreedWhenDocumentIsReplaced)
+{
+    const std::wstring doc_path = (dir_.path() / L"test.md").wstring();
+    constexpr int kDocs = static_cast<int>(ImageFolderWatcher::kMaxFolders) + 2;
+    std::filesystem::path last;
+    for (int i = 0; i < kDocs; ++i) {
+        const auto folder = dir_.path() / std::to_wstring(i);
+        std::filesystem::create_directory(folder);
+        last = folder / L"a.png";
+        WritePng(last);
+        LoadMarkdown(std::format("![a]({}/a.png)\n", i), 100.0f, doc_path.c_str());
+        ASSERT_TRUE(SettleLoads()) << i;
+    }
+    const std::string src = std::format("{}/a.png", kDocs - 1);
+    ASSERT_EQ(Entry(src).state, InlineImageState::Ready);
+
+    host_.last_set_timer_id.reset();
+    WritePng(last);
+    EXPECT_TRUE(WaitForImageReloadTimer()) << "最後に開いた文書の画像の更新が届かない";
+}
+
+// 画像のフォルダの監視を開いている最中は、そのフォルダの画像を読まない (読んでから監視を始めるまでの更新を取りこぼさない)。
+// 開き終えた知らせで読む。
+TEST_F(ResourceManagerImageFileTest, ImagesWaitUntilFolderWatchIsOpen)
+{
+    WritePng(dir_.path() / L"a.png");
+    ResourceManagerTest::LoadMarkdown("![a](a.png)\n", 100.0f, (dir_.path() / L"test.md").wstring().c_str());
+    {
+        const WorkerGate gate(scheduler_, 2);
+        rm_.LoadImages();
+        HANDLE events[ResourceManager::kMaxImageWatchEvents];
+        EXPECT_EQ(rm_.ImageWatchEvents(events), 1u) << "worker の結果を待つ";
+    }
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_FALSE(image_loader_.ProcessCompletedDecodes(kNoDeadline)) << "開き終えるまで読まない";
+    EXPECT_EQ(Entry("a.png").state, InlineImageState::Loading);
+
+    rm_.OnImageFolderEvent();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+    EXPECT_TRUE(image_loader_.ProcessCompletedDecodes(kNoDeadline)) << "開き終えた知らせで読む";
     ASSERT_TRUE(SettleLoads());
     EXPECT_EQ(Entry("a.png"), (InlineImageEntry{ InlineImageState::Ready, { 1.0f, 1.0f } }));
     EXPECT_TRUE(HasBitmap("a.png"));

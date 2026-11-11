@@ -777,7 +777,9 @@ void App::HandleLoadFailureFallback(FileLoadError error)
         RefreshFilePane();
     }
     Dispatch(LoadFailedAction{});
-    if (state_.document.doc.IsEmpty()) {
+    // 何も開いていない (起動時の文書が読めなかった) ときだけヘルプを出す。ノードの数で見ると、空のファイルを表示中の失敗でも
+    // ヘルプに差し替わり、表示していたファイルの監視も止まる。
+    if (state_.document.doc.GetFilePath().empty()) {
         ShowEmbeddedResource(HELP_PATH);
     }
 }
@@ -1237,7 +1239,7 @@ void App::OnMouseMove(int px, int py)
 void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 {
     const auto dip = PixelToDip(px, py);
-    Dispatch(MouseWheelAction{ delta, ctrl, PaneAtPoint(dip.x), GetTickCount64() });
+    Dispatch(MouseWheelAction{ delta, ctrl, PaneAtPoint(dip.x), GetTickCount64(), WheelScrollLines() });
 }
 
 bool App::OnRButtonDown(int px, int py)

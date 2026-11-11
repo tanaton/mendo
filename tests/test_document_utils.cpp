@@ -1814,6 +1814,37 @@ TEST(ChunkCopy, IniLongLineCarriesStringAcrossChunks)
     ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
 }
 
+// 行の頭で色が決まる言語でも、長い 1 行を途中で区切った続きのノードは行の頭として読まない。継ぎ目がどの語の頭にも来るよう、
+// 行の前に足す空白の数をずらして確かめる。
+TEST(ChunkCopy, LongLineSplitMidLineIsNotReadAsLineStart)
+{
+    const auto repeat = [](std::string_view item, size_t count) { return RepeatTo(item, item.size() * count); };
+    for (size_t shift = 0; shift < 6; ++shift) {
+        SCOPED_TRACE(shift);
+        const std::string pad(shift, ' ');
+        // 文脈の行の続きが + や - で始まっても、追加行・削除行にしない。次の行のヘッダの判定も持ち越す。
+        ExpectStatefulChunksMatch("diff", "@@ -1 +1 @@\n " + pad + repeat("+a -b ", 60000) + "\n-removed\n+added\n " + pad + repeat("- + ", 40000) +
+                                              "\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n+x\n");
+        // フローの並びの続きを、行の頭のキーや 1 つのスカラーとして読まない。
+        ExpectStatefulChunksMatch("yaml", "list: [" + pad + repeat("1, true, \"s\", ", 30000) + "x]\nmap: {" + pad + repeat("k: 2, ", 50000) +
+                                              "z: 1}\nkey: value\ntext: |\n  body: 1\nafter: 2\n");
+        // 式の中の語をコマンドとして読まない。
+        ExpectStatefulChunksMatch("vim", "let g:a = 1\nlet g:l = [" + pad + repeat("echo, set, \"s\", ", 25000) + "1]\nlet g:b = 2 \" comment\n" +
+                                             "call F(" + pad + repeat("let, 2, ", 40000) + "3)\nlua << EOF\nlocal t = 1 -- c\nEOF\nlet g:c = 3\n");
+        // 引数の中の語を命令として読まない。
+        ExpectStatefulChunksMatch("dockerfile", "FROM alpine AS build\nRUN echo " + pad + repeat("copy run \"s\" ", 30000) + "end\nCOPY a b\nRUN echo " + pad +
+                                                    repeat("env from ", 40000) + "&& \\\n    true\nENV A=1\n");
+        // [section] や引用符の値の後ろ、値やコメントの続きにある '=' や ':' でキーを始めない。値とコメントに空白を入れないのは、
+        // 行の途中で終わるノードが末尾の空白をトークンから外すため (見た目は変わらない)。
+        ExpectStatefulChunksMatch("ini", "[s] " + pad + repeat("a = 1 ", 40000) + "\nk = \"v\" " + pad + repeat("b: 2 ", 40000) + "\n; " + pad +
+                                             repeat("c=3;", 40000) + "\nname = value\nlong = " + pad + repeat("x=1:2,", 50000) + "\nlast = 2\n");
+        // 値の中の ':' や '=' でルールや代入を始めない。レシピの続きはレシピのまま読む。
+        ExpectStatefulChunksMatch("make", "SRCS = " + pad + repeat("a.c name: $(X) k=v ", 20000) + "\nall: dep\n    echo " + pad +
+                                              repeat("x: y=1 $@ \"s\" ", 25000) + "\n    rm -f $@\nX = 1\ntarget: " + pad + repeat("dep: d2 ", 40000) +
+                                              "\n    echo done\n");
+    }
+}
+
 // 字句解析を始める状態が変わった続きのノードは、中身が同じでも色分けが変わるので、変わらなかったノードに数えない。
 TEST(FindUnchangedEnds, ContinuedCodeWithChangedLexStateIsChanged)
 {

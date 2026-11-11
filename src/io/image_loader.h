@@ -39,6 +39,11 @@ public:
     // デバイスロストでの差し替えでは、旧 rt のビットマップを捨てる。デコードは WIC ビットマップを作るので rt に依らず
     // (縮める上限 max_bitmap_dim_ は始めるときに読む)、待ちのものも受け箱の結果も新しい rt に載せる。
     void SetRenderTarget(ID2D1RenderTarget* rt);
+    // 画像を読む worker。Init の前は null。画像のフォルダの監視 (ImageFolderWatcher) も、ここでフォルダを開く。
+    TaskScheduler* scheduler() const noexcept
+    {
+        return scheduler_;
+    }
 
     // 読み込んだ画像の寸法。ビットマップはここに残さず、描く側 (InlineDrawings) が保持範囲の画像の分だけ持つ。
     // 外れた画像は戻ったときにファイルから読み直す。ネットワークは読まないので、1705x1056 の PNG を 1024px で 5〜9ms、

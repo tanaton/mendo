@@ -374,6 +374,10 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     // TokensCrossing は語を飛ばすので直列で約 20ms (実際の C++ で 107ms が約 40ms) で済み、worker に配っても 1〜2ms しか縮まない。
     // 語を飛ばせない言語は全トークンを作るので、16MB で HTML 45ms、YAML 100ms、Lisp 130ms ほどかかるが、並列にするほど現れない。
     constexpr size_t kWindowNodes = 8;
+    // 改行が無いまま窓の端に届いた行は、頭からこれだけ読んでいれば、行の頭の読み方 (キー・命令・ルールか代入か) が決まった
+    // ものとして行の途中から次の窓を読む。行の頭から読み直すと、窓より長い 1 行で、窓を倍にしながら行の頭から何度も読む
+    // (4MB の 1 行で YAML 30ms、Vim script 45ms)。これより後ろにだけ区切りのある行は、頭の色付けが 1 度に読んだときと変わる。
+    constexpr size_t kLineHeadBytes = 64 * 1024;
     std::string seg;
     std::vector<size_t> boundaries;
     SyntaxStateTrace trace;
@@ -405,6 +409,26 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         else if (!tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
             if (const auto again = trace.RestartFor(tokens.back().start); again.pos < stop.pos) {
                 stop = again;
+            }
+        }
+        if (last != n && trace.UnsettledAtLineHead() && stop.pos == trace.SettledEnd().pos && seg.size() - stop.pos >= kLineHeadBytes) {
+            // 末尾のトークンは窓の先まで続くかもしれないので、その頭より手前の継ぎ目から。継ぎ目をまたぐトークンがあればその後ろから。
+            const size_t latest = tokens.empty() ? seg.size() : tokens.back().start;
+            for (size_t k = last; k-- > next;) {
+                const size_t b = begins[k] - restart;
+                if (b <= stop.pos) {
+                    break;
+                }
+                // 状態を残した位置は継ぎ目かその後ろ。
+                const auto point = trace.For(b);
+                size_t pos = point.pos;
+                if (const auto after = std::ranges::upper_bound(tokens, b, {}, &SyntaxToken::start); after != tokens.begin()) {
+                    pos = std::max(pos, size_t{ std::prev(after)->start } + std::prev(after)->length);
+                }
+                if (pos <= latest) {
+                    stop = { pos, point.state };
+                    break;
+                }
             }
         }
         const size_t limit = restart + stop.pos;

@@ -94,6 +94,16 @@ void NavHistory::RollbackPending() noexcept
     pending_ = Settled{};
 }
 
+void NavHistory::FailPending() noexcept
+{
+    if (const auto* traverse = std::get_if<PendingTraverse>(&pending_)) {
+        auto& stack = traverse->steps < 0 ? back_stack_ : forward_stack_;
+        // Move が範囲を確かめ、確定待ちの間は移動先より手前を変えない (Push は進む側なら PendingOpen に変える)。
+        stack.erase(stack.end() - std::abs(traverse->steps));
+    }
+    pending_ = Settled{};
+}
+
 bool NavHistory::Move(int direction, NavEntry current, NavEntry& out)
 {
     // 開きかけのファイルは取り消し、表示中の文書から移動する (移動できなければ開くのを続ける)。戻る/進むを続けるときは、
