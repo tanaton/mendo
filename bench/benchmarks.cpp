@@ -1690,9 +1690,10 @@ BENCHMARK_CAPTURE(BM_TableScroll, restore, false)->UseManualTime()->Iterations(1
 BENCHMARK_CAPTURE(BM_TableScroll, evict, true)->UseManualTime()->Iterations(100)->Unit(benchmark::kMicrosecond);
 
 // 遅延レイアウトを期限で区切ったときの、全 dirty を計測し終えるまで。budget 0 は区切らない。ワーカー 8 本。
-void BM_DirtyBatchDeadline(benchmark::State& state)
+// max_batch_ms は区切った 1 回の最長 (空き時間の 1 回で UI が止まる長さ)。md が空なら test.md x4。
+void BM_DirtyBatchDeadline(benchmark::State& state, std::string md)
 {
-    const auto opened = OpenDoc(state, RepeatTestMd(state, 4), 8);
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
     if (!opened) {
         return;
     }
@@ -1701,16 +1702,21 @@ void BM_DirtyBatchDeadline(benchmark::State& state)
     const auto deadline = [&] {
         return budget.count() > 0 ? std::chrono::steady_clock::now() + budget : kNoLayoutDeadline;
     };
+    double max_batch = 0.0;
     for (auto _ : state) {
         LayoutCache cache(doc.GetNodes().size());
         l.engine.Reestimate(doc.GetNodes(), cache, 1200.0f);
         state.SetIterationTime(SecondsOf([&] {
-            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All()).remaining) {
+            for (bool more = true; more;) {
+                max_batch = std::max(max_batch, SecondsOf([&] { more = l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All()).remaining; }));
             }
         }));
     }
+    state.counters["max_batch_ms"] = max_batch * 1000.0;
 }
-BENCHMARK(BM_DirtyBatchDeadline)->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DirtyBatchDeadline, testmd, std::string{})->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
+// 1 段落 15KB の和文 (1 ノードの計測が重い)。
+BENCHMARK_CAPTURE(BM_DirtyBatchDeadline, ja15kb, LongJapaneseParagraphs())->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // ===== リロード =====
 
