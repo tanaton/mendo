@@ -7,6 +7,8 @@
 #include "ui_constants.h"
 #include "win32_util.h"
 #include <d2d1_3.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <array>
@@ -97,20 +99,20 @@ std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir)
     return it == used.begin() ? std::nullopt : std::optional{ *std::prev(it) };
 }
 
-DiagramView::DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
-    : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d2d_(d2d)
+DiagramView::DiagramView(ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
+    : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d3d_(d3d), device_(device)
 {}
 
-std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                  std::move_only_function<void()> on_close)
+std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                                  bool dark, std::move_only_function<void()> on_close)
 {
     static const bool registered = RegisterWindowClass(
         kWindowClass.data(), WndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
     RECT owner_rect{};
-    if (!registered || !GetWindowRect(owner, &owner_rect)) {
+    if (!registered || !d3d || !device || !GetWindowRect(owner, &owner_rect)) {
         return nullptr;
     }
-    std::unique_ptr<DiagramView> view(new DiagramView(d2d, dw, wic, std::move(on_close)));
+    std::unique_ptr<DiagramView> view(new DiagramView(d3d, device, dw, wic, std::move(on_close)));
     const int owner_w = owner_rect.right - owner_rect.left;
     const int owner_h = owner_rect.bottom - owner_rect.top;
     const int w = MulDiv(owner_w, kSizePercent, 100);
@@ -272,19 +274,72 @@ bool DiagramView::EnsureTarget()
     if (rt_) {
         return true;
     }
+    if (!d3d_ || !device_) {
+        return false;
+    }
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    const float dpi = Scale() * DEFAULT_DPI;
-    // D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった (2 回に 1 回)。
-    if (FAILED(d2d_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
-                                            D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right, rc.bottom)),
-                                            &rt_)) ||
+    ComPtr<IDXGIDevice> dxgi;
+    ComPtr<IDXGIAdapter> adapter;
+    ComPtr<IDXGIFactory2> factory;
+    // 大きさは窓に合わせて ResizeBuffers するので、伸ばさずに左上に置く。Present は垂直同期を待つ (HwndRenderTarget の既定と
+    // 同じ。待たない D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった)。
+    const DXGI_SWAP_CHAIN_DESC1 desc{
+        .Width = static_cast<UINT>(std::max(rc.right, 1L)),
+        .Height = static_cast<UINT>(std::max(rc.bottom, 1L)),
+        .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
+        .SampleDesc = { 1, 0 },
+        .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        .BufferCount = 2,
+        .Scaling = DXGI_SCALING_NONE,
+        .SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    };
+    if (FAILED(d3d_.As(&dxgi)) || FAILED(dxgi->GetAdapter(&adapter)) || FAILED(adapter->GetParent(IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->CreateSwapChainForHwnd(d3d_.Get(), hwnd_, &desc, nullptr, nullptr, &swap_chain_)) ||
+        FAILED(device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &rt_)) || !BindBackBuffer() ||
         FAILED(rt_->CreateSolidColorBrush(D2D1::ColorF(0), &brush_))) {
-        rt_.Reset();
+        ReleaseTarget();
         return false;
     }
     record_dc_ = CreateRecordContext(rt_.Get());
     return true;
+}
+
+bool DiagramView::BindBackBuffer()
+{
+    const float dpi = Scale() * DEFAULT_DPI;
+    rt_->SetDpi(dpi, dpi);
+    ComPtr<IDXGISurface> surface;
+    ComPtr<ID2D1Bitmap1> target;
+    // 不透明な窓なので IGNORE にする (PREMULTIPLIED だと文字が ClearType からグレースケールに落ちる)。
+    const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                                               D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE), dpi, dpi);
+    if (FAILED(swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface))) || FAILED(rt_->CreateBitmapFromDxgiSurface(surface.Get(), &props, &target))) {
+        return false;
+    }
+    rt_->SetTarget(target.Get());
+    return true;
+}
+
+void DiagramView::ReleaseTarget() noexcept
+{
+    if (rt_) {
+        rt_->SetTarget(nullptr);
+    }
+    rt_.Reset();
+    swap_chain_.Reset();
+    brush_.Reset();
+    record_dc_.Reset();
+    commands_.Reset();
+}
+
+void DiagramView::SetDevice(ID3D11Device* d3d, ID2D1Device* device)
+{
+    // 旧デバイスのスワップチェーンを放してから作る (同じ窓に 2 つ目は作れない)。
+    ReleaseTarget();
+    d3d_ = d3d;
+    device_ = device;
+    Invalidate();
 }
 
 D2D1_POINT_2F DiagramView::Origin() const noexcept
@@ -312,12 +367,11 @@ void DiagramView::Paint()
         if (!commands_) {
             commands_ = RecordDiagram(record_dc_.Get(), dw_.Get(), wic_.Get(), *drawing_, i18n::TextLocale());
         }
-        ComPtr<ID2D1DeviceContext> dc;
-        if (commands_ && SUCCEEDED(rt_.As(&dc))) {
+        if (commands_) {
             const D2D1_POINT_2F origin = Origin();
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
-            dc->DrawImage(commands_.Get());
-            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+            rt_->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
+            rt_->DrawImage(commands_.Get());
+            rt_->SetTransform(D2D1::Matrix3x2F::Identity());
         }
         PaintBar();
     }
@@ -327,12 +381,13 @@ void DiagramView::Paint()
         rt_->DrawTextW(loading.data(), static_cast<UINT32>(loading.size()), fmt_label_.Get(), D2D1::RectF(0.0f, 0.0f, view_width_, view_height_),
                        brush_.Get());
     }
-    if (rt_->EndDraw() == D2DERR_RECREATE_TARGET) {
-        rt_.Reset();
-        brush_.Reset();
-        record_dc_.Reset();
-        commands_.Reset();
-        Invalidate();
+    HRESULT hr = rt_->EndDraw();
+    if (SUCCEEDED(hr)) {
+        hr = swap_chain_->Present(1, 0);
+    }
+    // デバイスを失ったら捨てる。作り直しは、本体がデバイスを作り直したとき (SetDevice) に任せる。
+    if (hr == D2DERR_RECREATE_TARGET || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+        ReleaseTarget();
     }
 }
 
@@ -456,8 +511,13 @@ void DiagramView::Layout()
         view_width_ = PixelToDip(static_cast<float>(rc.right), scale);
         view_height_ = PixelToDip(static_cast<float>(rc.bottom), scale);
         if (rt_) {
-            rt_->SetDpi(scale * DEFAULT_DPI, scale * DEFAULT_DPI);
-            rt_->Resize(D2D1::SizeU(rc.right, rc.bottom));
+            // バッファを放してから大きさを変える。
+            rt_->SetTarget(nullptr);
+            if (FAILED(swap_chain_->ResizeBuffers(0, static_cast<UINT>(std::max(rc.right, 1L)), static_cast<UINT>(std::max(rc.bottom, 1L)),
+                                                  DXGI_FORMAT_UNKNOWN, 0)) ||
+                !BindBackBuffer()) {
+                ReleaseTarget();
+            }
         }
         if (drawing_) {
             fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->width, drawing_->height);

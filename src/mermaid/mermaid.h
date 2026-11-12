@@ -50,7 +50,8 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
-    MermaidRenderer() = default;
+    // D3D の型をこのヘッダに持ち込まないよう、作る・壊すは mermaid.cpp で行う。
+    MermaidRenderer();
     ~MermaidRenderer() override;
 
     MermaidRenderer(const MermaidRenderer&) = delete;
@@ -61,10 +62,11 @@ public:
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
     // 拡大表示の窓を開く。開けなければ null。本番は DiagramView::Open で、テストは窓を作らない実装を返す。
-    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                              std::move_only_function<void()> on_close);
+    // d3d と device は本体の描画デバイス (SetRenderTarget で受けたもの)。
+    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw,
+                                                              IWICImagingFactory* wic, bool dark, std::move_only_function<void()> on_close);
 
-    // d2d・wic・dw は Renderer と共有する。d2d は拡大表示の窓と図を描いた画像の描画先を、wic は図を描いた画像を、
+    // d2d・wic・dw は Renderer と共有する。d2d は図を描いた画像 (保存・コピー) の描画先を、wic は図を描いた画像を、
     // dw は図の文字を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
     // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
@@ -79,7 +81,8 @@ public:
     // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
-    void SetRenderTarget(ID2D1RenderTarget* render_target);
+    // d3d は render_target のデバイスの D3D デバイス (拡大表示の窓のスワップチェーンを作る)。無ければ拡大表示を開けない。
+    void SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d = nullptr);
     // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
@@ -214,6 +217,8 @@ private:
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
+    // render_target_ のデバイス。拡大表示の窓はこれで描く。
+    Microsoft::WRL::ComPtr<ID2D1Device> RenderDevice() const;
     bool ViewerOpen() const noexcept
     {
         return viewer_.view && viewer_.view->IsOpen();
@@ -254,6 +259,7 @@ private:
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 

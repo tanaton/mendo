@@ -9,6 +9,7 @@
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "win32_util.h"
+#include <d3d11.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
@@ -23,6 +24,8 @@ namespace {
 constexpr double MAX_EXPORT_PIXELS = 64.0 * 1024 * 1024;
 
 } // namespace
+
+MermaidRenderer::MermaidRenderer() = default;
 
 MermaidRenderer::~MermaidRenderer()
 {
@@ -72,12 +75,26 @@ void MermaidRenderer::TrimIdleRuntimes()
     }
 }
 
-void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
+void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d)
 {
     render_target_ = render_target;
+    d3d_device_ = d3d;
     // 旧デバイスで記録できなかったエラーも捨てて再試行させる。
     cache_.Clear();
     record_dc_ = CreateRecordContext(render_target);
+    if (ViewerOpen()) {
+        viewer_.view->SetDevice(d3d, RenderDevice().Get());
+    }
+}
+
+Microsoft::WRL::ComPtr<ID2D1Device> MermaidRenderer::RenderDevice() const
+{
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    Microsoft::WRL::ComPtr<ID2D1Device> device;
+    if (render_target_ && SUCCEEDED(render_target_->QueryInterface(IID_PPV_ARGS(&dc)))) {
+        dc->GetDevice(&device);
+    }
+    return device;
 }
 
 void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
@@ -418,7 +435,8 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, bool dark_mode
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = open_viewer_(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
+    else if (viewer_.view = open_viewer_(hwnd_, d3d_device_.Get(), RenderDevice().Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); });
+             !viewer_.view) {
         FailViewer();
         return;
     }

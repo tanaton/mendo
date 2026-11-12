@@ -167,7 +167,7 @@ void App::AwaitImageFoldersBeforeDevice()
 void App::ShareRenderTarget()
 {
     auto* const rt = renderer_.GetRenderTarget();
-    mermaid_renderer_.SetRenderTarget(rt);
+    mermaid_renderer_.SetRenderTarget(rt, renderer_.GetD3DDevice());
     image_loader_.SetRenderTarget(rt);
 }
 

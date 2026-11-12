@@ -64,6 +64,8 @@ struct ViewerLog {
     bool alive = false;
     bool dark = false;
     bool fail_open = false;
+    // 本体の描画デバイスを差し替えられた回数。
+    int device_changes = 0;
     std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
 };
 
@@ -107,6 +109,10 @@ public:
     {
         has_drawing_ = true;
         log_.drawings.push_back(std::move(drawing));
+    }
+    void SetDevice(ID3D11Device*, ID2D1Device*) override
+    {
+        ++log_.device_changes;
     }
 
 private:
@@ -157,7 +163,7 @@ protected:
         }
     }
 
-    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID2D1Factory*, IDWriteFactory*, IWICImagingFactory*, bool dark,
+    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID3D11Device*, ID2D1Device*, IDWriteFactory*, IWICImagingFactory*, bool dark,
                                                           std::move_only_function<void()>)
     {
         return viewer_.fail_open ? nullptr : std::make_unique<FakeViewer>(viewer_, dark);
@@ -641,6 +647,16 @@ TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
 }
 
 // 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
+// 拡大表示は本体の描画デバイスで描くので、本体がデバイスを作り直したら拡大表示にも渡す。
+TEST_F(MermaidRendererTest, ViewerFollowsRenderDevice)
+{
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_EQ(viewer_.device_changes, 0);
+    renderer_.SetRenderTarget(rt_.Get());
+    EXPECT_EQ(viewer_.device_changes, 1);
+}
+
 TEST_F(MermaidRendererTest, ViewerDrawingWaitsForRenderTarget)
 {
     renderer_.SetRenderTarget(nullptr);

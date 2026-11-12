@@ -125,6 +125,10 @@ public:
     void TrimForMinimize() noexcept;
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
+    ID3D11Device* GetD3DDevice() const noexcept
+    {
+        return d3d_device_.Get();
+    }
     ID2D1RenderTarget* GetRenderTarget() const noexcept
     {
         return device_context_.Get();
