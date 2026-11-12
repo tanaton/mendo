@@ -196,17 +196,30 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingInlineLayouts(bool tables) noexcept
+bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept
 {
     bool any = false;
-    for (auto& e : entries_) {
+    const auto invalidate = [&](NodeLayoutEntry& e) {
         if (!e.pending_inline || (!tables && e.table_layout())) {
-            continue;
+            return;
         }
         // 数式や画像の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
         ReleaseEntryLayouts(e, released_layouts_);
         e.layout_dirty = true;
         any = true;
+    };
+    // 印が立つのは組んだノードで、組んだ範囲 (live_nodes_) の外へ出たノードは evict で印を下ろす。表だけは evict が行を
+    // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると 30 万ノードで 1 回 130µs かかり、数式の組の結果や
+    // 画像が届くたびに呼ばれる。
+    for (size_t i = live_nodes_.begin; i < live_nodes_.end; ++i) {
+        invalidate(entries_[i]);
+    }
+    if (tables) {
+        for (const size_t i : table_indices) {
+            if (i < live_nodes_.begin || i >= live_nodes_.end) {
+                invalidate(entries_[i]);
+            }
+        }
     }
     has_dirty_nodes_ |= any;
     return any;

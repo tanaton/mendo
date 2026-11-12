@@ -585,8 +585,9 @@ public:
     void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
-    // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
-    bool InvalidatePendingInlineLayouts(bool tables) noexcept;
+    // table_indices は文書の表のノード (Document::GetTableNodeIndices)。tables が false なら表は待たせたままにする
+    // (表は全セルを組み直すので重い)。
+    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept;
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 

@@ -462,7 +462,7 @@ bool App::InvalidatePendingInline(bool force_tables)
         SetTimer(app_timer::Id::INLINE_TABLES,
                  static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kInlineTableRelayoutInterval - since).count()));
     }
-    return state_.document.layout_cache.InvalidatePendingInlineLayouts(tables);
+    return state_.document.layout_cache.InvalidatePendingInlineLayouts(state_.document.doc.GetTableNodeIndices(), tables);
 }
 
 void App::RelayoutPendingInline(bool force_tables)

@@ -19,6 +19,18 @@ class DWriteMeasurerTest : public DWriteTestBase {};
 
 namespace {
 
+// 文書の表のノードを集めて、仮に組んだノードを組み直させる (アプリは Document::GetTableNodeIndices を渡す)。
+bool InvalidatePending(const std::vector<Node>& nodes, LayoutCache& cache, bool tables)
+{
+    std::vector<size_t> table_indices;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].type == NodeType::Table) {
+            table_indices.push_back(i);
+        }
+    }
+    return cache.InvalidatePendingInlineLayouts(table_indices, tables);
+}
+
 // [start, start+length) の文字を覆う矩形の幅の合計。
 float InlineRangeWidth(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
 {
@@ -154,8 +166,8 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_EQ(requests[0], InlineMathKey("x^2", theme_.font_size_body));
 
     table_.Resolve(requests[0], { 123.0f, 30.0f, 20.0f });
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
-    EXPECT_FALSE(cache.InvalidatePendingInlineLayouts(true)) << "印は 1 回で外す";
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
+    EXPECT_FALSE(InvalidatePending(nodes, cache, true)) << "印は 1 回で外す";
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].pending_inline);
     EXPECT_TRUE(table_.TakeRequests().empty());
@@ -171,7 +183,7 @@ TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
     cache.EvictTextLayouts(1, 1);
     EXPECT_EQ(cache[0].text_layout(), nullptr);
     EXPECT_FALSE(cache[0].pending_inline);
-    EXPECT_FALSE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_FALSE(InvalidatePending(nodes, cache, true));
 }
 
 // 数式の途中や頭だけを指す範囲 (数式の中の検索ヒット) も、数式全体を含む範囲に広げてから箱を引く。
@@ -182,7 +194,7 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 60.0f, 24.0f, 18.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     auto* layout = cache[0].text_layout();
     ASSERT_NE(layout, nullptr);
@@ -241,7 +253,7 @@ TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 2000.0f, 40.0f, 30.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     for (const float viewport : { 800.0f, 600.0f }) {
         SCOPED_TRACE(viewport);
         ComputeLayout(engine_, nodes, cache, viewport);
@@ -262,7 +274,7 @@ TEST_F(DWriteInlineMathTest, BlockMathHasNoExtraLeading)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 100.0f, 300.0f, 200.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_NEAR(LayoutHeight(cache[0].text_layout()), 300.0f, 0.5f);
     EXPECT_GT(LayoutHeight(cache[1].text_layout()), 330.0f);
@@ -321,11 +333,25 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     ASSERT_NE(tl, nullptr);
     EXPECT_TRUE(cache[2].pending_inline);
     // 表を待たせても、段落は組み直す。
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(false));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, false));
     EXPECT_EQ(cache[2].table_layout(), tl);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     EXPECT_EQ(cache[2].table_layout(), nullptr);
     EXPECT_TRUE(cache[2].layout_dirty);
+}
+
+// 組んだ範囲の外へ evict した表は、行を捨てても待ちの印が残るので、範囲の外でも組み直させる。
+TEST_F(DWriteInlineMathTest, EvictedTableOutsideLiveRangeStillRelaysOut)
+{
+    auto [nodes, cache] = ParseAndLayout("$x$\n\n| h |\n|---|\n| $y$ |\n");
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_TRUE(cache[1].pending_inline);
+    cache.EvictTextLayouts(0, 1);
+    ASSERT_NE(cache[1].table_layout(), nullptr);
+    ASSERT_TRUE(cache[1].pending_inline);
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
+    EXPECT_EQ(cache[1].table_layout(), nullptr);
+    EXPECT_TRUE(cache[1].layout_dirty);
 }
 
 // キーの大きさ (MathFontSize) は組んだ文字の大きさと同じ。ずれると数式の大きさが周りの文字と合わない。
@@ -549,7 +575,7 @@ TEST_F(DWriteInlineImageTest, WaitsForSizeThenPlacesImage)
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 0.0f);
 
     SetReady("p.png", 120.0f, 80.0f);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].pending_inline);
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 120.0f);
@@ -628,7 +654,7 @@ TEST_F(DWriteInlineImageTest, ImageInTableCellWidensColumn)
     EXPECT_TRUE(cache[0].pending_inline);
 
     SetReady("i.png", 300.0f, 40.0f);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     ComputeLayout(engine_, nodes, cache, 800.0f);
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
