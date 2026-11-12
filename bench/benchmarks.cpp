@@ -664,7 +664,7 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
         }
         if (phase == OpenPhase::Rest) {
             s = SecondsOf([&] {
-                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, YRange::All())) {
+                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, YRange::All()).remaining) {
                 }
             });
         }
@@ -1705,7 +1705,7 @@ void BM_DirtyBatchDeadline(benchmark::State& state)
         LayoutCache cache(doc.GetNodes().size());
         l.engine.Reestimate(doc.GetNodes(), cache, 1200.0f);
         state.SetIterationTime(SecondsOf([&] {
-            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All())) {
+            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All()).remaining) {
             }
         }));
     }

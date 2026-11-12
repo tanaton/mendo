@@ -126,8 +126,14 @@ public:
     bool EnsureVisibleLayout(
         const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
-    // range (文書座標) 内の dirty を deadline まで計測する。range 内に dirty が残れば true。
-    bool ProcessDirtyBatch(
+    struct PassResult {
+        // 高さ・位置・テーブル行のいずれかが変わった。
+        bool updated = false;
+        // 期限で、範囲内の dirty を計測しきれなかった。
+        bool remaining = false;
+    };
+    // range (文書座標) 内の dirty を deadline まで計測する。
+    PassResult ProcessDirtyBatch(
         const std::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, LayoutDeadline deadline, YRange range);
     const Theme& GetTheme() const noexcept
@@ -136,11 +142,6 @@ public:
     }
 
 private:
-    struct PassResult {
-        bool updated = false;
-        // 期限で、範囲内の dirty を計測しきれなかった。
-        bool remaining = false;
-    };
     // 範囲内の dirty を deadline まで計測し、退避したテーブル行を戻して Y を組み直す。
     PassResult MeasurePass(
         const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
@@ -165,7 +166,7 @@ public:
 
     // ProcessDirtyBatch / EnsureVisibleLayout は見ている位置を保つ (前後で scroll target を確定・適用する)。
     // ProcessDirtyBatch は可視範囲の上下 height * buffer_screens までの dirty を計測する。height が 0 でも全域にはしない。
-    bool ProcessDirtyBatch(
+    LayoutEngine::PassResult ProcessDirtyBatch(
         const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline,
         float height, float buffer_screens);
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
@@ -176,7 +177,7 @@ public:
 private:
     // 前後で scroll target を確定・適用し、見ている位置を保ったまま op を行う。op の結果を返す。
     template <class Op>
-    bool KeepingAnchor(LayoutCache& cache, Op&& op);
+    auto KeepingAnchor(LayoutCache& cache, Op&& op);
     // [top, bottom] を計測する。見ている位置は保つ。
     bool EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom);
 

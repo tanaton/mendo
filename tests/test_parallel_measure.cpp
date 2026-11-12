@@ -102,7 +102,7 @@ BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& mea
     EXPECT_TRUE(engine.Init(&measurer, theme));
     measurer.SetScheduler(scheduler);
     const size_t before = CountDirty(f.cache);
-    const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, deadline, range);
+    const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, deadline, range).remaining;
     measurer.SetScheduler(nullptr);
     return { static_cast<int>(before - CountDirty(f.cache)), more };
 }
@@ -112,7 +112,7 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::vector<Node>& nodes, Layo
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
-        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All())) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining) {
             return batches;
         }
     }
@@ -282,8 +282,8 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchGivesUpOnThrowingNode)
 
         measurer.SetScheduler(&task_scheduler_);
         const bool more = c.clip
-            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 600.0f, 100.0f))
-            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
+            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 600.0f, 100.0f)).remaining
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining;
         measurer.SetScheduler(nullptr);
 
         EXPECT_FALSE(cache[thrower].layout_dirty);
@@ -309,7 +309,7 @@ TEST_F(ThrowingMeasureTest, ThrowingNodeIsNotRetried)
     measurer_.throw_on = &nodes[kThrower];
 
     measurer_.SetScheduler(&task_scheduler_);
-    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
+    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining);
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         EXPECT_FALSE(cache[i].layout_dirty) << "i=" << i;
@@ -508,7 +508,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
     bool more = true;
     int iterations = 0;
     while (more && iterations < 100) {
-        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 200.0f, 5.0f));
+        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 200.0f, 5.0f)).remaining;
         iterations++;
     }
 

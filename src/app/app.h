@@ -350,6 +350,23 @@ private:
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
     bool initialized_ = false;
+    // 続けて呼ぶ先読みの計測 (OnDeferredLayout) の一連。組み終えたときに、取り込みと描き直しを決める。
+    struct DeferredLayoutRun {
+        // 組み終えるまで後始末 (SettleLayout) を待たせた。
+        bool settle = false;
+        // 何かを組んだ。
+        bool measured = false;
+        // 見えているノードに未計測のものがあった。
+        bool visible_dirty = false;
+        // 一連の最初の、本文のスクロールバー。
+        struct Scrollbar {
+            float thumb_y = 0.0f;
+            float thumb_height = 0.0f;
+            bool shown = false;
+        };
+        std::optional<Scrollbar> scrollbar;
+    };
+    DeferredLayoutRun deferred_layout_;
     Win32Window& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
     std::wstring title_text_ = L"mendo";

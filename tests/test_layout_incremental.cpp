@@ -276,7 +276,7 @@ protected:
     {
         measurer_.SetScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, YRange::All())) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, YRange::All()).remaining) {
                 return;
             }
         }

@@ -39,7 +39,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
     ASSERT_TRUE(cache.HasDirtyNodes());
-    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
+    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining);
 
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache.Top(i), cache.Top(i - 1));
@@ -57,7 +57,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
-    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
+    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining;
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
@@ -233,7 +233,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     auto nodes = ParseNodes(md);
     LayoutCache cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
-    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, layout::BufferedRange(0.0f, kSwitchViewportBottom, 5.0f))) {
+    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, layout::BufferedRange(0.0f, kSwitchViewportBottom, 5.0f)).remaining) {
     }
 
     LayoutCache full(nodes.size());

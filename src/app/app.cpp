@@ -1048,6 +1048,10 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Layout ----
         [this](const effect::BitmapManage&) {
+            // 先読み (上下 2 画面) は可視範囲で何かを組んだときにしか起きないので、先読み済みの範囲を読み進めると境目で
+            // 描画の中の同期の計測になる (test.md x4 で PageDown 30 回のうち 7 回、計 7ms、最大 2.5ms)。スクロールのたびに
+            // 空き時間で先読みの範囲を確かめさせる (組むものが無ければ OnDeferredLayout は走査だけで描き直さない)。
+            state_.document.layout_cache.SetHasDirtyNodes(true);
             resource_manager_.ScheduleBitmapManage();
         },
         // ---- Timer ----
@@ -1729,7 +1733,10 @@ void App::RunIdleWork()
 // 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
 void App::SettleLayout()
 {
-    if (!state_.document.layout_cache.HasDirtyNodes()) {
+    if (state_.document.layout_cache.HasDirtyNodes()) {
+        deferred_layout_.settle = true;
+    }
+    else {
         resource_manager_.ScheduleBitmapManage();
     }
 }
@@ -1769,21 +1776,54 @@ void App::OnDeferredLayout()
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
-    const bool more = layout_service_.ProcessDirtyBatch(
-        state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
+    auto& cache = state_.document.layout_cache;
+    auto& run = deferred_layout_;
+    // 先読みが組むのは画面の外なので、見た目が変わるのは見えているノードが未計測だったか、スクロールバーが動いた
+    // ときだけ。スクロールバーは一連の先読みの最初と比べる。
+    const auto scrollbar = [&] {
+        const auto bar = MdPaneScrollbar(cache, md, state_.theme->margin_bottom);
+        return DeferredLayoutRun::Scrollbar{
+            .thumb_y = ComputeThumbY(bar.info, state_.view.viewport.GetScrollY()), .thumb_height = bar.info.thumb_height, .shown = ShowsVScrollbar(bar.info, bar.may_grow)
+        };
+    };
+    if (!run.scrollbar) {
+        run.scrollbar = scrollbar();
+    }
+    const float scroll_y = state_.view.viewport.GetScrollY();
+    const auto visible = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + md.height);
+    run.visible_dirty |= std::ranges::any_of(std::views::iota(visible.begin, visible.end), [&cache](size_t i) {
+        const auto* table = cache[i].table_layout();
+        return cache[i].layout_dirty || (table && table->HasEvictedRows());
+    });
+    const auto batch = layout_service_.ProcessDirtyBatch(
+        state_.document.doc, cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
         md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
+    run.measured |= batch.updated;
 
     // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
-    if (more) {
+    if (batch.remaining) {
         return;
     }
-
+    const DeferredLayoutRun done = std::exchange(run, {});
+    // スクロールのたびに先読みの範囲を確かめさせるので、多くは組むものが無い。何も組まず、後始末 (SettleLayout) も
+    // 待たせていなければ何もしない。
+    if (!done.measured && !done.settle) {
+        return;
+    }
     resource_manager_.FlushPendingResources();
     resource_manager_.ScheduleBitmapManage();
-
+    const float clamped_from = state_.view.viewport.GetScrollY();
     ClampScrollToContent();
-    Invalidate();
+    // 画面の外だけを組んだなら描き直さない。スクロールのたびに先読みすると、PageDown なら 1 回ごとに次の 1 画面を組み、
+    // 毎回同じ絵を描き直すことになる (30 回で 49 → 32 フレーム)。0.5 DIP 未満のつまみの変化は見分けられない。
+    const auto before = *done.scrollbar;
+    const auto after = scrollbar();
+    const bool bar_changed = before.shown != after.shown || std::abs(before.thumb_y - after.thumb_y) >= 0.5f ||
+                             std::abs(before.thumb_height - after.thumb_height) >= 0.5f;
+    if (done.visible_dirty || bar_changed || state_.view.viewport.GetScrollY() != clamped_from) {
+        Invalidate();
+    }
 }
 
 void App::EnsureNodeLayout(int node_index)

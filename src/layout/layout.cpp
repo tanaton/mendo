@@ -167,7 +167,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
     return true;
 }
 
-bool LayoutEngine::ProcessDirtyBatch(
+LayoutEngine::PassResult LayoutEngine::ProcessDirtyBatch(
     const std::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, LayoutDeadline deadline,
     YRange range)
@@ -176,16 +176,16 @@ bool LayoutEngine::ProcessDirtyBatch(
     // 遠方の dirty はスクロール時に EnsureVisibleLayout で計測する。
     // 推定の幅 (EstimateBasis) は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
     // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
-    const bool remaining = MeasurePass(nodes, cache, viewport_width, range, deadline).remaining;
-    cache.SetHasDirtyNodes(remaining);
-    return remaining;
+    const PassResult result = MeasurePass(nodes, cache, viewport_width, range, deadline);
+    cache.SetHasDirtyNodes(result.remaining);
+    return result;
 }
 
 template <class Op>
-bool LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
+auto LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
 {
     viewport_.EnsureScrollTarget(cache);
-    const bool result = op();
+    const auto result = op();
     viewport_.ApplyScrollTarget(cache);
     return result;
 }
@@ -206,7 +206,7 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
+LayoutEngine::PassResult LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
 {
     return KeepingAnchor(cache, [&] {
         // 高さ 0 (ウィンドウをタイトルバーまで縮めた) でも全域にしない。巨大な表の退避した行を全部戻してしまう。
