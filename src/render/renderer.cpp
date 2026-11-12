@@ -326,6 +326,8 @@ void Renderer::CreateTextFormats(bool zoomed_only)
         }
         auto spec = s.spec;
         spec.locale = locale_of(s.loc);
+        // ズームのたびに見えているリスト番号などの分が残り続けないよう、古い書式のレイアウトを捨てる。
+        text_layouts_.Forget(s.target.Get());
         s.target = CreateTextFormat(dw, spec);
     }
 }

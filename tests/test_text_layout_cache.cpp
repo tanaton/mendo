@@ -80,6 +80,19 @@ TEST_F(TextLayoutCacheTest, KeepsEverythingBelowLimit)
     EXPECT_EQ(cache_.TextOf(first), Item(0));
 }
 
+// 作り直した書式の古いレイアウトは、上限を待たずに捨てられ、ほかの書式のレイアウトは残る。
+TEST_F(TextLayoutCacheTest, ForgetDropsOnlyLayoutsOfTheFormat)
+{
+    const auto other = CreateThemeFormat(theme_.font_size_body * 2.0f);
+    ASSERT_NE(other, nullptr);
+    auto* const dropped = cache_.Get(fmt_.Get(), Item(0), kBox);
+    auto* const kept = cache_.Get(other.Get(), Item(1), kBox);
+
+    cache_.Forget(fmt_.Get());
+    EXPECT_TRUE(cache_.TextOf(dropped).empty());
+    EXPECT_EQ(cache_.TextOf(kept), Item(1));
+}
+
 // 同じ書式でも、フォントを明示したレイアウトとしていないレイアウトを取り違えない。
 TEST_F(TextLayoutCacheTest, KeepsLayoutsApartByFallbackFonts)
 {
