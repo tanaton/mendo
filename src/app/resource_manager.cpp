@@ -33,7 +33,9 @@ using ImageSlots = std::bitset<kMaxImageSlots>;
 // 1200x900 の窓で最後までめくって戻ると private 98MB・GPU 55MB、行ごとだと 57MB・42MB。2026-11-08)。
 // 表の行の位置が決まらない間 (組む前・keep が無い・数式か画像の寸法を待って仮に組んだ間) は nullopt。仮に組んだ表は
 // 画像を幅 0 で組んで行が詰まっているので、範囲の行が実際よりずっと多い。
-std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep)
+// col_widths があれば、表の画像ごとに、範囲の行で置かれる列の幅 (DIP) の最大を入れる。範囲に無い画像は 0。
+std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep,
+                                       std::array<float, kMaxImageSlots>* col_widths = nullptr)
 {
     if (!node.has_table()) {
         return ImageSlots{}.set();
@@ -47,10 +49,17 @@ std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cach
     const auto [r_begin, r_end] = tl->VisibleRowRange(local.top, local.bottom);
     const NodeTableData& tbl = *node.table_data();
     ImageSlots slots;
+    if (col_widths) {
+        col_widths->fill(0.0f);
+    }
     for (size_t ci = tl->CellIndex(r_begin, 0); ci < tl->CellIndex(r_end, 0); ++ci) {
         for (const TextRun& run : tbl.CellRuns(ci)) {
             if (run.image()) {
                 slots.set(run.image_slot);
+                if (col_widths) {
+                    auto& w = (*col_widths)[run.image_slot];
+                    w = std::max(w, tl->col_widths[ci % tl->col_count]);
+                }
             }
         }
     }
@@ -256,16 +265,22 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     const Theme& theme = *state_.theme;
     const auto& nodes = state_.document.doc.GetNodes();
     const auto prefetch = ComputeBufferedRange(PREFETCH_BUFFER_SCREENS);
+    std::array<float, kMaxImageSlots> col_widths;
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
-        // 表のセルの画像は列幅に縮めて出し、表は本文の幅に収めるので、表も本文の幅でデコードする。
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr);
+        // 表のセルの画像は列幅に縮めて出すので、置かれる列の幅でデコードする (ビットマップを頼むのは行の位置が決まった表だけ
+        // なので、列幅は決まっている)。本文の幅でデコードしていた頃は、3 列 40 行の写真の表を 1200x900 の窓で最後までめくると
+        // commit 121MB・GPU 97MB、列の幅だと 66MB・51MB (2026-11-13)。列が広がったら NeedsSharperDecode が読み直させる。
+        const bool table = node.has_table();
+        const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr, table ? &col_widths : nullptr);
         update.unsettled_tables |= !slots;
         const ImageSlots needs_bitmap = slots.value_or(ImageSlots{});
         const auto srcs = node.image_srcs();
         for (size_t slot = 0; slot < srcs.size(); ++slot) {
-            ApplyCachedImage(srcs[slot], doc_dir, max_width, delivered, needs_bitmap.test(slot), update);
+            const bool bitmap = needs_bitmap.test(slot);
+            const float width = table && bitmap ? std::min(max_width, col_widths[slot]) : max_width;
+            ApplyCachedImage(srcs[slot], doc_dir, width, delivered, bitmap, update);
         }
     }
 }
