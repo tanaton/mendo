@@ -4056,6 +4056,8 @@ std::optional<MathDrawing> KatexLayout::Run(float font_size)
 struct KatexAssets::Impl {
     ComPtr<IDWriteFactory5> dw;
     ComPtr<IDWriteInMemoryFontFileLoader> loader;
+    std::array<std::span<const std::byte>, std::size(kKatexFontFiles)> woff2;
+    // 使う書体だけを初めて使うときに展開する (数式の文書でも使うのは 20 個のうち数個)。
     std::array<ComPtr<IDWriteFontFile>, std::size(kKatexFontFiles)> files;
     std::wstring locale;
     std::mutex mutex;
@@ -4084,22 +4086,7 @@ KatexAssets::KatexAssets(IDWriteFactory* dw, std::span<const std::span<const std
         m.loader.Reset();
         return;
     }
-    for (size_t i = 0; i < woff2.size(); ++i) {
-        ComPtr<IDWriteFontFileStream> stream;
-        UINT64 size = 0;
-        const void* data = nullptr;
-        void* context = nullptr;
-        if (FAILED(m.dw->UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, woff2[i].data(), static_cast<UINT32>(woff2[i].size()), &stream)) ||
-            FAILED(stream->GetFileSize(&size)) || FAILED(stream->ReadFileFragment(&data, 0, size, &context))) {
-            return;
-        }
-        // 持ち主を渡さないと DirectWrite が写しを持つ。
-        const HRESULT hr = m.loader->CreateInMemoryFontFileReference(m.dw.Get(), data, static_cast<UINT32>(size), nullptr, &m.files[i]);
-        stream->ReleaseFileFragment(context);
-        if (FAILED(hr)) {
-            return;
-        }
-    }
+    std::ranges::copy(woff2, m.woff2.begin());
     ok_ = true;
 }
 
@@ -4113,6 +4100,24 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
     }
     const std::lock_guard lock(m.mutex);
     auto& face = m.faces[file][simulations];
+    if (!face && !m.files[file]) {
+        // 展開したストリームを持ち主として渡し、DirectWrite に写させない。最初の数式で 20 個を展開して写していた頃は、
+        // 新しいエンジンの最初の数式 (x^2) が 9.4ms、使う書体だけにして 4.7ms。
+        ComPtr<IDWriteFontFileStream> stream;
+        UINT64 size = 0;
+        const void* data = nullptr;
+        void* context = nullptr;
+        const auto woff2 = m.woff2[file];
+        if (FAILED(m.dw->UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, woff2.data(), static_cast<UINT32>(woff2.size()), &stream)) ||
+            FAILED(stream->GetFileSize(&size)) || FAILED(stream->ReadFileFragment(&data, 0, size, &context))) {
+            return nullptr;
+        }
+        const HRESULT hr = m.loader->CreateInMemoryFontFileReference(m.dw.Get(), data, static_cast<UINT32>(size), stream.Get(), &m.files[file]);
+        stream->ReleaseFileFragment(context);
+        if (FAILED(hr)) {
+            return nullptr;
+        }
+    }
     if (!face) {
         m.dw->CreateFontFace(
             DWRITE_FONT_FACE_TYPE_TRUETYPE,
