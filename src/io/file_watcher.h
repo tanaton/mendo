@@ -39,7 +39,7 @@ struct DirectoryChangeRead {
     // 溢れると貯まった通知が捨てられ (0 バイトで返り、変更として扱う)、無関係な変更の多いフォルダで読み直しが増える。
     // ネットワーク越しで許される上限の 64KB にする。
     static constexpr size_t BUF_SIZE = 64 * 1024;
-    alignas(DWORD) char buf[BUF_SIZE]{};
+    alignas(DWORD) char buf[BUF_SIZE];
     bool pending = false;
 };
 

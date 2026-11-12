@@ -44,7 +44,8 @@ bool AnyUpdatedName(std::span<const std::byte> buf, F&& on_name)
 
 std::unique_ptr<DirectoryChangeRead> OpenDirectoryRead(const std::wstring& dir)
 {
-    auto read = std::make_unique<DirectoryChangeRead>();
+    // 64KB の受け取り口を 0 で埋めない (埋めると全ページに触る。監視 9 本で working set 576 → 36KB)。読むのは届いた分だけ。
+    auto read = std::make_unique_for_overwrite<DirectoryChangeRead>();
     read->dir.reset(CreateFileW(
         dir.c_str(),
         FILE_LIST_DIRECTORY,
