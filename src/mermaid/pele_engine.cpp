@@ -1,6 +1,7 @@
 #include "pele_engine.h"
 #include "diagram_raster.h"
 #include "string_convert.h"
+#include "task_scheduler.h"
 #include "utility.h"
 #include <quickjs.h>
 #include <algorithm>
@@ -371,12 +372,15 @@ KatexAssets* PeleEngine::Assets()
     return assets_->ok() ? assets_.get() : nullptr;
 }
 
-void PeleEngine::Trim()
+void PeleEngine::Trim(TaskScheduler* scheduler)
 {
     std::vector<std::unique_ptr<PeleContext>> idle;
     {
         const std::lock_guard lock(mutex_);
         idle.swap(idle_);
+    }
+    if (scheduler) {
+        DisposeOnWorkerIfLarge(*scheduler, idle.size(), 1, std::move(idle));
     }
 }
 

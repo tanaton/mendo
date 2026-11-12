@@ -15,6 +15,7 @@
 #include <vector>
 
 class KatexAssets;
+class TaskScheduler;
 struct IDWriteFactory;
 struct MathDrawing;
 struct PeleContext;
@@ -71,8 +72,9 @@ public:
     {
         cancel_.store(true, std::memory_order_relaxed);
     }
-    // 使っていないランタイムを捨てる。次はバイトコードから作り直す。
-    void Trim();
+    // 使っていないランタイムを捨てる。次はバイトコードから作り直す。捨てる処理は全オブジェクトをたどり、pele と KaTeX を
+    // 読んだランタイム 1 個で約 3.5ms かかるので、scheduler があればその worker で行う。
+    void Trim(TaskScheduler* scheduler = nullptr);
 
 private:
     bool Cancelled() const noexcept

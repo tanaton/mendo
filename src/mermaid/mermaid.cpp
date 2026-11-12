@@ -66,8 +66,9 @@ void MermaidRenderer::TrimIdleRuntimes()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
     // 描いている途中のものは捨てない。図 4 個の文書で mendo の private bytes が 63 → 52MB、1 個で 51 → 48MB になる。
+    // 捨てる処理は bg の worker で行う (pele と KaTeX を読んだランタイム 1 個で約 3.5ms)。
     if (pele_) {
-        pele_->Trim();
+        pele_->Trim(bg_scheduler_);
     }
 }
 
