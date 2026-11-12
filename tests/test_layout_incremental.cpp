@@ -316,7 +316,7 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
                 }
                 // 行の幾何を持つ表は、作り直しを避けるため幾何だけ残してセルの layout を捨てる。
                 if (const auto* tl = cache_[i].table_layout()) {
-                    ASSERT_TRUE(std::ranges::none_of(tl->cell_layouts, [](const auto& cell) { return cell != nullptr; }))
+                    ASSERT_TRUE(std::ranges::none_of(std::views::iota(size_t{ 0 }, tl->CellCount()), [&](size_t ci) { return tl->CellLayout(ci) != nullptr; }))
                         << "keep 範囲外 i=" << i << " のセルの layout が残っている";
                     continue;
                 }

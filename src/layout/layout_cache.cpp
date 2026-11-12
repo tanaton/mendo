@@ -120,12 +120,13 @@ void Bury(ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&&
 
 void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
 {
-    const size_t base = CellIndex(r, 0);
     bool buried = false;
-    for (size_t ci = base; ci < base + col_count; ++ci) {
-        if (cell_layouts[ci]) {
-            Bury(released, std::move(cell_layouts[ci]));
-            buried = true;
+    if (auto cells = std::move(row_layouts_[r])) {
+        for (size_t c = 0; c < col_count; ++c) {
+            if (cells[c]) {
+                Bury(released, std::move(cells[c]));
+                buried = true;
+            }
         }
     }
     if (buried && !row_evicted_[r]) {

@@ -616,7 +616,7 @@ TEST_F(DWriteInlineImageTest, ImageOnlyParagraphHasNoExtraLeading)
     EXPECT_GT(LayoutHeight(cache[2].text_layout()), 330.0f);
     const auto* tl = cache[3].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_NEAR(LayoutHeight(tl->cell_layouts[tl->CellIndex(1, 0)].Get()), 300.0f, 0.5f);
+    EXPECT_NEAR(LayoutHeight(tl->GetCellLayout(1, 0)), 300.0f, 0.5f);
 }
 
 // 同じ src の画像が隣り合っても 1 つにまとめず、1 枚ずつ置く。装飾のある alt も 1 枚。
@@ -661,7 +661,7 @@ TEST_F(DWriteInlineImageTest, ImageInTableCellWidensColumn)
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
     EXPECT_GE(tl->natural_col_widths[0], 300.0f);
-    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 0)].Get(), 0, 1), 300.0f);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->GetCellLayout(1, 0), 0, 1), 300.0f);
 }
 
 // 表に収まらない画像は、GitHub (max-width: 100%) と同じく最小幅に効かず、列幅まで縮んで表を本文の幅に収める。
@@ -679,7 +679,7 @@ TEST_F(DWriteInlineImageTest, WideImageInTableCellShrinksToColumn)
         EXPECT_LT(tl->min_col_widths[1], 100.0f) << "画像は最小幅に効かない";
         const float content_width = theme_.ContentWidth(viewport);
         EXPECT_LE(tl->col_cum_x.back(), content_width + 0.5f) << "表は本文の幅に収まる";
-        const float image_width = InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 1)].Get(), 0, 1);
+        const float image_width = InlineRangeWidth(tl->GetCellLayout(1, 1), 0, 1);
         EXPECT_NEAR(image_width, tl->col_widths[1], 0.5f);
         EXPECT_LT(image_width, 2000.0f);
     }
@@ -765,14 +765,14 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageCellKeepsLayoutAcrossWidths)
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
     const size_t ci = tl->CellIndex(1, 0);
-    auto* const before = tl->cell_layouts[ci].Get();
+    auto* const before = tl->CellLayout(ci);
     ASSERT_NE(before, nullptr);
 
     ComputeLayout(engine_, nodes, cache, 700.0f);
     tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_EQ(tl->cell_layouts[ci].Get(), before);
-    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[ci].Get(), 0, 1), 40.0f);
+    EXPECT_EQ(tl->CellLayout(ci), before);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->CellLayout(ci), 0, 1), 40.0f);
 }
 
 

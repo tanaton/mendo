@@ -54,7 +54,7 @@ bool IsImagesOnly(std::string_view text, std::span<const TextRun> runs) noexcept
 // 幅を付けると組み直しになる。幅を変えなければ GetMetrics は計測済みの結果を返すだけ。
 float ApplyCellWidth(const TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept
 {
-    auto* layout = tl.cell_layouts[ci].Get();
+    auto* layout = tl.CellLayout(ci);
     const bool left = align == TableAlign::Default || align == TableAlign::Left;
     const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? layout::kNoWrapLayoutWidth : cw;
     if (std::abs(layout->GetMaxWidth() - layout_width) >= CELL_WIDTH_EPSILON) {
@@ -113,7 +113,7 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
     }
     for (size_t c = 0; c < tl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
-        auto* const layout = tl.cell_layouts[ci].Get();
+        auto* const layout = tl.CellLayout(ci);
         const float cell_height = layout ? ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) : EvictedCellHeight(tl, ci, tl.col_widths[c]);
         height = std::max(height, cell_height + TABLE_CELL_PADDING * 2.0f);
         if (layout && bgs) {
@@ -632,7 +632,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     MENDO_PROFILE("MeasureTableCells");
     const size_t col_count = tbl.col_count;
     auto& natural_widths = tl.natural_col_widths;
-    const bool keep_layouts = tl.cell_layouts.size() <= kMaxKeptTableCells;
+    const bool keep_layouts = tl.CellCount() <= kMaxKeptTableCells;
     // layout を残す小さい表は、全セルの layout が要るので代表を探さない (空のまま)。
     const auto reps = keep_layouts ? std::vector<uint32_t>{} : FindRepresentativeCells(tbl, scheduler_);
 
@@ -677,7 +677,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
                     }
                 }
                 if (keep_layouts) {
-                    tl.cell_layouts[ci] = std::move(cell_layout);
+                    tl.SetCellLayout(ci, std::move(cell_layout));
                 }
             }
         }
@@ -720,8 +720,8 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
         for (auto& image_cell : tl.image_cells) {
             const size_t ci = image_cell.index;
             const size_t c = ci % col_count;
-            if (tl.cell_layouts[ci] && image_cell.min_width > tl.col_widths[c]) {
-                tl.cell_layouts[ci] = CreateCellLayout(ctx, node, pending_inline, ci / col_count, c, tl.col_widths[c], &image_cell);
+            if (tl.CellLayout(ci) && image_cell.min_width > tl.col_widths[c]) {
+                tl.SetCellLayout(ci, CreateCellLayout(ctx, node, pending_inline, ci / col_count, c, tl.col_widths[c], &image_cell));
             }
         }
     }
@@ -774,7 +774,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
             const size_t r = rows[k];
             for (size_t c = 0; c < tbl.col_count; c++) {
                 const size_t ci = tl.CellIndex(r, c);
-                tl.cell_layouts[ci] = CreateCellLayout(ctx, node, entry.pending_inline, r, c, tl.col_widths[c], tl.FindImageCell(ci));
+                tl.SetCellLayout(ci, CreateCellLayout(ctx, node, entry.pending_inline, r, c, tl.col_widths[c], tl.FindImageCell(ci)));
             }
             row_heights[k] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
@@ -822,7 +822,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     auto tl = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code);
     // 画像の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
     if (node.has_images()) {
-        const size_t cells = tl->cell_layouts.size();
+        const size_t cells = tl->CellCount();
         for (size_t ci = 0; ci < cells; ++ci) {
             if (std::ranges::any_of(tbl->CellRuns(ci), &TextRun::image)) {
                 tl->image_cells.push_back({ .index = static_cast<uint32_t>(ci) });
