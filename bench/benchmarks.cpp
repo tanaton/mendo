@@ -1359,7 +1359,9 @@ BENCHMARK_CAPTURE(BM_DiagramRender, first, false)->UseManualTime()->Iterations(3
 BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
 
 // 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
-void BM_DiagramRecord(benchmark::State& state)
+// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。
+enum class DiagramRecordPart : uint8_t { Record, Prepared, Layout };
+void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 {
     const ComScope com;
     const auto assets = PeleTestAssets::Load();
@@ -1382,15 +1384,28 @@ void BM_DiagramRecord(benchmark::State& state)
             texts += layer.texts.size();
         }
     }
+    std::vector<DiagramTextLayouts> laid_out;
+    for (const auto& d : drawings) {
+        laid_out.push_back(LayoutDiagramTexts(SharedDWriteFactory(), *d, L"ja-jp"));
+    }
     for (auto _ : state) {
-        for (const auto& d : drawings) {
-            benchmark::DoNotOptimize(RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp"));
+        for (size_t k = 0; k < drawings.size(); ++k) {
+            if (part == DiagramRecordPart::Layout) {
+                benchmark::DoNotOptimize(LayoutDiagramTexts(SharedDWriteFactory(), *drawings[k], L"ja-jp"));
+            }
+            else {
+                const auto* prepared = part == DiagramRecordPart::Prepared ? &laid_out[k] : nullptr;
+                benchmark::DoNotOptimize(RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *drawings[k], L"ja-jp", prepared));
+            }
         }
     }
     state.counters["diagrams"] = static_cast<double>(drawings.size());
     state.counters["texts"] = static_cast<double>(texts);
 }
-BENCHMARK(BM_DiagramRecord)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
+
 
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
 void BM_DiagramFrameDraw(benchmark::State& state)

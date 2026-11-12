@@ -189,12 +189,14 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     }
     // 描画命令のラベルの数式は TeX だけを置いてあるので組み直す。
     job.used_pele = pele_->ResolveMaths(*drawing);
-    return JobDrawing{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
+    JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
+    read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
+    return read;
 }
 
-Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing)
+Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts)
 {
-    return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale());
+    return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale(), texts);
 }
 
 Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width)
@@ -266,7 +268,7 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             return true;
         },
         [&](JobDrawing& d) {
-            DiagramResult result{ .commands = RecordDrawing(*d.drawing), .width = d.drawing->width, .height = d.drawing->height };
+            DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
             if (!result.commands) {
                 // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。
                 if (rendered) {
@@ -390,6 +392,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
     // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
     JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
+    drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());
     return drawn;
 }
 

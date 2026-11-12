@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "diagram_raster.h"
 #include "diagram_view.h"
 #include "inline_math.h"
 #include "layout_cache.h"
@@ -171,6 +172,8 @@ private:
     // 描いたか読んだ描画命令。UI で commands にする。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
+        // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
+        DiagramTextLayouts texts;
         // 描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
         std::string bytes;
     };
@@ -242,7 +245,7 @@ private:
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
-    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
+    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts = nullptr);
     void InsertCache(uint64_t hash, DiagramResult result);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
     const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);

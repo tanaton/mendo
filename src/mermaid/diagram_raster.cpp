@@ -143,16 +143,16 @@ void Place(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Matr
     brush->SetColor(D2D1::ColorF(at.rgb, at.alpha));
 }
 
-void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& formats, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base,
-             const mermaid_util::DrawingText& t)
+// 文字の並びを 1 行の layout に組む。整形 (GetLineMetrics) まで済ませる。空か組めなければ layout は null。
+DiagramTextLayouts::Run LayoutRun(IDWriteFactory* dw, DiagramTextMeasurer& formats, const mermaid_util::DrawingText& t)
 {
     if (t.text.empty()) {
-        return;
+        return {};
     }
     IDWriteTextFormat* format = formats.Format({ .family = t.family, .size = t.at.font_size, .weight = t.weight, .italic = t.italic });
     ComPtr<IDWriteTextLayout> layout;
     if (!format || FAILED(dw->CreateTextLayout(t.text.data(), static_cast<UINT32>(t.text.size()), format, 1.0e6f, 1.0e6f, &layout))) {
-        return;
+        return {};
     }
     const DWRITE_TEXT_RANGE all{ 0, static_cast<UINT32>(t.text.size()) };
     if (t.decoration & mermaid_util::kTextUnderline) {
@@ -166,10 +166,19 @@ void DrawRun(ID2D1DeviceContext* dc, IDWriteFactory* dw, DiagramTextMeasurer& fo
     UINT32 lines = 0;
     layout->GetLineMetrics(&line, 1, &lines);
     if (lines == 0) {
+        return {};
+    }
+    return { std::move(layout), line.baseline };
+}
+
+void DrawRun(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base, const mermaid_util::DrawingText& t,
+             const DiagramTextLayouts::Run& run)
+{
+    if (!run.layout) {
         return;
     }
     Place(dc, brush, base, t.at);
-    dc->DrawTextLayout(D2D1::Point2F(t.at.x, t.at.y - line.baseline), layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    dc->DrawTextLayout(D2D1::Point2F(t.at.x, t.at.y - run.baseline), run.layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
 }
 
 void AppendFontKey(std::wstring& key, const DiagramFont& font)
@@ -4737,10 +4746,11 @@ ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
 namespace {
 
 // dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。
-// wic は図形の SVG を読むストリームに使う。描けなければ false (描きかけのまま)。
+// wic は図形の SVG を読むストリームに使う。texts は drawing の文字の並びを組んだもので、無ければここで組む。
+// 描けなければ false (描きかけのまま)。
 bool DrawDiagram(
     ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
-    const wchar_t* locale)
+    const wchar_t* locale, const DiagramTextLayouts* texts)
 {
     ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(drawing.background), &brush))) {
@@ -4751,7 +4761,11 @@ bool DrawDiagram(
     // 縮めて描くことがあるので、ClearType の色にじみを持ち込まない。
     dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     dc->FillRectangle(D2D1::RectF(0.0f, 0.0f, drawing.width, drawing.height), brush.Get());
-    DiagramTextMeasurer formats(dw, locale);
+    std::optional<DiagramTextLayouts> laid_out;
+    if (!texts) {
+        texts = &laid_out.emplace(LayoutDiagramTexts(dw, drawing, locale));
+    }
+    size_t run = 0;
     // 層の図形は <svg> の中身だけなので、どの層にも同じ頭と <defs> を付けて 1 枚の SVG にする。
     std::string svg;
     AppendSvgHead(svg, drawing);
@@ -4773,7 +4787,10 @@ bool DrawDiagram(
             dc->DrawSvgDocument(doc.Get());
         }
         for (const auto& t : layer.texts) {
-            DrawRun(dc, dw, formats, brush.Get(), base, t);
+            if (run < texts->runs.size()) {
+                DrawRun(dc, brush.Get(), base, t, texts->runs[run]);
+            }
+            ++run;
         }
         for (const auto& m : layer.maths) {
             if (!m.drawing) {
@@ -4789,9 +4806,24 @@ bool DrawDiagram(
 
 } // namespace
 
+DiagramTextLayouts LayoutDiagramTexts(IDWriteFactory* dw, const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale)
+{
+    DiagramTextLayouts out;
+    if (!dw) {
+        return out;
+    }
+    DiagramTextMeasurer formats(dw, locale);
+    for (const auto& layer : drawing.layers) {
+        for (const auto& t : layer.texts) {
+            out.runs.push_back(LayoutRun(dw, formats, t));
+        }
+    }
+    return out;
+}
+
 ComPtr<ID2D1CommandList> RecordDiagram(
     ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
-    const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale)
+    const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale, const DiagramTextLayouts* texts)
 {
     ComPtr<ID2D1CommandList> commands;
     if (!record_dc || !dw || FAILED(record_dc->CreateCommandList(&commands))) {
@@ -4800,7 +4832,7 @@ ComPtr<ID2D1CommandList> RecordDiagram(
     record_dc->SetTarget(commands.Get());
     record_dc->BeginDraw();
     record_dc->SetTransform(D2D1::Matrix3x2F::Identity());
-    const bool ok = DrawDiagram(record_dc, dw, wic, drawing, locale);
+    const bool ok = DrawDiagram(record_dc, dw, wic, drawing, locale, texts);
     const HRESULT hr = record_dc->EndDraw();
     record_dc->SetTarget(nullptr);
     if (!ok || FAILED(hr) || FAILED(commands->Close())) {
@@ -4832,7 +4864,7 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
     }
     dc->BeginDraw();
     dc->SetTransform(D2D1::Matrix3x2F::Scale(size.width / drawing.width, size.height / drawing.height));
-    const bool ok = DrawDiagram(dc.Get(), dw, wic, drawing, locale);
+    const bool ok = DrawDiagram(dc.Get(), dw, wic, drawing, locale, nullptr);
     if (FAILED(dc->EndDraw()) || !ok) {
         return nullptr;
     }
