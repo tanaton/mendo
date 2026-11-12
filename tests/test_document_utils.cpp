@@ -809,6 +809,62 @@ TEST(FindWordBoundariesW, Utf16)
     ExpectWordBoundaries(kCases);
 }
 
+// 文字の種類を分ける表の端。範囲の両端は同じ種類の文字とつながり、1 つ外は Other でどの語にも入らない
+// (隣が別の種類の範囲のときは、その種類の文字とつながる)。
+TEST(FindWordBoundariesW, CategoryRangeEdges)
+{
+    enum class Kind { Word, Hiragana, Katakana, Han, Fullwidth, Other };
+    struct Case {
+        char32_t cp;
+        Kind kind;
+    };
+    constexpr Case kCases[] = {
+        // ラテン文字・結合文字・ギリシャ文字・キリル文字・ラテン拡張追加。× ÷ とギリシャ文字の記号は除く。
+        { 0x7F, Kind::Other }, { 0x80, Kind::Other }, { 0xBF, Kind::Other }, { 0xC0, Kind::Word },
+        { 0xD7, Kind::Other }, { 0xF7, Kind::Other }, { 0x2AF, Kind::Word }, { 0x2B0, Kind::Other },
+        { 0x2FF, Kind::Other }, { 0x300, Kind::Word }, { 0x37E, Kind::Other }, { 0x387, Kind::Other },
+        { 0x52F, Kind::Word }, { 0x530, Kind::Other },
+        { 0x1DFF, Kind::Other }, { 0x1E00, Kind::Word }, { 0x1EFF, Kind::Word }, { 0x1F00, Kind::Other },
+        // 々〆〇
+        { 0x3004, Kind::Other }, { 0x3005, Kind::Han }, { 0x3006, Kind::Han }, { 0x3007, Kind::Han }, { 0x3008, Kind::Other },
+        { 0x3040, Kind::Other }, { 0x3041, Kind::Hiragana }, { 0x309F, Kind::Hiragana },
+        { 0x30A0, Kind::Katakana }, { 0x30FF, Kind::Katakana }, { 0x3100, Kind::Other },
+        { 0x31EF, Kind::Other }, { 0x31F0, Kind::Katakana }, { 0x31FF, Kind::Katakana }, { 0x3200, Kind::Other },
+        // 半角カタカナの次は半角のハングル字母。
+        { 0xFF64, Kind::Other }, { 0xFF65, Kind::Katakana }, { 0xFF9F, Kind::Katakana }, { 0xFFA0, Kind::Word },
+        { 0xFFDC, Kind::Word }, { 0xFFDD, Kind::Other },
+        { 0x33FF, Kind::Other }, { 0x3400, Kind::Han }, { 0x4DBF, Kind::Han }, { 0x4DC0, Kind::Other },
+        { 0x4DFF, Kind::Other }, { 0x4E00, Kind::Han }, { 0x9FFF, Kind::Han }, { 0xA000, Kind::Other },
+        { 0xF8FF, Kind::Other }, { 0xF900, Kind::Han }, { 0xFAFF, Kind::Han }, { 0xFB00, Kind::Other },
+        { 0x1FFFF, Kind::Other }, { 0x20000, Kind::Han }, { 0x2FFFF, Kind::Han }, { 0x30000, Kind::Other },
+        // ハングルの音節・字母・互換字母・拡張。
+        { 0x10FF, Kind::Other }, { 0x1100, Kind::Word }, { 0x11FF, Kind::Word }, { 0x1200, Kind::Other },
+        { 0x3130, Kind::Other }, { 0x3131, Kind::Word }, { 0x318E, Kind::Word }, { 0x318F, Kind::Other },
+        { 0xA95F, Kind::Other }, { 0xA960, Kind::Word }, { 0xA97C, Kind::Word }, { 0xA97D, Kind::Other },
+        { 0xABFF, Kind::Other }, { 0xAC00, Kind::Word }, { 0xD7A3, Kind::Word }, { 0xD7A4, Kind::Other },
+        { 0xD7AF, Kind::Other }, { 0xD7B0, Kind::Word }, { 0xD7FB, Kind::Word }, { 0xD7FC, Kind::Other },
+        // 全角の数字と英字。
+        { 0xFF0F, Kind::Other }, { 0xFF10, Kind::Fullwidth }, { 0xFF19, Kind::Fullwidth }, { 0xFF1A, Kind::Other },
+        { 0xFF20, Kind::Other }, { 0xFF21, Kind::Fullwidth }, { 0xFF3A, Kind::Fullwidth }, { 0xFF3B, Kind::Other },
+        { 0xFF40, Kind::Other }, { 0xFF41, Kind::Fullwidth }, { 0xFF5A, Kind::Fullwidth }, { 0xFF5B, Kind::Other },
+    };
+    // 種類ごとの代表の文字。調べる文字をこの後ろに置き、同じ語になるかを見る。
+    constexpr std::pair<Kind, wchar_t> kRepresentatives[] = {
+        { Kind::Word, L'a' }, { Kind::Hiragana, L'あ' }, { Kind::Katakana, L'ア' }, { Kind::Han, L'日' }, { Kind::Fullwidth, L'Ａ' },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(std::format("U+{:04X}", static_cast<uint32_t>(c.cp)));
+        wchar_t utf16[2];
+        const std::wstring ch(utf16, utf8_codec::EncodeUtf16(c.cp, utf16));
+        EXPECT_EQ(FindWordBoundaries(std::wstring_view{ ch }, 0).found(), c.kind != Kind::Other);
+        for (const auto& [kind, representative] : kRepresentatives) {
+            const std::wstring text = representative + ch;
+            const uint32_t expected_end = kind == c.kind ? static_cast<uint32_t>(text.size()) : 1u;
+            EXPECT_EQ(FindWordBoundaries(std::wstring_view{ text }, 0).end, expected_end) << "after kind " << static_cast<int>(kind);
+        }
+    }
+}
+
 // ============================================================
 // FilenameView
 // ============================================================
@@ -1633,6 +1689,50 @@ TEST(FindNodeWordBoundaries, SelectsWholeInlineMathInTableCell)
     }
 }
 
+// 語がノードの途中で終わる (始まる) ときは、継ぎ目の向こうが同じ種類の文字でも伸ばさない。
+TEST(FindNodeWordBoundaries, DoesNotExtendWordThatEndsInsideNode)
+{
+    const auto nodes = ChunkedTextNodes({ "ab x", "cd", "y ef" });
+    const auto first = FindNodeWordBoundaries(nodes, 0, 0);
+    EXPECT_EQ(first.end_node, 0u);
+    EXPECT_EQ(first.end, 2u);
+
+    const auto last = FindNodeWordBoundaries(nodes, 2, 3);
+    EXPECT_EQ(last.start_node, 2u);
+    EXPECT_EQ(last.start, 2u);
+}
+
+// 太字やリンクの run は数式や画像と違い、指した語だけを選ぶ。
+TEST(FindNodeWordBoundaries, DecoratedRunSelectsOnlyTheWord)
+{
+    const auto nodes = ParseNodes("see **bold text** now");
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].GetText(), "see bold text now");
+    const auto r = FindNodeWordBoundaries(nodes, 0, 5);
+    EXPECT_EQ(r.start, 4u);
+    EXPECT_EQ(r.end, 8u);
+}
+
+// 画像の上だけが当たり、src・alt と画像の範囲の先頭を返す。前後の文字や太字の run は外れる。
+TEST(FindImageHitAtPosition, HitsOnlyImageRun)
+{
+    const auto nodes = ParseNodes("**go** ![alt](a.png) on");
+    ASSERT_EQ(nodes.size(), 1u);
+    const std::string_view text = nodes[0].GetText();
+    const size_t alt = text.find("alt");
+    ASSERT_NE(alt, std::string_view::npos);
+    ASSERT_GT(alt, 0u);
+
+    const auto hit = FindImageHitAtPosition(nodes[0], static_cast<uint32_t>(alt) + 1);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->src, "a.png");
+    EXPECT_EQ(hit->alt, "alt");
+    EXPECT_EQ(hit->start, alt);
+
+    EXPECT_FALSE(FindImageHitAtPosition(nodes[0], 0).has_value()) << "太字の run";
+    EXPECT_FALSE(FindImageHitAtPosition(nodes[0], static_cast<uint32_t>(text.size()) - 1).has_value()) << "run の無い文字";
+}
+
 // 窓の境目をまたぐコメントや文字列、短いコメントや文字列が混じっても、1 度にトークン化したのと同じ色分けになる。
 TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
 {
@@ -1863,6 +1963,40 @@ TEST(FindUnchangedEnds, ContinuedCodeWithChangedLexStateIsChanged)
     EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
 }
 
+// テキストが同じでも、見た目を決める属性が 1 つ変われば変わったノードに数える。
+TEST(FindUnchangedEnds, EachAttributeChangeIsChanged)
+{
+    struct Case {
+        const char* name;
+        std::string_view old_md;
+        std::string_view new_md;
+    };
+    constexpr Case kCases[] = {
+        { "heading level", "# a\n", "## a\n" },
+        { "quote depth", "> a\n", "> > a\n" },
+        { "list number", "1. a\n", "2. a\n" },
+        { "task state", "- [ ] a\n", "- [x] a\n" },
+        { "code language", "```c\nx\n```\n", "```py\nx\n```\n" },
+        { "block type", "    x\n", "x\n" },
+        { "decoration", "**a** b\n", "a **b**\n" },
+        { "link url", "[a](x)\n", "[a](y)\n" },
+        { "image src", "![a](x.png)\n", "![a](y.png)\n" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        const auto old_nodes = ParseNodes(c.old_md);
+        const auto same_nodes = ParseNodes(c.old_md);
+        const auto new_nodes = ParseNodes(c.new_md);
+        ASSERT_EQ(old_nodes.size(), new_nodes.size());
+        ASSERT_EQ(old_nodes.size(), 1u);
+        ASSERT_EQ(old_nodes[0].GetText(), new_nodes[0].GetText()) << "テキストは同じにして属性だけを変える";
+        EXPECT_EQ(FindUnchangedEnds(old_nodes, same_nodes).head, 1u);
+        const auto ends = FindUnchangedEnds(old_nodes, new_nodes);
+        EXPECT_EQ(ends.head, 0u);
+        EXPECT_EQ(ends.tail, 0u);
+    }
+}
+
 TEST(HandleLinkClickTest, ClassifiesLinks)
 {
     using Type = LinkClickResult::Type;
@@ -2035,6 +2169,48 @@ TEST(ToDisplayUrlTest, LongInputMatchesWholeEncoding)
     EXPECT_EQ(shown.substr(0, MAX_DISPLAY_URL_LEN / 2), whole.substr(0, MAX_DISPLAY_URL_LEN / 2));
     EXPECT_EQ(shown[MAX_DISPLAY_URL_LEN / 2], L'…');
     EXPECT_TRUE(whole.ends_with(shown.substr(MAX_DISPLAY_URL_LEN / 2 + 1)));
+}
+
+// 見えない文字の範囲の端。範囲の中は %XX にし、1 つ外はそのまま出す。
+TEST(ToDisplayUrlTest, InvisibleRangeEdges)
+{
+    struct Case {
+        char32_t cp;
+        bool encoded;
+    };
+    constexpr Case kCases[] = {
+        { 0x1F, true }, { 0x20, false }, { 0x7E, false }, { 0x7F, true }, { 0x9F, true }, { 0xA0, false },
+        { 0xAC, false }, { 0xAD, true }, { 0xAE, false }, { 0x061C, true }, { 0x180E, true },
+        { 0x200A, false }, { 0x200B, true }, { 0x200F, true }, { 0x2010, false },
+        { 0x2029, false }, { 0x202A, true }, { 0x202E, true }, { 0x202F, false },
+        { 0x205F, false }, { 0x2060, true }, { 0x206F, true }, { 0x2070, false },
+        { 0xFEFE, false }, { 0xFEFF, true }, { 0xFFF8, false }, { 0xFFF9, true }, { 0xFFFB, true }, { 0xFFFC, false },
+        { 0xDFFFF, false }, { 0xE0000, true }, { 0xE007F, true }, { 0xE0080, false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(std::format("U+{:04X}", static_cast<uint32_t>(c.cp)));
+        wchar_t utf16[2];
+        const std::wstring text = L"a" + std::wstring(utf16, utf8_codec::EncodeUtf16(c.cp, utf16)) + L"b";
+        const std::wstring shown = ToDisplayUrl(text);
+        if (c.encoded) {
+            EXPECT_TRUE(shown.starts_with(L"a%"));
+            EXPECT_TRUE(shown.ends_with(L'b'));
+            EXPECT_GT(shown.size(), text.size());
+        }
+        else {
+            EXPECT_EQ(shown, text);
+        }
+    }
+}
+
+// ちょうど上限の長さまではそのまま出し、1 文字でも超えたら中を切って上限の長さにする。
+TEST(ToDisplayUrlTest, CutsOnlyAboveLimit)
+{
+    const std::wstring at_limit(MAX_DISPLAY_URL_LEN, L'a');
+    EXPECT_EQ(ToDisplayUrl(at_limit), at_limit);
+    const std::wstring over = ToDisplayUrl(at_limit + L'a');
+    EXPECT_EQ(over.size(), MAX_DISPLAY_URL_LEN);
+    EXPECT_EQ(over[MAX_DISPLAY_URL_LEN / 2], L'…');
 }
 
 TEST(PercentDecodeTest, DecodesHexPairsAndKeepsInvalidSequences)

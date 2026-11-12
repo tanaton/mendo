@@ -46,7 +46,14 @@ TEST(IsLocalPathTest, RejectsNetworkAndDevicePaths)
         { L"/img/a.png", true },
         { L"?\\a.png", true },
         { L"\\?a.png", true },
+        { L"\\", true },
+        // \??\ は 4 文字そろって初めて NT パスになる。
+        { L"\\??", true },
+        { L"\\??a", true },
+        { L"\\?x\\a", true },
+        { L"\\x?\\a", true },
 
+        { L"\\\\", false },
         { L"\\\\host\\share\\a.png", false },
         { L"//host/share/a.png", false },
         { L"\\/host/share/a.png", false },
@@ -77,6 +84,12 @@ TEST(IsUncShareRootTest, DetectsOnlyServerAndShare)
         { L"\\\\srv\\", false },
         { L"\\\\?\\C:\\a", false },
         { L"\\\\.\\pipe", false },
+        { L"\\\\?host\\share", false },
+        { L"\\\\.host\\share", false },
+        // サーバー名が空、先頭の区切りが 1 つだけ。
+        { L"\\\\\\share", false },
+        { L"\\srv\\share", false },
+        { L"s\\\\srv\\share", false },
         { L"C:\\", false },
         { L"C:\\dir", false },
         { L"", false },
@@ -115,6 +128,21 @@ TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
         { L"\\\\.\\pipe\\x", std::nullopt },
         { L"\\\\?\\Volume{0}\\dir", std::nullopt },
         { L"\\\\?\\CC:\\dir", std::nullopt },
+        // ドライブは「英字 + :」の後ろが区切りか終端のときだけ。
+        { L"\\\\?\\C:", L"C:" },
+        { L"\\\\?\\C", std::nullopt },
+        { L"\\\\?\\C:dir", std::nullopt },
+        { L"\\\\?\\1:\\dir", std::nullopt },
+        // UNC は「UNC + 区切り」のときだけ。
+        { L"\\\\?\\UNC\\", L"\\\\" },
+        { L"\\\\?\\UNC", std::nullopt },
+        { L"\\\\?\\UNCx\\host", std::nullopt },
+        { L"\\\\?\\abc\\host", std::nullopt },
+        // デバイスパスの接頭辞は 4 文字そろって初めて外す。1 文字違えばそのまま返す。
+        { L"\\\\?C:\\dir", L"\\\\?C:\\dir" },
+        { L"\\\\h\\C:\\dir", L"\\\\h\\C:\\dir" },
+        { L"\\x?\\C:\\dir", L"\\x?\\C:\\dir" },
+        { L"x\\?\\C:\\dir", L"x\\?\\C:\\dir" },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(testing::PrintToString(std::wstring(c.path)));

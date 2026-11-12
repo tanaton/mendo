@@ -1304,3 +1304,542 @@ TEST(SyntaxResume, LineLocalLanguagesNeedNoState)
         }
     }
 }
+
+// コメントの開きは 2 文字そろって初めてコメントになる。1 文字だけの演算子は後ろを飲み込まない。
+TEST(SyntaxSequence, CommentOpenersNeedBothChars)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("int a = b / c; int d = e * f / g;", Cpp, { { "int", Type }, { "int", Type } });
+    ExpectTokenSequence("a /= 2; // c", Cpp, { { "2", Number }, { "// c", Comment } });
+    ExpectTokenSequence("x = a /b; /* c */ int y;", Cpp, { { "/* c */", Comment }, { "int", Type } });
+    ExpectTokenSequence("if ($a -lt 1 -and $b < 2) { exit } <# c #> return", PowerShell,
+                        { { "if", Keyword }, { "1", Number }, { "2", Number }, { "exit", Keyword }, { "<# c #>", Comment }, { "return", Keyword } });
+    ExpectTokenSequence("local a = b - c -- d", Lua, { { "local", Keyword }, { "-- d", Comment } });
+    ExpectTokenSequence("x = t[1] - t[2] --[[ c ]] y = [==[ s ]] ]==] z = -[[s]]", Lua,
+                        { { "1", Number }, { "2", Number }, { "--[[ c ]]", Comment }, { "[==[ s ]] ]==]", String }, { "[[s]]", String } });
+    ExpectTokenSequence("a = -- [[ not long", Lua, { { "-- [[ not long", Comment } });
+    ExpectTokenSequence("select a - b from t -- c", Sql, { { "select", Keyword }, { "from", Keyword }, { "-- c", Comment } });
+    ExpectTokenSequence("const a = '\\\\'; const b = c \\ d;", Zig, { { "const", Keyword }, { "'\\\\'", String }, { "const", Keyword } });
+    ExpectTokenSequence("x = \\\\ rest", Zig, { { "\\\\ rest", String } });
+    ExpectTokenSequence("a @ b @import(\"x\") @1", Zig, { { "@import", Function }, { "\"x\"", String }, { "1", Number } });
+    ExpectTokenSequence("var a = @\"x\"\"y\" + @$\"z\" + b @ c;", CSharp, { { "var", Keyword }, { "@\"x\"\"y\"", String }, { "@$\"z\"", String } });
+    ExpectTokenSequence("@ \"a\" @$ \"b\"", CSharp, { { "\"a\"", String }, { "\"b\"", String } });
+}
+
+// シェルと Ruby の # は語の頭でだけコメントになる。PHP の #[ は属性でコメントにしない。
+TEST(SyntaxSequence, HashCommentNeedsWordStartOrNoBracket)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("echo $# ${#a} a#b # c", Bash, { { "echo", Type }, { "# c", Comment } });
+    ExpectTokenSequence("x=1 #c", Bash, { { "1", Number }, { "#c", Comment } });
+    ExpectTokenSequence("a = /\\A#+/ # c", Ruby, { { "# c", Comment } });
+    ExpectTokenSequence("#[Attr] function f() {} # c", Php, { { "function", Keyword }, { "f", Function }, { "# c", Comment } });
+    ExpectTokenSequence("# c", Php, { { "# c", Comment } });
+    ExpectTokenSequence("$class = new class; $list; list($a) = $b;", Php, { { "new", Keyword }, { "class", Keyword }, { "list", Keyword } });
+}
+
+// 行の頭でだけ始まるコメント (cmd の :: と rem、Ruby の =begin、C の #)。行の途中や、後ろに語が続くときは違う。
+TEST(SyntaxSequence, LineStartComments)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence(":: c\necho a :: b\n  :: d\n@:: e", Cmd,
+                        { { ":: c", Comment }, { "echo", Keyword }, { ":: d", Comment }, { ":: e", Comment } });
+    ExpectTokenSequence("rem a\nremote b\nrem\n@rem c\necho rem d\n  REM e\nrem_x", Cmd,
+                        { { "rem a", Comment }, { "rem", Comment }, { "rem c", Comment }, { "echo", Keyword }, { "rem", Keyword },
+                          { "REM e", Comment } });
+    ExpectTokenSequence("set a='b' \"c\"", Cmd, { { "set", Keyword }, { "\"c\"", String } });
+    ExpectTokenSequence("=begin\nc\n=end\nx = 1", Ruby, { { "=begin\nc\n=end", Comment }, { "1", Number } });
+    ExpectTokenSequence("a =begin\nb = 2", Ruby, { { "begin", Keyword }, { "2", Number } });
+    ExpectTokenSequence("=beginx\ny = 3", Ruby, { { "3", Number } });
+    ExpectTokenSequence("=begin", Ruby, { { "=begin", Comment } });
+    ExpectTokenSequence("#define A 1 \\\n  2\nint a; # not\n  #pragma once\nint b;", Cpp,
+                        { { "#define A 1 \\\n  2", Preprocessor }, { "int", Type }, { "#pragma once", Preprocessor }, { "int", Type } });
+    ExpectTokenSequence("#define A 1 \\  \n  2\nint c;", Cpp, { { "#define A 1 \\  \n  2", Preprocessor }, { "int", Type } });
+}
+
+// 文字列の種類ごとの終わり方。空の文字列の直後や、引用符 2 個は三重引用符にしない。
+TEST(SyntaxSequence, StringDelimiters)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("a = '' + \"\" + 'b'", Python, { { "''", String }, { "\"\"", String }, { "'b'", String } });
+    ExpectTokenSequence("a = \"\"  \"c\"", Python, { { "\"\"", String }, { "\"c\"", String } });
+    ExpectTokenSequence("'''a'b''' \"\"\"c\"d\"\"\" x", Python, { { "'''a'b'''", String }, { "\"\"\"c\"d\"\"\"", String } });
+    ExpectTokenSequence("\"a\\\"b\" 'c\\'d' e", Python, { { "\"a\\\"b\"", String }, { "'c\\'d'", String } });
+    ExpectTokenSequence("\"\"\"a\\\"\"\" b", Kotlin, { { "\"\"\"a\\\"\"\"", String } });
+    ExpectTokenSequence("\"\"\"a\\\"\"\"b\"\"\" c", Java, { { "\"\"\"a\\\"\"\"b\"\"\"", String } });
+    ExpectTokenSequence("\"\"\"a\"b\"\"\" c \"\"\"\" d \"\"\" e \"\"\"\"", CSharp,
+                        { { "\"\"\"a\"b\"\"\"", String }, { "\"\"\"\" d \"\"\" e \"\"\"\"", String } });
+    ExpectTokenSequence("let a = 'x' \"y\"", Swift, { { "let", Keyword }, { "\"y\"", String } });
+    ExpectTokenSequence("let c = 'a'; let s = \"b\";", Rust, { { "let", Keyword }, { "let", Keyword }, { "\"b\"", String } });
+    ExpectTokenSequence("`a\\`b` c `d\ne` f", JavaScript, { { "`a\\`b`", String }, { "`d\ne`", String } });
+    ExpectTokenSequence("`a\\` b `c`", Go, { { "`a\\`", String }, { "`c`", String } });
+    ExpectTokenSequence("`a\\` b 'c''d' e", Sql, { { "`a\\`", String }, { "'c'", String }, { "'d'", String } });
+    ExpectTokenSequence("R\"(a\"b)\" LR\"x(a)x\" u8R\"(c)\" RENDER\"d\" R\"e\" Rx\"(f)\"", Cpp,
+                        { { "R\"(a\"b)\"", String }, { "LR\"x(a)x\"", String }, { "u8R\"(c)\"", String }, { "\"d\"", String },
+                          { "R\"e\"", String }, { "\"(f)\"", String } });
+    ExpectTokenSequence("\"unterminated\nint a;", Cpp, { { "\"unterminated", String }, { "int", Type } });
+    ExpectTokenSequence("'a' '\\'' b", Cpp, { { "'a'", String }, { "'\\''", String } });
+}
+
+// 数値の形: 基数の接頭辞、小数、指数、接尾辞、桁区切り。数字に続かない . や e は数値にしない。
+TEST(SyntaxSequence, NumberLiterals)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("0x1F 0X1f 0xFFu 0b101 0B1 0o17 0O7 0", Cpp,
+                        { { "0x1F", Number }, { "0X1f", Number }, { "0xFFu", Number }, { "0b101", Number }, { "0B1", Number }, { "0o17", Number },
+                          { "0O7", Number }, { "0", Number } });
+    ExpectTokenSequence("1.5 .5 1. 1e5 1E+5 1e-3 1.5e10f 3.14f 10L 1'000 1_000", Cpp,
+                        { { "1.5", Number }, { ".5", Number }, { "1.", Number }, { "1e5", Number }, { "1E+5", Number }, { "1e-3", Number },
+                          { "1.5e10f", Number }, { "3.14f", Number }, { "10L", Number }, { "1'000", Number }, { "1_000", Number } });
+    ExpectTokenSequence("a.b a . b v.x e5 x1", Cpp, {});
+    ExpectTokenSequence("a = .5; b = .; c = ..5;", Cpp, { { ".5", Number }, { ".5", Number } });
+    ExpectTokenSequence("10n 1_0", JavaScript, { { "10n", Number }, { "1_0", Number } });
+}
+
+// 語の分類: キーワード・型・( が続けば関数。大文字小文字を区別しない言語と、$ 付きの変数。
+TEST(SyntaxSequence, WordsAndCalls)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("foo(1) bar (2) baz\n(3) if (x) int(y) qux", Cpp,
+                        { { "foo", Function }, { "1", Number }, { "bar", Function }, { "2", Number }, { "3", Number }, { "if", Keyword },
+                          { "int", Type } });
+    ExpectTokenSequence("IF Int", Cpp, {});
+    ExpectTokenSequence("SELECT Select select count(x) from t", Sql,
+                        { { "SELECT", Keyword }, { "Select", Keyword }, { "select", Keyword }, { "count", Function }, { "from", Keyword } });
+    ExpectTokenSequence("FUNCTION Function function f", PowerShell, { { "FUNCTION", Keyword }, { "Function", Keyword }, { "function", Keyword } });
+    ExpectTokenSequence("ECHO Echo echo", Cmd, { { "ECHO", Keyword }, { "Echo", Keyword }, { "echo", Keyword } });
+    ExpectTokenSequence("FUNCTION function $function $x", Php, { { "FUNCTION", Keyword }, { "function", Keyword } });
+}
+
+// コメントの開きの 2 文字目だけが合っても、1 文字目が違えばコメントにしない。
+TEST(SyntaxSequence, CommentOpenersAfterOtherChars)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("a=-1 -- c\nselect", Sql, { { "1", Number }, { "-- c", Comment }, { "select", Keyword } });
+    ExpectTokenSequence("a=-b c=#t n=-[[s]]", Lua, { { "[[s]]", String } });
+    ExpectTokenSequence("[[ a ] b ]] c [==[ d ]=] e ]==] f", Lua, { { "[[ a ] b ]]", String }, { "[==[ d ]=] e ]==]", String } });
+    ExpectTokenSequence("$a;# c\nreturn", PowerShell, { { "# c", Comment }, { "return", Keyword } });
+    ExpectTokenSequence(":label\ngoto label\nset a=b::c", Cmd, { { "goto", Keyword }, { "set", Keyword } });
+    ExpectTokenSequence("R = LR + u8R; R(1)", Cpp, { { "R", Function }, { "1", Number } });
+}
+
+// YAML の値はスカラー全体で数値・日時・定数かを決める。部分だけ数値に見えるものは数値にしない。
+TEST(SyntaxSequence, YamlScalarKinds)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("a: 1\nb: -2\nc: +3.5\nd: .5\ne: -.5\nf: 1e5\ng: 1.5E+3\nh: 2e-1", Yaml,
+                        { { "a", Type }, { "1", Number }, { "b", Type }, { "-2", Number }, { "c", Type }, { "+3.5", Number }, { "d", Type },
+                          { ".5", Number }, { "e", Type }, { "-.5", Number }, { "f", Type }, { "1e5", Number }, { "g", Type },
+                          { "1.5E+3", Number }, { "h", Type }, { "2e-1", Number } });
+    ExpectTokenSequence("a: 0x1F\nb: 0o17\nc: 0b11\nd: 1_000\ne: 0xZZ\nf: 0x", Yaml,
+                        { { "a", Type }, { "0x1F", Number }, { "b", Type }, { "0o17", Number }, { "c", Type }, { "0b11", Number }, { "d", Type },
+                          { "1_000", Number }, { "e", Type }, { "f", Type } });
+    ExpectTokenSequence("a: .inf\nb: -.INF\nc: .nan\nd: +inf\ne: NaN\nf: info\ng: .infx", Yaml,
+                        { { "a", Type }, { ".inf", Number }, { "b", Type }, { "-.INF", Number }, { "c", Type }, { ".nan", Number }, { "d", Type },
+                          { "+inf", Number }, { "e", Type }, { "NaN", Number }, { "f", Type }, { "g", Type } });
+    ExpectTokenSequence("a: 1.2.3\nb: 18-alpine\nc: 1e\nd: 1e+\ne: .\nf: -\ng: +\nh: 1x\ni: .x\nj: e5", Yaml,
+                        { { "a", Type }, { "b", Type }, { "c", Type }, { "d", Type }, { "e", Type }, { "f", Type }, { "g", Type }, { "h", Type },
+                          { "i", Type }, { "j", Type } });
+    ExpectTokenSequence("a: 2024-01-02\nb: 12:30\nc: 2024-01-02T10:20:30Z\nd: 12:30:45.5\ne: 2024-01\nf: 1:30\ng: 20240102-x\nh: 12:3x\ni: 2024-01-02 x", Yaml,
+                        { { "a", Type }, { "2024-01-02", Number }, { "b", Type }, { "12:30", Number }, { "c", Type },
+                          { "2024-01-02T10:20:30Z", Number }, { "d", Type }, { "12:30:45.5", Number }, { "e", Type }, { "f", Type }, { "g", Type },
+                          { "h", Type }, { "i", Type } });
+    ExpectTokenSequence("a: true\nb: False\nc: null\nd: ~\ne: yes\nf: truex", Yaml,
+                        { { "a", Type }, { "true", Keyword }, { "b", Type }, { "False", Keyword }, { "c", Type }, { "null", Keyword },
+                          { "d", Type }, { "~", Keyword }, { "e", Type }, { "yes", Keyword }, { "f", Type } });
+}
+
+// YAML のキー・並び・フロー・引用符・コメント・文書の区切り。
+TEST(SyntaxSequence, YamlStructure)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("key: value # c\n\"q k\": 'it''s' # d\n'k2' : \"a\\\"b\"\nurl: http://x/y#z\nplain # c", Yaml,
+                        { { "key", Type }, { "# c", Comment }, { "\"q k\"", Type }, { "'it''s'", String }, { "# d", Comment }, { "'k2'", Type },
+                          { "\"a\\\"b\"", String }, { "url", Type }, { "# c", Comment } });
+    ExpectTokenSequence("- a\n- b: 1\n-c\n- - d\n-   e: 2\n- \"s\"", Yaml,
+                        { { "b", Type }, { "1", Number }, { "e", Type }, { "2", Number }, { "\"s\"", String } });
+    ExpectTokenSequence("---\na: 1\n...\n--- x\n---x\n....", Yaml,
+                        { { "---", Keyword }, { "a", Type }, { "1", Number }, { "...", Keyword }, { "---", Keyword } });
+    ExpectTokenSequence("f: [1, a, \"s\", {k: 2, j: x}, [3]]\ng: {a: 1, b: [2, c]}\nh: ]\ni: a, b", Yaml,
+                        { { "f", Type }, { "1", Number }, { "\"s\"", String }, { "k", Type }, { "2", Number }, { "j", Type }, { "3", Number },
+                          { "g", Type }, { "a", Type }, { "1", Number }, { "b", Type }, { "2", Number }, { "h", Type }, { "i", Type } });
+    ExpectTokenSequence("a: &anchor 1\nb: *anchor\nc: !!str 2\nd: !tag x\n#c: d", Yaml,
+                        { { "a", Type }, { "&anchor", Preprocessor }, { "1", Number }, { "b", Type }, { "*anchor", Preprocessor }, { "c", Type },
+                          { "!!str", Preprocessor }, { "2", Number }, { "d", Type }, { "!tag", Preprocessor }, { "#c: d", Comment } });
+    ExpectTokenSequence("k: |\n  text: 1\n  # not comment\nn: >-\n  folded\n   more\nm: 1", Yaml,
+                        { { "k", Type }, { "text: 1", String }, { "# not comment", String }, { "n", Type }, { "folded", String },
+                          { "more", String }, { "m", Type }, { "1", Number } });
+    ExpectTokenSequence("k: |x\nn: a | b\nm: > c\no: |+ # c\n  t\np: 2", Yaml,
+                        { { "k", Type }, { "n", Type }, { "m", Type }, { "o", Type }, { "# c", Comment }, { "t", String }, { "p", Type },
+                          { "2", Number } });
+    ExpectTokenSequence("a:\n  b:\n    - c: 1\n      d: text here\n  e: 'x'", Yaml,
+                        { { "a", Type }, { "b", Type }, { "c", Type }, { "1", Number }, { "d", Type }, { "e", Type }, { "'x'", String } });
+    ExpectTokenSequence("a:b\nc: d:e\nf : g\nh:\ti", Yaml, { { "c", Type }, { "f", Type }, { "h", Type } });
+}
+
+// TOML の表・キー・値。キーは行の頭 (とインラインの表の中) だけ。
+TEST(SyntaxSequence, TomlSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("[a]\nb = 1\n[[c.d]]\ne.f = 2\n\"g h\" = 3\n'i' = 4\n[ y ] # c", Toml,
+                        { { "[a]", Keyword }, { "b", Type }, { "1", Number }, { "[[c.d]]", Keyword }, { "e.f", Type }, { "2", Number },
+                          { "\"g h\"", Type }, { "3", Number }, { "'i'", Type }, { "4", Number }, { "[ y ]", Keyword }, { "# c", Comment } });
+    ExpectTokenSequence("a = \"s\\\"t\" # c\nb = 's\\'\nc = \"\"\"m\n\"q\" l\"\"\"\nd = '''r\n'q' l'''\ne = \"\" \nf = ''", Toml,
+                        { { "a", Type }, { "\"s\\\"t\"", String }, { "# c", Comment }, { "b", Type }, { "'s\\'", String }, { "c", Type },
+                          { "\"\"\"m\n\"q\" l\"\"\"", String }, { "d", Type }, { "'''r\n'q' l'''", String }, { "e", Type }, { "\"\"", String },
+                          { "f", Type }, { "''", String } });
+    ExpectTokenSequence("a = 1_000\nb = 0x1F\nc = 1e5\nd = -0.5\ne = +inf\nf = nan\ng = 1979-05-27T07:32:00Z\nh = 07:32:00\ni = true\nj = falsey", Toml,
+                        { { "a", Type }, { "1_000", Number }, { "b", Type }, { "0x1F", Number }, { "c", Type }, { "1e5", Number }, { "d", Type },
+                          { "-0.5", Number }, { "e", Type }, { "+inf", Number }, { "f", Type }, { "nan", Number }, { "g", Type },
+                          { "1979-05-27T07:32:00Z", Number }, { "h", Type }, { "07:32:00", Number }, { "i", Type }, { "true", Keyword },
+                          { "j", Type } });
+    ExpectTokenSequence("a = [1, \"s\", [2, 3], {k = 4}]\nb = { x = 1, y = \"z\", w.v = 2 }\nc = [\n  1, # c\n  d = 2\n]\ne = 5", Toml,
+                        { { "a", Type }, { "1", Number }, { "\"s\"", String }, { "2", Number }, { "3", Number }, { "k", Type }, { "4", Number },
+                          { "b", Type }, { "x", Type }, { "1", Number }, { "y", Type }, { "\"z\"", String }, { "w.v", Type }, { "2", Number },
+                          { "c", Type }, { "1", Number }, { "# c", Comment }, { "2", Number }, { "e", Type }, { "5", Number } });
+    ExpectTokenSequence("= 1\na\nb =\n c = d = e\n# x = 1\nf-g_1 = 2", Toml,
+                        { { "1", Number }, { "b", Type }, { "c", Type }, { "# x = 1", Comment }, { "f-g_1", Type }, { "2", Number } });
+}
+
+// INI のセクション・キー・値・コメント。; と # は行の頭でだけコメント。
+TEST(SyntaxSequence, IniSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("[sec]\nkey = value\nk2: v2\n; c\n# d\n  ; e\nk3 = v ; not c\nk4=1", Ini,
+                        { { "[sec]", Keyword }, { "key", Type }, { "k2", Type }, { "; c", Comment }, { "# d", Comment }, { "; e", Comment },
+                          { "k3", Type }, { "k4", Type }, { "1", Number } });
+    ExpectTokenSequence("a = 10\nb = 1.5\nc = true\nd = off\ne = \"s\" x\nf = 's'\ng = 10 px\nh = -1\ni = 0x10", Ini,
+                        { { "a", Type }, { "10", Number }, { "b", Type }, { "1.5", Number }, { "c", Type }, { "true", Keyword }, { "d", Type },
+                          { "off", Keyword }, { "e", Type }, { "\"s\"", String }, { "f", Type }, { "'s'", String }, { "g", Type }, { "h", Type },
+                          { "-1", Number }, { "i", Type }, { "0x10", Number } });
+    ExpectTokenSequence("[a b]\n [d]\nx[e] = 1\nnokey\n= v\nk =\nk = \nj = a = b\nm: n: o", Ini,
+                        { { "[a b]", Keyword }, { "[d]", Keyword }, { "x[e]", Type }, { "1", Number }, { "k", Type }, { "k", Type }, { "j", Type },
+                          { "m", Type } });
+}
+
+// CSS のセレクタ・宣言・値・@ 規則。同じ文字でも、セレクタの中か宣言の中かで色が変わる。
+TEST(SyntaxSequence, CssSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("a.b#c > d + e ~ f, g:hover::before, [h=\"i\"] { }", Css,
+                        { { "a", Keyword }, { ".b", Function }, { "#c", Function }, { "d", Keyword }, { "e", Keyword }, { "f", Keyword },
+                          { "g", Keyword }, { ":hover", Type }, { "::before", Type }, { "h", Type }, { "\"i\"", String } });
+    ExpectTokenSequence(".a-b_c, #d-e, -x, *.z { }", Css, { { ".a-b_c", Function }, { "#d-e", Function }, { "-x", Keyword }, { ".z", Function } });
+    ExpectTokenSequence("p { color: red; margin: 0 -1px +2em .5rem 1.5% 10; width: calc(100% - 2*3px); }", Css,
+                        { { "p", Keyword }, { "color", Type }, { "margin", Type }, { "0", Number }, { "-1px", Number }, { "+2em", Number },
+                          { ".5rem", Number }, { "1.5%", Number }, { "10", Number }, { "width", Type }, { "calc", Function }, { "100%", Number },
+                          { "2", Number }, { "3px", Number } });
+    ExpectTokenSequence("p { color: #fff; background: url(a.png) no-repeat, url(\"b.png\"); font: 12px/1.5 \"A B\", serif !important; }", Css,
+                        { { "p", Keyword }, { "color", Type }, { "#fff", Number }, { "background", Type }, { "url", Function },
+                          { "a.png", String }, { "url", Function }, { "\"b.png\"", String }, { "font", Type }, { "12px", Number },
+                          { "1.5", Number }, { "\"A B\"", String }, { "!important", Keyword } });
+    ExpectTokenSequence("p { --main-color: #06c; color: var(--main-color); -webkit-x: none; a:b; c : d }", Css,
+                        { { "p", Keyword }, { "--main-color", Type }, { "#06c", Number }, { "color", Type }, { "var", Function },
+                          { "-webkit-x", Type }, { "a", Type }, { "c", Type } });
+    ExpectTokenSequence("@import url(\"x.css\");\n@charset \"utf-8\";\n@media screen and (min-width: 10px) { a { b: c } }\n@font-face { d: e }", Css,
+                        { { "@import", Keyword }, { "url", Function }, { "\"x.css\"", String }, { "@charset", Keyword }, { "\"utf-8\"", String },
+                          { "@media", Keyword }, { "min-width", Type }, { "10px", Number }, { "a", Keyword }, { "b", Type },
+                          { "@font-face", Keyword }, { "d", Type } });
+    ExpectTokenSequence("/* c */ a /* d */ { b: /* e */ c; } /* f", Css,
+                        { { "/* c */", Comment }, { "a", Keyword }, { "/* d */", Comment }, { "b", Type }, { "/* e */", Comment },
+                          { "/* f", Comment } });
+    ExpectTokenSequence("a { b: 'x;y' ; c: \"}\" } d { e: f }", Css,
+                        { { "a", Keyword }, { "b", Type }, { "'x;y'", String }, { "c", Type }, { "\"}\"", String }, { "d", Keyword },
+                          { "e", Type } });
+    ExpectTokenSequence("a { b: -.5 +.5 - 5 a-1 #1a2 }", Css,
+                        { { "a", Keyword }, { "b", Type }, { "-.5", Number }, { "+.5", Number }, { "5", Number }, { "#1a2", Number } });
+    ExpectTokenSequence("a{b:c}d{e:f;g:h}\na:not(.b), c:nth-child(2n+1) { }", Css,
+                        { { "a", Keyword }, { "b", Type }, { "d", Keyword }, { "e", Type }, { "g", Type }, { "a", Keyword }, { ":not", Type },
+                          { ".b", Function }, { "c", Keyword }, { ":nth-child", Type }, { "2n", Number }, { "1", Number } });
+    ExpectTokenSequence("@media (a: 1) { @supports (b: c) { d { e: f } } g { h: i } } j { k: l }", Css,
+                        { { "@media", Keyword }, { "a", Type }, { "1", Number }, { "@supports", Keyword }, { "b", Type }, { "d", Keyword },
+                          { "e", Type }, { "g", Keyword }, { "h", Type }, { "j", Keyword }, { "k", Type } });
+    ExpectTokenSequence("a { b: c; } } d { e: f }", Css, { { "a", Keyword }, { "b", Type }, { "d", Keyword }, { "e", Type } });
+    ExpectTokenSequence("$a: 1px; .b { c: $a; &:hover { d: e; } &-f { g: h } .i & { j: k } } // l\n@mixin m($n) { o: $n } @include m(2);", Scss,
+                        { { "$a", Type }, { "1px", Number }, { ".b", Function }, { "c", Type }, { "$a", Type }, { ":hover", Type }, { "d", Type },
+                          { "&-f", Function }, { "g", Type }, { ".i", Function }, { "j", Type }, { "// l", Comment }, { "@mixin", Keyword },
+                          { "m", Function }, { "$n", Type }, { "o", Type }, { "$n", Type }, { "@include", Keyword }, { "m", Function },
+                          { "2", Number } });
+    ExpectTokenSequence("a { b: c; // d\n e: f; /* g */ }\n@use \"x\"; @if $a == 1 { b: c } @else { d: e }", Scss,
+                        { { "a", Keyword }, { "b", Type }, { "// d", Comment }, { "e", Type }, { "/* g */", Comment }, { "@use", Keyword },
+                          { "\"x\"", String }, { "@if", Keyword }, { "$a", Type }, { "1", Number }, { "b", Type }, { "@else", Keyword },
+                          { "d", Type } });
+    ExpectTokenSequence(".a { .b { c: d; } e: f; g { h: i } }\n$m: (k: v);", Scss,
+                        { { ".a", Function }, { ".b", Function }, { "c", Type }, { "e", Type }, { "g", Keyword }, { "h", Type }, { "$m", Type } });
+    ExpectTokenSequence("a { b: c // d\n; e: f }", Css, { { "a", Keyword }, { "b", Type }, { "e", Type } });
+}
+
+// HTML / XML のタグ・属性・値・実体参照・コメント。script と style の中は別の言語として色を付ける。
+TEST(SyntaxSequence, MarkupSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("<!DOCTYPE html>\n<html lang=\"en\">\n<!-- c -->\n<p class='a' id=b hidden data-x=\"1\">t &amp; &#10; &#x1F; &bad &; & x</p>", Html,
+                        { { "<!DOCTYPE html>", Preprocessor }, { "html", Keyword }, { "lang", Type }, { "\"en\"", String },
+                          { "<!-- c -->", Comment }, { "p", Keyword }, { "class", Type }, { "'a'", String }, { "id", Type }, { "b", String },
+                          { "hidden", Type }, { "data-x", Type }, { "\"1\"", String }, { "&amp;", Number }, { "&#10;", Number },
+                          { "&#x1F;", Number }, { "p", Keyword } });
+    ExpectTokenSequence("<br/><img src=\"a.png\" /><input disabled/>< p>a < b > c</ p><1>", Html,
+                        { { "br", Keyword }, { "img", Keyword }, { "src", Type }, { "\"a.png\"", String }, { "input", Keyword },
+                          { "disabled", Type } });
+    ExpectTokenSequence("<a href=\"x>y\" title='<z>'>t</a><b\n  c=\"d\"\n  e>f</b>", Html,
+                        { { "a", Keyword }, { "href", Type }, { "\"x>y\"", String }, { "title", Type }, { "'<z>'", String }, { "a", Keyword },
+                          { "b", Keyword }, { "c", Type }, { "\"d\"", String }, { "e", Type }, { "b", Keyword } });
+    ExpectTokenSequence("<script>var a = \"<b>\"; // c\nif (a < 1) {}</script><p>x</p>", Html,
+                        { { "script", Keyword }, { "var", Keyword }, { "\"<b>\"", String }, { "// c", Comment }, { "if", Keyword },
+                          { "1", Number }, { "script", Keyword }, { "p", Keyword }, { "p", Keyword } });
+    ExpectTokenSequence("<style>a { b: c } /* <d> */</style><p>y</p>", Html,
+                        { { "style", Keyword }, { "a", Keyword }, { "b", Type }, { "/* <d> */", Comment }, { "style", Keyword }, { "p", Keyword },
+                          { "p", Keyword } });
+    ExpectTokenSequence("<SCRIPT type=\"x\">let a;</SCRIPT><Style>.a{}</Style><scripty>let b;</scripty><stylex>.c{}</stylex>", Html,
+                        { { "SCRIPT", Keyword }, { "type", Type }, { "\"x\"", String }, { "let", Keyword }, { "SCRIPT", Keyword },
+                          { "Style", Keyword }, { ".a", Function }, { "Style", Keyword }, { "scripty", Keyword }, { "scripty", Keyword },
+                          { "stylex", Keyword }, { "stylex", Keyword } });
+    ExpectTokenSequence("<script/>var a;<style/>.b{}<script src=x></script>var c;", Html,
+                        { { "script", Keyword }, { "style", Keyword }, { "script", Keyword }, { "src", Type }, { "x", String },
+                          { "script", Keyword } });
+    ExpectTokenSequence("<script>a</scriptx>b</script >c", Html, { { "script", Keyword }, { "script", Keyword } });
+    ExpectTokenSequence("<!-- a -- b --> c <!-- d", Html, { { "<!-- a -- b -->", Comment }, { "<!-- d", Comment } });
+    ExpectTokenSequence("<p a=1 b = \"2\" c= d>&lt;&#123;&#xAB;&amp&#;&a1;</p>", Html,
+                        { { "p", Keyword }, { "a", Type }, { "1", String }, { "b", Type }, { "\"2\"", String }, { "c", Type }, { "d", String },
+                          { "&lt;", Number }, { "&#123;", Number }, { "&#xAB;", Number }, { "&a1;", Number }, { "p", Keyword } });
+    ExpectTokenSequence("<a:b c:d=\"e\" f.g=\"h\" i-j=\"k\">x</a:b>", Html,
+                        { { "a:b", Keyword }, { "c:d", Type }, { "\"e\"", String }, { "f.g", Type }, { "\"h\"", String }, { "i-j", Type },
+                          { "\"k\"", String }, { "a:b", Keyword } });
+    ExpectTokenSequence("<?xml version=\"1.0\"?>\n<a:b xmlns:a=\"u\"><![CDATA[ <c> & ]]><d e=\"f\"/></a:b>", Xml,
+                        { { "<?xml version=\"1.0\"?>", Preprocessor }, { "a:b", Keyword }, { "xmlns:a", Type }, { "\"u\"", String },
+                          { "<![CDATA[ <c> & ]]>", String }, { "d", Keyword }, { "e", Type }, { "\"f\"", String }, { "a:b", Keyword } });
+    ExpectTokenSequence("<script>var a;</script><style>b{}</style>", Xml,
+                        { { "script", Keyword }, { "script", Keyword }, { "style", Keyword }, { "style", Keyword } });
+}
+
+// Dockerfile は行の頭の命令だけがキーワード。命令の後ろはシェルとして色を付ける。
+TEST(SyntaxSequence, DockerfileSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("FROM a:1 AS b\nfrom c as d\nRUN echo \"x\" && ls # c\n# c2\n  # c3\nCOPY --from=b /a /b\nrun x", Dockerfile,
+                        { { "FROM", Keyword }, { "1", Number }, { "AS", Keyword }, { "from", Keyword }, { "as", Keyword }, { "RUN", Keyword },
+                          { "echo", Type }, { "\"x\"", String }, { "# c", Comment }, { "# c2", Comment }, { "# c3", Comment }, { "COPY", Keyword },
+                          { "run", Keyword } });
+    ExpectTokenSequence("RUN a \\\n  && b \\\n# c\n  c\nCMD [\"a\", \"b\"]\nENV A=1 B=\"2\"\nfoo bar\nFROMX y", Dockerfile,
+                        { { "RUN", Keyword }, { "# c", Comment }, { "CMD", Keyword }, { "\"a\"", String }, { "\"b\"", String }, { "ENV", Keyword },
+                          { "1", Number }, { "\"2\"", String } });
+    ExpectTokenSequence("ARG V=1\nFROM a AS\nFROM b ASx c\nFROM d as e as f\nEXPOSE 80/tcp\nONBUILD RUN x\n\n  LABEL a=b", Dockerfile,
+                        { { "ARG", Keyword }, { "1", Number }, { "FROM", Keyword }, { "AS", Keyword }, { "FROM", Keyword }, { "FROM", Keyword },
+                          { "as", Keyword }, { "EXPOSE", Keyword }, { "80", Number }, { "ONBUILD", Keyword }, { "LABEL", Keyword } });
+}
+
+// Makefile のターゲット・変数の代入・レシピ・条件。: と = の並びで代入と規則を見分ける。
+TEST(SyntaxSequence, MakefileSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("all: a.o b.o\n\tcc -o $@ $^ # c\n\t@echo \"x\"\nclean:\n\trm -f *.o\n.PHONY: all clean", Makefile,
+                        { { "all", Function }, { "$@", Type }, { "$^", Type }, { "# c", Comment }, { "echo", Type }, { "\"x\"", String },
+                          { "clean", Function }, { ".PHONY", Keyword } });
+    ExpectTokenSequence("A = 1\nB := 2\nC ::= 3\nD += 4\nE ?= 5\nF != ls\nG:=a:b\nH = a # c\nexport I = 6\noverride J = 7\nprivate K = 8", Makefile,
+                        { { "A", Type }, { "B", Type }, { "C", Type }, { "D", Type }, { "E", Type }, { "F", Type }, { "G", Type }, { "H", Type },
+                          { "# c", Comment }, { "export", Keyword }, { "I", Type }, { "override", Keyword }, { "J", Type }, { "private", Keyword },
+                          { "K", Type } });
+    ExpectTokenSequence("a: B = 1\nc:: d\ne: f ; g\n%.o: %.c\n\t$(CC) -c $<\n$(X): $(Y) | z\nh:\n", Makefile,
+                        { { "a", Function }, { "c", Function }, { "e", Function }, { "%.o", Function }, { "$(CC)", Type }, { "$<", Type },
+                          { "$(X)", Type }, { "$(Y)", Type }, { "h", Function } });
+    ExpectTokenSequence("X = $(A) ${B} $C $$ $(shell ls)$(A:.c=.o)\n$(call f,$(a),b)", Makefile,
+                        { { "X", Type }, { "$(A)", Type }, { "${B}", Type }, { "$C", Type }, { "$(shell ls)", Type }, { "$(A:.c=.o)", Type },
+                          { "$(call f,$(a),b)", Type } });
+    ExpectTokenSequence("ifeq ($(A),1)\nB = 2\nelse\nE = 4\nendif\ninclude a.mk\n-include b.mk\nifneq (a,b)\nendif\nifx = 1", Makefile,
+                        { { "ifeq", Keyword }, { "$(A)", Type }, { "B", Type }, { "else", Keyword }, { "E", Type }, { "endif", Keyword },
+                          { "include", Keyword }, { "-include", Keyword }, { "ifneq", Keyword }, { "endif", Keyword }, { "ifx", Type } });
+    ExpectTokenSequence("define F\n  body $(1)\nendef\nexport\nexport A B\nunexport C\nvpath %.c src\nexportx = 1", Makefile,
+                        { { "define", Keyword }, { "$(1)", Type }, { "endef", Keyword }, { "export", Keyword }, { "export", Keyword },
+                          { "unexport", Keyword }, { "vpath", Keyword }, { "exportx", Type } });
+    ExpectTokenSequence("a:\n\tb\n\n\tc\n# d\n\te\nf = 1\n\tg", Makefile, { { "a", Function }, { "# d", Comment }, { "f", Type } });
+    ExpectTokenSequence("a: b \\\n   c\n\td \\\n\te\nX = 1 \\\n  2\nY = 3", Makefile, { { "a", Function }, { "X", Type }, { "Y", Type } });
+}
+
+// Haskell のコメント・文字・演算子・型と構成子。-- は記号の並びの一部ならコメントにしない。
+TEST(SyntaxSequence, HaskellSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("module M (f) where\nimport Data.List (sort)\nf :: Int -> Maybe a\nf x = Just x -- c\ng = x --> y\nh = a |-- b\n--| c\n---- d\ni = a --", Haskell,
+                        { { "module", Keyword }, { "M", Type }, { "where", Keyword }, { "import", Keyword }, { "Data", Type }, { "List", Type },
+                          { "f", Function }, { "Int", Type }, { "Maybe", Type }, { "f", Function }, { "Just", Type }, { "-- c", Comment },
+                          { "g", Function }, { "h", Function }, { "---- d", Comment }, { "i", Function }, { "--", Comment } });
+    ExpectTokenSequence("{- a {- b -} c -} x {-# LANGUAGE X #-} y {- z", Haskell,
+                        { { "{- a {- b -} c -}", Comment }, { "{-# LANGUAGE X #-}", Preprocessor }, { "{- z", Comment } });
+    ExpectTokenSequence("c = 'a'\nd = '\\n'\ne = '\\''\nf' = f''\ng = a'b 'c\nh = '\\x41'\ni = 'ab'\nj = '", Haskell,
+                        { { "c", Function }, { "'a'", String }, { "d", Function }, { "'\\n'", String }, { "e", Function }, { "'\\''", String },
+                          { "f'", Function }, { "g", Function }, { "h", Function }, { "'\\x41'", String }, { "i", Function }, { "j", Function } });
+    ExpectTokenSequence("data T = A | B Int deriving (Show, Eq)\nx = M.lookup k m\ny = T.A\nz = a `div` b\nw = 0x1F + 1.5e3 + 0o7\n#include \"x\"\n  #y", Haskell,
+                        { { "data", Keyword }, { "T", Type }, { "A", Type }, { "B", Type }, { "Int", Type }, { "deriving", Keyword },
+                          { "Show", Type }, { "Eq", Type }, { "x", Function }, { "M", Type }, { "y", Function }, { "T", Type }, { "A", Type },
+                          { "z", Function }, { "w", Function }, { "0x1F", Number }, { "1.5e3", Number }, { "0o7", Number },
+                          { "#include \"x\"", Preprocessor } });
+    ExpectTokenSequence("s = \"a\\\"b\" ++ \"c -- d\" ++ \"e {- f -}\"\nt = \"g\\\n  \\h\"\n_x = 1\nU = 2\nf_1 = x'y", Haskell,
+                        { { "s", Function }, { "\"a\\\"b\"", String }, { "\"c -- d\"", String }, { "\"e {- f -}\"", String }, { "t", Function },
+                          { "\"g\\\n  \\h\"", String }, { "1", Number }, { "U", Type }, { "2", Number }, { "f_1", Function } });
+}
+
+// Lisp 系の文字・引用・特殊形式・数値。方言ごとに文字の書き方とコメントが違う。
+TEST(SyntaxSequence, LispSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("(defun f (x &optional y) \"d\" (if (> x 0) :a 'b)) ; c\n#| d |# (g #'h `(i ,j ,@k)) #\\a #\\Space #\\( \"s\"", CommonLisp,
+                        { { "defun", Keyword }, { "f", Function }, { "&optional", Type }, { "\"d\"", String }, { "if", Keyword },
+                          { ">", Function }, { "0", Number }, { ":a", Type }, { "; c", Comment }, { "#| d |#", Comment }, { "g", Function },
+                          { "#'h", Function }, { "#\\a", String }, { "#\\Space", String }, { "#\\(", String }, { "\"s\"", String } });
+    ExpectTokenSequence("(LET ((a 1) (b 2.5) (c -3) (d +4) (e 1/2) (f 1e3) (g #xFF) (h #b101) (i 1+) (j -) (k .5) (l 5.) (m a1)) (DEFVAR *n* nil))", CommonLisp,
+                        { { "LET", Keyword }, { "1", Number }, { "2.5", Number }, { "-3", Number }, { "+4", Number }, { "1/2", Number },
+                          { "1e3", Number }, { "#xFF", Number }, { "#b101", Number }, { ".5", Number }, { "5.", Number }, { "DEFVAR", Keyword },
+                          { "nil", Keyword } });
+    ExpectTokenSequence("(cond ((a) b) (t c)) (case x ((1 2) y)) (quote (if a)) '(if a) (list if) (f (if a))", CommonLisp,
+                        { { "cond", Keyword }, { "a", Function }, { "t", Keyword }, { "case", Keyword }, { "1", Number }, { "2", Number },
+                          { "quote", Keyword }, { "if", Keyword }, { "list", Function }, { "f", Function }, { "if", Keyword } });
+    ExpectTokenSequence("(defun f () (interactive) (let ((a ?a) (b ?\\n) (c ?\\() (d x?y) (e ?\\C-a)) (setq f '(g . h)))) ; c\n(message \"a?b\" ?\\\")", EmacsLisp,
+                        { { "defun", Keyword }, { "f", Function }, { "interactive", Keyword }, { "let", Keyword }, { "?a", String },
+                          { "?\\n", String }, { "?\\(", String }, { "?\\C-a", String }, { "setq", Keyword }, { "; c", Comment },
+                          { "message", Function }, { "\"a?b\"", String }, { "?\\\"", String } });
+    ExpectTokenSequence("(defn f [x] {:a 1 :b/c 2} #{3} (let [a \\a b \\newline c \\( d a\\b] (.m x) @y ^z #(+ % 1) #\"re\" #_ign #inst \"t\" 1N 2M 3/4 ,))", Clojure,
+                        { { "defn", Keyword }, { "f", Function }, { ":a", Type }, { "1", Number }, { ":b/c", Type }, { "2", Number },
+                          { "3", Number }, { "let", Keyword }, { "\\a", String }, { "\\newline", String }, { "\\(", String }, { ".m", Function },
+                          { "+", Function }, { "1", Number }, { "#\"re\"", String }, { "#_ign", Comment }, { "#inst", Preprocessor },
+                          { "\"t\"", String }, { "1N", Number }, { "2M", Number }, { "3/4", Number } });
+    ExpectTokenSequence("(cond a b :else c) (ns x (:require [y :as z])) ; c\n#!shebang\n(comment x) ;; d", Clojure,
+                        { { "cond", Keyword }, { ":else", Type }, { "ns", Keyword }, { ":require", Type }, { ":as", Type }, { "; c", Comment },
+                          { "#!shebang", Comment }, { "comment", Keyword }, { ";; d", Comment } });
+    ExpectTokenSequence("(define (f x) (let loop ((i 0)) (if #t #f)) #\\a #\\space '(a . b) `(c ,d) #(1 2) #;(ig) #| b |# 1.5 #e1 #xFF)", Scheme,
+                        { { "define", Keyword }, { "f", Function }, { "let", Keyword }, { "0", Number }, { "if", Keyword }, { "#t", Keyword },
+                          { "#f", Keyword }, { "#\\a", String }, { "#\\space", String }, { "1", Number }, { "2", Number }, { "#;(ig)", Comment },
+                          { "#| b |#", Comment }, { "1.5", Number }, { "#e1", Number }, { "#xFF", Number } });
+    ExpectTokenSequence("#lang racket\n#!r6rs\n(define-syntax s (syntax-rules () ((_ a) a))) (lambda (x) x) #:key #rx\"a\" #true x#y", Scheme,
+                        { { "#lang racket", Preprocessor }, { "#!r6rs", Comment }, { "define-syntax", Keyword }, { "syntax-rules", Keyword },
+                          { "_", Function }, { "lambda", Keyword }, { "#:key", Type }, { "#rx", Preprocessor }, { "\"a\"", String },
+                          { "#true", Keyword } });
+}
+
+// Vim script のコメント・文字列・オプション・変数の範囲・コマンド。" は行の頭ならコメント、式の中なら文字列。
+TEST(SyntaxSequence, VimSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("\" c\nlet a = \"s\" \" d\nlet b = 'it''s'\nset nocp \" e\necho \"x", Vim,
+                        { { "\" c", Comment }, { "let", Keyword }, { "\"s\"", String }, { "\" d", Comment }, { "let", Keyword },
+                          { "'it''s'", String }, { "set", Keyword }, { "\" e", Comment }, { "echo", Keyword }, { "\"x", Comment } });
+    ExpectTokenSequence("let g:a = 1 | let s:b = l:c + v:d + b:e + w:f + t:g + a:h\nlet x:y = 1\nlet g: = 2\nlet a#b#c = g:d#e", Vim,
+                        { { "let", Keyword }, { "g:a", Type }, { "1", Number }, { "let", Keyword }, { "s:b", Type }, { "l:c", Type },
+                          { "v:d", Type }, { "b:e", Type }, { "w:f", Type }, { "t:g", Type }, { "a:h", Type }, { "let", Keyword }, { "1", Number },
+                          { "let", Keyword }, { "2", Number }, { "let", Keyword }, { "g:d#e", Type } });
+    ExpectTokenSequence("set ts=4 sw=4 et\nlet &ts = 8\nlet $HOME = \"x\"\nlet @a = \"y\"\necho &l:ts . $A . @\" . @@ . &x\nlet a = b & c", Vim,
+                        { { "set", Keyword }, { "4", Number }, { "4", Number }, { "let", Keyword }, { "&ts", Type }, { "8", Number },
+                          { "let", Keyword }, { "$HOME", Type }, { "\"x\"", String }, { "let", Keyword }, { "@a", Type }, { "\"y\"", String },
+                          { "echo", Keyword }, { "&l:ts", Type }, { "$A", Type }, { "@\"", Type }, { "@@", Type }, { "&x", Type },
+                          { "let", Keyword } });
+    ExpectTokenSequence("function! s:F(a, ...) abort\n  return a:a + a:0\nendfunction\ncall s:F(1)\ncommand! -nargs=1 X echo <args>\nfu G()\nendf", Vim,
+                        { { "function", Keyword }, { "s:F", Function }, { "abort", Keyword }, { "return", Keyword }, { "a:a", Type },
+                          { "a:0", Type }, { "endfunction", Keyword }, { "call", Keyword }, { "s:F", Function }, { "1", Number },
+                          { "command", Keyword }, { "1", Number }, { "<args>", Preprocessor }, { "fu", Keyword }, { "G", Function },
+                          { "endf", Keyword } });
+    ExpectTokenSequence("if a ==# b || c =~ 'd' | echo 1 | elseif e | else | endif\nfor i in range(3)\nendfor\nwhile 1\nendwhile\ntry\ncatch /x/\nfinally\nendtry", Vim,
+                        { { "if", Keyword }, { "'d'", String }, { "echo", Keyword }, { "1", Number }, { "elseif", Keyword }, { "else", Keyword },
+                          { "endif", Keyword }, { "for", Keyword }, { "in", Keyword }, { "range", Function }, { "3", Number },
+                          { "endfor", Keyword }, { "while", Keyword }, { "1", Number }, { "endwhile", Keyword }, { "try", Keyword },
+                          { "catch", Keyword }, { "finally", Keyword }, { "endtry", Keyword } });
+    ExpectTokenSequence("nnoremap <silent> <leader>a :call F()<CR>\ninoremap <expr> <Tab> a ? \"\\<C-n>\" : \"\\<Tab>\"\nmap <F1> x\nau BufRead *.x set ft=y\nautocmd! User A echo 1", Vim,
+                        { { "nnoremap", Keyword }, { "<silent>", Preprocessor }, { "<leader>", Preprocessor }, { "<CR>", Preprocessor },
+                          { "inoremap", Keyword }, { "<expr>", Preprocessor }, { "<Tab>", Preprocessor }, { "<C-n>", Preprocessor },
+                          { "<Tab>", Preprocessor }, { "map", Keyword }, { "<F1>", Preprocessor }, { "au", Keyword }, { "set", Keyword },
+                          { "autocmd", Keyword }, { "1", Number } });
+    ExpectTokenSequence("let a =<< trim END\n  text \"x\n  END\nlet b =<< EOF\n\" not c\nEOF\nlet c = 1", Vim,
+                        { { "let", Keyword }, { "text \"x", String }, { "let", Keyword }, { "\" not c", String }, { "let", Keyword },
+                          { "1", Number } });
+    ExpectTokenSequence("let a =<< END\nx\nENDX\n END\nEND y\nEND\necho 2", Vim,
+                        { { "let", Keyword }, { "x", String }, { "ENDX", String }, { "END", String }, { "END y", String }, { "echo", Keyword },
+                          { "2", Number } });
+    ExpectTokenSequence("echo 1.5 0x1F 1e3 010 a1\nlet l = [1, 'a', {'k': v}]\nlet d = #{k: 1}\ncall f(a)(b)\nlet F = {x -> x + 1}\necho a.b a->f() a ? b : c", Vim,
+                        { { "echo", Keyword }, { "1.5", Number }, { "0x1F", Number }, { "1e3", Number }, { "010", Number }, { "let", Keyword },
+                          { "1", Number }, { "'a'", String }, { "'k'", String }, { "let", Keyword }, { "1", Number }, { "call", Keyword },
+                          { "f", Function }, { "let", Keyword }, { "1", Number }, { "echo", Keyword }, { "f", Function } });
+    ExpectTokenSequence("\\ continued \"s\"\n  \\ more\n:let a = 1\n  :echo a\n:10,20s/a/b/\nCap arg\nPlug 'a/b'\nMyCmd! x", Vim,
+                        { { "\"s\"", String }, { "let", Keyword }, { "1", Number }, { "echo", Keyword }, { "10", Number }, { "20", Number },
+                          { "Cap", Function }, { "Plug", Function }, { "'a/b'", String }, { "MyCmd", Function } });
+    ExpectTokenSequence("vim9script\n# c\nvar a: number = 1 # d\nconst b = \"s#t\"\ndef F(x: string): bool\n  return x == 'a#b'\nenddef\nexport def G()\nenddef\nvar c = a#b\n\" e", Vim9,
+                        { { "vim9script", Keyword }, { "# c", Comment }, { "var", Keyword }, { "number", Type }, { "1", Number },
+                          { "# d", Comment }, { "const", Keyword }, { "\"s#t\"", String }, { "def", Keyword }, { "F", Function },
+                          { "string", Type }, { "bool", Type }, { "return", Keyword }, { "'a#b'", String }, { "enddef", Keyword },
+                          { "export", Keyword }, { "G", Function }, { "enddef", Keyword }, { "var", Keyword }, { "\" e", String } });
+    ExpectTokenSequence("# no vim9script line\nvar a = 1 # c\necho \"x\" # d", Vim9,
+                        { { "# no vim9script line", Comment }, { "var", Keyword }, { "1", Number }, { "# c", Comment }, { "echo", Keyword },
+                          { "\"x\"", String }, { "# d", Comment } });
+    ExpectTokenSequence("vim9script\nvar a = 1 # c\n\" d", Vim,
+                        { { "vim9script", Keyword }, { "var", Keyword }, { "1", Number }, { "# c", Comment }, { "\" d", String } });
+    ExpectTokenSequence("\n  vim9script # d\nvar a = 1 # e", Vim,
+                        { { "vim9script", Keyword }, { "# d", Comment }, { "var", Keyword }, { "1", Number }, { "# e", Comment } });
+}
+
+// diff のヘッダ・ハンク・追加と削除の行。--- と +++ はハンクの外でだけファイルのヘッダになる。
+TEST(SyntaxSequence, DiffSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@ ctx\n a\n-b\n+c\n\\ No newline\nOnly in x: y", Diff,
+                        { { "diff --git a/x b/x", Keyword }, { "index 1..2", Keyword }, { "--- a/x", Keyword }, { "+++ b/x", Keyword },
+                          { "@@ -1,2 +1,2 @@ ctx", Type }, { "-b", Deleted }, { "+c", Inserted }, { "\\ No newline", Comment } });
+    ExpectTokenSequence("--- a\n+++ b\n@@ -1 +1 @@\n--- c\n+++ d\n-e\n+++ f\n@@ -2 +2 @@\n+g\n--- h\n+++ i\n@@ -3 +3 @@\n-j", Diff,
+                        { { "--- a", Keyword }, { "+++ b", Keyword }, { "@@ -1 +1 @@", Type }, { "--- c", Deleted }, { "+++ d", Inserted },
+                          { "-e", Deleted }, { "+++ f", Inserted }, { "@@ -2 +2 @@", Type }, { "+g", Inserted }, { "--- h", Keyword },
+                          { "+++ i", Keyword }, { "@@ -3 +3 @@", Type }, { "-j", Deleted } });
+    ExpectTokenSequence("+a\n-b\n c\n@x\n@@ y\n---\n+++\n--- z\n+ w\n---q\n+++r", Diff,
+                        { { "+a", Inserted }, { "-b", Deleted }, { "@@ y", Type }, { "---", Deleted }, { "+++", Inserted }, { "--- z", Deleted },
+                          { "+ w", Inserted }, { "---q", Deleted }, { "+++r", Inserted } });
+    ExpectTokenSequence("--- a\n-b\n--- c\n+++ d\n+e", Diff,
+                        { { "--- a", Keyword }, { "-b", Deleted }, { "--- c", Keyword }, { "+++ d", Keyword }, { "+e", Inserted } });
+    ExpectTokenSequence("@@ -1 +1 @@\n-a\n--- b\n+++ c\n+++ d\n--- e\n+++ f\n@@ -1 +1 @@\n x", Diff,
+                        { { "@@ -1 +1 @@", Type }, { "-a", Deleted }, { "--- b", Deleted }, { "+++ c", Inserted }, { "+++ d", Inserted },
+                          { "--- e", Keyword }, { "+++ f", Keyword }, { "@@ -1 +1 @@", Type } });
+}
+
+// 引用符ごとの \ の扱いと、閉じない文字列の終わり。\ でエスケープしない引用符は \ の直後でも閉じ、
+// 行をまたげない文字列は行末で終わって次の行を飲み込まない。
+TEST(SyntaxSequence, QuoteEscapesAndLineEnds)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    ExpectTokenSequence("a: 'b\\' # c\nd: \"e\\\" # f\" # g\nh: \"i\nj: 1", Yaml,
+                        { { "a", Type }, { "'b\\'", String }, { "# c", Comment }, { "d", Type }, { "\"e\\\" # f\"", String }, { "# g", Comment },
+                          { "h", Type }, { "\"i", String }, { "j", Type }, { "1", Number } });
+    ExpectTokenSequence("a = \"b\nc = 1\nd = 'e\nf = 2", Toml,
+                        { { "a", Type }, { "\"b", String }, { "c", Type }, { "1", Number }, { "d", Type }, { "'e", String }, { "f", Type },
+                          { "2", Number } });
+    ExpectTokenSequence("a = \"b\\\" c\nd = \"e\nf = 1", Ini,
+                        { { "a", Type }, { "\"b\\\"", String }, { "d", Type }, { "\"e", String }, { "f", Type }, { "1", Number } });
+    ExpectTokenSequence("a { b: \"c\\\"d\"; e: 'f\ng: h }", Css,
+                        { { "a", Keyword }, { "b", Type }, { "\"c\\\"d\"", String }, { "e", Type }, { "'f", String } });
+    ExpectTokenSequence("<a b=\"c\\\" d='e\\'>x</a><i j=\"k\nl\" m>y</i>", Html,
+                        { { "a", Keyword }, { "b", Type }, { "\"c\\\"", String }, { "d", Type }, { "'e\\'", String }, { "a", Keyword },
+                          { "i", Keyword }, { "j", Type }, { "\"k\nl\"", String }, { "m", Type }, { "i", Keyword } });
+    ExpectTokenSequence("var a = @\"b\\\" + c; var d = @\"e\nf\"; var g = \"h\\\"i\";", CSharp,
+                        { { "var", Keyword }, { "@\"b\\\"", String }, { "var", Keyword }, { "@\"e\nf\"", String }, { "var", Keyword },
+                          { "\"h\\\"i\"", String } });
+    ExpectTokenSequence("echo 'a\\' . \"b\\\"c\" . 'd", Vim,
+                        { { "echo", Keyword }, { "'a\\'", String }, { "\"b\\\"c\"", String }, { "'d", String } });
+    ExpectTokenSequence("a:\n\techo \"b\\\"c\" 'd' # e", Makefile,
+                        { { "a", Function }, { "echo", Type }, { "\"b\\\"c\"", String }, { "'d'", String }, { "# e", Comment } });
+    ExpectTokenSequence("RUN echo \"a\\\"b\" 'c' # d", Dockerfile,
+                        { { "RUN", Keyword }, { "echo", Type }, { "\"a\\\"b\"", String }, { "'c'", String }, { "# d", Comment } });
+    ExpectTokenSequence("(f \"a\\\"b\" \"c\nd\" e)", CommonLisp, { { "f", Function }, { "\"a\\\"b\"", String }, { "\"c\nd\"", String } });
+}

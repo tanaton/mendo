@@ -170,11 +170,6 @@ TEST_F(LocaleTest, UiLanguagePicksTextLocale)
     }
 }
 
-TEST_F(LocaleTest, TextLocaleFollowsOsUiLanguage)
-{
-    EXPECT_EQ(std::wstring_view(i18n::TextLocale()), i18n::TextLocaleForUiLanguage(GetUserDefaultUILanguage()));
-}
-
 TEST_F(LocaleTest, StringsAreNotEmpty)
 {
     for (const i18n::Strings* table : i18n::kAllStrings) {

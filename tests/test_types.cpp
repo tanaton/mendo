@@ -291,9 +291,14 @@ TEST(TextArenaTest, CopyKeepsAlignmentAfterOddSizedText)
     EXPECT_EQ(copied[1].length, 3u);
 }
 
-TEST(TextArenaTest, EmptyInputsReturnEmpty)
+// 空の入力では領域を確保しない (空の文書で 4KB のチャンクを取らない)。確保すると data() が領域を指す。
+TEST(TextArenaTest, EmptyInputsDoNotAllocate)
 {
     TextArena arena;
-    EXPECT_TRUE(arena.CopyText("").empty());
-    EXPECT_TRUE(arena.Copy(std::vector<TextRun>{}).empty());
+    const std::string_view text = arena.CopyText("");
+    EXPECT_TRUE(text.empty());
+    EXPECT_EQ(text.data(), nullptr);
+    const auto runs = arena.Copy(std::vector<TextRun>{});
+    EXPECT_TRUE(runs.empty());
+    EXPECT_EQ(runs.data(), nullptr);
 }

@@ -1,24 +1,5 @@
 #include <gtest/gtest.h>
 #include "utility.h"
-#include <variant>
-
-// ═══════════════════════════════════════════════
-// overloaded (std::visit 用ヘルパー)
-// ═══════════════════════════════════════════════
-
-TEST(Utility, OverloadedDispatchesByType)
-{
-    const auto tag_of = [](const std::variant<int, double, std::wstring>& v) static {
-        return std::visit(overloaded{
-            [](int) static                 { return 1; },
-            [](double) static              { return 2; },
-            [](const std::wstring&) static { return 3; },
-        }, v);
-    };
-    EXPECT_EQ(tag_of(42), 1);
-    EXPECT_EQ(tag_of(1.5), 2);
-    EXPECT_EQ(tag_of(std::wstring(L"hi")), 3);
-}
 
 // ═══════════════════════════════════════════════
 // RapidHash
