@@ -221,6 +221,18 @@ void BM_LargeInlineDocument(benchmark::State& state)
 }
 BENCHMARK(BM_LargeInlineDocument)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
+// 名前の文字参照 1 個の引き当て。common は HTML から変換した文書に多い参照、rare は表の二分探索で引く参照。
+void BM_ResolveHtmlEntity(benchmark::State& state, std::array<std::string_view, 4> names)
+{
+    char buffer[4];
+    size_t k = 0;
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(ResolveHtmlEntity(names[k++ % names.size()], buffer));
+    }
+}
+BENCHMARK_CAPTURE(BM_ResolveHtmlEntity, common, std::array<std::string_view, 4>{ "&amp;", "&lt;", "&nbsp;", "&quot;" })->Unit(benchmark::kNanosecond);
+BENCHMARK_CAPTURE(BM_ResolveHtmlEntity, rare, std::array<std::string_view, 4>{ "&copy;", "&rarr;", "&Ouml;", "&hellip;" })->Unit(benchmark::kNanosecond);
+
 // 空行のない 20 万行 (約 16MB)。長いテキストを区切ったノードの並びにする経路を通る。
 void BM_ParseGiantText(benchmark::State& state)
 {
