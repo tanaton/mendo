@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -54,6 +55,17 @@ protected:
     {
         const PeleEngine::MathSource source{ tex, 16.0f };
         return engine_->RenderMaths({ &source, 1 })[0];
+    }
+    template <class T>
+    static std::vector<T> ItemsOf(const MathDrawing& math)
+    {
+        std::vector<T> out;
+        for (const auto& item : math.items) {
+            if (const auto* it = std::get_if<T>(&item)) {
+                out.push_back(*it);
+            }
+        }
+        return out;
     }
     template <class T>
     static size_t CountItems(const MathDrawing& math)
@@ -573,4 +585,638 @@ TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
     masks.Reset(nullptr);
     Draw(canvas, { math.get(), 1 }, &masks);
     EXPECT_EQ(masks.Count(), 0u);
+}
+
+// ---- KaTeX の HTML の配置 (箱の計算) ----
+// KaTeX を動かさず、手書きの HTML の断片を配置する。期待値は katex.css とインラインの style から CSS の箱の計算で求めた値。
+
+class KatexLayoutTest : public PeleEngineTest {
+protected:
+    // 文字の大きさ 10px で組む。KaTeX は 1.21 倍するので 1em = 12.1px。
+    static constexpr float kEm = 12.1f;
+    static constexpr uint32_t kRed = 0xFF0000FF, kBlue = 0x0000FFFF;
+    using Side = MathDrawing::Rect::Side;
+
+    static std::shared_ptr<const MathDrawing> Layout(std::string_view body)
+    {
+        return engine_->LayoutHtml(std::format(R"(<span class="katex"><span class="katex-html">{}</span></span>)", body), 10.0f);
+    }
+    // 中身の無い inline-block の箱 (katex-strut は inline-block になる class)。
+    static std::string Box(std::string_view style, std::string_view extra_class = {}, std::string_view inner = {})
+    {
+        return std::format(R"(<span class="katex-strut {}" style="{}">{}</span>)", extra_class, style, inner);
+    }
+    static std::string Wrap(std::string_view classes, std::string_view inner)
+    {
+        return std::format(R"(<span class="{}">{}</span>)", classes, inner);
+    }
+    static std::vector<MathDrawing::Rect> Rects(const MathDrawing& math)
+    {
+        return ItemsOf<MathDrawing::Rect>(math);
+    }
+    // 最初の字形の並び。配置できないか、字形が無ければ nullopt。
+    static std::optional<MathDrawing::Glyphs> FirstGlyphs(std::string_view body)
+    {
+        const auto math = Layout(body);
+        auto runs = math ? ItemsOf<MathDrawing::Glyphs>(*math) : std::vector<MathDrawing::Glyphs>{};
+        return runs.empty() ? std::nullopt : std::optional{ std::move(runs.front()) };
+    }
+    // 位置と大きさは em で比べる。
+    static void ExpectRect(const MathDrawing::Rect& r, float x, float y, float w, float h)
+    {
+        EXPECT_NEAR(r.x / kEm, x, 1e-3f);
+        EXPECT_NEAR(r.y / kEm, y, 1e-3f);
+        EXPECT_NEAR(r.w / kEm, w, 1e-3f);
+        EXPECT_NEAR(r.h / kEm, h, 1e-3f);
+    }
+    // 書体は KatexAssets が持ち続けるので、ポインタを比べられる。
+    static IDWriteFontFace* FaceOf(std::string_view body)
+    {
+        const auto glyphs = FirstGlyphs(body);
+        return glyphs ? glyphs->face.Get() : nullptr;
+    }
+};
+
+// 幅・高さ・余白・詰め物・vertical-align から箱の大きさとベースラインを決める。中身の無い inline-block は下端がベースライン。
+// 背景の矩形は、余白の内側 (枠と詰め物を含む) を塗る。
+TEST_F(KatexLayoutTest, BoxSizeFromInlineStyle)
+{
+    struct Case {
+        std::string_view style;
+        float width, height, depth; // 数式全体 (em)
+        float x, y, w, h;           // 背景の矩形 (em)
+    };
+    constexpr Case kCases[] = {
+        { "height:2em;width:3em", 3.0f, 2.0f, 0.0f, 0.0f, -2.0f, 3.0f, 2.0f },
+        // vertical-align は上向きが正。下げた分が深さになる。
+        { "height:2em;width:3em;vertical-align:-0.5em", 3.0f, 1.5f, 0.5f, 0.0f, -1.5f, 3.0f, 2.0f },
+        { "height:2em;width:3em;vertical-align:0.5em", 3.0f, 2.5f, 0.0f, 0.0f, -2.5f, 3.0f, 2.0f },
+        { "height:2em;width:3em;margin-left:1em;margin-right:0.5em", 4.5f, 2.0f, 0.0f, 1.0f, -2.0f, 3.0f, 2.0f },
+        // margin の一括指定は上・右・下・左の順。値が 1〜3 個なら左は右と同じ。
+        { "height:2em;width:3em;margin:0 0.5em 0 1em", 4.5f, 2.0f, 0.0f, 1.0f, -2.0f, 3.0f, 2.0f },
+        { "height:2em;width:3em;margin:0 1em 0", 5.0f, 2.0f, 0.0f, 1.0f, -2.0f, 3.0f, 2.0f },
+        { "height:2em;width:3em;margin:0 0.5em", 4.0f, 2.0f, 0.0f, 0.5f, -2.0f, 3.0f, 2.0f },
+        { "height:2em;width:3em;margin:0.25em", 3.5f, 2.0f, 0.0f, 0.25f, -2.0f, 3.0f, 2.0f },
+        { "height:2em;width:3em;padding-left:1em", 4.0f, 2.0f, 0.0f, 0.0f, -2.0f, 4.0f, 2.0f },
+        { "height:2em;width:1em;min-width:3em", 3.0f, 2.0f, 0.0f, 0.0f, -2.0f, 3.0f, 2.0f },
+        { "height:2em;width:3em;min-width:1em", 3.0f, 2.0f, 0.0f, 0.0f, -2.0f, 3.0f, 2.0f },
+        // 長さは px でも書ける (12.1px = 1em)。
+        { "height:24.2px;width:36.3px", 3.0f, 2.0f, 0.0f, 0.0f, -2.0f, 3.0f, 2.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.style);
+        const auto math = Layout(Box(std::format("{};background-color:red", c.style)));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, c.width, 1e-3f);
+        EXPECT_NEAR(math->height / kEm, c.height, 1e-3f);
+        EXPECT_NEAR(math->depth / kEm, c.depth, 1e-3f);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 1u);
+        EXPECT_EQ(rects[0].side, Side::Fill);
+        EXPECT_EQ(rects[0].color, kRed);
+        ExpectRect(rects[0], c.x, c.y, c.w, c.h);
+    }
+}
+
+// 枠は内容の外側に付き、箱を広げる。背景は枠の下まで塗る。枠の色は border-color、無ければ文字の色 (指定なし)。
+TEST_F(KatexLayoutTest, BordersSurroundContent)
+{
+    const auto all = Layout(Box("height:2em;width:3em;border-width:0.1em;border-color:blue;background-color:red"));
+    ASSERT_NE(all, nullptr);
+    EXPECT_NEAR(all->width / kEm, 3.2f, 1e-3f);
+    EXPECT_NEAR(all->height / kEm, 2.2f, 1e-3f);
+    EXPECT_NEAR(all->depth / kEm, 0.0f, 1e-3f);
+    const auto rects = Rects(*all);
+    ASSERT_EQ(rects.size(), 5u);
+    EXPECT_EQ(rects[0].side, Side::Fill);
+    EXPECT_EQ(rects[0].color, kRed);
+    ExpectRect(rects[0], 0.0f, -2.2f, 3.2f, 2.2f);
+    EXPECT_EQ(rects[1].side, Side::Top);
+    ExpectRect(rects[1], 0.0f, -2.2f, 3.2f, 0.1f);
+    EXPECT_EQ(rects[2].side, Side::Bottom);
+    ExpectRect(rects[2], 0.0f, -0.1f, 3.2f, 0.1f);
+    EXPECT_EQ(rects[3].side, Side::Left);
+    ExpectRect(rects[3], 0.0f, -2.2f, 0.1f, 2.2f);
+    EXPECT_EQ(rects[4].side, Side::Right);
+    ExpectRect(rects[4], 3.1f, -2.2f, 0.1f, 2.2f);
+    for (size_t i = 1; i < rects.size(); ++i) {
+        EXPECT_EQ(rects[i].color, kBlue);
+        EXPECT_FALSE(rects[i].dashed);
+    }
+
+    // 辺ごとの太さ。指定した辺だけに枠が付く。
+    struct OneSide {
+        std::string_view style;
+        Side side;
+        float width, height;
+        float x, y, w, h;
+    };
+    constexpr OneSide kSides[] = {
+        { "border-top-width:0.1em", Side::Top, 3.0f, 2.1f, 0.0f, -2.1f, 3.0f, 0.1f },
+        { "border-right-width:0.1em", Side::Right, 3.1f, 2.0f, 3.0f, -2.0f, 0.1f, 2.0f },
+        { "border-bottom-width:0.1em", Side::Bottom, 3.0f, 2.1f, 0.0f, -0.1f, 3.0f, 0.1f },
+    };
+    for (const auto& c : kSides) {
+        SCOPED_TRACE(c.style);
+        const auto math = Layout(Box(std::format("height:2em;width:3em;{}", c.style)));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, c.width, 1e-3f);
+        EXPECT_NEAR(math->height / kEm, c.height, 1e-3f);
+        const auto one = Rects(*math);
+        ASSERT_EQ(one.size(), 1u);
+        EXPECT_EQ(one[0].side, c.side);
+        EXPECT_EQ(one[0].color, std::nullopt);
+        ExpectRect(one[0], c.x, c.y, c.w, c.h);
+    }
+
+    // 破線は border-style で全部の辺、border-right-style で右の辺だけ。
+    const auto dashed_sides = [](std::string_view style) {
+        const auto math = Layout(Box(std::format("height:2em;width:3em;border-width:0.1em;{}", style)));
+        std::vector<Side> out;
+        if (math) {
+            for (const auto& r : Rects(*math)) {
+                if (r.dashed) {
+                    out.push_back(r.side);
+                }
+            }
+        }
+        return out;
+    };
+    EXPECT_EQ(dashed_sides("border-style:dashed"), (std::vector<Side>{ Side::Top, Side::Bottom, Side::Left, Side::Right }));
+    EXPECT_EQ(dashed_sides("border-right-style:dashed"), (std::vector<Side>{ Side::Right }));
+    EXPECT_EQ(dashed_sides("border-style:solid;border-right-style:solid"), (std::vector<Side>{}));
+}
+
+// katex.css の class が決める幅・余白・詰め物・文字の大きさ。1em 四方の箱を入れて、全体の幅で確かめる。
+TEST_F(KatexLayoutTest, ClassRulesSetWidthsAndSpacing)
+{
+    const std::string unit = Box("height:1em;width:1em");
+    struct Case {
+        std::string body;
+        float width_em;
+    };
+    const Case kCases[] = {
+        { Wrap("nulldelimiter", ""), 0.12f },
+        { Wrap("katex-thinbox", unit), 0.0f },
+        // 左右の詰め物。
+        { Wrap("x-arrow-pad", unit), 2.0f },
+        { Wrap("boxpad", unit), 1.6f },
+        { Wrap("cancel-pad", unit), 1.4f },
+        { Wrap("anglpad", unit), 1.07778f },
+        { Wrap("cd-arrow-pad", unit), 1.83334f },
+        // 負の余白で左右に 0.2em ずつはみ出す。
+        { Box("height:1em;width:3em", "cancel-lap"), 2.6f },
+        // 根号の指数は左に 5/18em 空け、右は 10/18em 重ねる。sqrt の子でなければ空けない。
+        { Wrap("sqrt", Box("height:1em;width:1em", "katex-root")), 0.72222f },
+        { Wrap("mord", Box("height:1em;width:1em", "katex-root")), 1.0f },
+        // 文字の大きさ (reset-sizeA sizeB)。em の長さが 大きさ B / 大きさ A 倍になる。
+        { Wrap("katex-sizing reset-size6 size3", unit), 0.7f },
+        { Wrap("fontsize-ensurer reset-size6 size3", unit), 0.7f },
+        { Wrap("katex-sizing reset-size3 size6", unit), 1.0f / 0.7f },
+        { Wrap("katex-sizing reset-size11 size1", unit), 0.5f / 2.488f },
+        { Wrap("katex-sizing reset-size1 size11", unit), 2.488f / 0.5f },
+        { Wrap("katex-sizing reset-size6 size7", unit), 1.2f },
+        // どちらかが欠けるか、大きさを変える class が無ければ変えない。
+        { Wrap("katex-sizing size3", unit), 1.0f },
+        { Wrap("katex-sizing reset-size3", unit), 1.0f },
+        { Wrap("mord reset-size6 size3", unit), 1.0f },
+        // 入れ子は掛け合わせる。
+        { Wrap("katex-sizing reset-size6 size3", Wrap("katex-sizing reset-size3 size6", unit)), 1.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.body);
+        const auto math = Layout(c.body);
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, c.width_em, 1e-3f);
+    }
+    // 縦の区切り線は細くても 1px の幅を持つ。
+    const auto separator = Layout(Wrap("vertical-separator", ""));
+    ASSERT_NE(separator, nullptr);
+    EXPECT_EQ(separator->width, 1.0f);
+}
+
+// 枠を持つ class。fbox と angl は border-box なので、指定の幅と高さに枠を含める。
+TEST_F(KatexLayoutTest, ClassRulesSetBorders)
+{
+    const auto fbox = Layout(Box("height:2em;width:3em", "fbox"));
+    ASSERT_NE(fbox, nullptr);
+    EXPECT_NEAR(fbox->width / kEm, 3.0f, 1e-3f);
+    EXPECT_NEAR(fbox->height / kEm, 2.0f, 1e-3f);
+    const auto fbox_rects = Rects(*fbox);
+    ASSERT_EQ(fbox_rects.size(), 4u);
+    EXPECT_EQ(fbox_rects[0].side, Side::Top);
+    ExpectRect(fbox_rects[0], 0.0f, -2.0f, 3.0f, 0.04f);
+    EXPECT_EQ(fbox_rects[1].side, Side::Bottom);
+    ExpectRect(fbox_rects[1], 0.0f, -0.04f, 3.0f, 0.04f);
+    EXPECT_EQ(fbox_rects[2].side, Side::Left);
+    ExpectRect(fbox_rects[2], 0.0f, -2.0f, 0.04f, 2.0f);
+    EXPECT_EQ(fbox_rects[3].side, Side::Right);
+    ExpectRect(fbox_rects[3], 2.96f, -2.0f, 0.04f, 2.0f);
+    const auto fcolorbox = Layout(Box("height:2em;width:3em", "fcolorbox"));
+    ASSERT_NE(fcolorbox, nullptr);
+    EXPECT_EQ(Rects(*fcolorbox).size(), 4u);
+
+    // \angl は上と右に線を引き、右に余白を空ける。
+    const auto angl = Layout(Box("height:2em;width:3em", "angl"));
+    ASSERT_NE(angl, nullptr);
+    EXPECT_NEAR(angl->width / kEm, 3.03889f, 1e-3f);
+    EXPECT_NEAR(angl->height / kEm, 2.0f, 1e-3f);
+    const auto angl_rects = Rects(*angl);
+    ASSERT_EQ(angl_rects.size(), 2u);
+    EXPECT_EQ(angl_rects[0].side, Side::Top);
+    ExpectRect(angl_rects[0], 0.0f, -2.0f, 3.0f, 0.049f);
+    EXPECT_EQ(angl_rects[1].side, Side::Right);
+    ExpectRect(angl_rects[1], 2.951f, -2.0f, 0.049f, 2.0f);
+
+    // \sout は下に線を引く (箱はその分だけ高くなる)。
+    const auto sout = Layout(Box("height:1em;width:3em", "katex-sout"));
+    ASSERT_NE(sout, nullptr);
+    EXPECT_NEAR(sout->height / kEm, 1.08f, 1e-3f);
+    const auto sout_rects = Rects(*sout);
+    ASSERT_EQ(sout_rects.size(), 1u);
+    EXPECT_EQ(sout_rects[0].side, Side::Bottom);
+    ExpectRect(sout_rects[0], 0.0f, -0.08f, 3.0f, 0.08f);
+}
+
+// 分数の線などは含む箱の幅いっぱいに引き、細くても 1px の高さを持つ。hdashline は破線。
+TEST_F(KatexLayoutTest, RuleLinesFillContainerWidth)
+{
+    for (const std::string_view cls : { "frac-line", "overline-line", "underline-line", "katex-hline", "katex-hdashline" }) {
+        SCOPED_TRACE(cls);
+        const auto math = Layout(Box("width:4em", "", std::format(R"(<span class="{}" style="border-bottom-width:0.04em"></span>)", cls)));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, 4.0f, 1e-3f);
+        EXPECT_NEAR(math->height, 1.0f + 0.04f * kEm, 1e-3f);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 1u);
+        EXPECT_EQ(rects[0].side, Side::Bottom);
+        EXPECT_EQ(rects[0].dashed, cls == "katex-hdashline");
+        ExpectRect(rects[0], 0.0f, -0.04f, 4.0f, 0.04f);
+    }
+}
+
+// 相対位置の要素は top・left・right・bottom の分だけ描く位置をずらし、箱の大きさは変えない。位置指定していない要素はずらさない。
+TEST_F(KatexLayoutTest, RelativeOffsetsMoveDrawingOnly)
+{
+    struct Case {
+        std::string_view classes;
+        std::string_view style;
+        float x, y;
+    };
+    constexpr Case kCases[] = {
+        { "katex-rule", "", 0.0f, -1.0f },
+        { "katex-rule", "top:0.5em", 0.0f, -0.5f },
+        { "katex-rule", "bottom:0.5em", 0.0f, -1.5f },
+        { "katex-rule", "left:0.25em", 0.25f, -1.0f },
+        { "katex-rule", "right:0.25em", -0.25f, -1.0f },
+        { "katex-rule", "top:0.5em;left:0.25em", 0.25f, -0.5f },
+        // top と bottom、left と right の両方があれば top と left が勝つ。
+        { "katex-rule", "top:0.5em;bottom:2em;left:0.25em;right:2em", 0.25f, -0.5f },
+        { "katex-strut", "top:0.5em;left:0.25em", 0.0f, -1.0f },
+        { "katex-strut", "position:relative;top:0.5em;left:0.25em", 0.25f, -0.5f },
+        { "katex-rule", "position:static;top:0.5em;left:0.25em", 0.0f, -1.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(testing::Message() << c.classes << " " << c.style);
+        const auto math = Layout(std::format(R"(<span class="{}" style="height:1em;width:1em;background-color:red;{}"></span>)", c.classes, c.style));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, 1.0f, 1e-3f);
+        EXPECT_NEAR(math->height / kEm, 1.0f, 1e-3f);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 1u);
+        ExpectRect(rects[0], c.x, c.y, 1.0f, 1.0f);
+    }
+}
+
+// \rlap・\llap・\clap は幅 0 の箱で、中身を右・左・中央にはみ出して置く。後ろの箱は詰めて置く。
+TEST_F(KatexLayoutTest, LapBoxesOverflowWithoutWidth)
+{
+    struct Case {
+        std::string_view cls;
+        float inner_x;
+    };
+    constexpr Case kCases[] = { { "rlap", 0.0f }, { "llap", -2.0f }, { "clap", -1.0f } };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.cls);
+        const std::string lap = Wrap(c.cls, Wrap("katex-inner", Box("height:1em;width:2em;background-color:red")) + Wrap("katex-fix", ""));
+        const auto math = Layout(Box("height:1em;width:3em") + lap + Box("height:1em;width:1em;background-color:blue"));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, 4.0f, 1e-3f);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 2u);
+        EXPECT_EQ(rects[0].color, kRed);
+        ExpectRect(rects[0], 3.0f + c.inner_x, -1.0f, 2.0f, 1.0f);
+        EXPECT_EQ(rects[1].color, kBlue);
+        ExpectRect(rects[1], 3.0f, -1.0f, 1.0f, 1.0f);
+    }
+}
+
+// 幅を決めた箱の中身は中央に置く (KaTeX の箱の既定)。msupsub と svg-align は左に寄せ、その中の mover などはまた中央に戻す。
+TEST_F(KatexLayoutTest, ContentAlignmentInsideFixedWidth)
+{
+    const std::string inner = Box("height:1em;width:1em;background-color:red");
+    struct Case {
+        std::string body;
+        float x;
+    };
+    const Case kCases[] = {
+        { Box("width:4em", "", inner), 1.5f },
+        { Box("width:4em", "msupsub", inner), 0.0f },
+        { Box("width:4em", "svg-align", inner), 0.0f },
+        { Wrap("msupsub", Box("width:4em", "", inner)), 0.0f },
+        { Wrap("msupsub", Box("width:4em", "mover", inner)), 1.5f },
+        { Wrap("msupsub", Box("width:4em", "munder", inner)), 1.5f },
+        { Wrap("msupsub", Box("width:4em", "x-arrow", inner)), 1.5f },
+        // 中身のほうが広ければ左端から置く。
+        { Box("width:0.5em", "", inner), 0.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.body);
+        const auto math = Layout(c.body);
+        ASSERT_NE(math, nullptr);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 1u);
+        ExpectRect(rects[0], c.x, -1.0f, 1.0f, 1.0f);
+    }
+}
+
+// 式番号 (katex-tag) は HTML のどこにあっても、本体の右に 1em 空けて置く。
+TEST_F(KatexLayoutTest, TagGoesRightOfBodyWithGap)
+{
+    const auto math = Layout(Wrap("katex-tag", Box("height:1em;width:1em;background-color:red")) + Box("height:1em;width:2em;background-color:blue"));
+    ASSERT_NE(math, nullptr);
+    EXPECT_NEAR(math->width / kEm, 4.0f, 1e-3f);
+    const auto rects = Rects(*math);
+    ASSERT_EQ(rects.size(), 2u);
+    EXPECT_EQ(rects[0].color, kBlue);
+    ExpectRect(rects[0], 0.0f, -1.0f, 2.0f, 1.0f);
+    EXPECT_EQ(rects[1].color, kRed);
+    ExpectRect(rects[1], 3.0f, -1.0f, 1.0f, 1.0f);
+}
+
+// 配置できない HTML は、崩れたまま描かずに数式ごと諦める (本文は TeX のまま出る)。
+TEST_F(KatexLayoutTest, UnsupportedHtmlFailsWholeFormula)
+{
+    ASSERT_NE(Layout(Box("height:1em;width:1em")), nullptr);
+    const std::string_view kBodies[] = {
+        R"(<span class="katex-strut" style="height:1em;float:left"></span>)",
+        R"(<span class="katex-strut" style="height:abc"></span>)",
+        R"(<span class="katex-strut" style="width:abc"></span>)",
+        R"(<span class="katex-strut" style="min-width:abc"></span>)",
+        R"(<span class="katex-strut" style="vertical-align:abc"></span>)",
+        R"(<span class="katex-strut" style="top:abc"></span>)",
+        R"(<span class="katex-strut" style="margin-left:abc"></span>)",
+        R"(<span class="katex-strut" style="margin-right:abc"></span>)",
+        R"(<span class="katex-strut" style="margin:1em abc"></span>)",
+        R"(<span class="katex-strut" style="padding-left:abc"></span>)",
+        R"(<span class="katex-strut" style="border-width:abc"></span>)",
+        R"(<span class="katex-strut" style="border-bottom-width:abc"></span>)",
+        R"(<div style="height:1em"></div>)",
+        R"(<span class="katex-newline"></span>)",
+    };
+    for (const auto body : kBodies) {
+        SCOPED_TRACE(body);
+        EXPECT_EQ(Layout(body), nullptr);
+    }
+    // 読めない色はブラウザと同じく無視して描く。
+    EXPECT_NE(Layout(R"(<span class="katex-strut" style="height:1em;color:nosuchcolor;background-color:nosuchcolor"></span>)"), nullptr);
+    // katex-html が無ければ配置するものが無い。
+    EXPECT_EQ(engine_->LayoutHtml(R"(<span class="katex"><span class="katex-mathml">x</span></span>)", 10.0f), nullptr);
+}
+
+// 書体を決める class ごとに、KaTeX の別の書体 (ファイルか、太字・斜体の合成) を使う。
+TEST_F(KatexLayoutTest, FontClassesSelectDifferentFaces)
+{
+    const auto face = [](std::string_view classes, std::string_view text = "A") { return FaceOf(Wrap(classes, text)); };
+    IDWriteFontFace* const plain = face("mord");
+    ASSERT_NE(plain, nullptr);
+    EXPECT_EQ(face("mord other"), plain);
+    const std::string_view kClasses[] = { "textbf", "textit", "textsf", "texttt", "mathnormal", "boldsymbol", "mathbb", "mathcal", "mathfrak", "mathboldfrak" };
+    std::vector<IDWriteFontFace*> faces{ plain };
+    for (const auto cls : kClasses) {
+        SCOPED_TRACE(cls);
+        IDWriteFontFace* const f = face(cls);
+        ASSERT_NE(f, nullptr);
+        EXPECT_FALSE(std::ranges::contains(faces, f)) << "ほかの class と同じ書体";
+        faces.push_back(f);
+    }
+    // mathrm は斜体だけを外す (textit の斜体を打ち消して元の書体に戻る)。
+    EXPECT_EQ(face("textit mathrm"), plain);
+    // 後の規則が勝つ: textsf の後の texttt は等幅。
+    EXPECT_EQ(face("textsf texttt"), face("texttt"));
+
+    // 区切り記号の大きさごとの書体 (Size1〜Size4)。delimsizing が無ければ size は書体を変えない。
+    std::vector<IDWriteFontFace*> sizes{ face("mord", "(") };
+    for (const std::string_view cls : { "delimsizing size1", "delimsizing size2", "delimsizing size3", "delimsizing size4" }) {
+        SCOPED_TRACE(cls);
+        IDWriteFontFace* const f = face(cls, "(");
+        ASSERT_NE(f, nullptr);
+        EXPECT_FALSE(std::ranges::contains(sizes, f));
+        sizes.push_back(f);
+    }
+    EXPECT_EQ(face("mord size2", "("), sizes[0]);
+    EXPECT_EQ(face("delimsizing size5", "("), sizes[0]);
+    EXPECT_EQ(face("delimsizing size0", "("), sizes[0]);
+    // 大きな演算子は small-op が Size1、large-op が Size2。
+    EXPECT_EQ(face("op-symbol small-op", "("), sizes[1]);
+    EXPECT_EQ(face("op-symbol large-op", "("), sizes[2]);
+    EXPECT_EQ(face("small-op", "("), sizes[0]);
+    // delim-size1・delim-size4 の中の span。
+    EXPECT_EQ(FaceOf(Wrap("delim-size1", Wrap("x", "("))), sizes[1]);
+    EXPECT_EQ(FaceOf(Wrap("delim-size4", Wrap("x", "("))), sizes[4]);
+    EXPECT_EQ(FaceOf(Wrap("delim-size2", Wrap("x", "("))), sizes[0]);
+}
+
+// 縦積み (vlist) は、行ごとに top + pstrut の高さだけベースラインをずらして重ねる。高さは 1 行目のセル、深さは 2 行目のセルの
+// height。幅はいちばん広い行 (余白を含む) で、狭い行は列の中でそろえる。
+TEST_F(KatexLayoutTest, VListStacksRowsByTopAndPstrut)
+{
+    const auto vlist = [](std::string_view extra_row = {}) {
+        return std::format(
+            R"(<span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:2em">)"
+            R"(<span style="top:-3em"><span class="pstrut" style="height:3em"></span>{}</span>)"
+            R"(<span style="top:-4em;margin-left:0.5em"><span class="pstrut" style="height:3em"></span>{}</span>{})"
+            R"(</span><span class="vlist-s">x</span></span>)"
+            R"(<span class="vlist-r"><span class="vlist" style="height:0.5em"><span></span></span></span></span>)",
+            Box("height:1em;width:2em;background-color:red"), Box("height:1em;width:1em;background-color:blue"), extra_row);
+    };
+    const auto math = Layout(vlist());
+    ASSERT_NE(math, nullptr);
+    EXPECT_NEAR(math->width / kEm, 2.0f, 1e-3f);
+    EXPECT_NEAR(math->height / kEm, 2.0f, 1e-3f);
+    EXPECT_NEAR(math->depth / kEm, 0.5f, 1e-3f);
+    auto rects = Rects(*math);
+    ASSERT_EQ(rects.size(), 2u);
+    // 1 行目はベースラインの上、2 行目は 1em 上。2 行目は左の余白 0.5em の残り 1.5em の中央。
+    ExpectRect(rects[0], 0.0f, -1.0f, 2.0f, 1.0f);
+    ExpectRect(rects[1], 0.75f, -2.0f, 1.0f, 1.0f);
+
+    // 列の中のそろえ方は、vlist-t の親の class で決まる。
+    struct Align {
+        std::string_view outer, parent;
+        float x;
+    };
+    constexpr Align kAligns[] = {
+        { "mord", "col-align-l", 0.5f },   { "mord", "col-align-r", 1.0f },    { "msupsub", "col-align-c", 0.75f }, { "msupsub", "op-limits", 0.75f },
+        { "msupsub", "katex-accent", 0.75f }, { "msupsub", "mord", 0.5f }, { "msupsub", "mfrac", 0.75f },
+    };
+    for (const auto& a : kAligns) {
+        SCOPED_TRACE(testing::Message() << a.outer << " > " << a.parent);
+        const auto aligned = Layout(Wrap(a.outer, Wrap(a.parent, vlist())));
+        ASSERT_NE(aligned, nullptr);
+        rects = Rects(*aligned);
+        ASSERT_EQ(rects.size(), 2u);
+        ExpectRect(rects[1], a.x, -2.0f, 1.0f, 1.0f);
+    }
+
+    // 幅が百分率の行 (分数の線) は、列の幅が決まってからその幅で置く。
+    const auto with_line = Layout(vlist(R"(<span style="top:-3.2em"><span class="pstrut" style="height:3em"></span>)"
+                                        R"(<span class="frac-line" style="border-bottom-width:0.04em"></span></span>)"));
+    ASSERT_NE(with_line, nullptr);
+    rects = Rects(*with_line);
+    ASSERT_EQ(rects.size(), 3u);
+    EXPECT_EQ(rects[2].side, Side::Bottom);
+    ExpectRect(rects[2], 0.0f, -0.24f, 2.0f, 0.04f);
+
+    // 行の中身は pstrut のほかに 1 つだけ。2 つあれば配置できない。
+    EXPECT_EQ(Layout(vlist(R"(<span style="top:-3em"><span class="pstrut" style="height:3em"></span><span>a</span><span>b</span></span>)")), nullptr);
+}
+
+// inline の要素の背景と下線は、中身の高さと深さに合わせて、余白の内側に描く。箱の高さと深さは中身のまま。
+TEST_F(KatexLayoutTest, InlineSpanPaintsAroundContent)
+{
+    const auto math = Layout(std::format(R"(<span class="mord" style="background-color:red;border-bottom-width:0.1em;border-color:blue;)"
+                                         R"(margin-left:0.5em;margin-right:1em;padding-left:0.25em">{}</span>)",
+                                         Box("height:1em;width:2em;vertical-align:-0.25em")));
+    ASSERT_NE(math, nullptr);
+    EXPECT_NEAR(math->width / kEm, 3.75f, 1e-3f);
+    EXPECT_NEAR(math->height / kEm, 0.75f, 1e-3f);
+    EXPECT_NEAR(math->depth / kEm, 0.25f, 1e-3f);
+    const auto rects = Rects(*math);
+    ASSERT_EQ(rects.size(), 2u);
+    EXPECT_EQ(rects[0].side, Side::Fill);
+    EXPECT_EQ(rects[0].color, kRed);
+    ExpectRect(rects[0], 0.5f, -0.75f, 2.25f, 1.1f);
+    EXPECT_EQ(rects[1].side, Side::Bottom);
+    EXPECT_EQ(rects[1].color, kBlue);
+    ExpectRect(rects[1], 0.5f, 0.25f, 2.25f, 0.1f);
+
+    // inline の要素は width を持たない (中身の幅になる)。
+    const auto inline_width = Layout(std::format(R"(<span class="mord" style="width:5em">{}</span>)", Box("height:1em;width:2em")));
+    ASSERT_NE(inline_width, nullptr);
+    EXPECT_NEAR(inline_width->width / kEm, 2.0f, 1e-3f);
+}
+
+// 絶対位置の子 (伸びる括弧や矢印の部品) は、位置指定した親の箱の幅を基準に幅と位置を決め、親の内容の上端から置く。
+TEST_F(KatexLayoutTest, AbsoluteChildrenUsePositionedParentBox)
+{
+    struct Case {
+        std::string_view classes;
+        std::string_view style;
+        float x, y, w;
+    };
+    constexpr Case kCases[] = {
+        { "brace-left", "", 0.0f, -2.0f, 1.004f },
+        { "brace-center", "", 1.0f, -2.0f, 2.0f },
+        { "brace-right", "", 2.996f, -2.0f, 1.004f },
+        { "halfarrow-left", "", 0.0f, -2.0f, 2.008f },
+        { "halfarrow-right", "", 1.992f, -2.0f, 2.008f },
+        // left と right は親の箱の幅に対する百分率でも書ける。bottom は親の下端から。
+        { "brace-left", "left:1em", 1.0f, -2.0f, 1.004f },
+        { "brace-left", "left:50%", 2.0f, -2.0f, 1.004f },
+        { "brace-right", "right:0.5em", 2.496f, -2.0f, 1.004f },
+        { "brace-right", "right:25%", 1.996f, -2.0f, 1.004f },
+        { "brace-left", "bottom:0.25em", 0.0f, -1.25f, 1.004f },
+        { "brace-left", "bottom:50%", 0.0f, -3.0f, 1.004f },
+        { "brace-left", "width:1em", 0.0f, -2.0f, 1.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(testing::Message() << c.classes << " " << c.style);
+        const std::string child = std::format(R"(<span class="{}" style="height:1em;background-color:red;{}"></span>)", c.classes, c.style);
+        const auto math = Layout(std::format(R"(<span class="katex-rule" style="height:2em;width:4em;margin-left:1em">{}</span>)", child));
+        ASSERT_NE(math, nullptr);
+        EXPECT_NEAR(math->width / kEm, 5.0f, 1e-3f);
+        const auto rects = Rects(*math);
+        ASSERT_EQ(rects.size(), 1u);
+        ExpectRect(rects[0], 1.0f + c.x, c.y, c.w, 1.0f);
+    }
+}
+
+// 文字の並び: 続く空白は 1 つにまとめ、ゼロ幅スペースは置かない。高さと深さは書体の値で、文字の大きさに比例する。
+TEST_F(KatexLayoutTest, TextRunsCollapseSpacesAndScaleWithSize)
+{
+    const auto width = [](std::string_view body) {
+        const auto math = Layout(body);
+        EXPECT_NE(math, nullptr) << body;
+        return math ? math->width : -1.0f;
+    };
+    const float ab = width("ab");
+    const float a_b = width("a b");
+    EXPECT_GT(ab, 0.0f);
+    EXPECT_GT(a_b, ab + 1.0f);
+    EXPECT_EQ(width("a  b"), a_b);
+    EXPECT_EQ(width("a \t\n b"), a_b);
+    EXPECT_EQ(width("a\tb"), a_b);
+    EXPECT_EQ(width("a\nb"), a_b);
+    EXPECT_EQ(width("a&#x200B;b"), ab);
+    EXPECT_EQ(width("a&#xA0;b"), a_b);
+    // 空白をまとめるのは続いているときだけ。
+    EXPECT_NEAR(width("a b b") - a_b, a_b - width("a"), 1e-3f);
+
+    const auto normal = Layout("A");
+    const auto large = Layout(Wrap("katex-sizing reset-size6 size7", "A"));
+    ASSERT_TRUE(normal && large);
+    EXPECT_GT(normal->height, 0.5f * kEm);
+    EXPECT_GT(normal->depth, 0.0f);
+    EXPECT_NEAR(large->width, normal->width * 1.2f, 1e-3f);
+    EXPECT_NEAR(large->height, normal->height * 1.2f, 1e-3f);
+    EXPECT_NEAR(large->depth, normal->depth * 1.2f, 1e-3f);
+
+    // 文字の後ろの箱は、文字の幅の分だけ右に置く。
+    const auto after = Layout("A" + Box("height:1em;width:1em;background-color:red"));
+    ASSERT_NE(after, nullptr);
+    const auto rects = Rects(*after);
+    ASSERT_EQ(rects.size(), 1u);
+    EXPECT_NEAR(rects[0].x, normal->width, 1e-3f);
+    EXPECT_NEAR(after->width, normal->width + kEm, 1e-3f);
+}
+
+// \reflectbox は箱の中で字形の並びを左右に折り返す。
+TEST_F(KatexLayoutTest, ReflectBoxMirrorsGlyphRuns)
+{
+    const std::string inner = "A" + Box("height:1em;width:2em");
+    const auto plain = Layout(Wrap("mord", inner));
+    const auto reflected = Layout(Wrap("reflectbox", inner));
+    ASSERT_TRUE(plain && reflected);
+    const auto p = FirstGlyphs(Wrap("mord", inner));
+    const auto r = FirstGlyphs(Wrap("reflectbox", inner));
+    const auto t = FirstGlyphs(Wrap("reflectbox", Wrap("reflectbox", inner)));
+    ASSERT_TRUE(p && r && t);
+    EXPECT_FALSE(p->mirror);
+    EXPECT_EQ(p->x, 0.0f);
+    EXPECT_TRUE(r->mirror);
+    EXPECT_NEAR(r->x, 2.0f * kEm, 1e-3f);
+    EXPECT_EQ(reflected->width, plain->width);
+    // 2 回折り返すと元に戻る。
+    EXPECT_FALSE(t->mirror);
+    EXPECT_NEAR(t->x, 0.0f, 1e-3f);
+}
+
+// 自動の式番号 (eqn-num) は文書の順に (1) から振る。
+TEST_F(KatexLayoutTest, EquationNumbersCountInDocumentOrder)
+{
+    const auto math = Layout(Wrap("eqn-num", "") + Wrap("mord", "") + Wrap("eqn-num", ""));
+    const auto one = Layout(Wrap("eqn-num", ""));
+    const auto text = Layout("(1)(2)");
+    ASSERT_TRUE(math && one && text);
+    const auto all_glyphs = [](const MathDrawing& m) {
+        std::vector<uint16_t> out;
+        for (const auto& run : ItemsOf<MathDrawing::Glyphs>(m)) {
+            out.insert(out.end(), run.glyphs.begin(), run.glyphs.end());
+        }
+        return out;
+    };
+    EXPECT_EQ(all_glyphs(*math), all_glyphs(*text));
+    EXPECT_EQ(all_glyphs(*one).size(), 3u);
+    EXPECT_NEAR(math->width, text->width, 1e-3f);
 }

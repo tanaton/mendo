@@ -68,6 +68,32 @@ TEST(AnchorId, GeneratesExpectedId)
     }
 }
 
+// スラグから落とす記号の範囲の端。範囲の中の文字は落とし、1 つ外の文字は残す (残す文字は小文字にするだけ)。
+TEST(AnchorId, SkippedSymbolRangeEdges)
+{
+    struct Case {
+        char32_t cp;
+        bool skipped;
+    };
+    constexpr Case kCases[] = {
+        { 0x9F, false }, { 0xA0, true }, { 0xBF, true }, { 0xC0, false },
+        { 0x1FFF, false }, { 0x2000, true }, { 0x2BFF, true }, { 0x2C00, false },
+        { 0x2DFF, false }, { 0x2E00, true }, { 0x2E7F, true }, { 0x2E80, false },
+        { 0x2FFF, false }, { 0x3000, true }, { 0x303F, true }, { 0x3040, false },
+        { 0xFF00, false }, { 0xFF01, true }, { 0xFF0F, true }, { 0xFF10, false },
+        { 0xFF19, false }, { 0xFF1A, true }, { 0xFF20, true }, { 0xFF21, false },
+        { 0xFF3A, false }, { 0xFF3B, true }, { 0xFF40, true }, { 0xFF41, false },
+        { 0xFF5A, false }, { 0xFF5B, true }, { 0xFF65, true }, { 0xFF66, false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(testing::Message() << "U+" << std::hex << static_cast<uint32_t>(c.cp));
+        char utf8[4];
+        const size_t len = utf8_codec::EncodeCp(c.cp, utf8);
+        const std::string text = "a" + std::string(utf8, len) + "b";
+        EXPECT_EQ(GenerateAnchorId(text), c.skipped ? std::string{ "ab" } : ToLowerAnchorCopy(text));
+    }
+}
+
 // 出力は入力と同じ長さで確保して書くので、表に UTF-8 長が伸びる変換が入ると確保を越えて書く。
 // CJK 帯 [U+3000, U+A640) は表を引かずに返すので、その帯に大文字が入ると小文字化を取りこぼす。
 TEST(AnchorId, LowerTableKeepsUtf8LengthAndSkipsCjkBand)

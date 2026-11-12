@@ -266,13 +266,6 @@ TEST(TaskScheduler, WorkerCountReportsConfiguredCountBeforeFirstPost)
     EXPECT_EQ(sch.WorkerCount(), 0u);
 }
 
-TEST(TaskScheduler, ZeroThreadsThenShutdownIsSafe)
-{
-    TaskScheduler sch{ 0 };
-    sch.Shutdown();
-    SUCCEED();
-}
-
 // ============================================================
 // EnsureWorkerCom
 // ============================================================

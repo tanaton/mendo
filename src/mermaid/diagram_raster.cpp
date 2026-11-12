@@ -2261,7 +2261,12 @@ Style PeleSvgResolver::Compute(const Style& parent, const XmlNode& el, std::stri
                 const size_t end = std::min(rest.find_first_of(kSpaces), rest.size());
                 const auto token = rest.substr(0, end);
                 const auto size_token = token.substr(0, token.find('/'));
-                if (ParseFontSize(size_token, parent.font_size)) {
+                // ParseFontSize は font-size="16" のために単位の無い数も読むが、一括指定の文法では数は太さ
+                // (font: 600 20px Arial)。/行の高さ を除いた部分で見分ける。
+                std::string_view number_rest = size_token;
+                double number = 0.0;
+                const bool bare_number = TakeNumber(number_rest, number) && number_rest.empty();
+                if (!bare_number && ParseFontSize(size_token, parent.font_size)) {
                     set(Prop::FontStyle, font_style);
                     set(Prop::FontWeight, font_weight);
                     set(Prop::FontSize, size_token);
