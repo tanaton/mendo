@@ -131,6 +131,7 @@ bool App::Init(HWND hwnd)
 bool App::CreateRenderDevice()
 {
     renderer_.PrepareChrome(BuildTitleBarRenderState(), BuildSidePaneState(ComputePaneLayout(state_)));
+    AwaitImageFoldersBeforeDevice();
     if (!renderer_.CreateDevice()) {
         return false;
     }
@@ -142,6 +143,25 @@ bool App::CreateRenderDevice()
     resource_manager_.OnImagesDecoded(kNoDeadline);
     mermaid_renderer_.ProcessJobResults(kNoDeadline);
     return true;
+}
+
+void App::AwaitImageFoldersBeforeDevice()
+{
+    // 文書の画像は、画像のフォルダの監視を worker で開き終えてから頼む (ResourceManager)。開き終えるのを D3D の作成の裏で
+    // 待って頼めば、デコードも作成の裏で進んで最初のフレームに入る。待たないと頼むのが最初のフレームの後になり、画像が
+    // 幅 0 で出てから寸法が届いて本文が動く。画像 3 枚の README で、画像が出るまで 87.7 → 73.2ms (8 回の中央値。最初の
+    // フレームは画像を入れる分 70.9 → 73.2ms)。cfc8ac2f でフォルダを worker で開くようにしてから、待っていなかった。
+    const HANDLE device_ready = D3DPrefetchDoneEvent();
+    while (device_ready && resource_manager_.IsOpeningImageFolders()) {
+        HANDLE handles[kMaxFileWatchEvents + 1]{ device_ready };
+        const auto count = static_cast<DWORD>(1 + GetFileWatchEvents(std::span{ handles }.subspan(1)));
+        // 作成が先に終われば待たない (画像は従来どおり最初のフレームの後に頼む)。
+        const DWORD wait = WaitForMultipleObjects(count, handles, FALSE, INFINITE);
+        if (wait == WAIT_OBJECT_0 || wait >= WAIT_OBJECT_0 + count) {
+            return;
+        }
+        OnFileWatchEvent();
+    }
 }
 
 void App::ShareRenderTarget()

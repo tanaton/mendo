@@ -336,6 +336,8 @@ private:
     void ShowSettingsDialog();
     // Renderer の今の描画先を、図と画像のローダーへ渡す。
     void ShareRenderTarget();
+    // 起動時、D3D の作成を待つ間に画像のフォルダを開き終えたら画像を頼む。
+    void AwaitImageFoldersBeforeDevice();
     void OnRenderDeviceRecreated();
     PopupEnv MakePopupEnv() const noexcept;
     // 設定ダイアログで選んだ言語を、開いている画面にすぐ反映する。

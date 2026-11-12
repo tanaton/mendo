@@ -109,6 +109,11 @@ public:
     {
         return image_watcher_.EventHandles(out);
     }
+    // 画像のフォルダを開いている最中 (そのフォルダの画像をまだ頼んでいない) か。
+    bool IsOpeningImageFolders() const noexcept
+    {
+        return image_watcher_.AwaitsWorker();
+    }
     // ImageWatchEvents のどれかが立った。更新された画像を控え、IMAGE_RELOAD タイマーを掛ける。フォルダを開き終えていたら、
     // 待たせていた画像を読ませる。
     void OnImageFolderEvent();

@@ -108,6 +108,11 @@ public:
     void Watch(const std::wstring& abs_path, TaskScheduler* scheduler);
     // abs_path のフォルダを開いている最中か。開き終えたら (開けなくても) CheckForChanges が true を返す。
     bool IsOpening(std::wstring_view abs_path) const noexcept;
+    // worker の結果 (フォルダを開いた・短縮名を長い名前に直した) を待っているか。待つ間は EventHandles に受け箱のイベントが入る。
+    bool AwaitsWorker() const noexcept
+    {
+        return awaited_results_ > 0;
+    }
     // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。
     void Clear() noexcept;
     // 待つイベントを out に入れ、その数を返す。out は kMaxEvents 以上。
