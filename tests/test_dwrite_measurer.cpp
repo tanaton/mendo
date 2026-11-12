@@ -473,12 +473,13 @@ TEST(InlineMathPlan, StaleChunksDoNotFinish)
     EXPECT_NE(plan.TakeChunk(0), nullptr);
 }
 
-// 文書の順に kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
+// 文書の順に、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
 TEST(InlineMathPlan, SplitsInDocumentOrder)
 {
     const Theme theme = GetLightTheme();
     std::string text;
-    const size_t count = kInlineMathPerChunk * 2 + 10;
+    // 最初の組だけ小さい (開いた直後の画面の数式を早く出す)。
+    const size_t count = kInlineMathFirstChunk + kInlineMathPerChunk * 2 + 10;
     for (size_t i = 0; i < count; ++i) {
         text += std::format("${}x$ ", i);
     }
@@ -486,10 +487,11 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
     const auto parsed = ParseMarkdown(text);
     plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
     const auto chunks = plan.Chunks();
-    ASSERT_EQ(chunks.size(), 3u);
-    EXPECT_EQ(chunks[0].items.size(), kInlineMathPerChunk);
+    ASSERT_EQ(chunks.size(), 4u);
+    EXPECT_EQ(chunks[0].items.size(), kInlineMathFirstChunk);
     EXPECT_EQ(chunks[1].items.size(), kInlineMathPerChunk);
-    EXPECT_EQ(chunks[2].items.size(), 10u);
+    EXPECT_EQ(chunks[2].items.size(), kInlineMathPerChunk);
+    EXPECT_EQ(chunks[3].items.size(), 10u);
     size_t n = 0;
     for (const auto& c : chunks) {
         for (const auto& item : c.items) {
