@@ -34,6 +34,46 @@ TEST(NormalizeSource, NewlinesBecomeLfAndNulsBecomeReplacement)
     }
 }
 
+// 16 バイトずつ読む経路も、1 バイトずつの素直な正規化と同じ結果になる (CR・LF・NUL が 16 バイトの境目をまたぐ場合を含む)。
+TEST(NormalizeSource, MatchesBytewiseNormalization)
+{
+    const auto reference = [](std::string_view in) {
+        std::string out;
+        for (size_t i = 0; i < in.size(); ++i) {
+            if (in[i] == '\r') {
+                out += '\n';
+                if (i + 1 < in.size() && in[i + 1] == '\n') {
+                    ++i;
+                }
+            }
+            else if (in[i] == '\0') {
+                out += "\xEF\xBF\xBD";
+            }
+            else {
+                out += in[i];
+            }
+        }
+        return out;
+    };
+    constexpr std::string_view kAlphabet{ "ab\r\n\0", 5 };
+    uint32_t seed = 12345;
+    for (int trial = 0; trial < 2000; ++trial) {
+        std::string in;
+        seed = seed * 1664525u + 1013904223u;
+        const size_t length = seed % 80;
+        for (size_t i = 0; i < length; ++i) {
+            seed = seed * 1664525u + 1013904223u;
+            // 'a' を多めにして、CR の無い 16 バイトも作る。
+            const uint32_t pick = (seed >> 16) % 16;
+            in += pick < 11 ? 'a' : kAlphabet[pick - 11];
+        }
+        SCOPED_TRACE(::testing::PrintToString(in));
+        std::string s = in;
+        NormalizeSource(s);
+        ASSERT_EQ(s, reference(in));
+    }
+}
+
 // NUL はパースの前に U+FFFD になるので、md4c が NUL を渡す形の違う行内・コードブロック・コードスパン・数式のどこでも
 // 同じく出る。HTML ブロックの中身は描かないので出ない。
 TEST(DocumentTest, NulsBecomeReplacementEverywhere)

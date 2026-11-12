@@ -291,16 +291,18 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTi
 // 行の中で完結する言語。行の頭で区切った並びは、続きのノードのための字句解析をしない。
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, ini, "ini", "[section]\nkey = \"value\"\n; comment\ncount = 12\nflag: true\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 
-void BM_NormalizeSource(benchmark::State& state)
+// 100MB の 50 バイトの行。line は改行を含めた 1 行。
+void BM_NormalizeSource(benchmark::State& state, std::string_view line)
 {
-    const std::string src = RepeatTo("The quick brown fox jumps over the lazy dog 1234\r\n", kLargeBytes);
+    const std::string src = RepeatTo(line, kLargeBytes);
     for (auto _ : state) {
         std::string s = src;
         state.SetIterationTime(SecondsOf([&] { NormalizeSource(s); }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
 }
-BENCHMARK(BM_NormalizeSource)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_NormalizeSource, crlf, "The quick brown fox jumps over the lazy dog 1234\r\n")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_NormalizeSource, lf, "The quick brown fox jumps over the lazy dog 12345\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
 void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)
