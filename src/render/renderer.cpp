@@ -97,6 +97,13 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
 
     const HRESULT hr = rt()->EndDraw();
     math_masks_->EndFrame(MathMaskCache::kBudgetBytes);
+    // 検索のハイライトの多い画面で膨らんだ容量を、使わなくなったら返す (検索のように使わないセッションもある機能の分は
+    // 小さくても返す)。2 文字に 1 回当たる検索の画面は矩形 3240 個で、コマンド 1 個 64 バイトの容量が約 300KB 残っていた。
+    // 普段の画面 (数百個) では縮めない。
+    constexpr size_t kRetainedCommands = 4096;
+    if (frame_cmds_.capacity() > kRetainedCommands && frame_cmds_.size() < frame_cmds_.capacity() / 4) {
+        frame_cmds_.shrink_to_fit();
+    }
     if (device_.OnEndDraw(hr)) {
         Present();
     }
