@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <windows.h>
 #include <psapi.h>
-#include <d2d1_1.h>
+#include <d2d1_3.h>
 #include <d3d11.h>
 #include <dwrite.h>
 #include <dxgi.h>
@@ -45,6 +45,7 @@
 #include "test_helpers.h"
 #include "theme.h"
 #include "viewport_manager.h"
+#include "wic_util.h"
 
 // 準備が重いベンチは Iterations を固定する。固定しないと反復回数を決める試行のたびに準備をやり直す。
 
@@ -1213,6 +1214,220 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
 }
 BENCHMARK_CAPTURE(BM_MathFrameDraw, fractions, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_MathFrameDraw, shapes, true)->Unit(benchmark::kMicrosecond);
+
+// 本文 (と目次) の 1 フレームを、コマンドの生成から D2D の EndDraw まで。文書の 1/17〜16/17 の 16 か所を順に描く。
+// 図は記録しないので枠だけ (図の再生は BM_DiagramFrameDraw)。md が空なら test.md を 4 回繰り返した文書。
+void BM_DocFrameDraw(benchmark::State& state, std::string md, bool toc)
+{
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    const float toc_width = toc ? kTocPane.width : 0.0f;
+    OffscreenTarget target;
+    if (!target.Init(l.theme, static_cast<UINT>(toc_width + kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
+    // 組むと下のノードの位置が動くので、2 周目で各位置を組み終えた状態に揃える。
+    constexpr int kPositions = 16;
+    std::array<float, kPositions> ys{};
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 0; i < kPositions; ++i) {
+            if (pass == 0) {
+                ys[i] = cache.Bottom(cache.size() - 1) * static_cast<float>(i + 1) / (kPositions + 1);
+            }
+            viewport.SetScrollY(ys[i]);
+            service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+            ys[i] = viewport.GetScrollY();
+        }
+    }
+    auto* const factory = l.factory.Get();
+    const auto item = CreateTextFormat(factory, { .family = l.theme.font_family.c_str(), .size = l.theme.pane_font_size, .locale = l.theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const SidePaneState sp = TocOnlySidePane(kTocPane, l.theme.pane_item_height, doc.GetToc(), doc.GetNodes(), 3);
+    const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = &l.measurer.BodyFonts() };
+    const PaneRect pane{ .x = toc_width, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    TextLayoutCache text_layouts;
+    text_layouts.SetFactory(factory);
+    InlineDrawings drawings;
+    size_t at = 0;
+    for (auto _ : state) {
+        cmds.clear();
+        if (toc) {
+            chrome::EmitSidePanes({ cmds, text_layouts }, fmts, l.theme, sp);
+        }
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = ys[at++ % kPositions] }, 1.0f);
+        target.context->BeginDraw();
+        target.context->Clear(l.theme.Color(BrushId::Background));
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, drawings);
+        target.context->EndDraw();
+    }
+    state.counters["cmds"] = static_cast<double>(cmds.size());
+}
+// 30 行のコードブロックと短い段落の繰り返し。ブロックは画面より低いので、画面の端に掛かるものが多い。
+std::string CodeBlocksMd(int blocks)
+{
+    std::string md;
+    const std::string block = JsonCodeBlock(30, 100);
+    for (int i = 0; i < blocks; ++i) {
+        std::format_to(std::back_inserter(md), "Paragraph {} before the block.\n\n{}\n", i, block);
+    }
+    return md;
+}
+BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd_toc, std::string{}, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd, std::string{}, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DocFrameDraw, code_edges, CodeBlocksMd(60), false)->Unit(benchmark::kMicrosecond);
+
+constexpr float kDiagramMaxWidth = 1000.0f;
+
+// WIC (図形の SVG を読むストリーム) が使う COM を、スコープの間だけ初期化する。
+struct ComScope {
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ComScope() = default;
+    ComScope(const ComScope&) = delete;
+    ComScope& operator=(const ComScope&) = delete;
+    ~ComScope()
+    {
+        if (SUCCEEDED(hr)) {
+            CoUninitialize();
+        }
+    }
+};
+
+// test.md の図のコード。
+std::vector<std::string> TestMdDiagramCodes(benchmark::State& state)
+{
+    const auto doc = Document::FromMarkdown(ReadOrSkip(state, "example/test.md"), L"bench.md");
+    std::vector<std::string> codes;
+    for (const size_t i : doc.GetDiagramNodeIndices()) {
+        codes.emplace_back(doc.GetNodes()[i].GetText());
+    }
+    return codes;
+}
+
+// test.md の図を描画命令にした結果。描けなかった図は入れない。
+std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> TestMdDiagramDrawings(benchmark::State& state, PeleEngine& engine)
+{
+    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
+    for (const auto& code : TestMdDiagramCodes(state)) {
+        auto outcome = engine.Render(code, false, kDiagramMaxWidth);
+        if (outcome.status == PeleOutcome::Status::Drawn) {
+            drawings.push_back(std::make_shared<const mermaid_util::DiagramDrawing>(std::move(outcome.drawing)));
+        }
+    }
+    return drawings;
+}
+
+// test.md の図を pele で描き、SVG を解いて描画命令にする。ランタイムとバイトコードの用意は小さな図 1 個で済ませて測らない。
+// resolve は 2 回目以降 (テーマの切り替え。覚えた SVG を解き直すだけで JS を走らせない)。
+void BM_DiagramRender(benchmark::State& state, bool resolve)
+{
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    const auto codes = TestMdDiagramCodes(state);
+    auto engine = assets.NewEngine(SharedDWriteFactory());
+    if (resolve) {
+        for (const auto& code : codes) {
+            engine->Render(code, false, kDiagramMaxWidth);
+        }
+    }
+    size_t drawn = 0;
+    bool dark = false;
+    for (auto _ : state) {
+        if (!resolve) {
+            engine = assets.NewEngine(SharedDWriteFactory());
+            engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
+        }
+        dark = !dark;
+        drawn = 0;
+        state.SetIterationTime(SecondsOf([&] {
+            for (const auto& code : codes) {
+                drawn += engine->Render(code, resolve && dark, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
+            }
+        }));
+    }
+    state.counters["diagrams"] = static_cast<double>(codes.size());
+    state.counters["drawn"] = static_cast<double>(drawn);
+}
+BENCHMARK_CAPTURE(BM_DiagramRender, first, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+
+// 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
+void BM_DiagramRecord(benchmark::State& state)
+{
+    const ComScope com;
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    OffscreenTarget target;
+    if (!target.Init(GetLightTheme(), static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    const auto engine = assets.NewEngine(SharedDWriteFactory());
+    const auto drawings = TestMdDiagramDrawings(state, *engine);
+    const auto record_dc = CreateRecordContext(target.context.Get());
+    const auto wic = wic_util::CreateWicFactory("bench");
+    size_t texts = 0;
+    for (const auto& d : drawings) {
+        for (const auto& layer : d->layers) {
+            texts += layer.texts.size();
+        }
+    }
+    for (auto _ : state) {
+        for (const auto& d : drawings) {
+            benchmark::DoNotOptimize(RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp"));
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(drawings.size());
+    state.counters["texts"] = static_cast<double>(texts);
+}
+BENCHMARK(BM_DiagramRecord)->Unit(benchmark::kMillisecond);
+
+// 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
+void BM_DiagramFrameDraw(benchmark::State& state)
+{
+    const ComScope com;
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    const Theme theme = GetLightTheme();
+    OffscreenTarget target;
+    if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    const auto engine = assets.NewEngine(SharedDWriteFactory());
+    const auto drawings = TestMdDiagramDrawings(state, *engine);
+    const auto record_dc = CreateRecordContext(target.context.Get());
+    const auto wic = wic_util::CreateWicFactory("bench");
+    std::vector<Microsoft::WRL::ComPtr<ID2D1CommandList>> lists;
+    for (const auto& d : drawings) {
+        if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
+            lists.push_back(std::move(list));
+        }
+    }
+    for (auto _ : state) {
+        for (const auto& list : lists) {
+            target.context->BeginDraw();
+            target.context->Clear(theme.Color(BrushId::Background));
+            target.context->DrawImage(list.Get());
+            target.context->EndDraw();
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(lists.size());
+}
+BENCHMARK(BM_DiagramFrameDraw)->Unit(benchmark::kMillisecond);
 
 // 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
 // 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
