@@ -305,8 +305,8 @@ TEST_F(CullingParityTest, ZoomedOutEmptyCodeBlockKeepsCopyButton)
     ExpectCullingParity(pl, BlockHScrollContext{});
 }
 
-// 可視範囲より高いレイアウトだけ、PushClip と同じ Y 範囲でグリフランを間引かせる。
-TEST_F(CullingParityTest, TallLayoutRequestsRunCullingWithPaneLocalRange)
+// 画面より低いレイアウトも高いレイアウトも、PushClip と同じ Y 範囲でグリフランを間引かせる。
+TEST_F(CullingParityTest, LayoutsRequestRunCullingWithPaneLocalRange)
 {
     std::string md = "short paragraph\n\n```\n";
     for (int i = 0; i < 100; i++) {
@@ -322,10 +322,11 @@ TEST_F(CullingParityTest, TallLayoutRequestsRunCullingWithPaneLocalRange)
     const auto& cmds = Generate(pl, 0.0f, PANE_H, {}, PANE_Y);
     const auto layouts = CollectCmds<DrawTextLayoutCmd>(cmds);
     ASSERT_EQ(layouts.size(), 2u);
-    EXPECT_EQ(layouts[0].cull_bottom, std::numeric_limits<float>::infinity());
     // ペイン原点は transform に乗るので、間引き範囲はペインローカルの [0, 高さ]。
-    EXPECT_EQ(layouts[1].cull_top, 0.0f);
-    EXPECT_EQ(layouts[1].cull_bottom, PANE_H);
+    for (const auto& layout : layouts) {
+        EXPECT_EQ(layout.cull_top, 0.0f);
+        EXPECT_EQ(layout.cull_bottom, PANE_H);
+    }
     EXPECT_EQ(PaneOriginY(cmds), PANE_Y);
 }
 

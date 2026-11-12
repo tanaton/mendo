@@ -102,14 +102,13 @@ constexpr bool OverlapsY(const D2D1_RECT_F& r, YRange visible) noexcept
     return !IsOffscreen(r.top, r.bottom - r.top, visible.top, visible.bottom);
 }
 
-// 可視範囲より高いレイアウトだけ、executor に範囲外のグリフランを飛ばさせる。
-DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, BrushId brush_id, YRange visible) noexcept
+// executor に可視範囲の外のグリフランを飛ばさせる。画面より低くても、端に掛かるレイアウトの画面の外の行は描かない
+// (画面の端に掛かる 30 行のコードブロックが並ぶ文書の 1 フレームが 511 → 419µs。BM_DocFrameDraw/code_edges)。
+DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, BrushId brush_id, YRange visible) noexcept
 {
     DrawTextLayoutCmd cmd{ origin, layout, brush_id };
-    if (height > visible.bottom - visible.top) {
-        cmd.cull_top = visible.top;
-        cmd.cull_bottom = visible.bottom;
-    }
+    cmd.cull_top = visible.top;
+    cmd.cull_bottom = visible.bottom;
     return cmd;
 }
 
@@ -939,7 +938,7 @@ struct MdPaneEmitter : CmdWriter {
             }
         }
 
-        auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), visible);
+        auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), GetNodeBaseBrush(node), visible);
         cmd.syntax_tokens = entry.syntax_tokens();
         cmd.cull_left = cull_left;
         cmd.cull_right = cull_right;
@@ -1269,7 +1268,7 @@ struct MdPaneEmitter : CmdWriter {
                     if (selection.end > selection.start) {
                         GenCellSelection(*tbl, r, c, cell_layout, selection, text_x, text_y);
                     }
-                    out.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, text_y), cell_layout, row_h, is_header_row ? header_brush : cell_brush, visible));
+                    out.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, text_y), cell_layout, is_header_row ? header_brush : cell_brush, visible));
                 }
             }
             y += row_h + border;
