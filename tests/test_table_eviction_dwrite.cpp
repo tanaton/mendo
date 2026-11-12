@@ -291,6 +291,26 @@ TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
     EXPECT_FALSE(entry.layout_dirty);
 }
 
+// 表だけの文書でも、見えている範囲の外に退避した行が残れば先読みを残し、先読みが範囲の行を戻す。
+TEST_F(TableEvictionDWriteTest, VisibleTableWithEvictedRowsKeepsPrefetchPending)
+{
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    ASSERT_EQ(pl_.nodes.size(), 1u);
+    auto& tl = *Entry().table_layout();
+    EvictWholeTable();
+
+    const float top = pl_.cache.Top(idx_);
+    ASSERT_TRUE(engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, 800.0f, top, top + 80.0f));
+    EXPECT_TRUE(pl_.cache.HasDirtyNodes());
+
+    const size_t visible_cells = CountNonNullCells(tl);
+    const auto batch = engine_.ProcessDirtyBatch(pl_.nodes, pl_.cache, 800.0f, kNoLayoutDeadline, YRange{ top, top + 400.0f });
+    EXPECT_TRUE(batch.updated);
+    EXPECT_FALSE(batch.remaining);
+    EXPECT_FALSE(pl_.cache.HasDirtyNodes());
+    EXPECT_GT(CountNonNullCells(tl), visible_cells);
+}
+
 // 幅の変更で組み直した表の見えている evict 行は、同じ EnsureVisibleLayout の次のパスで戻る。
 TEST_F(TableEvictionDWriteTest, WidthChangeRestoresVisibleRowsInNextPass)
 {

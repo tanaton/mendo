@@ -1791,9 +1791,18 @@ void App::OnDeferredLayout()
     }
     const float scroll_y = state_.view.viewport.GetScrollY();
     const auto visible = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + md.height);
-    run.visible_dirty |= std::ranges::any_of(std::views::iota(visible.begin, visible.end), [&cache](size_t i) {
+    run.visible_dirty |= std::ranges::any_of(std::views::iota(visible.begin, visible.end), [&](size_t i) {
+        if (cache[i].layout_dirty) {
+            return true;
+        }
+        // 大きな表は画面の外の行をいつも退避しているので、見えている行だけを見る。
         const auto* table = cache[i].table_layout();
-        return cache[i].layout_dirty || (table && table->HasEvictedRows());
+        if (!table || !table->HasEvictedRows()) {
+            return false;
+        }
+        const float top = cache.Top(i);
+        const auto [begin, end] = table->VisibleRowRange(scroll_y - top, scroll_y + md.height - top);
+        return std::ranges::any_of(std::views::iota(begin, end), [table](size_t r) { return table->IsRowEvicted(r); });
     });
     const auto batch = layout_service_.ProcessDirtyBatch(
         state_.document.doc, cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,

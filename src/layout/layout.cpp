@@ -156,12 +156,14 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
         return false;
     }
 
-    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
+    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。見えている表の範囲外の退避した行も同じで、残さないと
+    // 大きな表だけの文書では先読みが走らず、めくるたびに描画の中で行を戻す (2 万行 6 列で PageDown 1 回 0.3〜0.4ms)。
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
     const bool has_outside = vr.begin > 0 || vr.end < node_count;
     const bool any_dirty = has_outside || std::ranges::any_of(std::views::iota(vr.begin, vr.end), [&cache](size_t i) {
-        return cache[i].layout_dirty;
+        const auto* table = cache[i].table_layout();
+        return cache[i].layout_dirty || (table && table->HasEvictedRows());
     });
     cache.SetHasDirtyNodes(any_dirty);
     return true;
