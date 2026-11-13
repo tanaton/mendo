@@ -501,9 +501,14 @@ protected:
     // math が収まる大きさの、dpr 倍の描画先。
     static Canvas MakeCanvas(const MathDrawing& math, float dpr)
     {
+        return MakeCanvas(static_cast<UINT>(std::ceil((math.width + 8.0f) * dpr)), static_cast<UINT>(std::ceil((math.height + math.depth + 8.0f) * dpr)), dpr);
+    }
+    // width x height 画素の、dpr 倍の描画先。
+    static Canvas MakeCanvas(UINT width, UINT height, float dpr)
+    {
         Canvas c;
-        c.width = static_cast<UINT>(std::ceil((math.width + 8.0f) * dpr));
-        c.height = static_cast<UINT>(std::ceil((math.height + math.depth + 8.0f) * dpr));
+        c.width = width;
+        c.height = height;
         EXPECT_HRESULT_SUCCEEDED(wic_->CreateBitmap(c.width, c.height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &c.bitmap));
         const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
                                                         96.0f * dpr, 96.0f * dpr);
@@ -523,6 +528,11 @@ protected:
             DrawMath(c.rt.Get(), part, 2.3f, 2.6f + part.height, c.brush.Get(), masks);
         }
         EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
+        return ReadPixels(c);
+    }
+    // 描画先の画素 (32bpp PBGRA)。
+    static std::vector<uint32_t> ReadPixels(const Canvas& c)
+    {
         std::vector<uint32_t> pixels(static_cast<size_t>(c.width) * c.height);
         EXPECT_HRESULT_SUCCEEDED(c.bitmap->CopyPixels(nullptr, c.width * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
         return pixels;
@@ -622,16 +632,8 @@ TEST_F(MathDrawTest, DiagramBitmapsMatchVectorWhileScrolling)
     const auto& drawing = out.drawing;
     constexpr float kDpr = 1.5f;
     constexpr float kViewHeight = 120.0f;
-    Canvas c;
-    c.width = static_cast<UINT>(std::ceil((drawing.width + 8.0f) * kDpr));
-    c.height = static_cast<UINT>(kViewHeight * kDpr);
-    ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(c.width, c.height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &c.bitmap));
-    const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-                                                    96.0f * kDpr, 96.0f * kDpr);
-    ASSERT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(c.bitmap.Get(), props, &c.rt));
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
-    ASSERT_HRESULT_SUCCEEDED(c.rt.As(&dc));
-    dc->GetDevice(&c.device);
+    const Canvas c = MakeCanvas(static_cast<UINT>(std::ceil((drawing.width + 8.0f) * kDpr)), static_cast<UINT>(kViewHeight * kDpr), kDpr);
+    ASSERT_NE(c.device, nullptr);
     const auto commands = RecordDiagram(CreateRecordContext(c.rt.Get()).Get(), dw_.Get(), wic_.Get(), drawing, L"ja-jp");
     ASSERT_NE(commands, nullptr);
     ASSERT_GT(drawing.height, kViewHeight * 1.5f) << "画面より高い図で、帯を試す";
@@ -646,9 +648,7 @@ TEST_F(MathDrawTest, DiagramBitmapsMatchVectorWhileScrolling)
         c.rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
         ExecuteDrawCommands(cmds, c.rt.Get(), brushes, inline_drawings, nullptr, bitmaps);
         EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
-        std::vector<uint32_t> pixels(static_cast<size_t>(c.width) * c.height);
-        EXPECT_HRESULT_SUCCEEDED(c.bitmap->CopyPixels(nullptr, c.width * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
-        return pixels;
+        return ReadPixels(c);
     };
 
     // 端数のある位置から、装置の画素で割り切れる量 (10 DIP = 15 画素) ずつ動かす。

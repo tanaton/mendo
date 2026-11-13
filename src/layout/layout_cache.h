@@ -536,11 +536,17 @@ struct DiagramEntry : DiagramResult {
         return true;
     }
 
+    // 仮表示として残せる結果 (描いた絵か、コマンドリストだけを捨てた図の描画命令) があるか。
+    bool HasStaleableResult() const noexcept
+    {
+        return HasImage() || drawing;
+    }
+
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
     // 再試行可能に戻す。コマンドリストだけを捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
     void MarkStale() noexcept
     {
-        if (!HasImage() && !drawing) {
+        if (!HasStaleableResult()) {
             SetResult({});
             return;
         }

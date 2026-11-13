@@ -167,13 +167,8 @@ void ResourceManager::EvictOffscreenBitmaps()
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
         for (const size_t i : part) {
-            auto* diagram = state_.document.layout_cache.FindDiagram(i);
-            if (!diagram) {
-                continue;
-            }
-            const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram->commands;
-            if (diagram->ReleaseCommands()) {
-                mermaid_.ReleaseCommands(commands.Get());
+            if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
+                mermaid_.ReleaseCommands(*diagram);
             }
         }
     }

@@ -2,6 +2,7 @@
 #include "render_params.h"
 #include "theme.h"
 #include "command_generator.h"
+#include "d2d_util.h"
 #include "ui_constants.h"
 #include "win_handle.h"
 #include <d2d1_1.h>
@@ -77,9 +78,7 @@ public:
     }
     void OnPresent(HRESULT hr) noexcept
     {
-        // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
-        // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+        if (IsDeviceLostOnPresent(hr)) {
             MarkLost();
             return;
         }
@@ -94,7 +93,7 @@ private:
 };
 
 // D2D/DirectWrite/WIC のファクトリ、D3D デバイス・スワップチェーンとロスト検知、ブラシとテキスト書式を持ち、1 フレームを描く。
-// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi を読む唯一の TU)。
+// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi をヘッダに出さない)。
 class Renderer {
 public:
     Renderer() noexcept;

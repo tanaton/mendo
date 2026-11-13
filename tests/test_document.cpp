@@ -25,10 +25,10 @@ TEST(ReservedArray, GrowsInPlaceWithinReservation)
     EXPECT_EQ(nodes.data(), first);
 }
 
-// 予約を超えたら、max まで (max も超えたら倍ずつ) 予約し直して写す。中身は変わらない。
+// 予約を超えたら、倍ずつ予約し直して写す。中身は変わらない。
 TEST(ReservedArray, RelocatesBeyondReservation)
 {
-    ReservedArray<char> text(16, 100000);
+    ReservedArray<char> text(16);
     std::string expected;
     for (int i = 0; i < 30000; ++i) {
         const std::string piece = std::to_string(i) + ',';

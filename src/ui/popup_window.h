@@ -7,8 +7,6 @@
 #include "ui_types.h"
 #include "win32_util.h"
 #include <d2d1_1.h>
-#include <d3d11.h>
-#include <dxgi1_2.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
@@ -70,9 +68,9 @@ struct PopupWindow {
     // 呼び出し側から借りる。
     const Theme* theme = nullptr;
     ModalLoop* modal_loop = nullptr;
-    // 本体のデバイスで描くときは swap_chain の DeviceContext、無ければ SOFTWARE の HwndRenderTarget。
+    // 本体のデバイスで描くときは swap_target の DeviceContext、無ければ SOFTWARE の HwndRenderTarget。
     Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
+    WindowSwapTarget swap_target;
     Brushes brushes;
     // UI の文言は表示中の言語のロケールで組む (OS と違う言語を選んでも漢字の字形をその言語に合わせる)。
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text;
@@ -378,44 +376,8 @@ private:
     void ReleaseTarget() noexcept
     {
         rt.Reset();
-        swap_chain.Reset();
+        swap_target.Reset();
         brushes = {};
-    }
-
-    // 本体のデバイスに窓のスワップチェーンを作って描く。角を丸める region (SetWindowRgn) が効くよう、BitBlt 方式にする。
-    bool CreateSharedDeviceTarget(UINT pixel_w, UINT pixel_h)
-    {
-        Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
-        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-        Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
-        Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
-        Microsoft::WRL::ComPtr<IDXGISurface> surface;
-        Microsoft::WRL::ComPtr<ID2D1Bitmap1> target;
-        const DXGI_SWAP_CHAIN_DESC1 desc{
-            .Width = std::max(pixel_w, 1u),
-            .Height = std::max(pixel_h, 1u),
-            .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
-            .SampleDesc = { 1, 0 },
-            .BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            .BufferCount = 1,
-            .Scaling = DXGI_SCALING_STRETCH,
-            .SwapEffect = DXGI_SWAP_EFFECT_DISCARD,
-        };
-        const float dpi = dpi_scale * DEFAULT_DPI;
-        // 不透明な窓なので IGNORE にする (PREMULTIPLIED だと文字が ClearType からグレースケールに落ちる)。
-        const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-                                                   D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE), dpi, dpi);
-        if (FAILED(d3d->QueryInterface(IID_PPV_ARGS(&dxgi))) || FAILED(dxgi->GetAdapter(&adapter)) || FAILED(adapter->GetParent(IID_PPV_ARGS(&factory))) ||
-            FAILED(factory->CreateSwapChainForHwnd(d3d, hwnd, &desc, nullptr, nullptr, &swap_chain)) ||
-            FAILED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc)) || FAILED(swap_chain->GetBuffer(0, IID_PPV_ARGS(&surface))) ||
-            FAILED(dc->CreateBitmapFromDxgiSurface(surface.Get(), &props, &target))) {
-            swap_chain.Reset();
-            return false;
-        }
-        dc->SetDpi(dpi, dpi);
-        dc->SetTarget(target.Get());
-        rt = std::move(dc);
-        return true;
     }
 
     bool CreateDeviceResources()
@@ -424,7 +386,13 @@ private:
         if (!GetClientRect(hwnd, &rc)) {
             return false;
         }
-        if (!(d3d && device && CreateSharedDeviceTarget(static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom)))) {
+        // 本体のデバイスに窓のスワップチェーンを作って描く。角を丸める region (SetWindowRgn) が効くよう、BitBlt 方式にする。
+        if (d3d && device &&
+            swap_target.Create(d3d, device, hwnd, static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom), dpi_scale * DEFAULT_DPI,
+                               WindowSwapTarget::Mode::BitBlt)) {
+            rt = swap_target.dc();
+        }
+        else {
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
             props.dpiX = dpi_scale * DEFAULT_DPI;
             props.dpiY = dpi_scale * DEFAULT_DPI;
@@ -465,11 +433,8 @@ private:
         };
         rt->DrawRoundedRectangle(frame, brushes.frame.Get(), POPUP_FRAME_WIDTH);
         derived().PaintContent();
-        HRESULT hr = rt->EndDraw();
-        if (SUCCEEDED(hr) && swap_chain) {
-            hr = swap_chain->Present(1, 0);
-        }
-        if (hr == D2DERR_RECREATE_TARGET || hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+        const bool kept = swap_target.dc() ? swap_target.EndDrawAndPresent() : rt->EndDraw() != D2DERR_RECREATE_TARGET;
+        if (!kept) {
             // 本体のデバイスを失ったら、開いている間は SOFTWARE で描く。次の WM_PAINT で作り直させる。
             ReleaseTarget();
             d3d = nullptr;

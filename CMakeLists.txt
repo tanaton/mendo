@@ -174,6 +174,7 @@ add_library(mendo_core STATIC
     src/app/startup_plan.cpp
     src/app/theme_service.cpp
     # util - ユーティリティ
+    src/util/d2d_util.cpp
     src/util/file_io.cpp
     src/util/pane_layout.cpp
     src/util/task_scheduler.cpp

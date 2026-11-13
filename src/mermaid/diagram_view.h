@@ -1,4 +1,5 @@
 #pragma once
+#include "d2d_util.h"
 #include "mermaid_util.h"
 #include "tooltip.h"
 #include <d2d1_1.h>
@@ -92,8 +93,6 @@ private:
     bool HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result);
 
     bool EnsureTarget();
-    // スワップチェーンの今のバッファを描画先にする。
-    bool BindBackBuffer();
     // 描画先とスワップチェーンを捨てる (デバイスロストとデバイスの差し替え)。次の描画で作り直す。
     void ReleaseTarget() noexcept;
     void Paint();
@@ -140,8 +139,7 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_;
     Microsoft::WRL::ComPtr<ID2D1Device> device_;
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> rt_;
+    WindowSwapTarget target_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;
     // 図を記録する DeviceContext と記録したもの。描画先と同じデバイスから作り、描画先を作り直したら捨てる。
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;

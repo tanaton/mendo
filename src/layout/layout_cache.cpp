@@ -292,7 +292,7 @@ bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
 {
     const auto it = src.diagrams_.find(from);
     // コマンドリストだけを捨てた画面外の図も、寸法を引き継ぐ。
-    if (it == src.diagrams_.end() || (!it->second.HasImage() && !it->second.drawing)) {
+    if (it == src.diagrams_.end() || !it->second.HasStaleableResult()) {
         return false;
     }
     diagrams_.insert_or_assign(to, std::move(it->second)).first->second.MarkStale();

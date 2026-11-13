@@ -81,8 +81,8 @@ public:
     // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
-    // d3d は render_target のデバイスの D3D デバイス (拡大表示の窓のスワップチェーンを作る)。無ければ拡大表示を開けない。
-    void SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d = nullptr);
+    // d3d と device は render_target を作った描画デバイス (拡大表示の窓のスワップチェーンを作って描く)。無ければ拡大表示を開けない。
+    void SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d = nullptr, ID2D1Device* device = nullptr);
     // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
@@ -94,7 +94,7 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
-    void ReleaseCommands(ID2D1CommandList* commands) override;
+    void ReleaseCommands(DiagramEntry& diagram_entry) override;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -219,8 +219,6 @@ private:
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
-    // render_target_ のデバイス。拡大表示の窓はこれで描く。
-    Microsoft::WRL::ComPtr<ID2D1Device> RenderDevice() const;
     bool ViewerOpen() const noexcept
     {
         return viewer_.view && viewer_.view->IsOpen();
@@ -262,6 +260,8 @@ private:
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    // render_target_ のデバイス。拡大表示の窓はこれで描く。
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 

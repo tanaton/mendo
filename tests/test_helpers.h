@@ -117,7 +117,7 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
     auto* tbl = AttachTestTable(n);
     tbl->row_count = static_cast<uint32_t>(rows.size());
     tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
-    auto& text = tbl->own_text;
+    std::string text;
     for (const auto& row : rows) {
         if (!tbl->cell_text_starts.empty()) {
             text.push_back('\n');
@@ -132,7 +132,10 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
         }
     }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(text.size()));
-    tbl->concat_text = text;
+    {
+        const std::scoped_lock lock{ test_nodes_detail::Mutex() };
+        tbl->concat_text = test_nodes_detail::Arena().CopyText(text);
+    }
     tbl->cell_run_starts.push_back(0);
     tbl->aligns.assign(tbl->col_count, TableAlign::Default);
     n.SetText(tbl->concat_text);

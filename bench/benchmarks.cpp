@@ -1357,6 +1357,56 @@ std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> TestMdDiagramDr
     return drawings;
 }
 
+// 図の記録と描画のベンチの準備。test.md の図を描画命令にし、記録先と描画先を用意する。
+struct DiagramBench {
+    // 記録した図と、その寸法 (記録の単位)。
+    struct Recorded {
+        Microsoft::WRL::ComPtr<ID2D1CommandList> list;
+        float width;
+        float height;
+    };
+
+    // WIC が使う COM を最後まで残すため、最初に置く。
+    const ComScope com;
+    // engine が指すので engine より先に置く。
+    const PeleTestAssets assets = PeleTestAssets::Load();
+    const Theme theme = GetLightTheme();
+    OffscreenTarget target;
+    std::unique_ptr<PeleEngine> engine;
+    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
+
+    // 用意できなければ SkipWithError して false。
+    bool Init(benchmark::State& state)
+    {
+        if (!assets.ok() || !SharedDWriteFactory()) {
+            state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+            return false;
+        }
+        if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+            state.SkipWithError("D3D device init failed");
+            return false;
+        }
+        engine = assets.NewEngine(SharedDWriteFactory());
+        drawings = TestMdDiagramDrawings(state, *engine);
+        record_dc = CreateRecordContext(target.context.Get());
+        wic = wic_util::CreateWicFactory("bench");
+        return true;
+    }
+    // 図をすべて記録する。記録できなかった図は入れない。
+    std::vector<Recorded> RecordAll() const
+    {
+        std::vector<Recorded> lists;
+        for (const auto& d : drawings) {
+            if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
+                lists.push_back({ std::move(list), d->width, d->height });
+            }
+        }
+        return lists;
+    }
+};
+
 // test.md の図を pele で描き、SVG を解いて描画命令にする。ランタイムとバイトコードの用意は小さな図 1 個で済ませて測らない。
 // resolve は 2 回目以降 (テーマの切り替え。覚えた SVG を解き直すだけで JS を走らせない)。
 void BM_DiagramRender(benchmark::State& state, bool resolve)
@@ -1399,21 +1449,11 @@ BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(
 enum class DiagramRecordPart : uint8_t { Record, Prepared, Layout };
 void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 {
-    const ComScope com;
-    const auto assets = PeleTestAssets::Load();
-    if (!assets.ok() || !SharedDWriteFactory()) {
-        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+    DiagramBench bench;
+    if (!bench.Init(state)) {
         return;
     }
-    OffscreenTarget target;
-    if (!target.Init(GetLightTheme(), static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
-        state.SkipWithError("D3D device init failed");
-        return;
-    }
-    const auto engine = assets.NewEngine(SharedDWriteFactory());
-    const auto drawings = TestMdDiagramDrawings(state, *engine);
-    const auto record_dc = CreateRecordContext(target.context.Get());
-    const auto wic = wic_util::CreateWicFactory("bench");
+    const auto& drawings = bench.drawings;
     size_t texts = 0;
     for (const auto& d : drawings) {
         for (const auto& layer : d->layers) {
@@ -1431,7 +1471,7 @@ void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
             }
             else {
                 const auto* prepared = part == DiagramRecordPart::Prepared ? &laid_out[k] : nullptr;
-                benchmark::DoNotOptimize(RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *drawings[k], L"ja-jp", prepared));
+                benchmark::DoNotOptimize(RecordDiagram(bench.record_dc.Get(), SharedDWriteFactory(), bench.wic.Get(), *drawings[k], L"ja-jp", prepared));
             }
         }
     }
@@ -1446,33 +1486,18 @@ BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(ben
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
 void BM_DiagramFrameDraw(benchmark::State& state)
 {
-    const ComScope com;
-    const auto assets = PeleTestAssets::Load();
-    if (!assets.ok() || !SharedDWriteFactory()) {
-        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+    DiagramBench bench;
+    if (!bench.Init(state)) {
         return;
     }
-    const Theme theme = GetLightTheme();
-    OffscreenTarget target;
-    if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
-        state.SkipWithError("D3D device init failed");
-        return;
-    }
-    const auto engine = assets.NewEngine(SharedDWriteFactory());
-    const auto drawings = TestMdDiagramDrawings(state, *engine);
-    const auto record_dc = CreateRecordContext(target.context.Get());
-    const auto wic = wic_util::CreateWicFactory("bench");
-    std::vector<Microsoft::WRL::ComPtr<ID2D1CommandList>> lists;
-    for (const auto& d : drawings) {
-        if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
-            lists.push_back(std::move(list));
-        }
-    }
+    const Theme& theme = bench.theme;
+    auto& target = bench.target;
+    const auto lists = bench.RecordAll();
     for (auto _ : state) {
-        for (const auto& list : lists) {
+        for (const auto& r : lists) {
             target.context->BeginDraw();
             target.context->Clear(theme.Color(BrushId::Background));
-            target.context->DrawImage(list.Get());
+            target.context->DrawImage(r.list.Get());
             target.context->EndDraw();
         }
     }
@@ -1484,33 +1509,13 @@ BENCHMARK(BM_DiagramFrameDraw)->Unit(benchmark::kMillisecond);
 // bitmaps はスクロールの間の DiagramBitmapCache で写す。frame は 1 フレームあたりの時間。
 void BM_DiagramScrollDraw(benchmark::State& state, bool bitmaps)
 {
-    const ComScope com;
-    const auto assets = PeleTestAssets::Load();
-    if (!assets.ok() || !SharedDWriteFactory()) {
-        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+    DiagramBench bench;
+    if (!bench.Init(state)) {
         return;
     }
-    const Theme theme = GetLightTheme();
-    OffscreenTarget target;
-    if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
-        state.SkipWithError("D3D device init failed");
-        return;
-    }
-    const auto engine = assets.NewEngine(SharedDWriteFactory());
-    const auto drawings = TestMdDiagramDrawings(state, *engine);
-    const auto record_dc = CreateRecordContext(target.context.Get());
-    const auto wic = wic_util::CreateWicFactory("bench");
-    struct Recorded {
-        Microsoft::WRL::ComPtr<ID2D1CommandList> list;
-        float width;
-        float height;
-    };
-    std::vector<Recorded> lists;
-    for (const auto& d : drawings) {
-        if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
-            lists.push_back({ std::move(list), d->width, d->height });
-        }
-    }
+    const Theme& theme = bench.theme;
+    auto& target = bench.target;
+    const auto lists = bench.RecordAll();
     DiagramBitmapCache cache;
     cache.Reset(target.device.Get());
     const InlineDrawings inline_drawings;
@@ -1535,7 +1540,7 @@ void BM_DiagramScrollDraw(benchmark::State& state, bool bitmaps)
         }
     }
     state.counters["frame"] = benchmark::Counter(static_cast<double>(frames), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
-    state.counters["peak_MB"] = static_cast<double>(peak_bytes) / (1024.0 * 1024.0);
+    state.counters["peak_MB"] = static_cast<double>(peak_bytes) / kMiB;
 }
 BENCHMARK_CAPTURE(BM_DiagramScrollDraw, vector, false)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramScrollDraw, bitmap, true)->Unit(benchmark::kMillisecond);

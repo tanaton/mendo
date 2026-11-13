@@ -68,9 +68,12 @@ public:
     }
     int drop_queued_count = 0;
 
-    void ReleaseCommands(ID2D1CommandList* commands) override
+    void ReleaseCommands(DiagramEntry& diagram_entry) override
     {
-        released_commands.push_back(commands);
+        ID2D1CommandList* const commands = diagram_entry.commands.Get();
+        if (diagram_entry.ReleaseCommands()) {
+            released_commands.push_back(commands);
+        }
     }
     std::vector<ID2D1CommandList*> released_commands;
 

@@ -75,26 +75,17 @@ void MermaidRenderer::TrimIdleRuntimes()
     }
 }
 
-void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d)
+void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d, ID2D1Device* device)
 {
     render_target_ = render_target;
     d3d_device_ = d3d;
+    d2d_device_ = device;
     // 旧デバイスで記録できなかったエラーも捨てて再試行させる。
     cache_.Clear();
     record_dc_ = CreateRecordContext(render_target);
     if (ViewerOpen()) {
-        viewer_.view->SetDevice(d3d, RenderDevice().Get());
+        viewer_.view->SetDevice(d3d, device);
     }
-}
-
-Microsoft::WRL::ComPtr<ID2D1Device> MermaidRenderer::RenderDevice() const
-{
-    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
-    Microsoft::WRL::ComPtr<ID2D1Device> device;
-    if (render_target_ && SUCCEEDED(render_target_->QueryInterface(IID_PPV_ARGS(&dc)))) {
-        dc->GetDevice(&device);
-    }
-    return device;
 }
 
 void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
@@ -124,10 +115,15 @@ void MermaidRenderer::DropQueued()
     });
 }
 
-void MermaidRenderer::ReleaseCommands(ID2D1CommandList* commands)
+void MermaidRenderer::ReleaseCommands(DiagramEntry& diagram_entry)
 {
-    cache_.ForEach([commands](DiagramResult& r) {
-        if (r.commands.Get() == commands) {
+    // 外し終えるまで同じアドレスが別の図に使われないよう、参照を持っておく。
+    const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram_entry.commands;
+    if (!diagram_entry.ReleaseCommands()) {
+        return;
+    }
+    cache_.ForEach([&commands](DiagramResult& r) {
+        if (r.commands == commands) {
             r.commands = nullptr;
         }
     });
@@ -458,7 +454,7 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, bool dark_mode
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = open_viewer_(hwnd_, d3d_device_.Get(), RenderDevice().Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); });
+    else if (viewer_.view = open_viewer_(hwnd_, d3d_device_.Get(), d2d_device_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); });
              !viewer_.view) {
         FailViewer();
         return;

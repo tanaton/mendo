@@ -127,7 +127,8 @@ public:
 
 private:
     struct Folder {
-        // worker の結果の宛先。Clear の後に届いた結果を、同じフォルダを開き直したものと取り違えない。
+        // worker の結果の宛先。やめたフォルダ (枠のために Watch が外した・Clear) に届いた結果を、同じフォルダを開き直したものと
+        // 取り違えない。
         uint64_t id = 0;
         std::wstring dir;
         bool opening = false;

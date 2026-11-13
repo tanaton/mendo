@@ -176,9 +176,15 @@ protected:
         return rt->EndDraw();
     }
 
+    // R・G・B が揃っていない (灰色でない) 画素があるか。
     static bool HasColoredPixel(std::span<const uint32_t> pixels)
     {
-        return std::ranges::any_of(pixels, [](uint32_t px) static { return (px & 0xFF) != ((px >> 8) & 0xFF); });
+        return std::ranges::any_of(pixels, [](uint32_t px) static {
+            const uint32_t r = (px >> 16) & 0xFF;
+            const uint32_t g = (px >> 8) & 0xFF;
+            const uint32_t b = px & 0xFF;
+            return r != g || g != b;
+        });
     }
 
     UINT size_ = 32;
@@ -334,15 +340,9 @@ TEST_F(CommandExecutorIntegrationTest, ColorEmojiMatchesDrawTextLayoutWithColorF
     ASSERT_TRUE(layout);
     const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
     const auto expected = RenderTextLayout(cmd, false, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-    const auto colored = [](uint32_t px) {
-        const uint32_t r = (px >> 16) & 0xFF;
-        const uint32_t g = (px >> 8) & 0xFF;
-        const uint32_t b = px & 0xFF;
-        return r != g || g != b;
-    };
-    ASSERT_TRUE(std::ranges::any_of(expected, colored)) << "絵文字に色が付いていない";
+    ASSERT_TRUE(HasColoredPixel(expected)) << "絵文字に色が付いていない";
     EXPECT_EQ(RenderTextLayout(cmd, true), expected);
-    EXPECT_FALSE(std::ranges::any_of(RenderTextLayout(cmd, false), colored)) << "色を付けない描き方では単色になる (比べる意味がある)";
+    EXPECT_FALSE(HasColoredPixel(RenderTextLayout(cmd, false))) << "色を付けない描き方では単色になる (比べる意味がある)";
 }
 
 // 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、

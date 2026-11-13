@@ -95,7 +95,7 @@ struct ParseContext : NodeStorage {
     ReservedArray<char> current_text;
     std::vector<TextRun> current_runs;
     // 表の全セルの本文 (NodeTableData::concat_text) を組む置き場。表を閉じたら、小さな表は arena へ写し、大きな表は
-    // 写さずに表へ渡して取り直す。
+    // 写さずに arena へ引き取らせて取り直す。
     ReservedArray<char> table_text;
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
@@ -1067,7 +1067,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* const tbl = cn->table_data();
         auto& text = ctx->table_text;
         FinalizeTableOffsets(*tbl, text.size());
-        if (std::ranges::any_of(cn->table_data()->all_runs, &TextRun::math)) {
+        if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
             ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
         }
         // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、test.md を繰り返した 100MB の文書で
@@ -1081,9 +1081,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         }
         else {
             text.shrink_to_fit();
-            tbl->own_text = std::move(text);
-            tbl->concat_text = tbl->own_text;
-            text = ReservedArray<char>(ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size()) + 64);
+            tbl->concat_text = ctx->arena.Adopt(
+                std::exchange(text, ReservedArray<char>(ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size()) + 64)));
         }
         cn->SetText(tbl->concat_text);
         ctx->EndNode();

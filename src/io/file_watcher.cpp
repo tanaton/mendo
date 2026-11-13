@@ -315,7 +315,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             --awaited_results_;
             const auto it = std::ranges::find(folders_, result.folder_id, &Folder::id);
             if (it == folders_.end()) {
-                // Clear でやめたフォルダの結果。
+                // やめたフォルダ (枠のために Watch が外した・Clear) の結果。
                 if (result.read) {
                     DisposeOnWorker(std::move(result.read));
                 }

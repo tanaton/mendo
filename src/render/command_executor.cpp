@@ -409,7 +409,6 @@ struct DiagramBitmapCache::Impl {
         }
     };
 
-    Microsoft::WRL::ComPtr<ID2D1Device> device;
     // 帯を描く。本体の context は描いている最中で、BeginDraw は入れ子にできないので別に持つ。
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
     std::vector<Entry> entries;
@@ -448,7 +447,6 @@ void DiagramBitmapCache::Reset(ID2D1Device* device) noexcept
     auto& m = *impl_;
     m.entries.clear();
     m.dc.Reset();
-    m.device = device;
     if (device) {
         device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m.dc);
     }
@@ -481,7 +479,7 @@ bool DiagramBitmapCache::Draw(ID2D1DeviceContext* dc, ID2D1CommandList* commands
     float dpi_x = 0.0f;
     float dpi_y = 0.0f;
     dc->GetDpi(&dpi_x, &dpi_y);
-    const float dpr = dpi_x / DEFAULT_DPI;
+    const float dpr = DpiScaleFrom(dpi_x);
     const float k = scale * base._11 * dpr;
     const float x = (left * base._11 + base._31) * dpr;
     const float y = (top * base._22 + base._32) * dpr;
@@ -507,8 +505,8 @@ bool DiagramBitmapCache::Draw(ID2D1DeviceContext* dc, ID2D1CommandList* commands
         e.scale = k;
         e.x = x;
         e.y = y;
-        e.band_top = visible_top - margin > 0.0f ? visible_top - margin : 0.0f;
-        e.band_bottom = visible_bottom + margin < height ? visible_bottom + margin : height;
+        e.band_top = std::max(0.0f, visible_top - margin);
+        e.band_bottom = std::min(height, visible_bottom + margin);
         e.ox = std::floor(x);
         e.oy = std::floor(y + e.band_top * k);
         const float right = std::ceil(x + width * k);

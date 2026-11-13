@@ -267,8 +267,7 @@ TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
     const float height = entry.height;
     const ComPtr<ID2D1CommandList> released = entry.commands;
 
-    renderer_.ReleaseCommands(released.Get());
-    ASSERT_TRUE(entry.ReleaseCommands());
+    renderer_.ReleaseCommands(entry);
     EXPECT_FALSE(entry.HasImage());
     EXPECT_TRUE(entry.NeedsRender());
     EXPECT_EQ(entry.width, width) << "寸法は残す";

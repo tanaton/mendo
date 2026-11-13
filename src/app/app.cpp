@@ -167,7 +167,7 @@ void App::AwaitImageFoldersBeforeDevice()
 void App::ShareRenderTarget()
 {
     auto* const rt = renderer_.GetRenderTarget();
-    mermaid_renderer_.SetRenderTarget(rt, renderer_.GetD3DDevice());
+    mermaid_renderer_.SetRenderTarget(rt, renderer_.GetD3DDevice(), renderer_.GetD2DDevice());
     image_loader_.SetRenderTarget(rt);
 }
 
@@ -1813,8 +1813,8 @@ void App::OnDeferredLayout()
         if (!table || !table->HasEvictedRows()) {
             return false;
         }
-        const float top = cache.Top(i);
-        const auto [begin, end] = table->VisibleRowRange(scroll_y - top, scroll_y + md.height - top);
+        const YRange local = YRange{ scroll_y, scroll_y + md.height }.ToLocal(cache.Top(i));
+        const auto [begin, end] = table->VisibleRowRange(local.top, local.bottom);
         return std::ranges::any_of(std::views::iota(begin, end), [table](size_t r) { return table->IsRowEvicted(r); });
     });
     const auto batch = layout_service_.ProcessDirtyBatch(
