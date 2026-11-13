@@ -351,10 +351,8 @@ void App::OnPaint()
 
 void App::EnsureFrameLayout(const PaneLayout& layout)
 {
-    const bool updated = layout_service_.EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
-    if (updated) {
-        ClampScrollToContent();
-        SettleLayout();
+    if (layout_service_.EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height)) {
+        FinishLayout(LayoutChange::Reflowed, LayoutCaller::Paint);
     }
 }
 
@@ -469,7 +467,7 @@ bool App::InvalidatePendingInline(bool force_tables)
 void App::RelayoutPendingInline(bool force_tables)
 {
     if (InvalidatePendingInline(force_tables)) {
-        RelayoutViewport();
+        FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     }
     else {
         Invalidate();
@@ -895,7 +893,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     }
     Dispatch(DocumentOpenedAction{ follow_file_pane, std::move(left) });
 
-    RelayoutViewport();
+    FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
 
     MENDO_TRACEF("OpenDocument: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
@@ -935,10 +933,10 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     MENDO_TRACEF("ReloadDocument: desired_scroll={:.1f} diff_pos={}", desired_scroll, diff_pos);
 
-    // スクロール位置を先に設定してから RelayoutViewport を呼ぶことで、変更箇所周辺の可視ノードが優先的に計測される。
+    // スクロール位置を先に設定してから測り直すことで、変更箇所周辺の可視ノードが優先的に計測される。
     Dispatch(DocumentReloadedAction{ ends, desired_scroll });
 
-    RelayoutViewport();
+    FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
 
     MENDO_TRACEF("ReloadDocument: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
@@ -1024,7 +1022,8 @@ void App::Execute(const SideEffect& effect)
             ToggleDarkMode();
         },
         [this](const effect::SettleViewport&) {
-            SettleViewport();
+            state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
+            FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
         },
         [this](const effect::RendererResize& ev) {
             renderer_.Resize(ev.width, ev.height, ev.live);
@@ -1158,7 +1157,7 @@ void App::ApplyZoom()
     renderer_.OnThemeMetricsChanged();
     // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
     ForgetInlineMath();
-    RelayoutViewport();
+    FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     UpdateTitleBar();
     session::SaveZoomLevel(config_, state_.view.viewport.Zoom());
 }
@@ -1166,12 +1165,12 @@ void App::ApplyZoom()
 void App::ToggleDarkMode()
 {
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
-    // 色だけ差し替わるので再適用不要。テーマ色を焼き込んだ図は、RelayoutViewport の図の要求がテーマの変化を見て描き直させる。
+    // 色だけ差し替わるので再適用不要。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
-    RelayoutViewport();
+    FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     mermaid_renderer_.SetViewerDarkMode(dark);
     session::SaveDarkMode(config_, dark);
 }
@@ -1709,11 +1708,6 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
     Invalidate();
 }
 
-void App::ClampScrollToContent()
-{
-    state_.view.viewport.ClampScroll(MdMaxScroll(state_));
-}
-
 bool App::HasIdleWork()
 {
     return state_.document.layout_cache.HasDirtyNodes() || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
@@ -1741,42 +1735,47 @@ void App::RunIdleWork()
     }
 }
 
-// ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、
-// 本文幅が広がると画像の解像度が足りなくなる。スクロールを待たずに BitmapManage で整理させる。
-// 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
-void App::SettleLayout()
+void App::FinishLayout(LayoutChange change, LayoutCaller caller)
 {
-    if (state_.document.layout_cache.HasDirtyNodes()) {
-        deferred_layout_.settle = true;
+    MENDO_PROFILE("FinishLayout");
+    auto& viewport = state_.view.viewport;
+    if (change == LayoutChange::Remeasure) {
+        // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
+        const PaneRect md = ComputePaneLayout(state_).md_rect;
+        layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     }
-    else {
-        resource_manager_.ScheduleBitmapManage();
+    // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。
+    const float scroll_y = viewport.GetScrollY();
+    viewport.ClampScroll(MdMaxScroll(state_));
+    const bool clamped = viewport.GetScrollY() != scroll_y;
+    switch (caller) {
+    case LayoutCaller::Message:
+        resource_manager_.FlushPendingResources();
+        [[fallthrough]];
+    case LayoutCaller::Paint:
+        // ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、本文幅が広がると画像の
+        // 解像度が足りなくなる。スクロールを待たずに BitmapManage で整理させる。遅延レイアウトが残っていれば、空き時間の
+        // 遅延レイアウト (HasIdleWork) が組み終えたとき (OnDeferredLayout) に出す。
+        if (state_.document.layout_cache.HasDirtyNodes()) {
+            deferred_layout_.settle = true;
+        }
+        else {
+            resource_manager_.ScheduleBitmapManage();
+        }
+        break;
+    case LayoutCaller::Import:
+        // 取り込み (FlushPendingResources) に入り直すと、届いたデコード結果の転送が kUploadSliceBudget の区切りを超え、
+        // 走査と図の要求も二重になる。測り直して範囲に入った画像と図は、残った dirty を組み終えたとき (OnDeferredLayout) か
+        // BITMAP_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。図の高さで Y を組み直しただけなら
+        // 頼み直さない。
+        if (change == LayoutChange::Remeasure) {
+            SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+        }
+        break;
     }
-}
-
-void App::RelayoutViewport()
-{
-    MENDO_PROFILE("RelayoutViewport");
-    LayoutViewport();
-    resource_manager_.FlushPendingResources();
-    Invalidate();
-    SettleLayout();
-}
-
-void App::LayoutViewport()
-{
-    const PaneRect md = ComputePaneLayout(state_).md_rect;
-    // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
-    layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
-    ClampScrollToContent();
-}
-
-void App::SettleViewport()
-{
-    MENDO_PROFILE("SettleViewport");
-
-    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
-    RelayoutViewport();
+    if (caller != LayoutCaller::Paint && (change != LayoutChange::Offscreen || clamped)) {
+        Invalidate();
+    }
 }
 
 void App::OnDeferredLayout()
@@ -1822,30 +1821,25 @@ void App::OnDeferredLayout()
         md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
     run.measured |= batch.updated;
 
-    // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
+    // 中間バッチでは後始末をしない (FinishLayout の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
     if (batch.remaining) {
         return;
     }
     const DeferredLayoutRun done = std::exchange(run, {});
-    // スクロールのたびに先読みの範囲を確かめさせるので、多くは組むものが無い。何も組まず、後始末 (SettleLayout) も
+    // スクロールのたびに先読みの範囲を確かめさせるので、多くは組むものが無い。何も組まず、画像と図の整理も
     // 待たせていなければ何もしない。
     if (!done.measured && !done.settle) {
         return;
     }
-    resource_manager_.FlushPendingResources();
-    resource_manager_.ScheduleBitmapManage();
-    const float clamped_from = state_.view.viewport.GetScrollY();
-    ClampScrollToContent();
     // 画面の外だけを組んだなら描き直さない。スクロールのたびに先読みすると、PageDown なら 1 回ごとに次の 1 画面を組み、
     // 毎回同じ絵を描き直すことになる (30 回で 49 → 32 フレーム)。0.5 DIP 未満のつまみの変化は見分けられない。
+    // スクロールを上限に収めて位置が変われば、後始末が描き直させる。
     const auto before = *done.scrollbar;
     const auto after = scrollbar();
     const bool bar_changed = before.shown != after.shown || std::abs(before.thumb_y - after.thumb_y) >= 0.5f ||
                              std::abs(before.thumb_height - after.thumb_height) >= 0.5f;
-    if (done.visible_dirty || bar_changed || state_.view.viewport.GetScrollY() != clamped_from) {
-        Invalidate();
-    }
+    FinishLayout(done.visible_dirty || bar_changed ? LayoutChange::Reflowed : LayoutChange::Offscreen, LayoutCaller::Message);
 }
 
 void App::EnsureNodeLayout(int node_index)
@@ -1861,18 +1855,15 @@ void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
     bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());
     relayout |= pending_resolved && InvalidatePendingInline(/*force_tables=*/false);
     if (relayout) {
-        // 取り込みの中なので RelayoutViewport (FlushPendingResources) を呼ばない。入り直すと届いたデコード結果の転送が
-        // kUploadSliceBudget の区切りを超え、走査と図の要求も二重になる。組み直しで範囲に入った画像と図は、残った dirty を
-        // 組み終えたとき (OnDeferredLayout) か BITMAP_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。
-        LayoutViewport();
-        SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+        FinishLayout(LayoutChange::Remeasure, LayoutCaller::Import);
     }
-    Invalidate();
+    else {
+        Invalidate();
+    }
 }
 
 void App::RecomputeLayout(IndexRange changed)
 {
     layout_service_.RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, changed);
-    ClampScrollToContent();
-    Invalidate();
+    FinishLayout(LayoutChange::Reflowed, LayoutCaller::Import);
 }

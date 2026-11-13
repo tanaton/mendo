@@ -1074,7 +1074,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
     EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";
 }
 
-// 再レイアウトの Flush の直後に SettleLayout が呼んでも、走査を繰り返さずタイマーに回す。
+// 再レイアウトの Flush の直後に後始末 (App::FinishLayout) が呼んでも、走査を繰り返さずタイマーに回す。
 TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
 {
     LoadMarkdown("# heading\n");

@@ -130,7 +130,7 @@ public:
         return Reduce(state, action, resource);
     }
 
-    // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める (App::ClampScrollToContent)。
+    // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める (App::FinishLayout)。
     void ResizeMdPane(float md_height)
     {
         SetWindowSize(state, static_cast<float>(state.window.client_width), md_height);

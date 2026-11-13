@@ -267,18 +267,30 @@ private:
     void RefreshHoverAtCursor();
 
     // ---- レイアウト ----
-    // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。遅延レイアウトの途中では呼ばない
-    // (後続の計測で戻る中間的な上限で、見ている位置を引き下げないため)。
-    void ClampScrollToContent();
-    // 可視範囲を計測し、変わればスクロール上限と画像・図の整理 (SettleLayout) を追従させる。
+    // 後始末 (FinishLayout) に渡す、何が変わったか。
+    enum class LayoutChange : uint8_t {
+        // レイアウトを捨てた、または文書・幅・ズーム・テーマが変わった。可視範囲を推定し直して測る。
+        Remeasure,
+        // 見えている範囲を組んだか、ノードの高さが変わって Y を組み直した。
+        Reflowed,
+        // 画面の外だけを組んだ (先読み)。スクロールの位置が変わらなければ描き直さない。
+        Offscreen,
+    };
+    // 後始末をどこから呼ぶか。
+    enum class LayoutCaller : uint8_t {
+        // 入力・メッセージ・タイマー・空き時間。画像と図をすぐ取り込む。
+        Message,
+        // 画像と図の取り込み (ResourceManagerHost の通知) の中。取り込みに入り直さない。
+        Import,
+        // 描画の直前の計測 (OnPaint・PrepareFrame)。描き直させない。
+        Paint,
+    };
+    // レイアウトが変わった後の後始末の入口。可視範囲の計測・スクロールを上限に収める・画像と図の取り込み・描き直しの
+    // 組み合わせと順番はここだけで決める (目次は描画の SyncActiveTocIndex)。遅延レイアウトの途中では呼ばない
+    // (後続の計測で戻る中間的な上限にスクロールを収めて、見ている位置を引き下げないため)。
+    void FinishLayout(LayoutChange change, LayoutCaller caller);
+    // 可視範囲を計測し、変わっていれば後始末をする。
     void EnsureFrameLayout(const PaneLayout& layout);
-    // dirty が残っていれば空き時間の遅延レイアウト (HasIdleWork) が拾い、その完了時に画像と図を整理する。
-    // 残っていなければ今整理させる。
-    void SettleLayout();
-    // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウトを追従させる (目次は描画の SyncActiveTocIndex)。
-    void RelayoutViewport();
-    // RelayoutViewport のうち、可視範囲の計測とスクロールの収め直しだけ。
-    void LayoutViewport();
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。
     bool RequestInlineMathChunk(uint64_t key);
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk は頼んだ組、generation は頼んだときの計画の世代。
@@ -291,7 +303,6 @@ private:
     void ForgetInlineMath();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
-    void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
@@ -352,7 +363,7 @@ private:
     bool initialized_ = false;
     // 続けて呼ぶ先読みの計測 (OnDeferredLayout) の一連。組み終えたときに、取り込みと描き直しを決める。
     struct DeferredLayoutRun {
-        // 組み終えるまで後始末 (SettleLayout) を待たせた。
+        // 組み終えるまで画像と図の整理 (FinishLayout の BitmapManage) を待たせた。
         bool settle = false;
         // 何かを組んだ。
         bool measured = false;

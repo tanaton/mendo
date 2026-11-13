@@ -125,7 +125,7 @@ public:
 
 private:
     // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
-    // 描画命令は作らないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
+    // 描画命令は作らないので、描画は App の後始末 (FinishLayout) の FlushPendingResources に任せる。
     bool ApplyMermaidCacheHeights(IndexRange range);
     // 本文中の画像の表の変わり方。NotifyInlineImages で App に組み直しか描き直しをさせる。
     struct InlineImageUpdate {
