@@ -103,9 +103,9 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-const DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
+DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
 {
-    const auto* free = cache_.Find(width_free_hash);
+    auto* free = cache_.Find(width_free_hash);
     return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
 }
 
@@ -124,6 +124,15 @@ void MermaidRenderer::DropQueued()
     });
 }
 
+void MermaidRenderer::ReleaseCommands(ID2D1CommandList* commands)
+{
+    cache_.ForEach([commands](DiagramResult& r) {
+        if (r.commands.Get() == commands) {
+            r.commands = nullptr;
+        }
+    });
+}
+
 void MermaidRenderer::DropQueuedMath()
 {
     std::erase_if(render_waiting_, [](const RenderRequest& r) { return std::holds_alternative<MathRequest>(r.target); });
@@ -134,21 +143,29 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    const auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
+    auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
     if (!result) {
         return false;
+    }
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録したときに捨てているので、
+    // ここで組む (図 1 個約 0.9ms)。デバイスを作り直している間は記録できないので、次の要求まで待たせる。
+    if (result->drawing && !result->commands && result->error.empty()) {
+        result->commands = RecordDrawing(*result->drawing, nullptr);
+        if (!result->commands) {
+            return false;
+        }
     }
     // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
     diagram_entry.SetResult(*result);
     return true;
 }
 
-const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
+DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
 {
     const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
-    if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
+    if (auto* cached = FindCached(hash, width_free_hash, max_width)) {
         return cached;
     }
     if (!inflight_.insert(hash).second) {

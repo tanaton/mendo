@@ -160,6 +160,24 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
+    // 図のコマンドリストも保持範囲の図の分だけ残す (test.md の図 27 個で commit 1〜2MB、1 個 40〜70KB)。寸法と描画命令は
+    // 残すので組み直さず、戻ってきたら先読み範囲に入ったときに UI で記録し直す (文字を組むので 1 個約 0.9ms)。
+    // メモリを返すほうをユーザーが選んだ (2026-11-13)。
+    const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
+    const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
+    for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
+        for (const size_t i : part) {
+            auto* diagram = state_.document.layout_cache.FindDiagram(i);
+            if (!diagram) {
+                continue;
+            }
+            const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram->commands;
+            if (diagram->ReleaseCommands()) {
+                mermaid_.ReleaseCommands(commands.Get());
+            }
+        }
+    }
+
     // 本文中の画像のビットマップも保持範囲の画像の分だけ残す。寸法は表に残すので、戻ってきても組み直さない。
     if (inline_drawings_.images.size() == 0) {
         return;

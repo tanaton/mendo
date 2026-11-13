@@ -61,6 +61,15 @@ public:
         entries_.clear();
     }
 
+    // 並び順を変えずに全部の値を渡す。
+    template <class Fn>
+    void ForEach(Fn&& fn)
+    {
+        for (auto& e : entries_) {
+            fn(e.value);
+        }
+    }
+
     size_t Size() const noexcept
     {
         return entries_.size();

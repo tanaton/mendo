@@ -256,6 +256,33 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(file_cache_.Find(d.WidthFreeHash(), 0, kMaxWidth, false).has_value());
 }
 
+// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令から同期で記録し直し、描き直しもディスクの読み込みもしない。
+TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
+{
+    const DiagramDoc d(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    const auto drawing = entry.drawing;
+    const float width = entry.width;
+    const float height = entry.height;
+    const ComPtr<ID2D1CommandList> released = entry.commands;
+
+    renderer_.ReleaseCommands(released.Get());
+    ASSERT_TRUE(entry.ReleaseCommands());
+    EXPECT_FALSE(entry.HasImage());
+    EXPECT_TRUE(entry.NeedsRender());
+    EXPECT_EQ(entry.width, width) << "寸法は残す";
+
+    const int updates = updates_;
+    EXPECT_TRUE(Request(d, entry));
+    ASSERT_TRUE(entry.HasImage());
+    EXPECT_NE(entry.commands, released) << "捨てたものは使わない";
+    EXPECT_EQ(entry.drawing, drawing);
+    EXPECT_EQ(entry.width, width);
+    EXPECT_EQ(entry.height, height);
+    EXPECT_EQ(updates_, updates) << "描き直さない";
+}
+
 // 描いた図のエラーは描き直しても同じなので確定させ、ディスクには置かない。
 TEST_F(MermaidRendererTest, SettlesRenderError)
 {

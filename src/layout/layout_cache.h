@@ -525,11 +525,22 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
+    // 画面外へ出た図のコマンドリストだけを捨てる。寸法と描画命令は残し、戻ったら描画命令から記録し直させる (NeedsRender)。
+    // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
+    bool ReleaseCommands() noexcept
+    {
+        if (!HasImage() || !drawing || stale) {
+            return false;
+        }
+        commands = nullptr;
+        return true;
+    }
+
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
-    // 再試行可能に戻す。
+    // 再試行可能に戻す。コマンドリストだけを捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
     void MarkStale() noexcept
     {
-        if (!HasImage()) {
+        if (!HasImage() && !drawing) {
             SetResult({});
             return;
         }
@@ -646,7 +657,7 @@ public:
     // [to, to + count) へ移す。Y 位置は呼び出し側が組み直す。
     void TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count);
     // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
-    // 描いた結果が無ければ何もせず false を返す。
+    // 描いた結果 (コマンドリストを捨てた描画命令を含む) が無ければ何もせず false を返す。
     bool TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to);
 
     // 遅延レイアウトで計測する dirty が残っているかもしれない。LayoutEngine が計測のたびに決め直す。

@@ -3,6 +3,7 @@
 #include <wrl/client.h>
 
 struct DiagramEntry;
+struct ID2D1CommandList;
 struct Node;
 namespace mermaid_util {
 struct DiagramDrawing;
@@ -22,6 +23,9 @@ public:
     // 要求は維持)。大きく移動した後や幅・テーマの変更後に、不要になった図が先に描かれて可視の図が待たされるのを防ぐ。
     // 捨てた図は再要求される。
     virtual void DropQueued()
+    {}
+    // 画面外へ出た図のコマンドリストを、覚えている結果からも外す。次の RequestRender で描画命令から記録し直す。
+    virtual void ReleaseCommands(ID2D1CommandList* /*commands*/)
     {}
     // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。待っていなければ何もしない。
     // 本文の図と同じ所から呼ぶ (頼んでよいかの判断と、本文と同じ要求になる幅を 1 か所で決める)。

@@ -94,6 +94,7 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
+    void ReleaseCommands(ID2D1CommandList* commands) override;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -254,9 +255,9 @@ private:
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts = nullptr);
     void InsertCache(uint64_t hash, DiagramResult result);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
-    const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
+    DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
     // 結果 (描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
-    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
+    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
