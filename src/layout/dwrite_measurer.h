@@ -22,6 +22,7 @@ public:
 
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override;
     TableRestoreResult RestoreEvictedTableRows(const Node& node, NodeLayoutEntry& entry, YRange viewport) const override;
+    BuiltTable BuildTable(const Node& node, float max_width, std::stop_token stop) const override;
 
     // 外部のIDWriteFactoryで初期化する（RecreateFormats の前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -96,8 +97,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> CreateCellLayout(const DWriteContext& ctx, const Node& node, bool& pending_inline, size_t r, size_t c,
                                                                float image_fit_width, TableLayoutData::ImageCell* image_cell = nullptr) const;
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅と最小幅を tl.natural_col_widths・tl.min_col_widths に集計する。
-    // 大きな表はセル layout を残さず、全行を evict 済みにする。
-    void MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline) const;
+    // 大きな表はセル layout を残さず、全行を evict 済みにする。stop が立ったら途中でやめる (呼び出し側が stop を見て捨てる)。
+    void MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline, std::stop_token stop) const;
     // 戻り値はテーブル全体の高さ。画像を含むセルは決めた列幅で組み直す。
     float FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const;
 

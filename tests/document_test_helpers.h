@@ -43,7 +43,7 @@ inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
 // ノードを 1 つ取り出す」用途。production には対応する索引 (image_node_indices_ 等)
 // があるため本関数は使わない。
-inline int FindFirstNodeIndexByType(const std::vector<Node>& nodes, NodeType type) noexcept
+inline int FindFirstNodeIndexByType(std::span<const Node> nodes, NodeType type) noexcept
 {
     const auto it = std::ranges::find(nodes, type, &Node::type);
     return it != nodes.end() ? static_cast<int>(it - nodes.begin()) : -1;
@@ -86,7 +86,7 @@ inline std::string MakeParagraphs(int n, std::string_view suffix = {})
 }
 
 // 各ノードに Document::FindAnchorIndex と同じ規則で付くアンカー。見出し以外は空。
-inline std::vector<std::string> HeadingAnchors(const std::vector<Node>& nodes)
+inline std::vector<std::string> HeadingAnchors(std::span<const Node> nodes)
 {
     HeadingAnchorIndex index;
     std::vector<std::string> anchors(nodes.size());

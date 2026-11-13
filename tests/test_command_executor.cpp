@@ -102,8 +102,8 @@ protected:
         return layout;
     }
 
-    // cmd を executor か D2D の DrawTextLayout で、黒の BrushId::Text で描いた画素。
-    std::vector<uint32_t> RenderTextLayout(const DrawTextLayoutCmd& cmd, bool via_executor)
+    // cmd を executor か D2D の DrawTextLayout (options で) で、黒の BrushId::Text で描いた画素。
+    std::vector<uint32_t> RenderTextLayout(const DrawTextLayoutCmd& cmd, bool via_executor, D2D1_DRAW_TEXT_OPTIONS options = D2D1_DRAW_TEXT_OPTIONS_NONE)
     {
         ComPtr<ID2D1RenderTarget> rt;
         EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
@@ -116,7 +116,7 @@ protected:
             ExecuteDrawCommands(cmds, rt.Get(), brushes, no_drawings_);
         }
         else {
-            rt->DrawTextLayout(cmd.origin, cmd.layout, brushes[std::to_underlying(BrushId::Text)].Get());
+            rt->DrawTextLayout(cmd.origin, cmd.layout, brushes[std::to_underlying(BrushId::Text)].Get(), options);
         }
         EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
         return ReadAllPixels();
@@ -176,9 +176,15 @@ protected:
         return rt->EndDraw();
     }
 
+    // R・G・B が揃っていない (灰色でない) 画素があるか。
     static bool HasColoredPixel(std::span<const uint32_t> pixels)
     {
-        return std::ranges::any_of(pixels, [](uint32_t px) static { return (px & 0xFF) != ((px >> 8) & 0xFF); });
+        return std::ranges::any_of(pixels, [](uint32_t px) static {
+            const uint32_t r = (px >> 16) & 0xFF;
+            const uint32_t g = (px >> 8) & 0xFF;
+            const uint32_t b = px & 0xFF;
+            return r != g || g != b;
+        });
     }
 
     UINT size_ = 32;
@@ -325,6 +331,18 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     const auto expected = RenderTextLayout(cmd, false);
     EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
     EXPECT_EQ(RenderTextLayout(cmd, true), expected);
+}
+
+// 本文の絵文字はフォントの色で描き、図のラベル (DrawTextLayout の ENABLE_COLOR_FONT) と同じ画素になる。周りの文字は黒のまま。
+TEST_F(CommandExecutorIntegrationTest, ColorEmojiMatchesDrawTextLayoutWithColorFont)
+{
+    const auto layout = CreateTextLayout(L"a😀", L"Segoe UI", L"en-us", 30.0f, 30.0f);
+    ASSERT_TRUE(layout);
+    const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
+    const auto expected = RenderTextLayout(cmd, false, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    ASSERT_TRUE(HasColoredPixel(expected)) << "絵文字に色が付いていない";
+    EXPECT_EQ(RenderTextLayout(cmd, true), expected);
+    EXPECT_FALSE(HasColoredPixel(RenderTextLayout(cmd, false))) << "色を付けない描き方では単色になる (比べる意味がある)";
 }
 
 // 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、

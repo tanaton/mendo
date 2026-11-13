@@ -8,7 +8,7 @@
 #include <string_view>
 
 // Reestimate してから範囲を計測する。範囲を省略すると全ノードを計測する。
-inline void ComputeLayout(LayoutEngine& engine, const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+inline void ComputeLayout(LayoutEngine& engine, std::span<const Node> nodes, LayoutCache& cache, float viewport_width,
                           float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
 {
     engine.Reestimate(nodes, cache, viewport_width);

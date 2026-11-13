@@ -7,6 +7,7 @@
 #include "ui_constants.h"
 #include "win32_util.h"
 #include <d2d1_3.h>
+#include <d3d11.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <array>
@@ -97,20 +98,20 @@ std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir)
     return it == used.begin() ? std::nullopt : std::optional{ *std::prev(it) };
 }
 
-DiagramView::DiagramView(ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
-    : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d2d_(d2d)
+DiagramView::DiagramView(ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
+    : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d3d_(d3d), device_(device)
 {}
 
-std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                  std::move_only_function<void()> on_close)
+std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                                  bool dark, std::move_only_function<void()> on_close)
 {
     static const bool registered = RegisterWindowClass(
         kWindowClass.data(), WndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
     RECT owner_rect{};
-    if (!registered || !GetWindowRect(owner, &owner_rect)) {
+    if (!registered || !d3d || !device || !GetWindowRect(owner, &owner_rect)) {
         return nullptr;
     }
-    std::unique_ptr<DiagramView> view(new DiagramView(d2d, dw, wic, std::move(on_close)));
+    std::unique_ptr<DiagramView> view(new DiagramView(d3d, device, dw, wic, std::move(on_close)));
     const int owner_w = owner_rect.right - owner_rect.left;
     const int owner_h = owner_rect.bottom - owner_rect.top;
     const int w = MulDiv(owner_w, kSizePercent, 100);
@@ -269,22 +270,41 @@ D2D1_POINT_2F DiagramView::ToDip(LPARAM lparam) const noexcept
 
 bool DiagramView::EnsureTarget()
 {
-    if (rt_) {
+    if (target_.dc()) {
         return true;
+    }
+    if (!d3d_ || !device_) {
+        return false;
     }
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    const float dpi = Scale() * DEFAULT_DPI;
-    // D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった (2 回に 1 回)。
-    if (FAILED(d2d_->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
-                                            D2D1::HwndRenderTargetProperties(hwnd_, D2D1::SizeU(rc.right, rc.bottom)),
-                                            &rt_)) ||
-        FAILED(rt_->CreateSolidColorBrush(D2D1::ColorF(0), &brush_))) {
-        rt_.Reset();
+    // 大きさは窓に合わせて ResizeBuffers する。Present は垂直同期を待つ (HwndRenderTarget の既定と同じ。待たない
+    // D2D1_PRESENT_OPTIONS_IMMEDIATELY は、スクロールバーが出て窓が縮んだ直後の 1 枚が画面に出ないことがあった)。
+    if (!target_.Create(d3d_.Get(), device_.Get(), hwnd_, static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom), Scale() * DEFAULT_DPI,
+                        WindowSwapTarget::Mode::Flip) ||
+        FAILED(target_.dc()->CreateSolidColorBrush(D2D1::ColorF(0), &brush_))) {
+        ReleaseTarget();
         return false;
     }
-    record_dc_ = CreateRecordContext(rt_.Get());
+    record_dc_ = CreateRecordContext(target_.dc());
     return true;
+}
+
+void DiagramView::ReleaseTarget() noexcept
+{
+    target_.Reset();
+    brush_.Reset();
+    record_dc_.Reset();
+    commands_.Reset();
+}
+
+void DiagramView::SetDevice(ID3D11Device* d3d, ID2D1Device* device)
+{
+    // 旧デバイスのスワップチェーンを放してから作る (同じ窓に 2 つ目は作れない)。
+    ReleaseTarget();
+    d3d_ = d3d;
+    device_ = device;
+    Invalidate();
 }
 
 D2D1_POINT_2F DiagramView::Origin() const noexcept
@@ -304,35 +324,32 @@ void DiagramView::Paint()
     if (!EnsureTarget()) {
         return;
     }
+    ID2D1DeviceContext* const rt = target_.dc();
     const Palette palette = PaletteFor(dark_);
-    rt_->BeginDraw();
-    rt_->SetTransform(D2D1::Matrix3x2F::Identity());
-    rt_->Clear(palette.background);
+    rt->BeginDraw();
+    rt->SetTransform(D2D1::Matrix3x2F::Identity());
+    rt->Clear(palette.background);
     if (drawing_) {
         if (!commands_) {
             commands_ = RecordDiagram(record_dc_.Get(), dw_.Get(), wic_.Get(), *drawing_, i18n::TextLocale());
         }
-        ComPtr<ID2D1DeviceContext> dc;
-        if (commands_ && SUCCEEDED(rt_.As(&dc))) {
+        if (commands_) {
             const D2D1_POINT_2F origin = Origin();
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
-            dc->DrawImage(commands_.Get());
-            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+            rt->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
+            rt->DrawImage(commands_.Get());
+            rt->SetTransform(D2D1::Matrix3x2F::Identity());
         }
         PaintBar();
     }
     else if (fmt_label_) {
         const std::wstring_view loading = i18n::S().loading;
         brush_->SetColor(palette.text);
-        rt_->DrawTextW(loading.data(), static_cast<UINT32>(loading.size()), fmt_label_.Get(), D2D1::RectF(0.0f, 0.0f, view_width_, view_height_),
-                       brush_.Get());
+        rt->DrawTextW(loading.data(), static_cast<UINT32>(loading.size()), fmt_label_.Get(), D2D1::RectF(0.0f, 0.0f, view_width_, view_height_),
+                      brush_.Get());
     }
-    if (rt_->EndDraw() == D2DERR_RECREATE_TARGET) {
-        rt_.Reset();
-        brush_.Reset();
-        record_dc_.Reset();
-        commands_.Reset();
-        Invalidate();
+    // デバイスを失ったら捨てる。作り直しは、本体がデバイスを作り直したとき (SetDevice) に任せる。
+    if (!target_.EndDrawAndPresent()) {
+        ReleaseTarget();
     }
 }
 
@@ -394,20 +411,21 @@ DiagramView::Button DiagramView::HitButton(float x, float y) const noexcept
 
 void DiagramView::PaintBar()
 {
+    ID2D1DeviceContext* const rt = target_.dc();
     ID2D1SolidColorBrush* const brush = brush_.Get();
     const Palette palette = PaletteFor(dark_);
     const D2D1_RECT_F bar = BarRect();
     brush->SetColor(palette.shadow);
-    rt_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bar.left, bar.top + 1.0f, bar.right, bar.bottom + 1.5f), kBarCorner, kBarCorner), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bar.left, bar.top + 1.0f, bar.right, bar.bottom + 1.5f), kBarCorner, kBarCorner), brush);
     brush->SetColor(palette.bar);
-    rt_->FillRoundedRectangle(D2D1::RoundedRect(bar, kBarCorner, kBarCorner), brush);
+    rt->FillRoundedRectangle(D2D1::RoundedRect(bar, kBarCorner, kBarCorner), brush);
     const Button highlighted = HighlightedButton();
     for (const Button b : { Button::ZoomOut, Button::ZoomIn, Button::Fit }) {
         const D2D1_RECT_F r = ButtonRect(b);
         const bool enabled = IsEnabled(b);
         if (highlighted == b && enabled) {
             brush->SetColor(palette.hover);
-            rt_->FillRoundedRectangle(D2D1::RoundedRect(r, kButtonCorner, kButtonCorner), brush);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(r, kButtonCorner, kButtonCorner), brush);
         }
         D2D1_COLOR_F glyph = palette.text;
         glyph.a = enabled ? 1.0f : DISABLED_UI_ALPHA;
@@ -424,21 +442,21 @@ void DiagramView::PaintBar()
                 { 5.5f,  14.5f, 1.5f,  14.5f, 1.5f,  10.5f },
             };
             for (const auto& k : kCorners) {
-                rt_->DrawLine(D2D1::Point2F(ox + k[0], oy + k[1]), D2D1::Point2F(ox + k[2], oy + k[3]), brush, 1.5f);
-                rt_->DrawLine(D2D1::Point2F(ox + k[2], oy + k[3]), D2D1::Point2F(ox + k[4], oy + k[5]), brush, 1.5f);
+                rt->DrawLine(D2D1::Point2F(ox + k[0], oy + k[1]), D2D1::Point2F(ox + k[2], oy + k[3]), brush, 1.5f);
+                rt->DrawLine(D2D1::Point2F(ox + k[2], oy + k[3]), D2D1::Point2F(ox + k[4], oy + k[5]), brush, 1.5f);
             }
         }
         else if (fmt_symbol_) {
             const wchar_t* symbol = b == Button::ZoomIn ? L"+" : L"\x2212";
-            rt_->DrawTextW(symbol, 1, fmt_symbol_.Get(), r, brush);
+            rt->DrawTextW(symbol, 1, fmt_symbol_.Get(), r, brush);
         }
     }
     if (fmt_label_) {
         const D2D1_RECT_F out = ButtonRect(Button::ZoomOut);
         const std::wstring zoom = std::format(L"{}%", std::lround(Zoom() * 100.0f));
         brush->SetColor(palette.text);
-        rt_->DrawTextW(zoom.data(), static_cast<UINT32>(zoom.size()), fmt_label_.Get(),
-                       D2D1::RectF(out.right + kBarGap, out.top, out.right + kBarGap + kLabelWidth, out.bottom), brush);
+        rt->DrawTextW(zoom.data(), static_cast<UINT32>(zoom.size()), fmt_label_.Get(),
+                      D2D1::RectF(out.right + kBarGap, out.top, out.right + kBarGap + kLabelWidth, out.bottom), brush);
     }
 }
 
@@ -455,9 +473,8 @@ void DiagramView::Layout()
         const float scale = Scale();
         view_width_ = PixelToDip(static_cast<float>(rc.right), scale);
         view_height_ = PixelToDip(static_cast<float>(rc.bottom), scale);
-        if (rt_) {
-            rt_->SetDpi(scale * DEFAULT_DPI, scale * DEFAULT_DPI);
-            rt_->Resize(D2D1::SizeU(rc.right, rc.bottom));
+        if (target_.dc() && !target_.Resize(static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom), scale * DEFAULT_DPI)) {
+            ReleaseTarget();
         }
         if (drawing_) {
             fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->width, drawing_->height);

@@ -194,28 +194,10 @@ bool Renderer::CreateDeviceResources()
 
 bool Renderer::CreateSwapChainBitmap()
 {
-    ComPtr<IDXGISurface> surface;
-    HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
-    if (FAILED(hr)) {
-        LogHrFailure("IDXGISwapChain1::GetBuffer", hr);
+    if (const HRESULT hr = BindSwapChainTarget(device_context_.Get(), swap_chain_.Get(), dpi_); FAILED(hr)) {
+        LogHrFailure("BindSwapChainTarget", hr);
         return false;
     }
-
-    // 不透明なウィンドウなので IGNORE にする。PREMULTIPLIED だと D2D が透過のある描画先とみなし、
-    // 文字のアンチエイリアスを ClearType からグレースケールに落とす。
-    const D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-        dpi_, dpi_);
-
-    ComPtr<ID2D1Bitmap1> target_bitmap;
-    hr = device_context_->CreateBitmapFromDxgiSurface(surface.Get(), &bp, &target_bitmap);
-    if (FAILED(hr)) {
-        LogHrFailure("CreateBitmapFromDxgiSurface", hr);
-        return false;
-    }
-
-    device_context_->SetTarget(target_bitmap.Get());
     return true;
 }
 
@@ -284,6 +266,27 @@ void Renderer::SetDpi(float dpi) noexcept
     }
 }
 
+bool Renderer::SetScrollingDiagrams(bool scrolling) noexcept
+{
+    scrolling_diagrams_ = scrolling;
+    if (scrolling || diagram_bitmaps_.Count() == 0) {
+        return false;
+    }
+    diagram_bitmaps_.Clear();
+    return true;
+}
+
+void Renderer::TrimForInactive() noexcept
+{
+    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限を下げると目次を戻るたびに作り直す (目次の全行が
+    // 入れ替わるフレームで 0.38ms) ので、上限は保ち、使わない間だけ手放すほうをユーザーが選んだ (2026-11-13)。
+    // 見出し 2000 個の目次をホイールで 300 回送ってから切り替えると、commit 40.0〜40.4 → 39.2〜39.7MB。
+    // 1 秒後の trim の直前に捨てると、解放の後で触ったページが private WS に 0.5MB 残るので、切り替わった時点で捨てる。
+    // 描画コマンドが指すレイアウトも消えるので、描くコマンドも捨てる (次のフレームは作り直してから描く)。
+    frame_cmds_.clear();
+    text_layouts_.Clear();
+}
+
 void Renderer::TrimForMinimize() noexcept
 {
     if (!d2d_device_) {
@@ -291,6 +294,7 @@ void Renderer::TrimForMinimize() noexcept
     }
     d2d_device_->ClearResources();
     math_masks_->Reset(d2d_device_.Get());
+    diagram_bitmaps_.Clear();
     // IDXGIDevice3::Trim の前に ClearState で参照を外しておく必要がある。
     ComPtr<ID3D11DeviceContext> d3d_ctx;
     d3d_device_->GetImmediateContext(&d3d_ctx);
@@ -328,6 +332,7 @@ bool Renderer::CreateDevice()
         device_context_->SetTarget(nullptr);
     }
     math_masks_->Reset(nullptr);
+    diagram_bitmaps_.Reset(nullptr);
     device_context_.Reset();
     d2d_device_.Reset();
     swap_chain_.Reset();
@@ -346,6 +351,7 @@ bool Renderer::CreateDevice()
     }
     device_.MarkCreated();
     math_masks_->Reset(d2d_device_.Get());
+    diagram_bitmaps_.Reset(d2d_device_.Get());
     OnThemeColorsChanged();
     LoadAppIconBitmap();
     return true;

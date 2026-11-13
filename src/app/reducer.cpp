@@ -125,7 +125,7 @@ struct ReduceContext {
     SideEffectList& effects;
     NodeLayoutAccess& layout;
     // 文書を差し替えた後 (読み込みの復元・リロード) ではスクロールの副作用を積まない。
-    // 直後の App::RelayoutViewport が計測してから描き直させる。
+    // 直後の App の後始末 (FinishLayout) が計測してから描き直させる。
     bool emit_scroll_effects = true;
     // 描き直しは Reduce の終わりに、副作用の先頭へ 1 件だけ積む。
     bool invalidated = false;

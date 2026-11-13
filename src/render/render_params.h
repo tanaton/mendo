@@ -52,7 +52,7 @@ struct SidePaneState {
     SidePaneInstance panes[2];
     const std::vector<FileEntry>& file_entries;
     const std::vector<TocEntry>& toc_entries;
-    const std::vector<Node>& nodes; // TocEntryからのテキスト参照用
+    std::span<const Node> nodes; // TocEntryからのテキスト参照用
     int active_toc_index;
 
     constexpr const SidePaneInstance& Get(PaneTarget t) const noexcept
@@ -78,7 +78,7 @@ struct SearchBarRenderState {
 
 // 本文ペインの描画コマンドを作る入力 (CommandGenerator::GenerateMdPane)。
 struct MdPaneParams {
-    const std::vector<Node>& nodes;
+    std::span<const Node> nodes;
     const LayoutCache& cache;
     const TextSelection& selection;
     PaneRect md_pane_rect;

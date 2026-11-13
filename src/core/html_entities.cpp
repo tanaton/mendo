@@ -23,6 +23,15 @@ std::string_view ResolveHtmlEntity(std::string_view entity, char (&buffer)[4])
 
     if (entity[1] != '#') {
         const std::string_view name = entity.substr(1, entity.size() - 2);
+        // よく使う参照は表を引かない (表は 2000 個余りで、二分探索は 1 回 約 44ns)。
+        static constexpr std::pair<std::string_view, std::string_view> kCommon[]{
+            { "amp", "&" }, { "lt", "<" }, { "gt", ">" }, { "quot", "\"" }, { "apos", "'" }, { "nbsp", "\xC2\xA0" },
+        };
+        for (const auto& [common, text] : kCommon) {
+            if (name == common) {
+                return text;
+            }
+        }
         const auto it = std::ranges::lower_bound(kHtmlNamedEntities, name, {}, EntityName);
         if (it == std::ranges::end(kHtmlNamedEntities) || EntityName(*it) != name) {
             return entity;

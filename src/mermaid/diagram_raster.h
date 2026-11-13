@@ -1,5 +1,6 @@
 #pragma once
 #include "mermaid_util.h"
+#include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <array>
@@ -87,9 +88,23 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing);
 
 // target と同じデバイスで、図をコマンドリストに記録する DeviceContext を作る。描いている target とは別に要る。
 Microsoft::WRL::ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target);
-// 図をコマンドリストに記録する (毎フレームそれを描く)。記録できなければ null。
+
+// 図の文字の並びを組んだもの。層の順、層の中は文字の並びの順。空の並びと組めなかった並びは null。
+struct DiagramTextLayouts {
+    struct Run {
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        float baseline = 0.0f;
+    };
+    std::vector<Run> runs;
+};
+// 図の文字の並びを組み、整形まで済ませる。記録 (UI スレッド) の 8 割は文字を組む手間なので、worker で先に組んで
+// RecordDiagram に渡す。
+DiagramTextLayouts LayoutDiagramTexts(IDWriteFactory* dw, const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale);
+// 図をコマンドリストに記録する (毎フレームそれを描く)。記録できなければ null。texts は drawing から LayoutDiagramTexts で
+// 組んだもので、無ければここで組む。
 Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDiagram(ID2D1DeviceContext5* record_dc, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                                       const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale);
+                                                       const mermaid_util::DiagramDrawing& drawing, const wchar_t* locale,
+                                                       const DiagramTextLayouts* texts = nullptr);
 
 // 図の描画命令を CPU で描き、画素を確定させたビットマップにする (保存・コピーの画像)。図を size (CSS px) に伸縮し、
 // dpr 倍した 32bpp PBGRA に描く。locale は文字の書式のロケール。描けなければ null。

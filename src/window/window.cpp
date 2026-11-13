@@ -589,6 +589,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnInlineMathRequested();
         return 0;
 
+    case app_msg::TABLE_MEASURED:
+        app_->OnTableMeasured();
+        return 0;
+
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

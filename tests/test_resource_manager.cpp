@@ -68,6 +68,15 @@ public:
     }
     int drop_queued_count = 0;
 
+    void ReleaseCommands(DiagramEntry& diagram_entry) override
+    {
+        ID2D1CommandList* const commands = diagram_entry.commands.Get();
+        if (diagram_entry.ReleaseCommands()) {
+            released_commands.push_back(commands);
+        }
+    }
+    std::vector<ID2D1CommandList*> released_commands;
+
     void RequestViewerDrawing(float max_width, bool dark_mode) override
     {
         viewer_requests.emplace_back(max_width, dark_mode);
@@ -831,6 +840,39 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsTableRowsInRange)
 
 // ---- Mermaid 経路 ----
 
+// 図のコマンドリストは保持範囲の図の分だけ残す。寸法と描画命令は残し、戻ってきたら描画命令から記録し直させる。
+// 仮表示中の図は描き直しが届くまでの代わりなので残す。
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesFarDiagramCommands)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
+                 /*block_height=*/3000.0f);
+    const auto& indices = doc_.GetDiagramNodeIndices();
+    ASSERT_EQ(indices.size(), 3u);
+    const auto drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    for (const size_t i : indices) {
+        auto& diagram = cache_.EnsureDiagram(i);
+        diagram.SetResult({ .commands = &SharedStubCommandList(), .width = 100.0f, .height = 50.0f, .drawing = drawing });
+    }
+    cache_.EnsureDiagram(indices[2]).stale = true;
+
+    rm_.EvictOffscreenBitmaps();
+    const auto& kept = *cache_.FindDiagram(indices[0]);
+    const auto& released = *cache_.FindDiagram(indices[1]);
+    const auto& stale_far = *cache_.FindDiagram(indices[2]);
+    EXPECT_TRUE(kept.HasImage());
+    EXPECT_FALSE(released.HasImage());
+    EXPECT_EQ(released.drawing, drawing);
+    EXPECT_EQ(released.width, 100.0f);
+    EXPECT_EQ(released.height, 50.0f);
+    EXPECT_TRUE(released.NeedsRender());
+    EXPECT_TRUE(stale_far.HasImage());
+    EXPECT_EQ(mock_mermaid_.released_commands, std::vector<ID2D1CommandList*>{ &SharedStubCommandList() });
+
+    // 捨てた後の図は、もう一度捨てない。
+    rm_.EvictOffscreenBitmaps();
+    EXPECT_EQ(mock_mermaid_.released_commands.size(), 1u);
+}
+
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -1032,7 +1074,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
     EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";
 }
 
-// 再レイアウトの Flush の直後に SettleLayout が呼んでも、走査を繰り返さずタイマーに回す。
+// 再レイアウトの Flush の直後に後始末 (App::FinishLayout) が呼んでも、走査を繰り返さずタイマーに回す。
 TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
 {
     LoadMarkdown("# heading\n");

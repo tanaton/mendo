@@ -2,6 +2,7 @@
 #include "render_params.h"
 #include "theme.h"
 #include "command_generator.h"
+#include "d2d_util.h"
 #include "ui_constants.h"
 #include "win_handle.h"
 #include <d2d1_1.h>
@@ -76,9 +77,7 @@ public:
     }
     void OnPresent(HRESULT hr) noexcept
     {
-        // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
-        // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+        if (IsDeviceLostOnPresent(hr)) {
             MarkLost();
             return;
         }
@@ -93,7 +92,7 @@ private:
 };
 
 // D2D/DirectWrite/WIC のファクトリ、D3D デバイス・スワップチェーンとロスト検知、ブラシとテキスト書式を持ち、1 フレームを描く。
-// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi を読む唯一の TU)。
+// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi をヘッダに出さない)。
 class Renderer {
 public:
     Renderer() noexcept;
@@ -123,8 +122,21 @@ public:
     void SetDpi(float dpi) noexcept;
     // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
     void TrimForMinimize() noexcept;
+    // 別のアプリへ切り替わった後に、作り置いた短い文字列のレイアウトを手放す。戻った最初のフレームで見えている分を作り直す。
+    void TrimForInactive() noexcept;
+    // スクロールの間は見えている図をビットマップで描き (DiagramBitmapCache)、止まったらビットマップを捨ててベクタに戻す。
+    // 捨てたビットマップがあれば true (ベクタで描き直させる)。
+    bool SetScrollingDiagrams(bool scrolling) noexcept;
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
+    ID3D11Device* GetD3DDevice() const noexcept
+    {
+        return d3d_device_.Get();
+    }
+    ID2D1Device* GetD2DDevice() const noexcept
+    {
+        return d2d_device_.Get();
+    }
     ID2D1RenderTarget* GetRenderTarget() const noexcept
     {
         return device_context_.Get();
@@ -238,6 +250,9 @@ private:
     FixedBrushArray brushes_;
     // インライン数式の SVG の形のマスク。デバイスごとに作り直す。
     std::unique_ptr<MathMaskCache> math_masks_;
+    // スクロールの間だけ、見えている図をビットマップで描く。デバイスごとに作り直す。
+    DiagramBitmapCache diagram_bitmaps_;
+    bool scrolling_diagrams_ = false;
 
     void RecreateAllTextFormats();
     void CreateTextFormats(bool zoomed_only = false);

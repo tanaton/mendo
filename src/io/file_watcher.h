@@ -39,7 +39,7 @@ struct DirectoryChangeRead {
     // 溢れると貯まった通知が捨てられ (0 バイトで返り、変更として扱う)、無関係な変更の多いフォルダで読み直しが増える。
     // ネットワーク越しで許される上限の 64KB にする。
     static constexpr size_t BUF_SIZE = 64 * 1024;
-    alignas(DWORD) char buf[BUF_SIZE]{};
+    alignas(DWORD) char buf[BUF_SIZE];
     bool pending = false;
 };
 
@@ -97,7 +97,8 @@ private:
 class ImageFolderWatcher {
 public:
     // 監視するフォルダの数の上限。待つハンドルはメッセージループの MsgWaitForMultipleObjects に足すので増やしすぎない。
-    // 超えた分のフォルダの画像は、保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
+    // 埋まっていれば今の文書の画像が無いフォルダから前に使った順にやめ、今の文書の画像だけで超えた分のフォルダの画像は、
+    // 保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
     static constexpr size_t kMaxFolders = 8;
     // EventHandles が返すイベントの数の上限。フォルダごとの読み取りと、worker の結果が届いたことを知らせる 1 つ。
     static constexpr size_t kMaxEvents = kMaxFolders + 1;
@@ -108,8 +109,16 @@ public:
     void Watch(const std::wstring& abs_path, TaskScheduler* scheduler);
     // abs_path のフォルダを開いている最中か。開き終えたら (開けなくても) CheckForChanges が true を返す。
     bool IsOpening(std::wstring_view abs_path) const noexcept;
+    // worker の結果 (フォルダを開いた・短縮名を長い名前に直した) を待っているか。待つ間は EventHandles に受け箱のイベントが入る。
+    bool AwaitsWorker() const noexcept
+    {
+        return awaited_results_ > 0;
+    }
     // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。
     void Clear() noexcept;
+    // 別の文書を開いた。登録した画像を外し、フォルダの読み取りは次の文書のために残す (同じフォルダの文書を渡り歩くたびに
+    // 開き直さない)。残したフォルダは、枠が埋まったときに前に使った順にやめる。開けなかったフォルダは次の文書で開き直す。
+    void ForgetPaths() noexcept;
     // 待つイベントを out に入れ、その数を返す。out は kMaxEvents 以上。
     size_t EventHandles(std::span<HANDLE> out) const noexcept;
     // 届いた通知を調べ、更新された画像 (Watch に渡したパス) を changed に足す。同じパスが重なる (1 回の保存で通知が続く)。
@@ -118,7 +127,8 @@ public:
 
 private:
     struct Folder {
-        // worker の結果の宛先。Clear の後に届いた結果を、同じフォルダを開き直したものと取り違えない。
+        // worker の結果の宛先。やめたフォルダ (枠のために Watch が外した・Clear) に届いた結果を、同じフォルダを開き直したものと
+        // 取り違えない。
         uint64_t id = 0;
         std::wstring dir;
         bool opening = false;

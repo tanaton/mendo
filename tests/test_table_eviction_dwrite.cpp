@@ -30,7 +30,7 @@ protected:
 
     static size_t CountNonNullCells(const TableLayoutData& tl)
     {
-        return static_cast<size_t>(std::ranges::count_if(tl.cell_layouts, [](const auto& cl) static { return cl != nullptr; }));
+        return static_cast<size_t>(std::ranges::count_if(std::views::iota(size_t{ 0 }, tl.CellCount()), [&](size_t ci) { return tl.CellLayout(ci) != nullptr; }));
     }
 
     // md を組んで最初の表を対象にする。表の幾何が作られていることも確かめる。
@@ -87,7 +87,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
     auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
-    const size_t total_cells = tl.cell_layouts.size();
+    const size_t total_cells = tl.CellCount();
     ASSERT_GT(total_cells, 0u);
     ASSERT_EQ(CountNonNullCells(tl), total_cells);
     ASSERT_FALSE(entry.layout_dirty);
@@ -107,7 +107,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
     auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
-    const size_t total_cells = tl.cell_layouts.size();
+    const size_t total_cells = tl.CellCount();
     pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ pl_.cache.Top(idx_) - 150.0f, pl_.cache.Bottom(idx_) + 150.0f });
 
     EXPECT_FALSE(tl.HasEvictedRows());
@@ -156,7 +156,7 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
     auto& entry = Entry();
     auto& tl = *entry.table_layout();
-    const size_t total_cells = tl.cell_layouts.size();
+    const size_t total_cells = tl.CellCount();
     const float height_before = entry.height;
 
     EvictWholeTable();
@@ -184,7 +184,7 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
     auto& entry = Entry();
     auto& tl = *entry.table_layout();
-    const size_t total_cells = tl.cell_layouts.size();
+    const size_t total_cells = tl.CellCount();
 
     EvictWholeTable();
     ASSERT_LT(CountNonNullCells(tl), total_cells);
@@ -241,7 +241,7 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     const YRange vp{ 0.0f, entry.height };
     const auto result = Restore(vp);
     EXPECT_TRUE(result.restored);
-    EXPECT_EQ(CountNonNullCells(tl), tl.cell_layouts.size());
+    EXPECT_EQ(CountNonNullCells(tl), tl.CellCount());
     EXPECT_FLOAT_EQ(entry.height, height_before);
 }
 
@@ -289,6 +289,26 @@ TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
     EXPECT_TRUE(updated);
     EXPECT_GT(CountNonNullCells(tl), 0u);
     EXPECT_FALSE(entry.layout_dirty);
+}
+
+// 表だけの文書でも、見えている範囲の外に退避した行が残れば先読みを残し、先読みが範囲の行を戻す。
+TEST_F(TableEvictionDWriteTest, VisibleTableWithEvictedRowsKeepsPrefetchPending)
+{
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    ASSERT_EQ(pl_.nodes.size(), 1u);
+    auto& tl = *Entry().table_layout();
+    EvictWholeTable();
+
+    const float top = pl_.cache.Top(idx_);
+    ASSERT_TRUE(engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, 800.0f, top, top + 80.0f));
+    EXPECT_TRUE(pl_.cache.HasDirtyNodes());
+
+    const size_t visible_cells = CountNonNullCells(tl);
+    const auto batch = engine_.ProcessDirtyBatch(pl_.nodes, pl_.cache, 800.0f, kNoLayoutDeadline, YRange{ top, top + 400.0f });
+    EXPECT_TRUE(batch.updated);
+    EXPECT_FALSE(batch.remaining);
+    EXPECT_FALSE(pl_.cache.HasDirtyNodes());
+    EXPECT_GT(CountNonNullCells(tl), visible_cells);
 }
 
 // 幅の変更で組み直した表の見えている evict 行は、同じ EnsureVisibleLayout の次のパスで戻る。
@@ -342,7 +362,7 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
     ASSERT_GE(idx, 0);
     const auto& s = *serial.cache[idx].table_layout();
     const auto& p = *parallel.cache[idx].table_layout();
-    EXPECT_EQ(CountNonNullCells(p), p.cell_layouts.size());
+    EXPECT_EQ(CountNonNullCells(p), p.CellCount());
     EXPECT_EQ(s.natural_col_widths, p.natural_col_widths);
     EXPECT_EQ(s.min_col_widths, p.min_col_widths);
     EXPECT_EQ(s.col_widths, p.col_widths);
@@ -368,7 +388,7 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
-        EXPECT_EQ(CountNonNullCells(*entry.table_layout()), entry.table_layout()->cell_layouts.size());
+        EXPECT_EQ(CountNonNullCells(*entry.table_layout()), entry.table_layout()->CellCount());
         return std::pair{ entry.table_layout()->row_heights, entry.height };
     };
 
@@ -408,7 +428,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
     const auto& built = *Entry().table_layout();
     const auto row_heights_built = built.row_heights;
     const float height_built = Entry().height;
-    ASSERT_EQ(CountNonNullCells(built), built.cell_layouts.size());
+    ASSERT_EQ(CountNonNullCells(built), built.CellCount());
 
     NodeLayoutEntry entry;
     Measure(entry, ContentWidth());
@@ -431,7 +451,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
     const size_t built = CountNonNullCells(tl);
 
     EXPECT_GT(built, 0u);
-    EXPECT_LT(built, tl.cell_layouts.size() / 10);
+    EXPECT_LT(built, tl.CellCount() / 10);
     EXPECT_FALSE(Entry().layout_dirty);
 }
 
@@ -446,7 +466,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
     }
     ASSERT_NO_FATAL_FAILURE(LayoutTable(md));
     const auto& built = *Entry().table_layout();
-    ASSERT_EQ(CountNonNullCells(built), built.cell_layouts.size());
+    ASSERT_EQ(CountNonNullCells(built), built.CellCount());
 
     NodeLayoutEntry entry;
     Measure(entry, ContentWidth());

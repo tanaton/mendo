@@ -21,7 +21,7 @@ struct ParsedToc {
 ParsedToc ParseToc(std::string_view markdown)
 {
     auto storage = ParseMarkdown(markdown);
-    auto nodes = std::move(storage.nodes);
+    std::vector<Node> nodes(storage.nodes.begin(), storage.nodes.end());
     auto toc = std::move(storage.indices.toc_entries);
     test_nodes_detail::KeepAlive(std::move(storage));
     return { std::move(nodes), std::move(toc) };

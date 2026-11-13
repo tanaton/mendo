@@ -41,7 +41,7 @@ Node TypedNode(NodeType type, const char* text = "", SyntaxLanguage language = S
     return node;
 }
 
-SearchState Searched(const std::vector<Node>& nodes, std::string_view query, bool case_sensitive = false)
+SearchState Searched(std::span<const Node> nodes, std::string_view query, bool case_sensitive = false)
 {
     SearchState s;
     // 既定値のまま検索する経路も通すため、false のときは切り替えない。

@@ -6,7 +6,7 @@
 #include "ui_constants.h"
 #include "ui_types.h"
 #include "win32_util.h"
-#include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
@@ -62,10 +62,15 @@ struct PopupWindow {
 
     ID2D1Factory* d2d_factory = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;
+    // 本体の描画デバイス (無ければ SOFTWARE の描画先で描く)。
+    ID3D11Device* d3d = nullptr;
+    ID2D1Device* device = nullptr;
     // 呼び出し側から借りる。
     const Theme* theme = nullptr;
     ModalLoop* modal_loop = nullptr;
-    Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> rt;
+    // 本体のデバイスで描くときは swap_target の DeviceContext、無ければ SOFTWARE の HwndRenderTarget。
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
+    WindowSwapTarget swap_target;
     Brushes brushes;
     // UI の文言は表示中の言語のロケールで組む (OS と違う言語を選んでも漢字の字形をその言語に合わせる)。
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text;
@@ -77,6 +82,8 @@ struct PopupWindow {
     {
         d2d_factory = env.d2d_factory;
         dwrite_factory = env.dwrite_factory;
+        d3d = env.d3d;
+        device = env.device;
         theme = env.theme;
         dpi_scale = env.dpi_scale;
         modal_loop = env.modal_loop;
@@ -168,11 +175,9 @@ struct PopupWindow {
         const int pixel_w = r.right - r.left;
         const int pixel_h = r.bottom - r.top;
         SetWindowPos(hwnd, nullptr, r.left, r.top, pixel_w, pixel_h, SWP_NOZORDER | SWP_NOACTIVATE);
+        // 描画先は大きさごと作り直す (DPI の違うモニタへ移ったときだけ)。
         if (rt) {
-            rt->SetDpi(dpi_scale * DEFAULT_DPI, dpi_scale * DEFAULT_DPI);
-            if (FAILED(rt->Resize(D2D1_SIZE_U{ static_cast<UINT32>(pixel_w), static_cast<UINT32>(pixel_h) }))) {
-                rt.Reset();
-            }
+            ReleaseTarget();
         }
         ApplyRegion(pixel_w, pixel_h);
     }
@@ -296,8 +301,7 @@ struct PopupWindow {
         case WM_NCDESTROY: {
             // オーナーと一緒に壊されたときもループを抜ける。
             const HWND destroyed = std::exchange(hwnd, nullptr);
-            rt.Reset();
-            brushes = {};
+            ReleaseTarget();
             done = true;
             return DefWindowProcW(destroyed, msg, wParam, lParam);
         }
@@ -369,19 +373,35 @@ private:
         }
     }
 
-    // 数百 px なので、D3D デバイスの生成を伴うハードウェアは使わない。
+    void ReleaseTarget() noexcept
+    {
+        rt.Reset();
+        swap_target.Reset();
+        brushes = {};
+    }
+
     bool CreateDeviceResources()
     {
         RECT rc{};
         if (!GetClientRect(hwnd, &rc)) {
             return false;
         }
-        D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
-        props.dpiX = dpi_scale * DEFAULT_DPI;
-        props.dpiY = dpi_scale * DEFAULT_DPI;
-        const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
-        if (FAILED(d2d_factory->CreateHwndRenderTarget(props, D2D1::HwndRenderTargetProperties(hwnd, size), &rt))) {
-            return false;
+        // 本体のデバイスに窓のスワップチェーンを作って描く。角を丸める region (SetWindowRgn) が効くよう、BitBlt 方式にする。
+        if (d3d && device &&
+            swap_target.Create(d3d, device, hwnd, static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom), dpi_scale * DEFAULT_DPI,
+                               WindowSwapTarget::Mode::BitBlt)) {
+            rt = swap_target.dc();
+        }
+        else {
+            D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
+            props.dpiX = dpi_scale * DEFAULT_DPI;
+            props.dpiY = dpi_scale * DEFAULT_DPI;
+            const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
+            Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> hwnd_rt;
+            if (FAILED(d2d_factory->CreateHwndRenderTarget(props, D2D1::HwndRenderTargetProperties(hwnd, size), &hwnd_rt))) {
+                return false;
+            }
+            rt = std::move(hwnd_rt);
         }
         const auto with_alpha = [](D2D1_COLOR_F c, float a) static noexcept {
             c.a = a;
@@ -413,9 +433,12 @@ private:
         };
         rt->DrawRoundedRectangle(frame, brushes.frame.Get(), POPUP_FRAME_WIDTH);
         derived().PaintContent();
-        if (rt->EndDraw() == D2DERR_RECREATE_TARGET) {
-            rt.Reset();
-            // 次の WM_PAINT で作り直させる。
+        const bool kept = swap_target.dc() ? swap_target.EndDrawAndPresent() : rt->EndDraw() != D2DERR_RECREATE_TARGET;
+        if (!kept) {
+            // 本体のデバイスを失ったら、開いている間は SOFTWARE で描く。次の WM_PAINT で作り直させる。
+            ReleaseTarget();
+            d3d = nullptr;
+            device = nullptr;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
     }

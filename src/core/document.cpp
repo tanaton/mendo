@@ -2,8 +2,37 @@
 #include "document_utils.h"
 #include "file_io.h"
 #include "profiler.h"
+#include <windows.h>
 #include <cassert>
 #include <string>
+
+namespace reserved_memory {
+
+void* Reserve(size_t bytes) noexcept
+{
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_NOACCESS);
+}
+
+bool Commit(void* p, size_t bytes) noexcept
+{
+    return bytes == 0 || VirtualAlloc(p, bytes, MEM_COMMIT, PAGE_READWRITE) != nullptr;
+}
+
+void Decommit(void* p, size_t bytes) noexcept
+{
+    if (bytes > 0) {
+        VirtualFree(p, bytes, MEM_DECOMMIT);
+    }
+}
+
+void Release(void* p) noexcept
+{
+    if (p) {
+        VirtualFree(p, 0, MEM_RELEASE);
+    }
+}
+
+} // namespace reserved_memory
 
 Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {

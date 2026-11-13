@@ -81,8 +81,9 @@ enum class TableAlign : uint8_t {
 //   all_runs が空なら cell_run_starts も空。そうでなければ
 //   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
-    // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
-    std::string concat_text;
+    // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。TextArena の上にある (小さな表は写したもの、
+    // 大きな表はパースで伸ばした置き場を引き取ったもの)。
+    std::string_view concat_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
     std::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。

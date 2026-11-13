@@ -51,6 +51,9 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
 // 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。KaTeX は 1 個 平均 0.2ms ほどなので、
 // 1 つの仕事が 13ms ほどで終わり、ほかの図や画像のデコードを長く待たせない。
 inline constexpr size_t kInlineMathPerChunk = 64;
+// 文書の最初の組だけ小さくし、開いた直後の画面の数式を早く出す (組は描き終わるまで返らない)。数式 3000 個の文書を開いて
+// 最初の数式が画面に出るまで、64 個では 94.7ms、16 個では 80.3ms (8 回の中央値)。
+inline constexpr size_t kInlineMathFirstChunk = 16;
 
 struct InlineMathChunk {
     std::vector<InlineMathItem> items;
@@ -59,7 +62,7 @@ struct InlineMathChunk {
 };
 
 // 文書の数式を組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
-// 文書の順に重複を除いて並べ、kInlineMathPerChunk 個ずつ順に区切る。
+// 文書の順に重複を除いて並べ、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
     // math_nodes はインライン数式を持つノードの番号 (文書の順。Document::GetMathNodeIndices)。

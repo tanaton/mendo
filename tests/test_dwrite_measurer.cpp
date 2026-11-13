@@ -19,6 +19,18 @@ class DWriteMeasurerTest : public DWriteTestBase {};
 
 namespace {
 
+// 文書の表のノードを集めて、仮に組んだノードを組み直させる (アプリは Document::GetTableNodeIndices を渡す)。
+bool InvalidatePending(std::span<const Node> nodes, LayoutCache& cache, bool tables)
+{
+    std::vector<size_t> table_indices;
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].type == NodeType::Table) {
+            table_indices.push_back(i);
+        }
+    }
+    return cache.InvalidatePendingInlineLayouts(table_indices, tables);
+}
+
 // [start, start+length) の文字を覆う矩形の幅の合計。
 float InlineRangeWidth(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
 {
@@ -154,8 +166,8 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_EQ(requests[0], InlineMathKey("x^2", theme_.font_size_body));
 
     table_.Resolve(requests[0], { 123.0f, 30.0f, 20.0f });
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
-    EXPECT_FALSE(cache.InvalidatePendingInlineLayouts(true)) << "印は 1 回で外す";
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
+    EXPECT_FALSE(InvalidatePending(nodes, cache, true)) << "印は 1 回で外す";
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].pending_inline);
     EXPECT_TRUE(table_.TakeRequests().empty());
@@ -171,7 +183,7 @@ TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
     cache.EvictTextLayouts(1, 1);
     EXPECT_EQ(cache[0].text_layout(), nullptr);
     EXPECT_FALSE(cache[0].pending_inline);
-    EXPECT_FALSE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_FALSE(InvalidatePending(nodes, cache, true));
 }
 
 // 数式の途中や頭だけを指す範囲 (数式の中の検索ヒット) も、数式全体を含む範囲に広げてから箱を引く。
@@ -182,7 +194,7 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 60.0f, 24.0f, 18.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     auto* layout = cache[0].text_layout();
     ASSERT_NE(layout, nullptr);
@@ -241,7 +253,7 @@ TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 2000.0f, 40.0f, 30.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     for (const float viewport : { 800.0f, 600.0f }) {
         SCOPED_TRACE(viewport);
         ComputeLayout(engine_, nodes, cache, viewport);
@@ -262,7 +274,7 @@ TEST_F(DWriteInlineMathTest, BlockMathHasNoExtraLeading)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0], { 100.0f, 300.0f, 200.0f });
-    cache.InvalidatePendingInlineLayouts(true);
+    InvalidatePending(nodes, cache, true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_NEAR(LayoutHeight(cache[0].text_layout()), 300.0f, 0.5f);
     EXPECT_GT(LayoutHeight(cache[1].text_layout()), 330.0f);
@@ -321,11 +333,25 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     ASSERT_NE(tl, nullptr);
     EXPECT_TRUE(cache[2].pending_inline);
     // 表を待たせても、段落は組み直す。
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(false));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, false));
     EXPECT_EQ(cache[2].table_layout(), tl);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     EXPECT_EQ(cache[2].table_layout(), nullptr);
     EXPECT_TRUE(cache[2].layout_dirty);
+}
+
+// 組んだ範囲の外へ evict した表は、行を捨てても待ちの印が残るので、範囲の外でも組み直させる。
+TEST_F(DWriteInlineMathTest, EvictedTableOutsideLiveRangeStillRelaysOut)
+{
+    auto [nodes, cache] = ParseAndLayout("$x$\n\n| h |\n|---|\n| $y$ |\n");
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_TRUE(cache[1].pending_inline);
+    cache.EvictTextLayouts(0, 1);
+    ASSERT_NE(cache[1].table_layout(), nullptr);
+    ASSERT_TRUE(cache[1].pending_inline);
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
+    EXPECT_EQ(cache[1].table_layout(), nullptr);
+    EXPECT_TRUE(cache[1].layout_dirty);
 }
 
 // キーの大きさ (MathFontSize) は組んだ文字の大きさと同じ。ずれると数式の大きさが周りの文字と合わない。
@@ -447,12 +473,13 @@ TEST(InlineMathPlan, StaleChunksDoNotFinish)
     EXPECT_NE(plan.TakeChunk(0), nullptr);
 }
 
-// 文書の順に kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
+// 文書の順に、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
 TEST(InlineMathPlan, SplitsInDocumentOrder)
 {
     const Theme theme = GetLightTheme();
     std::string text;
-    const size_t count = kInlineMathPerChunk * 2 + 10;
+    // 最初の組だけ小さい (開いた直後の画面の数式を早く出す)。
+    const size_t count = kInlineMathFirstChunk + kInlineMathPerChunk * 2 + 10;
     for (size_t i = 0; i < count; ++i) {
         text += std::format("${}x$ ", i);
     }
@@ -460,10 +487,11 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
     const auto parsed = ParseMarkdown(text);
     plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
     const auto chunks = plan.Chunks();
-    ASSERT_EQ(chunks.size(), 3u);
-    EXPECT_EQ(chunks[0].items.size(), kInlineMathPerChunk);
+    ASSERT_EQ(chunks.size(), 4u);
+    EXPECT_EQ(chunks[0].items.size(), kInlineMathFirstChunk);
     EXPECT_EQ(chunks[1].items.size(), kInlineMathPerChunk);
-    EXPECT_EQ(chunks[2].items.size(), 10u);
+    EXPECT_EQ(chunks[2].items.size(), kInlineMathPerChunk);
+    EXPECT_EQ(chunks[3].items.size(), 10u);
     size_t n = 0;
     for (const auto& c : chunks) {
         for (const auto& item : c.items) {
@@ -549,7 +577,7 @@ TEST_F(DWriteInlineImageTest, WaitsForSizeThenPlacesImage)
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 0.0f);
 
     SetReady("p.png", 120.0f, 80.0f);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].pending_inline);
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 1), 120.0f);
@@ -588,7 +616,7 @@ TEST_F(DWriteInlineImageTest, ImageOnlyParagraphHasNoExtraLeading)
     EXPECT_GT(LayoutHeight(cache[2].text_layout()), 330.0f);
     const auto* tl = cache[3].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_NEAR(LayoutHeight(tl->cell_layouts[tl->CellIndex(1, 0)].Get()), 300.0f, 0.5f);
+    EXPECT_NEAR(LayoutHeight(tl->GetCellLayout(1, 0)), 300.0f, 0.5f);
 }
 
 // 同じ src の画像が隣り合っても 1 つにまとめず、1 枚ずつ置く。装飾のある alt も 1 枚。
@@ -628,12 +656,12 @@ TEST_F(DWriteInlineImageTest, ImageInTableCellWidensColumn)
     EXPECT_TRUE(cache[0].pending_inline);
 
     SetReady("i.png", 300.0f, 40.0f);
-    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts(true));
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
     ComputeLayout(engine_, nodes, cache, 800.0f);
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
     EXPECT_GE(tl->natural_col_widths[0], 300.0f);
-    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 0)].Get(), 0, 1), 300.0f);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->GetCellLayout(1, 0), 0, 1), 300.0f);
 }
 
 // 表に収まらない画像は、GitHub (max-width: 100%) と同じく最小幅に効かず、列幅まで縮んで表を本文の幅に収める。
@@ -651,7 +679,7 @@ TEST_F(DWriteInlineImageTest, WideImageInTableCellShrinksToColumn)
         EXPECT_LT(tl->min_col_widths[1], 100.0f) << "画像は最小幅に効かない";
         const float content_width = theme_.ContentWidth(viewport);
         EXPECT_LE(tl->col_cum_x.back(), content_width + 0.5f) << "表は本文の幅に収まる";
-        const float image_width = InlineRangeWidth(tl->cell_layouts[tl->CellIndex(1, 1)].Get(), 0, 1);
+        const float image_width = InlineRangeWidth(tl->GetCellLayout(1, 1), 0, 1);
         EXPECT_NEAR(image_width, tl->col_widths[1], 0.5f);
         EXPECT_LT(image_width, 2000.0f);
     }
@@ -737,14 +765,14 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageCellKeepsLayoutAcrossWidths)
     const auto* tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
     const size_t ci = tl->CellIndex(1, 0);
-    auto* const before = tl->cell_layouts[ci].Get();
+    auto* const before = tl->CellLayout(ci);
     ASSERT_NE(before, nullptr);
 
     ComputeLayout(engine_, nodes, cache, 700.0f);
     tl = cache[0].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_EQ(tl->cell_layouts[ci].Get(), before);
-    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->cell_layouts[ci].Get(), 0, 1), 40.0f);
+    EXPECT_EQ(tl->CellLayout(ci), before);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(tl->CellLayout(ci), 0, 1), 40.0f);
 }
 
 

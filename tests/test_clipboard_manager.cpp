@@ -18,6 +18,8 @@ public:
     {
         return false;
     }
+    void ReleaseCommands(DiagramEntry&) override
+    {}
 
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override
     {

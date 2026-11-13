@@ -2,6 +2,7 @@
 #include "document.h"
 #include "task_scheduler.h"
 #include "profiler.h"
+#include "utility.h"
 #include "viewport_manager.h"
 #include <algorithm>
 #include <atomic>
@@ -12,7 +13,7 @@
 namespace layout {
 
 int MeasureIndicesParallel(
-    const std::vector<Node>& nodes,
+    std::span<const Node> nodes,
     LayoutCache& cache,
     float content_width,
     const ITextMeasurer& backend,
@@ -57,6 +58,92 @@ int MeasureIndicesParallel(
 using layout::NodeContentWidth;
 using layout::RecomputeYPositions;
 
+void TableMeasureJobs::StopRunning() noexcept
+{
+    for (auto& r : running_) {
+        r.stop.request_stop();
+    }
+    running_.clear();
+}
+
+void TableMeasureJobs::SetDocument(std::shared_ptr<const DocumentData> doc)
+{
+    StopRunning();
+    doc_ = std::move(doc);
+}
+
+bool TableMeasureJobs::Defer(std::span<const Node> nodes, size_t node, const NodeLayoutEntry& entry, float max_width)
+{
+    const NodeTableData* tbl = nodes[node].table_data();
+    if (!tbl || entry.table_layout() || static_cast<size_t>(tbl->row_count) * tbl->col_count <= kMinCells) {
+        return false;
+    }
+    // 今の文書のノードでなければ (SetDocument の前) その場で測らせる。
+    if (!doc_ || std::span<const Node>{ doc_->parsed.nodes }.data() != nodes.data()) {
+        return false;
+    }
+    if (std::ranges::contains(running_, node, &Running::node)) {
+        return true;
+    }
+    Running& r = running_.emplace_back(Running{ .job = ++last_job_, .node = node });
+    const bool posted = scheduler_.Post([this, doc = doc_, node, max_width, job = r.job, stop = r.stop.get_token(), guard = latch_.Acquire()] {
+        if (stop.stop_requested()) {
+            return;
+        }
+        Result result{ .job = job, .node = node };
+        try {
+            result.built = measurer_.BuildTable(std::span<const Node>{ doc->parsed.nodes }[node], max_width, stop);
+            if (stop.stop_requested()) {
+                return;
+            }
+        } catch (...) {
+            MENDO_TRACE("TableMeasureJobs: BuildTable threw exception");
+        }
+        // 測れなかった表 (table が null) も知らせ、推定の高さのまま dirty を下ろさせる (UI スレッドで測るときと同じく
+        // 再試行しない)。
+        if (results_.Push(std::move(result)) && wake_) {
+            wake_();
+        }
+    });
+    if (!posted) {
+        running_.pop_back();
+        return false;
+    }
+    return true;
+}
+
+void TableMeasureJobs::NoteInlineChanged() noexcept
+{
+    for (auto& r : running_) {
+        r.inline_changed = true;
+    }
+}
+
+std::vector<TableMeasureJobs::Result> TableMeasureJobs::TakeResults()
+{
+    std::vector<Result> results = results_.TakeAll();
+    std::vector<Result> current;
+    for (auto& result : results) {
+        const auto it = std::ranges::find(running_, result.job, &Running::job);
+        if (it == running_.end()) {
+            continue;
+        }
+        result.inline_changed = it->inline_changed;
+        running_.erase(it);
+        current.push_back(std::move(result));
+    }
+    return current;
+}
+
+void TableMeasureJobs::CancelAll()
+{
+    StopRunning();
+    // 前の文書の組み (SetDocument で止めただけのもの) も待つ。
+    latch_.Wait();
+    // 止める前に組み終えていた分も捨てる。
+    results_.TakeAll();
+}
+
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
     measurer_ = measurer;
@@ -64,7 +151,7 @@ bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
     return measurer_->RecreateFormats();
 }
 
-bool LayoutEngine::Reestimate(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+bool LayoutEngine::Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");
     assert(cache.size() == nodes.size());
@@ -86,7 +173,7 @@ bool LayoutEngine::Reestimate(const std::vector<Node>& nodes, LayoutCache& cache
 }
 
 LayoutEngine::PassResult LayoutEngine::MeasurePass(
-    const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
+    std::span<const Node> nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
 {
     MENDO_PROFILE("LayoutEngine::MeasurePass");
     const Theme& theme = GetTheme();
@@ -108,6 +195,10 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             break;
         }
         if (entry.layout_dirty) {
+            // 巨大な表はワーカーで組ませ、組み終えるまで dirty のまま飛ばす (TableMeasureJobs)。
+            if (table_jobs_ && table_jobs_->Defer(nodes, i, entry, NodeContentWidth(nodes[i], theme, content_width))) {
+                continue;
+            }
             dirty_indices.push_back(i);
             last_measured = i;
         }
@@ -139,7 +230,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     return result;
 }
 
-bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const YRange range{ viewport_top, viewport_bottom };
@@ -156,19 +247,21 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
         return false;
     }
 
-    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
+    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。見えている表の範囲外の退避した行も同じで、残さないと
+    // 大きな表だけの文書では先読みが走らず、めくるたびに描画の中で行を戻す (2 万行 6 列で PageDown 1 回 0.3〜0.4ms)。
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
     const bool has_outside = vr.begin > 0 || vr.end < node_count;
     const bool any_dirty = has_outside || std::ranges::any_of(std::views::iota(vr.begin, vr.end), [&cache](size_t i) {
-        return cache[i].layout_dirty;
+        const auto* table = cache[i].table_layout();
+        return cache[i].layout_dirty || (table && table->HasEvictedRows());
     });
     cache.SetHasDirtyNodes(any_dirty);
     return true;
 }
 
-bool LayoutEngine::ProcessDirtyBatch(
-    const std::vector<Node>& nodes, LayoutCache& cache,
+LayoutEngine::PassResult LayoutEngine::ProcessDirtyBatch(
+    std::span<const Node> nodes, LayoutCache& cache,
     float viewport_width, LayoutDeadline deadline,
     YRange range)
 {
@@ -176,18 +269,18 @@ bool LayoutEngine::ProcessDirtyBatch(
     // 遠方の dirty はスクロール時に EnsureVisibleLayout で計測する。
     // 推定の幅 (EstimateBasis) は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
     // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
-    const bool remaining = MeasurePass(nodes, cache, viewport_width, range, deadline).remaining;
-    cache.SetHasDirtyNodes(remaining);
-    return remaining;
+    const PassResult result = MeasurePass(nodes, cache, viewport_width, range, deadline);
+    cache.SetHasDirtyNodes(result.remaining);
+    return result;
 }
 
 template <class Op>
-bool LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
+auto LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
 {
     viewport_.EnsureScrollTarget(cache);
-    const bool result = op();
-    viewport_.ApplyScrollTarget(cache);
-    return result;
+    // op の結果を返してから当て直す (op が値を返さなくてもよい)。
+    const ScopeGuard apply([&]() noexcept { viewport_.ApplyScrollTarget(cache); });
+    return op();
 }
 
 void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
@@ -206,7 +299,7 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
+LayoutEngine::PassResult LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
 {
     return KeepingAnchor(cache, [&] {
         // 高さ 0 (ウィンドウをタイトルバーまで縮めた) でも全域にしない。巨大な表の退避した行を全部戻してしまう。
@@ -239,6 +332,58 @@ void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cach
     // 画面より上の図の高さが変わっても、見ている内容が動かないようにする。
     KeepingAnchor(cache, [&] {
         RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
-        return true;
     });
+}
+
+LayoutService::PlacedTables LayoutService::PlaceMeasuredTables(const Document& doc, LayoutCache& cache, float width, std::vector<TableMeasureJobs::Result> results)
+{
+    MENDO_PROFILE("LayoutService::PlaceMeasuredTables");
+    PlacedTables placed;
+    if (results.empty()) {
+        return placed;
+    }
+    const auto nodes = doc.GetNodes();
+    const Theme& theme = engine_.GetTheme();
+    const float content_width = theme.ContentWidth(width);
+    // 画面より上の表の高さが変わっても、見ている内容が動かないようにする。
+    KeepingAnchor(cache, [&] {
+        IndexRange committed;
+        for (auto& r : results) {
+            auto& entry = cache[r.node];
+            // 組む間に dirty でなくなるのは、別の経路で測ったときだけ (今は無い)。
+            if (!entry.layout_dirty || entry.table_layout()) {
+                continue;
+            }
+            placed.placed = true;
+            if (!r.built.table) {
+                entry.layout_dirty = false;
+                continue;
+            }
+            const Node& node = nodes[r.node];
+            const float node_width = NodeContentWidth(node, theme, content_width);
+            // 届く前の寸法で組んだかもしれない数式と画像は、寸法を待って仮に組んだものとして組み直させる。
+            const bool stale = r.inline_changed && (node.has_images() || std::ranges::binary_search(doc.GetMathNodeIndices(), r.node));
+            entry.pending_inline = r.built.pending_inline || stale;
+            placed.stale_inline |= stale;
+            const bool current_width = r.built.table->GeometryValidAt(node_width);
+            entry.set_table_layout(std::move(r.built.table));
+            cache.NoteMaterialized(r.node, r.node + 1);
+            if (current_width) {
+                // 推定の高さのまま表の中を見ていたら、表の中の同じ割合の位置を見せる。推定は折り返しを少なく見積もるので、
+                // ピクセルの位置を保つと別の行へずれる (リロードの差分の位置 CalcScrollYForDiff も、表の中は割合で決めている)。
+                if (const ScrollTarget target = viewport_.GetScrollTarget(); target.node == static_cast<int>(r.node) && entry.height > 0.0f) {
+                    viewport_.SetScrollTarget(target.node, target.offset * r.built.height / entry.height);
+                }
+                entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), r.built.height);
+                committed.Add(r.node);
+            }
+            else {
+                cache.SetHasDirtyNodes(true);
+            }
+        }
+        if (!committed.empty()) {
+            RecomputeYPositions(nodes, cache, theme, committed.begin, committed.end - 1);
+        }
+    });
+    return placed;
 }

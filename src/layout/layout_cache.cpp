@@ -20,6 +20,15 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, std::min(row_count, static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower))) };
 }
 
+bool TableLayoutData::HasEvictedRowsIn(float local_top, float local_bottom) const noexcept
+{
+    if (!HasEvictedRows()) {
+        return false;
+    }
+    const auto [r_begin, r_end] = VisibleRowRange(local_top, local_bottom);
+    return std::ranges::any_of(std::views::iota(r_begin, r_end), [this](size_t r) { return IsRowEvicted(r); });
+}
+
 std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, float local_right) const noexcept
 {
     // 列 c の右端は col_cum_x[c + 1]、左端は col_cum_x[c]。
@@ -120,12 +129,13 @@ void Bury(ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&&
 
 void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
 {
-    const size_t base = CellIndex(r, 0);
     bool buried = false;
-    for (size_t ci = base; ci < base + col_count; ++ci) {
-        if (cell_layouts[ci]) {
-            Bury(released, std::move(cell_layouts[ci]));
-            buried = true;
+    if (auto cells = std::move(row_layouts_[r])) {
+        for (size_t c = 0; c < col_count; ++c) {
+            if (cells[c]) {
+                Bury(released, std::move(cells[c]));
+                buried = true;
+            }
         }
     }
     if (buried && !row_evicted_[r]) {
@@ -173,7 +183,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 
 // ---------- LayoutCache public ----------
 
-void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
 {
     assert(entries_.size() == nodes.size());
     for (size_t i = 0; i < entries_.size(); i++) {
@@ -196,17 +206,30 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingInlineLayouts(bool tables) noexcept
+bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept
 {
     bool any = false;
-    for (auto& e : entries_) {
+    const auto invalidate = [&](NodeLayoutEntry& e) {
         if (!e.pending_inline || (!tables && e.table_layout())) {
-            continue;
+            return;
         }
         // 数式や画像の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
         ReleaseEntryLayouts(e, released_layouts_);
         e.layout_dirty = true;
         any = true;
+    };
+    // 印が立つのは組んだノードで、組んだ範囲 (live_nodes_) の外へ出たノードは evict で印を下ろす。表だけは evict が行を
+    // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると 30 万ノードで 1 回 130µs かかり、数式の組の結果や
+    // 画像が届くたびに呼ばれる。
+    for (size_t i = live_nodes_.begin; i < live_nodes_.end; ++i) {
+        invalidate(entries_[i]);
+    }
+    if (tables) {
+        for (const size_t i : table_indices) {
+            if (i < live_nodes_.begin || i >= live_nodes_.end) {
+                invalidate(entries_[i]);
+            }
+        }
     }
     has_dirty_nodes_ |= any;
     return any;
@@ -277,7 +300,8 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
 bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
 {
     const auto it = src.diagrams_.find(from);
-    if (it == src.diagrams_.end() || !it->second.HasImage()) {
+    // コマンドリストだけを捨てた画面外の図も、寸法を引き継ぐ。
+    if (it == src.diagrams_.end() || !it->second.HasStaleableResult()) {
         return false;
     }
     diagrams_.insert_or_assign(to, std::move(it->second)).first->second.MarkStale();

@@ -97,7 +97,7 @@ public:
     // (新しいクエリが現れるノードには前回のクエリも現れる)。文書を差し替えたら Hide するか、
     // KeepMatchesOfUnchangedNodes の後に同じクエリで調べ直すこと。
     void BeginSearch(std::string_view query);
-    bool ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
+    bool ContinueSearch(std::span<const Node> nodes, std::chrono::steady_clock::time_point deadline);
     // リロードで中身の変わらなかったノードのマッチだけを新しいノード番号で残す。
     // 調べ直しが終わるまで、変わらなかった所のハイライトを消さない。
     void KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcept;

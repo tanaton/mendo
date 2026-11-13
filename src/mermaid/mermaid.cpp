@@ -9,6 +9,7 @@
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "win32_util.h"
+#include <d3d11.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
@@ -23,6 +24,8 @@ namespace {
 constexpr double MAX_EXPORT_PIXELS = 64.0 * 1024 * 1024;
 
 } // namespace
+
+MermaidRenderer::MermaidRenderer() = default;
 
 MermaidRenderer::~MermaidRenderer()
 {
@@ -66,17 +69,23 @@ void MermaidRenderer::TrimIdleRuntimes()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
     // 描いている途中のものは捨てない。図 4 個の文書で mendo の private bytes が 63 → 52MB、1 個で 51 → 48MB になる。
+    // 捨てる処理は bg の worker で行う (pele と KaTeX を読んだランタイム 1 個で約 3.5ms)。
     if (pele_) {
-        pele_->Trim();
+        pele_->Trim(bg_scheduler_);
     }
 }
 
-void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
+void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d, ID2D1Device* device)
 {
     render_target_ = render_target;
+    d3d_device_ = d3d;
+    d2d_device_ = device;
     // 旧デバイスで記録できなかったエラーも捨てて再試行させる。
     cache_.Clear();
     record_dc_ = CreateRecordContext(render_target);
+    if (ViewerOpen()) {
+        viewer_.view->SetDevice(d3d, device);
+    }
 }
 
 void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
@@ -85,9 +94,9 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-const DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
+DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
 {
-    const auto* free = cache_.Find(width_free_hash);
+    auto* free = cache_.Find(width_free_hash);
     return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
 }
 
@@ -106,6 +115,20 @@ void MermaidRenderer::DropQueued()
     });
 }
 
+void MermaidRenderer::ReleaseCommands(DiagramEntry& diagram_entry)
+{
+    // 外し終えるまで同じアドレスが別の図に使われないよう、参照を持っておく。
+    const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram_entry.commands;
+    if (!diagram_entry.ReleaseCommands()) {
+        return;
+    }
+    cache_.ForEach([&commands](DiagramResult& r) {
+        if (r.commands == commands) {
+            r.commands = nullptr;
+        }
+    });
+}
+
 void MermaidRenderer::DropQueuedMath()
 {
     std::erase_if(render_waiting_, [](const RenderRequest& r) { return std::holds_alternative<MathRequest>(r.target); });
@@ -116,21 +139,29 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    const auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
+    auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
     if (!result) {
         return false;
+    }
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録したときに捨てているので、
+    // ここで組む (図 1 個約 0.9ms)。デバイスを作り直している間は記録できないので、次の要求まで待たせる。
+    if (result->drawing && !result->commands && result->error.empty()) {
+        result->commands = RecordDrawing(*result->drawing, nullptr);
+        if (!result->commands) {
+            return false;
+        }
     }
     // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
     diagram_entry.SetResult(*result);
     return true;
 }
 
-const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
+DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
 {
     const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
-    if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
+    if (auto* cached = FindCached(hash, width_free_hash, max_width)) {
         return cached;
     }
     if (!inflight_.insert(hash).second) {
@@ -189,12 +220,14 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     }
     // 描画命令のラベルの数式は TeX だけを置いてあるので組み直す。
     job.used_pele = pele_->ResolveMaths(*drawing);
-    return JobDrawing{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
+    JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
+    read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
+    return read;
 }
 
-Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing)
+Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts)
 {
-    return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale());
+    return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale(), texts);
 }
 
 Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width)
@@ -266,7 +299,10 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             return true;
         },
         [&](JobDrawing& d) {
-            DiagramResult result{ .commands = RecordDrawing(*d.drawing), .width = d.drawing->width, .height = d.drawing->height };
+            DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
+            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。IDWriteTextLayout の解放は 1 個 1.5µs ほどで、
+            // test.md の図 27 個 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
+            DisposeOnWorkerIfLarge(*bg_scheduler_, d.texts.runs.size(), 1, std::move(d.texts));
             if (!result.commands) {
                 // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。
                 if (rendered) {
@@ -318,11 +354,17 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         used_pele |= r.used_pele;
         resolved |= ApplyJobResult(r);
     });
-    if (used_pele) {
-        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
-    }
     if (render_done) {
         PumpRenders();
+    }
+    if (used_pele) {
+        // 描き終えて待ちが空になったら、同時に描いた分のランタイム (1 個あたり pele 約 2.9MB・KaTeX 約 2.6MB) を 1 個まで返す。
+        // 10 秒以内に次の図や数式が来ると、増やした分は読み直し (pele 5ms・KaTeX 3.4ms) になるが、メモリを早く返すほうを
+        // ユーザーが選んだ (2026-11-13)。残りの 1 個は PELE_TRIM で捨てる。
+        if (renders_running_ == 0 && render_waiting_.empty()) {
+            pele_->Trim(bg_scheduler_, 1);
+        }
+        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
@@ -390,6 +432,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
     // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
     JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
+    drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());
     return drawn;
 }
 
@@ -414,7 +457,8 @@ void MermaidRenderer::OpenViewer(std::string_view code, int node, bool dark_mode
     if (open) {
         viewer_.view->ShowLoading();
     }
-    else if (viewer_.view = open_viewer_(hwnd_, d2d_factory_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); }); !viewer_.view) {
+    else if (viewer_.view = open_viewer_(hwnd_, d3d_device_.Get(), d2d_device_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); });
+             !viewer_.view) {
         FailViewer();
         return;
     }

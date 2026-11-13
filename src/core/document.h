@@ -55,7 +55,7 @@ public:
     // LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
     static Document FromMarkdown(std::string utf8, std::wstring_view path);
 
-    const std::vector<Node>& GetNodes() const noexcept
+    std::span<const Node> GetNodes() const noexcept
     {
         return Storage().nodes;
     }

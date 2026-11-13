@@ -64,6 +64,8 @@ struct ViewerLog {
     bool alive = false;
     bool dark = false;
     bool fail_open = false;
+    // 本体の描画デバイスを差し替えられた回数。
+    int device_changes = 0;
     std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
 };
 
@@ -107,6 +109,10 @@ public:
     {
         has_drawing_ = true;
         log_.drawings.push_back(std::move(drawing));
+    }
+    void SetDevice(ID3D11Device*, ID2D1Device*) override
+    {
+        ++log_.device_changes;
     }
 
 private:
@@ -157,7 +163,7 @@ protected:
         }
     }
 
-    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID2D1Factory*, IDWriteFactory*, IWICImagingFactory*, bool dark,
+    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID3D11Device*, ID2D1Device*, IDWriteFactory*, IWICImagingFactory*, bool dark,
                                                           std::move_only_function<void()>)
     {
         return viewer_.fail_open ? nullptr : std::make_unique<FakeViewer>(viewer_, dark);
@@ -248,6 +254,32 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(entry.error.empty());
     EXPECT_TRUE(SvgOf(entry).contains("Alpha"));
     EXPECT_TRUE(file_cache_.Find(d.WidthFreeHash(), 0, kMaxWidth, false).has_value());
+}
+
+// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令から同期で記録し直し、描き直しもディスクの読み込みもしない。
+TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
+{
+    const DiagramDoc d(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    const auto drawing = entry.drawing;
+    const float width = entry.width;
+    const float height = entry.height;
+    const ComPtr<ID2D1CommandList> released = entry.commands;
+
+    renderer_.ReleaseCommands(entry);
+    EXPECT_FALSE(entry.HasImage());
+    EXPECT_TRUE(entry.NeedsRender());
+    EXPECT_EQ(entry.width, width) << "寸法は残す";
+
+    const int updates = updates_;
+    EXPECT_TRUE(Request(d, entry));
+    ASSERT_TRUE(entry.HasImage());
+    EXPECT_NE(entry.commands, released) << "捨てたものは使わない";
+    EXPECT_EQ(entry.drawing, drawing);
+    EXPECT_EQ(entry.width, width);
+    EXPECT_EQ(entry.height, height);
+    EXPECT_EQ(updates_, updates) << "描き直さない";
 }
 
 // 描いた図のエラーは描き直しても同じなので確定させ、ディスクには置かない。
@@ -641,6 +673,16 @@ TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
 }
 
 // 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
+// 拡大表示は本体の描画デバイスで描くので、本体がデバイスを作り直したら拡大表示にも渡す。
+TEST_F(MermaidRendererTest, ViewerFollowsRenderDevice)
+{
+    OpenViewer(kAlpha);
+    ASSERT_TRUE(AwaitViewerDrawings(1));
+    EXPECT_EQ(viewer_.device_changes, 0);
+    renderer_.SetRenderTarget(rt_.Get());
+    EXPECT_EQ(viewer_.device_changes, 1);
+}
+
 TEST_F(MermaidRendererTest, ViewerDrawingWaitsForRenderTarget)
 {
     renderer_.SetRenderTarget(nullptr);

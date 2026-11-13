@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include "diagram_raster.h"
+#include "draw_command.h"
 #include "mermaid_util.h"
 #include "pele_engine.h"
 #include "pele_test_assets.h"
 #include "string_convert.h"
 #include "test_helpers.h"
 #include "wic_util.h"
-#include <d2d1_1.h>
+#include <d2d1_3.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <latch>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -276,6 +278,30 @@ TEST_F(PeleEngineTest, RendersConcurrentlyAndAfterTrim)
     EXPECT_EQ(engine_->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
 }
 
+// 描き終えた後に 1 個まで減らすと、同時に描いて増えたランタイムを捨て、残りで続けて描ける。
+TEST_F(PeleEngineTest, TrimKeepsRequestedRuntimes)
+{
+    const auto engine = NewEngine();
+    // 同時に描いたつもりでも片方が先に終わると 1 個で足りるので、2 個できるまで試す。
+    for (int attempt = 0; attempt < 20 && engine->IdleRuntimes() < 2; ++attempt) {
+        std::latch start(2);
+        std::thread other([&] {
+            start.arrive_and_wait();
+            engine->Render("flowchart LR\n  A --> B --> C", false, 800.0f);
+        });
+        start.arrive_and_wait();
+        engine->Render("flowchart TD\n  X --> Y --> Z", false, 800.0f);
+        other.join();
+    }
+    ASSERT_GE(engine->IdleRuntimes(), 2u);
+    engine->Trim(nullptr, 1);
+    EXPECT_EQ(engine->IdleRuntimes(), 1u);
+    EXPECT_EQ(engine->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
+    EXPECT_EQ(engine->IdleRuntimes(), 1u);
+    engine->Trim();
+    EXPECT_EQ(engine->IdleRuntimes(), 0u);
+}
+
 // 取り消した後は、HTML を覚えている数式も描かない。
 TEST_F(PeleEngineTest, CancelStopsRendering)
 {
@@ -475,9 +501,14 @@ protected:
     // math が収まる大きさの、dpr 倍の描画先。
     static Canvas MakeCanvas(const MathDrawing& math, float dpr)
     {
+        return MakeCanvas(static_cast<UINT>(std::ceil((math.width + 8.0f) * dpr)), static_cast<UINT>(std::ceil((math.height + math.depth + 8.0f) * dpr)), dpr);
+    }
+    // width x height 画素の、dpr 倍の描画先。
+    static Canvas MakeCanvas(UINT width, UINT height, float dpr)
+    {
         Canvas c;
-        c.width = static_cast<UINT>(std::ceil((math.width + 8.0f) * dpr));
-        c.height = static_cast<UINT>(std::ceil((math.height + math.depth + 8.0f) * dpr));
+        c.width = width;
+        c.height = height;
         EXPECT_HRESULT_SUCCEEDED(wic_->CreateBitmap(c.width, c.height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &c.bitmap));
         const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
                                                         96.0f * dpr, 96.0f * dpr);
@@ -497,6 +528,11 @@ protected:
             DrawMath(c.rt.Get(), part, 2.3f, 2.6f + part.height, c.brush.Get(), masks);
         }
         EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
+        return ReadPixels(c);
+    }
+    // 描画先の画素 (32bpp PBGRA)。
+    static std::vector<uint32_t> ReadPixels(const Canvas& c)
+    {
         std::vector<uint32_t> pixels(static_cast<size_t>(c.width) * c.height);
         EXPECT_HRESULT_SUCCEEDED(c.bitmap->CopyPixels(nullptr, c.width * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
         return pixels;
@@ -585,6 +621,53 @@ TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
     masks.Reset(nullptr);
     Draw(canvas, { math.get(), 1 }, &masks);
     EXPECT_EQ(masks.Count(), 0u);
+}
+
+// スクロールの間に図をビットマップで写しても、ベクタで描くのとほぼ同じ画素になる。描いた帯の中を画素単位で動くうちは
+// 写すだけで、帯から出たら描き直す。描かなかったフレームの後で捨てる。
+TEST_F(MathDrawTest, DiagramBitmapsMatchVectorWhileScrolling)
+{
+    const auto out = engine_->Render("flowchart TD\n  A[開始] --> B{判定}\n  B --> C[終了]\n  B --> D[やり直し] --> A", false, 400.0f);
+    ASSERT_EQ(out.status, Status::Drawn);
+    const auto& drawing = out.drawing;
+    constexpr float kDpr = 1.5f;
+    constexpr float kViewHeight = 120.0f;
+    const Canvas c = MakeCanvas(static_cast<UINT>(std::ceil((drawing.width + 8.0f) * kDpr)), static_cast<UINT>(kViewHeight * kDpr), kDpr);
+    ASSERT_NE(c.device, nullptr);
+    const auto commands = RecordDiagram(CreateRecordContext(c.rt.Get()).Get(), dw_.Get(), wic_.Get(), drawing, L"ja-jp");
+    ASSERT_NE(commands, nullptr);
+    ASSERT_GT(drawing.height, kViewHeight * 1.5f) << "画面より高い図で、帯を試す";
+
+    DiagramBitmapCache cache;
+    cache.Reset(c.device.Get());
+    const FixedBrushArray brushes{};
+    const InlineDrawings inline_drawings;
+    const auto draw = [&](float top, DiagramBitmapCache* bitmaps) {
+        const DrawCommandList cmds{ DrawDiagramCmd{ commands.Get(), D2D1::RectF(2.3f, top, 2.3f + drawing.width, top + drawing.height), drawing.width } };
+        c.rt->BeginDraw();
+        c.rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        ExecuteDrawCommands(cmds, c.rt.Get(), brushes, inline_drawings, nullptr, bitmaps);
+        EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
+        return ReadPixels(c);
+    };
+
+    // 端数のある位置から、装置の画素で割り切れる量 (10 DIP = 15 画素) ずつ動かす。
+    float top = 0.7f;
+    EXPECT_LE(MaxChannelDiff(draw(top, &cache), draw(top, nullptr)), 2);
+    cache.EndFrame();
+    ASSERT_EQ(cache.Count(), 1u);
+    const size_t bytes = cache.Bytes();
+    EXPECT_LT(bytes, static_cast<size_t>(c.width) * c.height * 4 * 2) << "見えている部分の上下に 1/4 画面ずつの帯";
+    for (int i = 0; i < 8; ++i) {
+        top -= 10.0f;
+        EXPECT_LE(MaxChannelDiff(draw(top, &cache), draw(top, nullptr)), 2) << i;
+        cache.EndFrame();
+    }
+
+    // 描かなかったフレームの後で捨てる。
+    cache.EndFrame();
+    EXPECT_EQ(cache.Count(), 0u);
+    EXPECT_EQ(cache.Bytes(), 0u);
 }
 
 // ---- KaTeX の HTML の配置 (箱の計算) ----

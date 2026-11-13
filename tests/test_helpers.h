@@ -117,20 +117,25 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
     auto* tbl = AttachTestTable(n);
     tbl->row_count = static_cast<uint32_t>(rows.size());
     tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
+    std::string text;
     for (const auto& row : rows) {
         if (!tbl->cell_text_starts.empty()) {
-            tbl->concat_text.push_back('\n');
+            text.push_back('\n');
         }
         for (size_t c = 0; c < row.size(); ++c) {
             if (c > 0) {
-                tbl->concat_text.push_back('\t');
+                text.push_back('\t');
             }
-            tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+            tbl->cell_text_starts.push_back(static_cast<uint32_t>(text.size()));
             tbl->cell_run_starts.push_back(0);
-            tbl->concat_text.append(row.begin()[c]);
+            text.append(row.begin()[c]);
         }
     }
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(text.size()));
+    {
+        const std::scoped_lock lock{ test_nodes_detail::Mutex() };
+        tbl->concat_text = test_nodes_detail::Arena().CopyText(text);
+    }
     tbl->cell_run_starts.push_back(0);
     tbl->aligns.assign(tbl->col_count, TableAlign::Default);
     n.SetText(tbl->concat_text);

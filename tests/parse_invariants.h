@@ -140,7 +140,7 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
 } // namespace parse_invariants_detail
 
 // raw はパース入力 (= ノードのテキストが直接指しうるバッファ)。違反が無ければ success。
-inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, const std::vector<Node>& nodes)
+inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, std::span<const Node> nodes)
 {
     using namespace parse_invariants_detail;
     ViolationSink sink;

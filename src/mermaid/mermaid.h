@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "diagram_raster.h"
 #include "diagram_view.h"
 #include "inline_math.h"
 #include "layout_cache.h"
@@ -49,7 +50,8 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
 class MermaidRenderer : public IMermaidRenderer {
 public:
-    MermaidRenderer() = default;
+    // D3D の型をこのヘッダに持ち込まないよう、作る・壊すは mermaid.cpp で行う。
+    MermaidRenderer();
     ~MermaidRenderer() override;
 
     MermaidRenderer(const MermaidRenderer&) = delete;
@@ -60,10 +62,11 @@ public:
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
     // 拡大表示の窓を開く。開けなければ null。本番は DiagramView::Open で、テストは窓を作らない実装を返す。
-    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID2D1Factory* d2d, IDWriteFactory* dw, IWICImagingFactory* wic, bool dark,
-                                                              std::move_only_function<void()> on_close);
+    // d3d と device は本体の描画デバイス (SetRenderTarget で受けたもの)。
+    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw,
+                                                              IWICImagingFactory* wic, bool dark, std::move_only_function<void()> on_close);
 
-    // d2d・wic・dw は Renderer と共有する。d2d は拡大表示の窓と図を描いた画像の描画先を、wic は図を描いた画像を、
+    // d2d・wic・dw は Renderer と共有する。d2d は図を描いた画像 (保存・コピー) の描画先を、wic は図を描いた画像を、
     // dw は図の文字を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
     // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
@@ -78,7 +81,8 @@ public:
     // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
-    void SetRenderTarget(ID2D1RenderTarget* render_target);
+    // d3d と device は render_target を作った描画デバイス (拡大表示の窓のスワップチェーンを作って描く)。無ければ拡大表示を開けない。
+    void SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d = nullptr, ID2D1Device* device = nullptr);
     // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
@@ -90,6 +94,7 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
+    void ReleaseCommands(DiagramEntry& diagram_entry) override;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -171,6 +176,8 @@ private:
     // 描いたか読んだ描画命令。UI で commands にする。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
+        // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
+        DiagramTextLayouts texts;
         // 描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
         std::string bytes;
     };
@@ -198,6 +205,7 @@ private:
         bool used_pele = false;
     };
 
+    // 描き終えて待ちが空になった時点で 1 個まで減らし (ProcessJobResults)、最後の 1 個をこの時間で捨てる。
     // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
     // 別のアプリへ切り替わったときは待たずに捨てる (App::OnActivateApp)。
     static constexpr UINT PELE_TRIM_MS = 10000;
@@ -242,15 +250,18 @@ private:
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
-    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing);
+    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts = nullptr);
     void InsertCache(uint64_t hash, DiagramResult result);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
-    const DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
+    DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
     // 結果 (描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
-    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
+    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    // render_target_ のデバイス。拡大表示の窓はこれで描く。
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 

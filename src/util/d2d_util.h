@@ -6,6 +6,7 @@
 #include <dwrite_3.h>
 #include <wrl/client.h>
 #include <windows.h>
+#include <cstdint>
 
 // テキスト書式の作り方。描画・計測・ポップアップで共有する。
 struct TextFormatSpec {
@@ -116,3 +117,52 @@ inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
     constexpr UINT kWithoutTarget = 16384;
     return rt ? rt->GetMaximumBitmapSize() : kWithoutTarget;
 }
+
+// Present の結果が、デバイスを失ったことを表すか。TDR / ドライバ内部障害もデバイスの作り直しで戻るので REMOVED/RESET と同じに
+// 扱う。OCCLUDED (成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるので拾わない。
+constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept
+{
+    return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
+}
+
+struct ID3D11Device;
+struct IDXGISwapChain1;
+struct ID2D1Device;
+struct ID2D1DeviceContext;
+
+// スワップチェーンの今のバッファを、dpi の描画先として dc に付ける (dc の DPI も dpi にする)。本体の窓と WindowSwapTarget で共有する。
+HRESULT BindSwapChainTarget(ID2D1DeviceContext* dc, IDXGISwapChain1* swap_chain, float dpi) noexcept;
+
+// 本体の描画デバイスで、ほかの窓 (ポップアップ・図の拡大表示) を描くスワップチェーンと DeviceContext。
+// dxgi を読む TU を増やさないため (このヘッダはポップアップを通じて広く読まれる)、定義は d2d_util.cpp に置く。
+class WindowSwapTarget {
+public:
+    enum class Mode : uint8_t {
+        // 伸ばさずに左上に置き、窓の大きさは Resize (ResizeBuffers) で合わせる。FLIP_DISCARD の 2 枚。
+        Flip,
+        // 角を丸める region (SetWindowRgn) が効く BitBlt 方式。DISCARD の 1 枚。
+        BitBlt,
+    };
+
+    WindowSwapTarget() noexcept;
+    ~WindowSwapTarget();
+    WindowSwapTarget(const WindowSwapTarget&) = delete;
+    WindowSwapTarget& operator=(const WindowSwapTarget&) = delete;
+
+    // width x height 画素のスワップチェーンを hwnd に作り、今のバッファを dpi の描画先にする。失敗すれば何も持たない。
+    bool Create(ID3D11Device* d3d, ID2D1Device* device, HWND hwnd, UINT width, UINT height, float dpi, Mode mode);
+    // バッファを放して大きさを変え、描画先にし直す。失敗すれば何も持たない。
+    bool Resize(UINT width, UINT height, float dpi);
+    // EndDraw して Present する (垂直同期を待つ)。デバイスを失っていれば false (Reset して作り直す)。
+    bool EndDrawAndPresent();
+    void Reset() noexcept;
+    // 描画先。Create の前と失敗の後は null。
+    ID2D1DeviceContext* dc() const noexcept
+    {
+        return dc_.Get();
+    }
+
+private:
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc_;
+};

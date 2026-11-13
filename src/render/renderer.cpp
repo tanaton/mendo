@@ -93,10 +93,18 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
     AcquireFrame();
     rt()->BeginDraw();
     rt()->Clear(theme_->Color(BrushId::Background));
-    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_drawings, math_masks_.get());
+    ExecuteDrawCommands(frame_cmds_, rt(), brushes_, p.inline_drawings, math_masks_.get(), scrolling_diagrams_ ? &diagram_bitmaps_ : nullptr);
 
     const HRESULT hr = rt()->EndDraw();
     math_masks_->EndFrame(MathMaskCache::kBudgetBytes);
+    diagram_bitmaps_.EndFrame();
+    // 検索のハイライトの多い画面で膨らんだ容量を、使わなくなったら返す (検索のように使わないセッションもある機能の分は
+    // 小さくても返す)。2 文字に 1 回当たる検索の画面は矩形 3240 個で、コマンド 1 個 64 バイトの容量が約 300KB 残っていた。
+    // 普段の画面 (数百個) では縮めない。
+    constexpr size_t kRetainedCommands = 4096;
+    if (frame_cmds_.capacity() > kRetainedCommands && frame_cmds_.size() < frame_cmds_.capacity() / 4) {
+        frame_cmds_.shrink_to_fit();
+    }
     if (device_.OnEndDraw(hr)) {
         Present();
     }
@@ -326,6 +334,8 @@ void Renderer::CreateTextFormats(bool zoomed_only)
         }
         auto spec = s.spec;
         spec.locale = locale_of(s.loc);
+        // ズームのたびに見えているリスト番号などの分が残り続けないよう、古い書式のレイアウトを捨てる。
+        text_layouts_.Forget(s.target.Get());
         s.target = CreateTextFormat(dw, spec);
     }
 }

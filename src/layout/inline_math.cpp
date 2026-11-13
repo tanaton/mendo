@@ -62,7 +62,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
             }
             *chunk = static_cast<uint32_t>(chunks_.size());
             current.items.push_back({ key, std::string{ *tex }, font_size });
-            if (current.items.size() >= kInlineMathPerChunk) {
+            if (current.items.size() >= (chunks_.empty() ? kInlineMathFirstChunk : kInlineMathPerChunk)) {
                 close();
             }
         }

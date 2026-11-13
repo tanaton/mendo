@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <windows.h>
 #include <psapi.h>
-#include <d2d1_1.h>
+#include <d2d1_3.h>
 #include <d3d11.h>
 #include <dwrite.h>
 #include <dxgi.h>
@@ -18,6 +18,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include "block_h_scroll.h"
@@ -45,6 +46,7 @@
 #include "test_helpers.h"
 #include "theme.h"
 #include "viewport_manager.h"
+#include "wic_util.h"
 
 // 準備が重いベンチは Iterations を固定する。固定しないと反復回数を決める試行のたびに準備をやり直す。
 
@@ -168,6 +170,8 @@ void RunLargeDocument(benchmark::State& state, const std::string& src)
         if (first) {
             const auto after = MemoryCounters();
             state.counters["commit_MB"] = (static_cast<double>(after.PrivateUsage) - static_cast<double>(before.PrivateUsage)) / kMiB;
+            // パースの途中の最大。プロセスの最大なので、1 つずつ別のプロセスで (--benchmark_filter で) 測る。
+            state.counters["peak_commit_MB"] = (static_cast<double>(after.PeakPagefileUsage) - static_cast<double>(before.PrivateUsage)) / kMiB;
             state.counters["working_set_MB"] = (static_cast<double>(after.WorkingSetSize) - static_cast<double>(before.WorkingSetSize)) / kMiB;
             state.counters["nodes"] = static_cast<double>(doc->GetNodes().size());
             first = false;
@@ -204,6 +208,26 @@ void BM_LargeLinkDocument(benchmark::State& state)
 }
 BENCHMARK(BM_LargeLinkDocument)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
+// 60MB の表。giant は 1 つの表、many は 200 行ずつの表の並び。セルの本文は表ごとに伸ばす置き場 (concat_text) に入る。
+void BM_LargeTableDocument(benchmark::State& state, bool giant)
+{
+    constexpr size_t kTableBytes = 60 * 1024 * 1024;
+    std::string src;
+    src.reserve(kTableBytes + 256);
+    constexpr std::string_view kHeader = "| id | name | value | note |\n|---|---|---|---|\n";
+    src += kHeader;
+    for (size_t i = 0; src.size() < kTableBytes; ++i) {
+        std::format_to(std::back_inserter(src), "| {} | item-{} | {} | **note** {} |\n", i, i % 977, i * 7 % 10007, i % 13);
+        if (!giant && i % 200 == 199) {
+            src += '\n';
+            src += kHeader;
+        }
+    }
+    RunLargeDocument(state, src);
+}
+BENCHMARK_CAPTURE(BM_LargeTableDocument, giant, true)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_LargeTableDocument, many, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+
 // 80MB のリスト。毎行にリンク・太字・コード・強調・実体参照、50 行ごとに見出しと引用。
 void BM_LargeInlineDocument(benchmark::State& state)
 {
@@ -219,6 +243,18 @@ void BM_LargeInlineDocument(benchmark::State& state)
     RunLargeDocument(state, src);
 }
 BENCHMARK(BM_LargeInlineDocument)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+
+// 名前の文字参照 1 個の引き当て。common は HTML から変換した文書に多い参照、rare は表の二分探索で引く参照。
+void BM_ResolveHtmlEntity(benchmark::State& state, std::array<std::string_view, 4> names)
+{
+    char buffer[4];
+    size_t k = 0;
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(ResolveHtmlEntity(names[k++ % names.size()], buffer));
+    }
+}
+BENCHMARK_CAPTURE(BM_ResolveHtmlEntity, common, std::array<std::string_view, 4>{ "&amp;", "&lt;", "&nbsp;", "&quot;" })->Unit(benchmark::kNanosecond);
+BENCHMARK_CAPTURE(BM_ResolveHtmlEntity, rare, std::array<std::string_view, 4>{ "&copy;", "&rarr;", "&Ouml;", "&hellip;" })->Unit(benchmark::kNanosecond);
 
 // 空行のない 20 万行 (約 16MB)。長いテキストを区切ったノードの並びにする経路を通る。
 void BM_ParseGiantText(benchmark::State& state)
@@ -290,16 +326,18 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp", kElispSnippet)->UseManualTi
 // 行の中で完結する言語。行の頭で区切った並びは、続きのノードのための字句解析をしない。
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, ini, "ini", "[section]\nkey = \"value\"\n; comment\ncount = 12\nflag: true\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 
-void BM_NormalizeSource(benchmark::State& state)
+// 100MB の 50 バイトの行。line は改行を含めた 1 行。
+void BM_NormalizeSource(benchmark::State& state, std::string_view line)
 {
-    const std::string src = RepeatTo("The quick brown fox jumps over the lazy dog 1234\r\n", kLargeBytes);
+    const std::string src = RepeatTo(line, kLargeBytes);
     for (auto _ : state) {
         std::string s = src;
         state.SetIterationTime(SecondsOf([&] { NormalizeSource(s); }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
 }
-BENCHMARK(BM_NormalizeSource)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_NormalizeSource, crlf, "The quick brown fox jumps over the lazy dog 1234\r\n")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_NormalizeSource, lf, "The quick brown fox jumps over the lazy dog 12345\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
 void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)
@@ -491,7 +529,7 @@ void WorkerCounts(benchmark::Benchmark* b)
 }
 
 // 文書の大きさのキャッシュを確保するところから全ノードを組む秒数。キャッシュの破棄は測らない。
-double FullLayoutSeconds(LayoutEngine& engine, const std::vector<Node>& nodes)
+double FullLayoutSeconds(LayoutEngine& engine, std::span<const Node> nodes)
 {
     LayoutCache cache;
     return SecondsOf([&] {
@@ -590,7 +628,7 @@ BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Un
 BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
-void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, const std::vector<Node>& nodes)
+void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, std::span<const Node> nodes)
 {
     LayoutCache cache(nodes.size());
     ComputeLayout(engine, nodes, cache, 1200.0f);
@@ -663,7 +701,7 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
         }
         if (phase == OpenPhase::Rest) {
             s = SecondsOf([&] {
-                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, YRange::All())) {
+                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, YRange::All()).remaining) {
                 }
             });
         }
@@ -962,6 +1000,12 @@ BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_scroll, LongJapaneseParagraphs()
 
 constexpr PaneRect kTocPane{ .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight };
 
+// 目次の項目の書式 (本体と同じく、ペインの文字の大きさで上下中央・折り返さない)。
+Microsoft::WRL::ComPtr<IDWriteTextFormat> TocItemFormat(IDWriteFactory* factory, const Theme& theme)
+{
+    return CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+}
+
 // 2000 見出しの目次の 1 フレーム。書式が無いのでレイアウトは作らず、項目の文字列の手間だけを測る。
 void BM_TocFrame(benchmark::State& state)
 {
@@ -991,7 +1035,7 @@ void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
     }
     auto* const factory = opened->l.factory.Get();
     const Theme& theme = opened->l.theme;
-    const auto item = CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const auto item = TocItemFormat(factory, theme);
     const SidePaneState sp = TocOnlySidePane(kTocPane, theme.pane_item_height, opened->doc.GetToc(), opened->doc.GetNodes(), 3);
     const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = explicit_fonts ? &opened->l.measurer.BodyFonts() : nullptr };
     DrawCommandList cmds;
@@ -1214,6 +1258,300 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
 BENCHMARK_CAPTURE(BM_MathFrameDraw, fractions, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_MathFrameDraw, shapes, true)->Unit(benchmark::kMicrosecond);
 
+// 本文 (と目次) の 1 フレームを、コマンドの生成から D2D の EndDraw まで。文書の 1/17〜16/17 の 16 か所を順に描く。
+// 図は記録しないので枠だけ (図の再生は BM_DiagramFrameDraw)。md が空なら test.md を 4 回繰り返した文書。
+void BM_DocFrameDraw(benchmark::State& state, std::string md, bool toc)
+{
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    const float toc_width = toc ? kTocPane.width : 0.0f;
+    OffscreenTarget target;
+    if (!target.Init(l.theme, static_cast<UINT>(toc_width + kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    MdPaneFrame frame(*opened);
+    auto& [cache, viewport, service, generator, cmds] = frame;
+    // 組むと下のノードの位置が動くので、2 周目で各位置を組み終えた状態に揃える。
+    constexpr int kPositions = 16;
+    std::array<float, kPositions> ys{};
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 0; i < kPositions; ++i) {
+            if (pass == 0) {
+                ys[i] = cache.Bottom(cache.size() - 1) * static_cast<float>(i + 1) / (kPositions + 1);
+            }
+            viewport.SetScrollY(ys[i]);
+            service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+            ys[i] = viewport.GetScrollY();
+        }
+    }
+    auto* const factory = l.factory.Get();
+    const auto item = TocItemFormat(factory, l.theme);
+    const SidePaneState sp = TocOnlySidePane(kTocPane, l.theme.pane_item_height, doc.GetToc(), doc.GetNodes(), 3);
+    const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = &l.measurer.BodyFonts() };
+    const PaneRect pane{ .x = toc_width, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    TextLayoutCache text_layouts;
+    text_layouts.SetFactory(factory);
+    InlineDrawings drawings;
+    size_t at = 0;
+    for (auto _ : state) {
+        cmds.clear();
+        if (toc) {
+            chrome::EmitSidePanes({ cmds, text_layouts }, fmts, l.theme, sp);
+        }
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = ys[at++ % kPositions] }, 1.0f);
+        target.context->BeginDraw();
+        target.context->Clear(l.theme.Color(BrushId::Background));
+        ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, drawings);
+        target.context->EndDraw();
+    }
+    state.counters["cmds"] = static_cast<double>(cmds.size());
+}
+// 30 行のコードブロックと短い段落の繰り返し。ブロックは画面より低いので、画面の端に掛かるものが多い。
+std::string CodeBlocksMd(int blocks)
+{
+    std::string md;
+    const std::string block = JsonCodeBlock(30, 100);
+    for (int i = 0; i < blocks; ++i) {
+        std::format_to(std::back_inserter(md), "Paragraph {} before the block.\n\n{}\n", i, block);
+    }
+    return md;
+}
+BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd_toc, std::string{}, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd, std::string{}, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DocFrameDraw, code_edges, CodeBlocksMd(60), false)->Unit(benchmark::kMicrosecond);
+
+constexpr float kDiagramMaxWidth = 1000.0f;
+
+// WIC (図形の SVG を読むストリーム) が使う COM を、スコープの間だけ初期化する。
+struct ComScope {
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ComScope() = default;
+    ComScope(const ComScope&) = delete;
+    ComScope& operator=(const ComScope&) = delete;
+    ~ComScope()
+    {
+        if (SUCCEEDED(hr)) {
+            CoUninitialize();
+        }
+    }
+};
+
+// test.md の図のコード。
+std::vector<std::string> TestMdDiagramCodes(benchmark::State& state)
+{
+    const auto doc = Document::FromMarkdown(ReadOrSkip(state, "example/test.md"), L"bench.md");
+    std::vector<std::string> codes;
+    for (const size_t i : doc.GetDiagramNodeIndices()) {
+        codes.emplace_back(doc.GetNodes()[i].GetText());
+    }
+    return codes;
+}
+
+// test.md の図を描画命令にした結果。描けなかった図は入れない。
+std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> TestMdDiagramDrawings(benchmark::State& state, PeleEngine& engine)
+{
+    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
+    for (const auto& code : TestMdDiagramCodes(state)) {
+        auto outcome = engine.Render(code, false, kDiagramMaxWidth);
+        if (outcome.status == PeleOutcome::Status::Drawn) {
+            drawings.push_back(std::make_shared<const mermaid_util::DiagramDrawing>(std::move(outcome.drawing)));
+        }
+    }
+    return drawings;
+}
+
+// 図の記録と描画のベンチの準備。test.md の図を描画命令にし、記録先と描画先を用意する。
+struct DiagramBench {
+    // 記録した図と、その寸法 (記録の単位)。
+    struct Recorded {
+        Microsoft::WRL::ComPtr<ID2D1CommandList> list;
+        float width;
+        float height;
+    };
+
+    // WIC が使う COM を最後まで残すため、最初に置く。
+    const ComScope com;
+    // engine が指すので engine より先に置く。
+    const PeleTestAssets assets = PeleTestAssets::Load();
+    const Theme theme = GetLightTheme();
+    OffscreenTarget target;
+    std::unique_ptr<PeleEngine> engine;
+    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
+
+    // 用意できなければ SkipWithError して false。
+    bool Init(benchmark::State& state)
+    {
+        if (!assets.ok() || !SharedDWriteFactory()) {
+            state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+            return false;
+        }
+        if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+            state.SkipWithError("D3D device init failed");
+            return false;
+        }
+        engine = assets.NewEngine(SharedDWriteFactory());
+        drawings = TestMdDiagramDrawings(state, *engine);
+        record_dc = CreateRecordContext(target.context.Get());
+        wic = wic_util::CreateWicFactory("bench");
+        return true;
+    }
+    // 図をすべて記録する。記録できなかった図は入れない。
+    std::vector<Recorded> RecordAll() const
+    {
+        std::vector<Recorded> lists;
+        for (const auto& d : drawings) {
+            if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
+                lists.push_back({ std::move(list), d->width, d->height });
+            }
+        }
+        return lists;
+    }
+};
+
+// test.md の図を pele で描き、SVG を解いて描画命令にする。ランタイムとバイトコードの用意は小さな図 1 個で済ませて測らない。
+// resolve は 2 回目以降 (テーマの切り替え。覚えた SVG を解き直すだけで JS を走らせない)。
+void BM_DiagramRender(benchmark::State& state, bool resolve)
+{
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    const auto codes = TestMdDiagramCodes(state);
+    auto engine = assets.NewEngine(SharedDWriteFactory());
+    if (resolve) {
+        for (const auto& code : codes) {
+            engine->Render(code, false, kDiagramMaxWidth);
+        }
+    }
+    size_t drawn = 0;
+    bool dark = false;
+    for (auto _ : state) {
+        if (!resolve) {
+            engine = assets.NewEngine(SharedDWriteFactory());
+            engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
+        }
+        dark = !dark;
+        drawn = 0;
+        state.SetIterationTime(SecondsOf([&] {
+            for (const auto& code : codes) {
+                drawn += engine->Render(code, resolve && dark, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
+            }
+        }));
+    }
+    state.counters["diagrams"] = static_cast<double>(codes.size());
+    state.counters["drawn"] = static_cast<double>(drawn);
+}
+BENCHMARK_CAPTURE(BM_DiagramRender, first, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+
+// 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
+// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。
+enum class DiagramRecordPart : uint8_t { Record, Prepared, Layout };
+void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
+{
+    DiagramBench bench;
+    if (!bench.Init(state)) {
+        return;
+    }
+    const auto& drawings = bench.drawings;
+    size_t texts = 0;
+    for (const auto& d : drawings) {
+        for (const auto& layer : d->layers) {
+            texts += layer.texts.size();
+        }
+    }
+    std::vector<DiagramTextLayouts> laid_out;
+    for (const auto& d : drawings) {
+        laid_out.push_back(LayoutDiagramTexts(SharedDWriteFactory(), *d, L"ja-jp"));
+    }
+    for (auto _ : state) {
+        for (size_t k = 0; k < drawings.size(); ++k) {
+            if (part == DiagramRecordPart::Layout) {
+                benchmark::DoNotOptimize(LayoutDiagramTexts(SharedDWriteFactory(), *drawings[k], L"ja-jp"));
+            }
+            else {
+                const auto* prepared = part == DiagramRecordPart::Prepared ? &laid_out[k] : nullptr;
+                benchmark::DoNotOptimize(RecordDiagram(bench.record_dc.Get(), SharedDWriteFactory(), bench.wic.Get(), *drawings[k], L"ja-jp", prepared));
+            }
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(drawings.size());
+    state.counters["texts"] = static_cast<double>(texts);
+}
+BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
+
+
+// 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
+void BM_DiagramFrameDraw(benchmark::State& state)
+{
+    DiagramBench bench;
+    if (!bench.Init(state)) {
+        return;
+    }
+    const Theme& theme = bench.theme;
+    auto& target = bench.target;
+    const auto lists = bench.RecordAll();
+    for (auto _ : state) {
+        for (const auto& r : lists) {
+            target.context->BeginDraw();
+            target.context->Clear(theme.Color(BrushId::Background));
+            target.context->DrawImage(r.list.Get());
+            target.context->EndDraw();
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(lists.size());
+}
+BENCHMARK(BM_DiagramFrameDraw)->Unit(benchmark::kMillisecond);
+
+// test.md の図を 1 個ずつ、画面の下端から上へ 40 DIP ずつ動かして出ていくまで描く (ホイールのスクロール)。
+// bitmaps はスクロールの間の DiagramBitmapCache で写す。frame は 1 フレームあたりの時間。
+void BM_DiagramScrollDraw(benchmark::State& state, bool bitmaps)
+{
+    DiagramBench bench;
+    if (!bench.Init(state)) {
+        return;
+    }
+    const Theme& theme = bench.theme;
+    auto& target = bench.target;
+    const auto lists = bench.RecordAll();
+    DiagramBitmapCache cache;
+    cache.Reset(target.device.Get());
+    const InlineDrawings inline_drawings;
+    DrawCommandList cmds;
+    constexpr float kStep = 40.0f;
+    size_t frames = 0;
+    size_t peak_bytes = 0;
+    for (auto _ : state) {
+        for (const auto& r : lists) {
+            const float scale = std::min(1.0f, kViewWidth / r.width);
+            for (float y = kViewHeight; y > -r.height * scale; y -= kStep) {
+                cmds.clear();
+                cmds.emplace_back(DrawDiagramCmd{ r.list.Get(), D2D1::RectF(0.0f, y, r.width * scale, y + r.height * scale), r.width });
+                target.context->BeginDraw();
+                target.context->Clear(theme.Color(BrushId::Background));
+                ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, inline_drawings, nullptr, bitmaps ? &cache : nullptr);
+                target.context->EndDraw();
+                peak_bytes = std::max(peak_bytes, cache.Bytes());
+                cache.EndFrame();
+                ++frames;
+            }
+        }
+    }
+    state.counters["frame"] = benchmark::Counter(static_cast<double>(frames), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+    state.counters["peak_MB"] = static_cast<double>(peak_bytes) / kMiB;
+}
+BENCHMARK_CAPTURE(BM_DiagramScrollDraw, vector, false)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramScrollDraw, bitmap, true)->Unit(benchmark::kMillisecond);
+
 // 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
 // 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
 // HTML の合計は約 1.5MB で、PeleEngine が覚える上限 (4MB) に収まる。
@@ -1299,6 +1637,17 @@ BENCHMARK_DEFINE_F(TableMeasure, Initial)(benchmark::State& state)
 }
 BENCHMARK_REGISTER_F(TableMeasure, Initial)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
+// ワーカーで組むとき (TableMeasureJobs) と同じく、止める印を渡して行を区切った初回の計測。
+BENCHMARK_DEFINE_F(TableMeasure, InitialStoppable)(benchmark::State& state)
+{
+    const std::stop_source stop;
+    for (auto _ : state) {
+        BuiltTable built;
+        state.SetIterationTime(SecondsOf([&] { built = layout_->measurer.BuildTable(*table_, 1200.0f, stop.get_token()); }));
+    }
+}
+BENCHMARK_REGISTER_F(TableMeasure, InitialStoppable)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+
 // 反復ごとに別の位置を復元する。
 BENCHMARK_DEFINE_F(TableMeasure, RestoreScreen)(benchmark::State& state)
 {
@@ -1377,11 +1726,10 @@ void BM_TableResizeFastPath(benchmark::State& state)
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
 
-// 列に同じ値が並ぶ大きな表の計測 (20 列)。測るセルが代表だけになるので、代表のセルの探索が時間の大半を占める。ワーカー 8 本。
-void BM_TableFewValues(benchmark::State& state)
+// 列に同じ値が並ぶ rows 行 20 列の表。
+std::string FewValuesTableMd(size_t rows)
 {
     constexpr int kCols = 20;
-    const auto rows = static_cast<size_t>(state.range(0));
     std::string head;
     std::string rule;
     for (int c = 0; c < kCols; ++c) {
@@ -1395,7 +1743,13 @@ void BM_TableFewValues(benchmark::State& state)
         }
         md += "|\n";
     }
-    const auto [opened, table] = OpenTableOrSkip(state, std::move(md), 8);
+    return md;
+}
+
+// 列に同じ値が並ぶ大きな表の計測 (20 列)。測るセルが代表だけになるので、代表のセルの探索が時間の大半を占める。ワーカー 8 本。
+void BM_TableFewValues(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(static_cast<size_t>(state.range(0))), 8);
     if (!table) {
         return;
     }
@@ -1406,6 +1760,42 @@ void BM_TableFewValues(benchmark::State& state)
     }
 }
 BENCHMARK(BM_TableFewValues)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+
+// BM_TableFewValues の表を、ワーカーで組むとき (TableMeasureJobs) と同じく止める印を渡して組む。止める印を見る区切りの手間。
+void BM_TableFewValuesStoppable(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(static_cast<size_t>(state.range(0))), 8);
+    if (!table) {
+        return;
+    }
+    auto& l = opened->l;
+    const std::stop_source stop;
+    for (auto _ : state) {
+        BuiltTable built;
+        state.SetIterationTime(SecondsOf([&] { built = l.measurer.BuildTable(*table, 1200.0f, stop.get_token()); }));
+    }
+}
+BENCHMARK(BM_TableFewValuesStoppable)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+
+// BM_TableFewValues の表を組んだ後に幅を 1200 → 1100 に変える。全行が退避しているので、行の高さを見積もる
+// FinalizeTableLayout の全セルの走査の手間。workers はワーカーの数 (0 は直列)。
+void BM_TableFewValuesResize(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(200'000), static_cast<int>(state.range(0)));
+    if (!table) {
+        return;
+    }
+    auto& l = opened->l;
+    NodeLayoutEntry entry;
+    MeasureEntry(l.measurer, *table, entry, 1200.0f, nullptr);
+    for (auto _ : state) {
+        l.measurer.MeasureNode(*table, entry, 1200.0f);
+        // ワーカーが寝た状態から測る (間を空けずに続けると、起きているかどうかで値が 2 つに分かれる)。
+        Sleep(16);
+        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*table, entry, 1100.0f); }));
+    }
+}
+BENCHMARK(BM_TableFewValuesResize)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(20)->Unit(benchmark::kMillisecond);
 
 // インラインコードを含む 5000 行の表。行ごとにインラインコードの背景も作られる。
 Document MakeInlineCodeTableDoc()
@@ -1475,9 +1865,10 @@ BENCHMARK_CAPTURE(BM_TableScroll, restore, false)->UseManualTime()->Iterations(1
 BENCHMARK_CAPTURE(BM_TableScroll, evict, true)->UseManualTime()->Iterations(100)->Unit(benchmark::kMicrosecond);
 
 // 遅延レイアウトを期限で区切ったときの、全 dirty を計測し終えるまで。budget 0 は区切らない。ワーカー 8 本。
-void BM_DirtyBatchDeadline(benchmark::State& state)
+// max_batch_ms は区切った 1 回の最長 (空き時間の 1 回で UI が止まる長さ)。md が空なら test.md x4。
+void BM_DirtyBatchDeadline(benchmark::State& state, std::string md)
 {
-    const auto opened = OpenDoc(state, RepeatTestMd(state, 4), 8);
+    const auto opened = OpenDocOrTestMd(state, std::move(md));
     if (!opened) {
         return;
     }
@@ -1486,16 +1877,21 @@ void BM_DirtyBatchDeadline(benchmark::State& state)
     const auto deadline = [&] {
         return budget.count() > 0 ? std::chrono::steady_clock::now() + budget : kNoLayoutDeadline;
     };
+    double max_batch = 0.0;
     for (auto _ : state) {
         LayoutCache cache(doc.GetNodes().size());
         l.engine.Reestimate(doc.GetNodes(), cache, 1200.0f);
         state.SetIterationTime(SecondsOf([&] {
-            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All())) {
+            for (bool more = true; more;) {
+                max_batch = std::max(max_batch, SecondsOf([&] { more = l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All()).remaining; }));
             }
         }));
     }
+    state.counters["max_batch_ms"] = max_batch * 1000.0;
 }
-BENCHMARK(BM_DirtyBatchDeadline)->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DirtyBatchDeadline, testmd, std::string{})->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
+// 1 段落 15KB の和文 (1 ノードの計測が重い)。
+BENCHMARK_CAPTURE(BM_DirtyBatchDeadline, ja15kb, LongJapaneseParagraphs())->ArgName("budget_ms")->Arg(4)->Arg(0)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // ===== リロード =====
 

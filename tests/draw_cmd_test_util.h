@@ -82,7 +82,7 @@ inline void InitWithoutText(CommandGenerator& gen, const Theme& theme)
 }
 
 // ファイル一覧を閉じ、目次だけを rect に出すサイドペイン。toc と nodes は使い終わるまで生かしておく。
-inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std::vector<TocEntry>& toc, const std::vector<Node>& nodes, int active_toc_index = -1)
+inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std::vector<TocEntry>& toc, std::span<const Node> nodes, int active_toc_index = -1)
 {
     static const std::vector<FileEntry> no_files;
     return {
@@ -95,7 +95,7 @@ inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std
 }
 
 // 選択も検索も無い本文を pane に等倍で描いた命令。
-inline DrawCommandList GenerateMdPaneAt(CommandGenerator& gen, const std::vector<Node>& nodes, const LayoutCache& cache, PaneRect pane,
+inline DrawCommandList GenerateMdPaneAt(CommandGenerator& gen, std::span<const Node> nodes, const LayoutCache& cache, PaneRect pane,
                                         float scroll_y = 0.0f, int hovered_diagram = -1)
 {
     static const TextSelection no_selection{};
@@ -105,7 +105,7 @@ inline DrawCommandList GenerateMdPaneAt(CommandGenerator& gen, const std::vector
 }
 
 // 検索を区切らずに最後まで進める。
-inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
+inline void RunSearchToEnd(SearchState& s, std::span<const Node> nodes, std::string_view query)
 {
     s.BeginSearch(query);
     s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());

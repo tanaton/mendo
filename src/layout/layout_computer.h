@@ -156,24 +156,24 @@ void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;
 
 // content_width > 0 なら折り返しを見積もる。stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
-void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+void EstimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme,
                          float content_width, std::stop_token stop_token);
 
 // 全ノードを dirty にして高さを推定値で更新し (EstimateInvisibleNodeHeight)、Y を組み直す。
-void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width);
+void ReestimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, float content_width);
 
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
 // Y 位置は呼び出し側が組み直す。ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
 // 戻り値は移したノード数 (仮表示の図を含む)。
 size_t CarryOverUnchanged(
-    const std::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
+    std::span<const Node> old_nodes, LayoutCache& old_cache,
+    std::span<const Node> new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
 
 // 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
 // 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。
 // 表示する本文幅を渡せば、UI スレッドで推定し直さずに済む (0 は幅を知らない)。
-LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme,
+LayoutCache MakeEstimatedLayoutCache(std::span<const Node> nodes, const Theme& theme,
                                      float content_width = 0.0f, std::stop_token stop_token = {});
 
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。図は触らない。
@@ -182,7 +182,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
 // safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むため、再計算を先頭からの全件ではなく
 // この範囲に限定できる。
 void RecomputeYPositions(
-    const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    std::span<const Node> nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
@@ -193,7 +193,7 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
 // diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
 // fallback_scroll を返す。
 float CalcScrollYForDiff(
-    const std::vector<Node>& nodes,
+    std::span<const Node> nodes,
     const LayoutCache& cache,
     size_t content_size,
     size_t diff_pos,

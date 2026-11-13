@@ -74,8 +74,7 @@ struct IndexRange {
 // 幅が変わっても次に組み直すまでは前の幅の幾何のまま残る (見えている表は描く前に組み直す)。
 struct TableLayoutData {
     const size_t row_count;
-    const size_t col_count;                                              // cell_layouts のストライド
-    std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
+    const size_t col_count; // セルの番号 (CellIndex) のストライド
     // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
     std::vector<std::vector<CellInlineCodeBg>> row_code_bgs;
     std::vector<float> col_widths;
@@ -110,7 +109,7 @@ struct TableLayoutData {
 
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
     TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
-        : row_count(rows), col_count(cols), cell_layouts(rows * cols), row_code_bgs(has_inline_code ? rows : 0),
+        : row_count(rows), col_count(cols), row_layouts_(rows), row_code_bgs(has_inline_code ? rows : 0),
           col_widths(cols), row_heights(rows), natural_col_widths(cols), min_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
           row_cum_y(rows + 1), col_cum_x(cols + 1), row_evicted_(rows), live_rows_{ 0, rows }
     {
@@ -152,14 +151,37 @@ struct TableLayoutData {
         return row * col_count + col;
     }
 
+    constexpr size_t CellCount() const noexcept
+    {
+        return row_count * col_count;
+    }
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
     {
-        return cell_layouts[CellIndex(row, col)].Get();
+        const auto& cells = row_layouts_[row];
+        return cells ? cells[col].Get() : nullptr;
+    }
+    IDWriteTextLayout* CellLayout(size_t ci) const noexcept
+    {
+        return GetCellLayout(ci / col_count, ci % col_count);
+    }
+    // 行の配列は初めてセルを置くときに作る。行ごとに書き込み先が重ならないので、別の行へは並列に置いてよい。
+    void SetCellLayout(size_t ci, Microsoft::WRL::ComPtr<IDWriteTextLayout> layout)
+    {
+        auto& cells = row_layouts_[ci / col_count];
+        if (!cells) {
+            if (!layout) {
+                return;
+            }
+            cells = std::make_unique<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>(col_count);
+        }
+        cells[ci % col_count] = std::move(layout);
     }
 
     // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
     // 座標はいずれもエントリ上端からのローカル系。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
+    // [local_top, local_bottom] に重なる行に、セル layout を退避した行があるか。
+    bool HasEvictedRowsIn(float local_top, float local_bottom) const noexcept;
     // x は列順に単調なので、[local_left, local_right] に重なる列も連続した区間 [c_begin, c_end) になる。
     // 座標は col_cum_x と同じ base_x からのローカル系。
     std::pair<size_t, size_t> VisibleColRange(float local_left, float local_right) const noexcept;
@@ -208,6 +230,9 @@ private:
     // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
     void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
 
+    // 行ごとのセル layout。layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の
+    // ComPtr が並び、20 万行 20 列の表を組むと commit 64.3MB (行ごとにして 34.9MB)。
+    std::vector<std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>> row_layouts_;
     std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
     size_t evicted_row_count_ = 0;
     IndexRange live_rows_;
@@ -502,11 +527,28 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
+    // 画面外へ出た図のコマンドリストだけを捨てる。寸法と描画命令は残し、戻ったら描画命令から記録し直させる (NeedsRender)。
+    // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
+    bool ReleaseCommands() noexcept
+    {
+        if (!HasImage() || !drawing || stale) {
+            return false;
+        }
+        commands = nullptr;
+        return true;
+    }
+
+    // 仮表示として残せる結果 (描いた絵か、コマンドリストだけを捨てた図の描画命令) があるか。
+    bool HasStaleableResult() const noexcept
+    {
+        return HasImage() || drawing;
+    }
+
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
-    // 再試行可能に戻す。
+    // 再試行可能に戻す。コマンドリストだけを捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
     void MarkStale() noexcept
     {
-        if (!HasImage()) {
+        if (!HasStaleableResult()) {
             SetResult({});
             return;
         }
@@ -582,11 +624,12 @@ public:
 
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
+    void InvalidateAllLayouts(std::span<const Node> nodes) noexcept;
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
-    // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
-    bool InvalidatePendingInlineLayouts(bool tables) noexcept;
+    // table_indices は文書の表のノード (Document::GetTableNodeIndices)。tables が false なら表は待たせたままにする
+    // (表は全セルを組み直すので重い)。
+    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept;
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
@@ -612,7 +655,7 @@ public:
         live_nodes_.Add(first, last_plus_1);
     }
 
-    // keep (文書座標) の外にあるテーブル行の cell_layouts を released へ移し、ワーカーで解放させる。
+    // keep (文書座標) の外にあるテーブル行のセル layout を released へ移し、ワーカーで解放させる。
     // 再表示時は LayoutEngine::MeasurePass の行復元で CreateTextLayout を再発行する。
     // table_indices は表のノード番号。全エントリ走査だと 100MB 級文書でスクロール休止のたびに ~100万エントリを読むため、
     // index リストで絞る。keep の外の表は全行を捨てる。
@@ -622,7 +665,7 @@ public:
     // [to, to + count) へ移す。Y 位置は呼び出し側が組み直す。
     void TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count);
     // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
-    // 描いた結果が無ければ何もせず false を返す。
+    // 描いた結果 (コマンドリストを捨てた描画命令を含む) が無ければ何もせず false を返す。
     bool TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to);
 
     // 遅延レイアウトで計測する dirty が残っているかもしれない。LayoutEngine が計測のたびに決め直す。

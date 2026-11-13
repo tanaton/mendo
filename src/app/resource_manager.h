@@ -93,9 +93,12 @@ public:
     void OnBitmapManageTimer();
     // 図の描画待ちと画像のデコード待ちを捨てる (描画中の分は残る)。
     void DropQueues();
-    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。解決したパスと監視も
-    // 前の文書の画像の分なので捨てる。フォルダが変わったときだけ捨てていた頃は、同じフォルダの文書を渡り歩くと前の文書の
+    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。解決したパスと監視する
+    // 画像も前の文書の分なので外す。フォルダが変わったときだけ外していた頃は、同じフォルダの文書を渡り歩くと前の文書の
     // 画像のフォルダが監視の枠 (ImageFolderWatcher::kMaxFolders) を占め続け、使い切った後の文書では更新が出なかった。
+    // 2026-11-11 からは開くたびにフォルダの監視ごと捨てていたが、同じフォルダの文書を渡り歩くたびに開き直すので、
+    // 2026-11-13 にフォルダの読み取りは残し、枠が埋まったら今の文書で使っていないものから前に使った順にやめる形にした
+    // (ユーザーの判断)。
     void ForgetInlineImages();
     // 旧デバイスのビットマップと図のコマンドリストを捨て、新しい RT で読み直す。
     void OnRenderDeviceRecreated();
@@ -109,6 +112,11 @@ public:
     {
         return image_watcher_.EventHandles(out);
     }
+    // 画像のフォルダを開いている最中 (そのフォルダの画像をまだ頼んでいない) か。
+    bool IsOpeningImageFolders() const noexcept
+    {
+        return image_watcher_.AwaitsWorker();
+    }
     // ImageWatchEvents のどれかが立った。更新された画像を控え、IMAGE_RELOAD タイマーを掛ける。フォルダを開き終えていたら、
     // 待たせていた画像を読ませる。
     void OnImageFolderEvent();
@@ -117,7 +125,7 @@ public:
 
 private:
     // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
-    // 描画命令は作らないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
+    // 描画命令は作らないので、描画は App の後始末 (FinishLayout) の FlushPendingResources に任せる。
     bool ApplyMermaidCacheHeights(IndexRange range);
     // 本文中の画像の表の変わり方。NotifyInlineImages で App に組み直しか描き直しをさせる。
     struct InlineImageUpdate {
