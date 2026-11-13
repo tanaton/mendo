@@ -71,6 +71,8 @@ bool App::Init(HWND hwnd)
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
     }
+    layout_engine_.SetTableJobs(&table_jobs_);
+    table_jobs_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::TABLE_MEASURED, 0, 0); });
     renderer_.SetPaneItemFonts(&measurer_.BodyFonts());
 
     measurer_.SetScheduler(&layout_scheduler_);
@@ -403,6 +405,19 @@ void App::OnInlineMathRequested()
     }
 }
 
+void App::OnTableMeasured()
+{
+    const auto placed = layout_service_.PlaceMeasuredTables(state_.document.doc, state_.document.layout_cache, ComputePaneLayout(state_).md_rect.width,
+                                                            table_jobs_.TakeResults());
+    if (!placed.placed) {
+        return;
+    }
+    FinishLayout(LayoutChange::Reflowed, LayoutCaller::Message);
+    if (placed.stale_inline) {
+        RelayoutPendingInline(/*force_tables=*/false);
+    }
+}
+
 bool App::RequestInlineMathChunk(uint64_t key)
 {
     const auto chunk = inline_math_plan_.ChunkOf(key);
@@ -429,6 +444,7 @@ void App::RebuildInlineMathPlan()
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation)
 {
     inline_math_plan_.FinishChunk(chunk, generation);
+    table_jobs_.NoteInlineChanged();
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
         if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
@@ -716,6 +732,8 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
+    // 旧文書は下で worker に破棄させるので、組みが持つ参照はその前に外す。
+    table_jobs_.SetDocument(state_.document.doc.ShareData());
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
     old_cache.ReleaseDiagrams();
     // 表は 1 ノードにセルの数だけレイアウトを持つので、ノード数によらずワーカーで捨てる。
@@ -1102,7 +1120,8 @@ void App::OnDestroy()
     }
 
     mermaid_renderer_.Shutdown();
-    // 計測ワーカーが measurer_ を参照したまま走らないよう、参照を外してから join する。
+    // 計測ワーカーが measurer_ を参照したまま走らないよう、表の組みを待ってから参照を外して join する。
+    table_jobs_.CancelAll();
     measurer_.SetScheduler(nullptr);
     layout_scheduler_.Shutdown();
     // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
@@ -1151,6 +1170,8 @@ void App::SetInitialAnchor(std::wstring_view anchor)
 
 void App::ApplyZoom()
 {
+    // 表を組むワーカーはテーマと書式を読むので、変える前に止めて待つ。表は下で全部組み直しになる。
+    table_jobs_.CancelAll();
     state_.document.layout_cache.InvalidateAllLayouts(state_.document.doc.GetNodes());
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
     measurer_.RecreateFormats();
@@ -1850,6 +1871,9 @@ void App::EnsureNodeLayout(int node_index)
 void App::OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed)
 {
     auto& cache = state_.document.layout_cache;
+    if (pending_resolved || sizes_changed) {
+        table_jobs_.NoteInlineChanged();
+    }
     // 画像を持つノードも、捨てる前に見ている位置を覚える。寸法だけが変わったときは InvalidatePendingInline を通らない。
     state_.view.viewport.EnsureScrollTarget(cache);
     bool relayout = sizes_changed && cache.InvalidateLayoutsOf(state_.document.doc.GetImageNodeIndices());

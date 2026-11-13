@@ -18,6 +18,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include "block_h_scroll.h"
@@ -1629,6 +1630,18 @@ BENCHMARK_DEFINE_F(TableMeasure, Initial)(benchmark::State& state)
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Initial)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+
+// ワーカーで組むとき (TableMeasureJobs) と同じく、止める印を渡して行を区切った初回の計測。
+BENCHMARK_DEFINE_F(TableMeasure, InitialStoppable)(benchmark::State& state)
+{
+    const std::stop_source stop;
+    std::optional<BuiltTable> built;
+    for (auto _ : state) {
+        built.reset();
+        state.SetIterationTime(SecondsOf([&] { built = layout_->measurer.BuildTable(*table_, 1200.0f, stop.get_token()); }));
+    }
+}
+BENCHMARK_REGISTER_F(TableMeasure, InitialStoppable)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 反復ごとに別の位置を復元する。
 BENCHMARK_DEFINE_F(TableMeasure, RestoreScreen)(benchmark::State& state)

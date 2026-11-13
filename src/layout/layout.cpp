@@ -57,6 +57,92 @@ int MeasureIndicesParallel(
 using layout::NodeContentWidth;
 using layout::RecomputeYPositions;
 
+void TableMeasureJobs::SetDocument(std::shared_ptr<const DocumentData> doc)
+{
+    for (auto& r : running_) {
+        r.stop.request_stop();
+    }
+    running_.clear();
+    doc_ = std::move(doc);
+}
+
+bool TableMeasureJobs::Defer(std::span<const Node> nodes, size_t node, const NodeLayoutEntry& entry, float max_width)
+{
+    const NodeTableData* tbl = nodes[node].table_data();
+    if (!tbl || entry.table_layout() || static_cast<size_t>(tbl->row_count) * tbl->col_count <= kMinCells) {
+        return false;
+    }
+    // 今の文書のノードでなければ (SetDocument の前) その場で測らせる。
+    if (!doc_ || std::span<const Node>{ doc_->parsed.nodes }.data() != nodes.data()) {
+        return false;
+    }
+    if (std::ranges::contains(running_, node, &Running::node)) {
+        return true;
+    }
+    Running& r = running_.emplace_back(Running{ .job = ++last_job_, .node = node });
+    const bool posted = scheduler_.Post([this, doc = doc_, node, max_width, job = r.job, stop = r.stop.get_token(), guard = latch_.Acquire()] {
+        if (stop.stop_requested()) {
+            return;
+        }
+        Result result{ .job = job, .node = node, .max_width = max_width };
+        try {
+            auto built = measurer_.BuildTable(std::span<const Node>{ doc->parsed.nodes }[node], max_width, stop);
+            if (stop.stop_requested()) {
+                return;
+            }
+            // 測れなかった表も知らせ、推定の高さのまま dirty を下ろさせる (UI スレッドで測るときと同じく再試行しない)。
+            if (built) {
+                result.built = std::move(*built);
+            }
+        } catch (...) {
+            MENDO_TRACE("TableMeasureJobs: BuildTable threw exception");
+        }
+        if (results_.Push(std::move(result)) && wake_) {
+            wake_();
+        }
+    });
+    if (!posted) {
+        running_.pop_back();
+        return false;
+    }
+    return true;
+}
+
+void TableMeasureJobs::NoteInlineChanged() noexcept
+{
+    for (auto& r : running_) {
+        r.inline_changed = true;
+    }
+}
+
+std::vector<TableMeasureJobs::Result> TableMeasureJobs::TakeResults()
+{
+    std::vector<Result> results = results_.TakeAll();
+    std::vector<Result> current;
+    for (auto& result : results) {
+        const auto it = std::ranges::find(running_, result.job, &Running::job);
+        if (it == running_.end()) {
+            continue;
+        }
+        result.inline_changed = it->inline_changed;
+        running_.erase(it);
+        current.push_back(std::move(result));
+    }
+    return current;
+}
+
+void TableMeasureJobs::CancelAll()
+{
+    for (auto& r : running_) {
+        r.stop.request_stop();
+    }
+    running_.clear();
+    // 前の文書の組み (SetDocument で止めただけのもの) も待つ。
+    latch_.Wait();
+    // 止める前に組み終えていた分も捨てる。
+    results_.TakeAll();
+}
+
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
     measurer_ = measurer;
@@ -108,6 +194,10 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             break;
         }
         if (entry.layout_dirty) {
+            // 巨大な表はワーカーで組ませ、組み終えるまで dirty のまま飛ばす (TableMeasureJobs)。
+            if (table_jobs_ && table_jobs_->Defer(nodes, i, entry, NodeContentWidth(nodes[i], theme, content_width))) {
+                continue;
+            }
             dirty_indices.push_back(i);
             last_measured = i;
         }
@@ -243,4 +333,58 @@ void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cach
         RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
         return true;
     });
+}
+
+LayoutService::PlacedTables LayoutService::PlaceMeasuredTables(const Document& doc, LayoutCache& cache, float width, std::vector<TableMeasureJobs::Result> results)
+{
+    MENDO_PROFILE("LayoutService::PlaceMeasuredTables");
+    PlacedTables placed;
+    if (results.empty()) {
+        return placed;
+    }
+    const auto nodes = doc.GetNodes();
+    const Theme& theme = engine_.GetTheme();
+    const float content_width = theme.ContentWidth(width);
+    // 画面より上の表の高さが変わっても、見ている内容が動かないようにする。
+    KeepingAnchor(cache, [&] {
+        IndexRange committed;
+        for (auto& r : results) {
+            auto& entry = cache[r.node];
+            // 組む間に dirty でなくなるのは、別の経路で測ったときだけ (今は無い)。
+            if (!entry.layout_dirty || entry.table_layout()) {
+                continue;
+            }
+            placed.placed = true;
+            if (!r.built.table) {
+                entry.layout_dirty = false;
+                continue;
+            }
+            const Node& node = nodes[r.node];
+            const float node_width = NodeContentWidth(node, theme, content_width);
+            // 届く前の寸法で組んだかもしれない数式と画像は、寸法を待って仮に組んだものとして組み直させる。
+            const bool stale = r.inline_changed && (node.has_images() || std::ranges::binary_search(doc.GetMathNodeIndices(), r.node));
+            entry.pending_inline = r.built.pending_inline || stale;
+            placed.stale_inline |= stale;
+            const bool current_width = r.built.table->GeometryValidAt(node_width);
+            entry.set_table_layout(std::move(r.built.table));
+            cache.NoteMaterialized(r.node, r.node + 1);
+            if (current_width) {
+                // 推定の高さのまま表の中を見ていたら、表の中の同じ割合の位置を見せる。推定は折り返しを少なく見積もるので、
+                // ピクセルの位置を保つと別の行へずれる (リロードの差分の位置 CalcScrollYForDiff も、表の中は割合で決めている)。
+                if (const ScrollTarget target = viewport_.GetScrollTarget(); target.node == static_cast<int>(r.node) && entry.height > 0.0f) {
+                    viewport_.SetScrollTarget(target.node, target.offset * r.built.height / entry.height);
+                }
+                entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), r.built.height);
+                committed.Add(r.node);
+            }
+            else {
+                cache.SetHasDirtyNodes(true);
+            }
+        }
+        if (!committed.empty()) {
+            RecomputeYPositions(nodes, cache, theme, committed.begin, committed.end - 1);
+        }
+        return true;
+    });
+    return placed;
 }

@@ -169,6 +169,7 @@ public:
     void OnParseComplete();
     void OnMermaidJobDone();
     void OnInlineMathRequested();
+    void OnTableMeasured();
     void OnFileListed();
     void OnDestroy();
 
@@ -434,6 +435,8 @@ private:
 
     // テーマは theme_service_ のものを参照する。
     DWriteTextMeasurer measurer_;
+    // 巨大な表の最初の計測。組むワーカーが measurer_ と layout_scheduler_ を使うので、それより後に宣言する (先に待って壊す)。
+    TableMeasureJobs table_jobs_{ layout_scheduler_, measurer_ };
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
     ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, inline_images_, inline_drawings_, *this };

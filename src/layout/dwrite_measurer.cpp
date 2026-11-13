@@ -626,7 +626,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
     return cell_layout;
 }
 
-void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline) const
+bool DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl, bool& pending_inline, std::stop_token stop) const
 {
     const NodeTableData& tbl = *node.table_data();
     MENDO_PROFILE("MeasureTableCells");
@@ -645,7 +645,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     // 列の自然幅も同じく列ごとの最大を重ねる。代表と同じ中身のセルは代表と同じ幅なので、測ったセルだけで足りる
     // (全セルを測り終えてから直列に集めていた頃は、20 万行 20 列の同じ値ばかりの表の計測が 34.1ms、今は 32.4ms)。
     std::vector<std::atomic<float>> natural_maxes(col_count);
-    ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
+    const auto measure_rows = [&](size_t row_begin, size_t row_end) {
         const auto& ctx = Context();
         for (size_t r = row_begin; r < row_end; r++) {
             for (size_t c = 0; c < col_count; c++) {
@@ -681,7 +681,19 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
                 }
             }
         }
-    });
+    };
+    // ワーカーで組むとき (TableMeasureJobs) は行を区切り、区切りごとに止める印を見る。1 回の ParallelFor の手伝いは chunk が
+    // 尽きるまで抜けないので、区切らないと組み終えるまで計測ワーカーを全部ふさぎ、UI スレッドの計測が手伝いを得られない。
+    // 区切りは 4096 セル (計測ワーカー 8 本で数 ms)。
+    constexpr size_t kCellsPerStopCheck = 4096;
+    const size_t rows_per_batch = stop.stop_possible() ? std::max<size_t>(kCellsPerStopCheck / std::max<size_t>(col_count, 1), 1) : tbl.row_count;
+    for (size_t first = 0; first < tbl.row_count; first += rows_per_batch) {
+        if (stop.stop_requested()) {
+            return false;
+        }
+        const size_t rows = std::min<size_t>(rows_per_batch, tbl.row_count - first);
+        ParallelFor(scheduler_, rows, TableRowsPerChunk(col_count), [&](size_t begin, size_t end) { measure_rows(first + begin, first + end); });
+    }
     std::ranges::transform(min_widths, tl.min_col_widths.begin(), [](const std::atomic<float>& w) noexcept { return w.load(std::memory_order_relaxed); });
     // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。書き込み先は行ごとに重ならない。
     if (!reps.empty()) {
@@ -701,6 +713,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     if (!keep_layouts) {
         tl.MarkAllRowsEvicted();
     }
+    return true;
 }
 
 float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const
@@ -802,8 +815,6 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
 std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("MeasureTable");
-    const auto* tbl = node.table_data();
-
     // 全セルを測り終えている。前回と max_width がほぼ一致し幾何が揃っていれば、セル幅・行高さ・行の位置は
     // すべて変化しないため、幾何の高さのまま確定させる。entry.height は返さない。別の幅で推定が伸ばした高さが残っている
     // ことがある (A → B → A と幅を戻したとき)。行ごとの inline_code_bgs も幅で決まるので保持できる。
@@ -815,23 +826,37 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
         return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
     }
 
+    auto built = BuildTable(node, max_width, {});
+    if (built->pending_inline) {
+        entry.pending_inline = true;
+    }
+    entry.set_table_layout(std::move(built->table));
+    return built->height;
+}
+
+std::optional<BuiltTable> DWriteTextMeasurer::BuildTable(const Node& node, float max_width, std::stop_token stop) const
+{
+    MENDO_PROFILE("BuildTable");
+    const auto* tbl = node.table_data();
     // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
     const bool has_inline_code = std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept {
         return r.code() && r.length > 0;
     });
-    auto tl = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code);
+    BuiltTable built{ .table = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code) };
+    auto& tl = *built.table;
     // 画像の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
     if (node.has_images()) {
-        const size_t cells = tl->CellCount();
+        const size_t cells = tl.CellCount();
         for (size_t ci = 0; ci < cells; ++ci) {
             if (std::ranges::any_of(tbl->CellRuns(ci), &TextRun::image)) {
-                tl->image_cells.push_back({ .index = static_cast<uint32_t>(ci) });
+                tl.image_cells.push_back({ .index = static_cast<uint32_t>(ci) });
             }
         }
     }
     // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。行の復元は次の計測パスに任せる。
-    MeasureTableCells(node, *tl, entry.pending_inline);
-    const float height = FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
-    entry.set_table_layout(std::move(tl));
-    return height;
+    if (!MeasureTableCells(node, tl, built.pending_inline, stop)) {
+        return std::nullopt;
+    }
+    built.height = FinalizeTableLayout(node, tl, max_width, built.pending_inline);
+    return built;
 }

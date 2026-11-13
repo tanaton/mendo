@@ -3,11 +3,18 @@
 #include "layout_cache.h"
 #include "layout_computer.h"
 #include "theme.h"
+#include "worker_latch.h"
 #include <chrono>
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <span>
+#include <stop_token>
+#include <vector>
 
 class Document;
+struct DocumentData;
 class TaskScheduler;
 class ViewportManager;
 
@@ -15,6 +22,14 @@ struct TableRestoreResult {
     bool restored = false;
     // 見積もった行高さで evict されていた行を実測し直して高さが変わったときの新しい高さ。
     std::optional<float> height;
+};
+
+// entry に触れずに初めから組んだ表の幾何 (ITextMeasurer::BuildTable)。
+struct BuiltTable {
+    std::unique_ptr<TableLayoutData> table;
+    float height = 0.0f;
+    // 寸法がまだ無いインライン数式か画像を仮に組んだ。
+    bool pending_inline = false;
 };
 
 // 計測は const で、IDWriteTextLayout は per-call 生成、ファクトリと書式はワーカーごとに分ける (DWriteTextMeasurer) ため、
@@ -59,6 +74,12 @@ public:
     virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, YRange /*viewport*/) const
     {
         return {};
+    }
+    // 表の幾何を entry に触れずに初めから組む (巨大な表をワーカーで組む TableMeasureJobs が使う)。stop が立つか、
+    // 測れなければ nullopt。
+    virtual std::optional<BuiltTable> BuildTable(const Node& /*node*/, float /*max_width*/, std::stop_token /*stop*/) const
+    {
+        return std::nullopt;
     }
 
 protected:
@@ -110,6 +131,77 @@ int MeasureIndicesParallel(
 
 } // namespace layout
 
+// 巨大な表の最初の計測 (全セルの自然幅と行の高さ) を計測ワーカーで行い、UI スレッドを止めない (性能レビュー A6)。
+// 表は 1 ノードなので遅延レイアウトの期限 (4ms) では区切れず、全セルを測り終えるまで入力も描画も止まっていた
+// (5 万行 6 列で 420ms、2 万行 6 列の長い文の表で 576ms)。組み終えるまで表は推定の高さのまま中身を描かない
+// (極端に大きい表は現実にはほぼ無いので、それでよいとユーザーが判断した。2026-11-13)。
+// 組む表のエントリは dirty のまま残し、組んでいる間は LayoutEngine::MeasurePass が飛ばす。リロードで新しい文書へ
+// 付け替わったエントリ (CarryOverUnchanged) は、新しい文書で組み直す。
+// UI スレッドから呼ぶ。ワーカーは文書を共有で持つので、文書を差し替えても止めるだけで待たない。
+class TableMeasureJobs {
+public:
+    // セル数がこれを超える表をワーカーで組む。これ以下なら UI スレッドで測っても止まるのは数十 ms まで
+    // (3 万セルの表で 44ms。BM_GiantBlock/table5k_first)。
+    static constexpr size_t kMinCells = 10000;
+
+    struct Result {
+        uint64_t job = 0;
+        size_t node = 0;
+        // 組んだ幅 (NodeContentWidth)。
+        float max_width = 0.0f;
+        // 測れなければ table が null。
+        BuiltTable built;
+        // 組む間に数式か画像の寸法が届いた (NoteInlineChanged)。
+        bool inline_changed = false;
+    };
+
+    // measurer は scheduler のワーカーで表を組む。どちらも TableMeasureJobs より長生きする。
+    TableMeasureJobs(TaskScheduler& scheduler, const ITextMeasurer& measurer) noexcept : scheduler_(scheduler), measurer_(measurer)
+    {
+    }
+    ~TableMeasureJobs()
+    {
+        CancelAll();
+    }
+    TableMeasureJobs(const TableMeasureJobs&) = delete;
+    TableMeasureJobs& operator=(const TableMeasureJobs&) = delete;
+
+    // 組み終えたときに、組んだワーカーで呼ぶ。UI スレッドへ知らせるだけにする。
+    void SetWake(std::move_only_function<void()> wake)
+    {
+        wake_ = std::move(wake);
+    }
+    // 組む表を持つ文書。差し替えたら呼ぶ。前の文書の組みは止める。
+    void SetDocument(std::shared_ptr<const DocumentData> doc);
+    // nodes[node] が今の文書のセル数 kMinCells 超の表で、幾何をまだ持たなければ、max_width で組ませて (組んでいる最中なら
+    // そのままにして) true。
+    bool Defer(std::span<const Node> nodes, size_t node, const NodeLayoutEntry& entry, float max_width);
+    // 数式か画像の寸法が届いた。組んでいる表は、届く前の寸法で組んでいるかもしれない。
+    void NoteInlineChanged() noexcept;
+    // 今の文書で組み終えた表。止めた組みと前の文書の組みは捨てる。
+    std::vector<Result> TakeResults();
+    // 組みを止め、ワーカーが抜けるまで待つ。組むワーカーは書式とテーマを読むので、変える前と計測ワーカーを止める前に呼ぶ。
+    void CancelAll();
+
+private:
+    struct Running {
+        uint64_t job = 0;
+        size_t node = 0;
+        std::stop_source stop;
+        bool inline_changed = false;
+    };
+
+    TaskScheduler& scheduler_;
+    const ITextMeasurer& measurer_;
+    std::shared_ptr<const DocumentData> doc_;
+    // 今の文書で組んでいる表。
+    std::vector<Running> running_;
+    uint64_t last_job_ = 0;
+    PostedInbox<Result> results_;
+    std::move_only_function<void()> wake_;
+    WorkerLatch latch_;
+};
+
 class LayoutEngine {
 public:
     // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ幅変化の閾値。
@@ -117,6 +209,11 @@ public:
 
     // theme は measurer に渡し、以後は measurer が持つものを使う。
     bool Init(ITextMeasurer* measurer, const Theme& theme);
+    // 巨大な表の最初の計測をワーカーに回す。無ければ UI スレッドで測る (テストとベンチ)。
+    void SetTableJobs(TableMeasureJobs* jobs) noexcept
+    {
+        table_jobs_ = jobs;
+    }
     // 本文幅かズームがキャッシュの推定時 (EstimateBasis) から変わったら、全ノードを dirty にして推定値で Y を組み直す
     // (DirectWrite は呼ばない)。戻り値は全ノードを dirty にしたか。
     bool Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width);
@@ -150,6 +247,7 @@ private:
     // Init は UI スレッドからのみ呼び、
     // MeasureNode は const 経由で measurer の scheduler の worker から並列呼び出しされる。
     ITextMeasurer* measurer_ = nullptr;
+    TableMeasureJobs* table_jobs_ = nullptr;
 };
 
 // LayoutEngine + ViewportManager の組み合わせを薄くラップし、
@@ -173,6 +271,15 @@ public:
     // 画面外の node も計測する。見ている位置は保つ。
     bool EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
     void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept;
+    struct PlacedTables {
+        bool placed = false;
+        // 数式か画像を含む表で、組む間に寸法が届いたものがあった。仮に組んだものとして置いたので、組み直させる。
+        bool stale_inline = false;
+    };
+    // ワーカーで組み終えた表 (TableMeasureJobs::TakeResults) を置き、見ている位置を保って Y を組み直す (置いた表の中を見ていたら、
+    // 表の中の同じ割合の位置)。width は本文ペインの幅。
+    // 今の幅で組んだ表は高さを確定し、幅が変わっていたら dirty のまま置いて、次の計測で列幅だけ組み直させる (自然幅は幅によらない)。
+    PlacedTables PlaceMeasuredTables(const Document& doc, LayoutCache& cache, float width, std::vector<TableMeasureJobs::Result> results);
 
 private:
     // 前後で scroll target を確定・適用し、見ている位置を保ったまま op を行う。op の結果を返す。

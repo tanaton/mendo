@@ -43,5 +43,7 @@ inline constexpr UINT MERMAID_JOB_DONE = WM_APP + 7;
 inline constexpr UINT FILE_LISTED = WM_APP + 8;
 // 計測ワーカーがインライン数式の描画を頼んだ (InlineMathTable::SetWake)。
 inline constexpr UINT INLINE_MATH_REQUESTED = WM_APP + 9;
+// 巨大な表を計測ワーカーで組み終えた (TableMeasureJobs::SetWake)。
+inline constexpr UINT TABLE_MEASURED = WM_APP + 10;
 
 } // namespace app_msg
