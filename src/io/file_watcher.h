@@ -97,7 +97,8 @@ private:
 class ImageFolderWatcher {
 public:
     // 監視するフォルダの数の上限。待つハンドルはメッセージループの MsgWaitForMultipleObjects に足すので増やしすぎない。
-    // 超えた分のフォルダの画像は、保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
+    // 埋まっていれば今の文書の画像が無いフォルダから前に使った順にやめ、今の文書の画像だけで超えた分のフォルダの画像は、
+    // 保持範囲を出て戻るまで更新が出ない (監視が無かった頃と同じ)。
     static constexpr size_t kMaxFolders = 8;
     // EventHandles が返すイベントの数の上限。フォルダごとの読み取りと、worker の結果が届いたことを知らせる 1 つ。
     static constexpr size_t kMaxEvents = kMaxFolders + 1;
@@ -115,6 +116,9 @@ public:
     }
     // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。
     void Clear() noexcept;
+    // 別の文書を開いた。登録した画像を外し、フォルダの読み取りは次の文書のために残す (同じフォルダの文書を渡り歩くたびに
+    // 開き直さない)。残したフォルダは、枠が埋まったときに前に使った順にやめる。開けなかったフォルダは次の文書で開き直す。
+    void ForgetPaths() noexcept;
     // 待つイベントを out に入れ、その数を返す。out は kMaxEvents 以上。
     size_t EventHandles(std::span<HANDLE> out) const noexcept;
     // 届いた通知を調べ、更新された画像 (Watch に渡したパス) を changed に足す。同じパスが重なる (1 回の保存で通知が続く)。

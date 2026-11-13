@@ -247,7 +247,7 @@ void ResourceManager::ForgetInlineImages()
     inline_images_.Clear();
     inline_drawings_.images = {};
     resolved_image_paths_.clear();
-    image_watcher_.Clear();
+    image_watcher_.ForgetPaths();
 }
 
 void ResourceManager::OnRenderDeviceRecreated()
@@ -270,9 +270,9 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     // ForgetInlineImages が捨てる。ここは、それより前に新しい文書で走査が走ったときの備え。
     if (doc_dir != resolved_dir_) {
         resolved_image_paths_.clear();
-        // 監視も前のフォルダの画像の分をやめる。ImageLoader に残る寸法は更新を知らないままになるが、戻ったときは
+        // 監視も前のフォルダの画像の分を外す。ImageLoader に残る寸法は更新を知らないままになるが、戻ったときは
         // ビットマップを読み直すので、そのデコードの結果で寸法も入れ替わる。
-        image_watcher_.Clear();
+        image_watcher_.ForgetPaths();
         resolved_dir_ = doc_dir;
     }
     const float content_width = MdContentWidth(state_);

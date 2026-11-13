@@ -375,6 +375,77 @@ TEST_F(ImageFolderWatcherTest, WatchesUpToMaxFolders)
     EXPECT_EQ(EventCount(watcher), 0u);
 }
 
+// 別の文書を開いたら登録した画像を外すが、フォルダの読み取りは残し、同じフォルダの画像は開き直さずに監視する。
+TEST_F(ImageFolderWatcherTest, ForgetPathsKeepsFolderOpenForNextDocument)
+{
+    const auto a = WriteTempFile(L"a.png", "1").native();
+    const auto b = WriteTempFile(L"b.png", "1").native();
+    ImageFolderWatcher watcher;
+    watcher.Watch(a, &scheduler_);
+    ASSERT_TRUE(WaitUntilOpened(watcher, a));
+
+    watcher.ForgetPaths();
+    EXPECT_EQ(EventCount(watcher), 1u) << "読み取りは残す";
+    WriteTempFile(L"a.png", "2");
+    EXPECT_TRUE(WaitForChanges(watcher, std::chrono::milliseconds(200)).empty()) << "外した画像は知らせない";
+
+    watcher.Watch(b, &scheduler_);
+    EXPECT_FALSE(watcher.IsOpening(b)) << "開き直さない";
+    EXPECT_FALSE(watcher.AwaitsWorker());
+    WriteTempFile(L"b.png", "2");
+    const auto changed = WaitForChanges(watcher);
+    ASSERT_FALSE(changed.empty());
+    EXPECT_TRUE(std::ranges::all_of(changed, [&](const std::wstring& path) { return path == b; }));
+}
+
+// 枠が埋まったら、今の文書の画像が無いフォルダのうち前に使ったものからやめる。今の文書の画像のフォルダはやめない。
+// 開けなかったフォルダは次の文書で開き直す。
+TEST_F(ImageFolderWatcherTest, ForgottenFoldersAreReplacedLeastRecentlyUsedFirst)
+{
+    ImageFolderWatcher watcher;
+    std::vector<std::wstring> paths;
+    for (size_t i = 0; i < ImageFolderWatcher::kMaxFolders + 1; ++i) {
+        const auto dir = temp_dir_ / std::to_wstring(i);
+        std::filesystem::create_directory(dir);
+        paths.push_back((dir / L"a.png").native());
+    }
+    const auto watch_all = [&](size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            watcher.Watch(paths[i], &scheduler_);
+        }
+        ASSERT_TRUE(PollUntil([&] {
+            std::vector<std::wstring> changed;
+            watcher.CheckForChanges(changed);
+            return !watcher.AwaitsWorker();
+        }));
+    };
+    watch_all(ImageFolderWatcher::kMaxFolders);
+    ASSERT_EQ(EventCount(watcher), ImageFolderWatcher::kMaxFolders);
+
+    // 次の文書は 1 番目のフォルダを使う。新しいフォルダは、今の文書が使っていない中でいちばん前に使った 0 番目と入れ替える。
+    watcher.ForgetPaths();
+    watcher.Watch(paths[1], &scheduler_);
+    EXPECT_FALSE(watcher.IsOpening(paths[1]));
+    watcher.Watch(paths.back(), &scheduler_);
+    EXPECT_TRUE(watcher.IsOpening(paths.back()));
+    watcher.Watch(paths[0], &scheduler_);
+    EXPECT_TRUE(watcher.IsOpening(paths[0])) << "やめたフォルダは開き直す";
+    watch_all(0);
+    EXPECT_EQ(EventCount(watcher), ImageFolderWatcher::kMaxFolders);
+
+    WriteTempFile(L"1\\a.png", "1");
+    EXPECT_FALSE(WaitForChanges(watcher).empty()) << "今の文書のフォルダは残る";
+
+    // 開けなかったフォルダは文書をまたいで残さない。
+    const std::wstring missing = L"C:\\__mendo_no_such_dir__\\a.png";
+    watcher.Clear();
+    watcher.Watch(missing, &scheduler_);
+    ASSERT_TRUE(WaitUntilOpened(watcher, missing));
+    watcher.ForgetPaths();
+    watcher.Watch(missing, &scheduler_);
+    EXPECT_TRUE(watcher.IsOpening(missing));
+}
+
 // NotifyBufferHasTargetChange は ReadDirectoryChangesW の生バッファを解析する。
 // 実カーネル通知では切り詰め・破損を再現できないため、FILE_NOTIFY_INFORMATION 列を手組みして検査する。
 

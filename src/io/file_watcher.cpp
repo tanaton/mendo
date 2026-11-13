@@ -222,11 +222,24 @@ void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* sche
     auto it = std::ranges::find_if(folders_, [&](const Folder& f) { return path_util::iequal(f.dir, dir); });
     if (it == folders_.end()) {
         if (folders_.size() >= kMaxFolders) {
-            return;
+            // 枠が埋まっていたら、今の文書の画像が無いフォルダのうち、いちばん前に使ったものをやめる。今の文書の画像で
+            // 埋まっていれば、超えた分は監視しない。
+            const auto unused = std::ranges::find_if(folders_, [](const Folder& f) { return f.paths.empty(); });
+            if (unused == folders_.end()) {
+                return;
+            }
+            if (unused->read) {
+                DisposeOnWorker(std::move(unused->read));
+            }
+            folders_.erase(unused);
         }
         const uint64_t id = next_folder_id_++;
         const bool posted = PostWork([id, dir](Inbox& inbox) { inbox.Put({ .folder_id = id, .opened = true, .read = OpenDirectoryRead(dir) }); });
         it = folders_.insert(folders_.end(), Folder{ .id = id, .dir = std::move(dir), .opening = posted });
+    }
+    else {
+        // 使った順に後ろへ寄せ、前ほど前の文書でしか使っていないフォルダにする。
+        it = std::rotate(it, it + 1, folders_.end());
     }
     if (it->opening || it->read) {
         it->paths.push_back(abs_path);
@@ -255,6 +268,15 @@ void ImageFolderWatcher::Clear() noexcept
 {
     if (!folders_.empty()) {
         DisposeOnWorker(std::exchange(folders_, {}));
+    }
+}
+
+void ImageFolderWatcher::ForgetPaths() noexcept
+{
+    // 開けなかったフォルダと、途中で読めなくなったフォルダは、次の文書で開き直させる。
+    std::erase_if(folders_, [](const Folder& f) { return !f.opening && !f.read; });
+    for (Folder& f : folders_) {
+        f.paths.clear();
     }
 }
 
@@ -329,7 +351,8 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             // カーネルが内容を捨てたバッファ溢れ。どの画像が変わったか分からない。
             changed.append_range(f.paths);
         }
-        else {
+        // 前の文書のために開いたままのフォルダは、次の読み取りを発行するだけにする。
+        else if (!f.paths.empty()) {
             AnyUpdatedName(notified, [&](std::wstring_view name) {
                 // 通知は 8.3 短縮名で来ることがある (未規定)。短縮名を画像ごとに前もって問い合わせると枚数ぶんの往復に
                 // なるので、当たらなかった短縮名の形 (12 文字以内で ~ と数字を含む) の名前だけ長い名前に直して照らす。
