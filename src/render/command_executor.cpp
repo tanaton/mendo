@@ -4,7 +4,8 @@
 #include "profiler.h"
 #include "ui_constants.h"
 #include "utility.h"
-#include <dwrite.h>
+#include <d2d1_3.h>
+#include <dwrite_3.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -108,6 +109,9 @@ public:
         if (y + run->fontEmSize < cmd_.cull_top || y - run->fontEmSize > cmd_.cull_bottom) {
             return S_OK;
         }
+        if (DrawColorGlyphRun(x, y, mode, *run, desc, BrushOr(BrushEffect::IdOf(effect)))) {
+            return S_OK;
+        }
         const bool split = !cmd_.syntax_tokens.empty() || std::isfinite(cmd_.cull_left);
         if (!split || !desc || !desc->clusterMap || effect) {
             rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushOr(BrushEffect::IdOf(effect)), mode);
@@ -161,6 +165,55 @@ private:
     {
         auto* brush = FixedBrush(brushes_, id);
         return brush ? brush : default_brush_;
+    }
+
+    // 色のフォント (絵文字) のランを、フォントの色で描く。色のフォントでなければ false で、呼び出し側が brush の単色で描く。
+    // GitHub (ブラウザ) と図のラベル (DrawTextLayout の ENABLE_COLOR_FONT) に合わせる。Windows 11 の D2D は形式 (COLR の
+    // 層・グラデーション・ビットマップ・SVG) ごとの描き分けをまとめてするので任せ、無ければ COLR の層だけを自分で塗る
+    // (Windows 10 の Segoe UI Emoji は COLR の層)。色の部分の無い字形 (paletteIndex 0xFFFF) は brush で描く。
+    // 色のランは数が少ないので、トークンの色分けと左右の間引きはしない。
+    bool DrawColorGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc,
+                           ID2D1Brush* brush) noexcept
+    {
+        Microsoft::WRL::ComPtr<IDWriteFontFace2> face;
+        if (!run.fontFace || FAILED(run.fontFace->QueryInterface(IID_PPV_ARGS(&face))) || !face->IsColorFont()) {
+            return false;
+        }
+        const D2D1_POINT_2F origin = D2D1::Point2F(x, y);
+        if (Microsoft::WRL::ComPtr<ID2D1DeviceContext7> dc7; SUCCEEDED(rt_->QueryInterface(IID_PPV_ARGS(&dc7)))) {
+            dc7->DrawGlyphRunWithColorSupport(origin, &run, desc, brush, nullptr, 0, mode);
+            return true;
+        }
+        static const Microsoft::WRL::ComPtr<IDWriteFactory2> factory = [] {
+            Microsoft::WRL::ComPtr<IDWriteFactory2> created;
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory2), reinterpret_cast<IUnknown**>(created.GetAddressOf()));
+            return created;
+        }();
+        const D2D1::Matrix3x2F device = *D2D1::Matrix3x2F::ReinterpretBaseType(&transform_) * D2D1::Matrix3x2F::Scale(pixels_per_dip_, pixels_per_dip_);
+        const auto world = std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(device));
+        Microsoft::WRL::ComPtr<IDWriteColorGlyphRunEnumerator> layers;
+        if (!factory || FAILED(factory->TranslateColorGlyphRun(x, y, &run, desc, mode, &world, 0, &layers))) {
+            return false;
+        }
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> color;
+        BOOL has_run = FALSE;
+        while (SUCCEEDED(layers->MoveNext(&has_run)) && has_run) {
+            const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
+            if (FAILED(layers->GetCurrentRun(&layer))) {
+                break;
+            }
+            ID2D1Brush* fill = brush;
+            if (layer->paletteIndex != 0xFFFF) {
+                const auto c = D2D1::ColorF(layer->runColor.r, layer->runColor.g, layer->runColor.b, layer->runColor.a);
+                if (!color && FAILED(rt_->CreateSolidColorBrush(c, &color))) {
+                    break;
+                }
+                color->SetColor(c);
+                fill = color.Get();
+            }
+            rt_->DrawGlyphRun(D2D1::Point2F(layer->baselineOriginX, layer->baselineOriginY), &layer->glyphRun, fill, mode);
+        }
+        return true;
     }
 
     // 読み込み中 (ビットマップがまだ無い) は何も描かない。読めない画像はアイコンと alt を描く。alt はこのレンダラで描き、
