@@ -2,6 +2,7 @@
 #include "document.h"
 #include "task_scheduler.h"
 #include "profiler.h"
+#include "utility.h"
 #include "viewport_manager.h"
 #include <algorithm>
 #include <atomic>
@@ -57,12 +58,17 @@ int MeasureIndicesParallel(
 using layout::NodeContentWidth;
 using layout::RecomputeYPositions;
 
-void TableMeasureJobs::SetDocument(std::shared_ptr<const DocumentData> doc)
+void TableMeasureJobs::StopRunning() noexcept
 {
     for (auto& r : running_) {
         r.stop.request_stop();
     }
     running_.clear();
+}
+
+void TableMeasureJobs::SetDocument(std::shared_ptr<const DocumentData> doc)
+{
+    StopRunning();
     doc_ = std::move(doc);
 }
 
@@ -84,19 +90,17 @@ bool TableMeasureJobs::Defer(std::span<const Node> nodes, size_t node, const Nod
         if (stop.stop_requested()) {
             return;
         }
-        Result result{ .job = job, .node = node, .max_width = max_width };
+        Result result{ .job = job, .node = node };
         try {
-            auto built = measurer_.BuildTable(std::span<const Node>{ doc->parsed.nodes }[node], max_width, stop);
+            result.built = measurer_.BuildTable(std::span<const Node>{ doc->parsed.nodes }[node], max_width, stop);
             if (stop.stop_requested()) {
                 return;
-            }
-            // 測れなかった表も知らせ、推定の高さのまま dirty を下ろさせる (UI スレッドで測るときと同じく再試行しない)。
-            if (built) {
-                result.built = std::move(*built);
             }
         } catch (...) {
             MENDO_TRACE("TableMeasureJobs: BuildTable threw exception");
         }
+        // 測れなかった表 (table が null) も知らせ、推定の高さのまま dirty を下ろさせる (UI スレッドで測るときと同じく
+        // 再試行しない)。
         if (results_.Push(std::move(result)) && wake_) {
             wake_();
         }
@@ -133,10 +137,7 @@ std::vector<TableMeasureJobs::Result> TableMeasureJobs::TakeResults()
 
 void TableMeasureJobs::CancelAll()
 {
-    for (auto& r : running_) {
-        r.stop.request_stop();
-    }
-    running_.clear();
+    StopRunning();
     // 前の文書の組み (SetDocument で止めただけのもの) も待つ。
     latch_.Wait();
     // 止める前に組み終えていた分も捨てる。
@@ -277,9 +278,9 @@ template <class Op>
 auto LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
 {
     viewport_.EnsureScrollTarget(cache);
-    const auto result = op();
-    viewport_.ApplyScrollTarget(cache);
-    return result;
+    // op の結果を返してから当て直す (op が値を返さなくてもよい)。
+    const ScopeGuard apply([&]() noexcept { viewport_.ApplyScrollTarget(cache); });
+    return op();
 }
 
 void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
@@ -331,7 +332,6 @@ void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cach
     // 画面より上の図の高さが変わっても、見ている内容が動かないようにする。
     KeepingAnchor(cache, [&] {
         RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.begin, changed.end - 1);
-        return true;
     });
 }
 
@@ -384,7 +384,6 @@ LayoutService::PlacedTables LayoutService::PlaceMeasuredTables(const Document& d
         if (!committed.empty()) {
             RecomputeYPositions(nodes, cache, theme, committed.begin, committed.end - 1);
         }
-        return true;
     });
     return placed;
 }

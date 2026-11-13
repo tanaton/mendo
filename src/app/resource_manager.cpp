@@ -286,7 +286,7 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         // なので、列幅は決まっている)。本文の幅でデコードしていた頃は、3 列 40 行の写真の表を 1200x900 の窓で最後までめくると
         // commit 121MB・GPU 97MB、列の幅だと 66MB・51MB (2026-11-13)。列が広がったら NeedsSharperDecode が読み直させる。
         const bool table = node.has_table();
-        const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr, table ? &col_widths : nullptr);
+        const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr, &col_widths);
         update.unsettled_tables |= !slots;
         const ImageSlots needs_bitmap = slots.value_or(ImageSlots{});
         const auto srcs = node.image_srcs();

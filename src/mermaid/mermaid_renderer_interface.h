@@ -3,7 +3,6 @@
 #include <wrl/client.h>
 
 struct DiagramEntry;
-struct ID2D1CommandList;
 struct Node;
 namespace mermaid_util {
 struct DiagramDrawing;

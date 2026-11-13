@@ -1000,6 +1000,12 @@ BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_scroll, LongJapaneseParagraphs()
 
 constexpr PaneRect kTocPane{ .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight };
 
+// 目次の項目の書式 (本体と同じく、ペインの文字の大きさで上下中央・折り返さない)。
+Microsoft::WRL::ComPtr<IDWriteTextFormat> TocItemFormat(IDWriteFactory* factory, const Theme& theme)
+{
+    return CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+}
+
 // 2000 見出しの目次の 1 フレーム。書式が無いのでレイアウトは作らず、項目の文字列の手間だけを測る。
 void BM_TocFrame(benchmark::State& state)
 {
@@ -1029,7 +1035,7 @@ void BM_TocColdFrame(benchmark::State& state, bool explicit_fonts)
     }
     auto* const factory = opened->l.factory.Get();
     const Theme& theme = opened->l.theme;
-    const auto item = CreateTextFormat(factory, { .family = theme.font_family.c_str(), .size = theme.pane_font_size, .locale = theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const auto item = TocItemFormat(factory, theme);
     const SidePaneState sp = TocOnlySidePane(kTocPane, theme.pane_item_height, opened->doc.GetToc(), opened->doc.GetNodes(), 3);
     const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = explicit_fonts ? &opened->l.measurer.BodyFonts() : nullptr };
     DrawCommandList cmds;
@@ -1283,7 +1289,7 @@ void BM_DocFrameDraw(benchmark::State& state, std::string md, bool toc)
         }
     }
     auto* const factory = l.factory.Get();
-    const auto item = CreateTextFormat(factory, { .family = l.theme.font_family.c_str(), .size = l.theme.pane_font_size, .locale = l.theme.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const auto item = TocItemFormat(factory, l.theme);
     const SidePaneState sp = TocOnlySidePane(kTocPane, l.theme.pane_item_height, doc.GetToc(), doc.GetNodes(), 3);
     const chrome::SidePaneFormats fmts{ .toc_item = item.Get(), .item_fonts = &l.measurer.BodyFonts() };
     const PaneRect pane{ .x = toc_width, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
@@ -1635,9 +1641,8 @@ BENCHMARK_REGISTER_F(TableMeasure, Initial)->UseManualTime()->Iterations(3)->Uni
 BENCHMARK_DEFINE_F(TableMeasure, InitialStoppable)(benchmark::State& state)
 {
     const std::stop_source stop;
-    std::optional<BuiltTable> built;
     for (auto _ : state) {
-        built.reset();
+        BuiltTable built;
         state.SetIterationTime(SecondsOf([&] { built = layout_->measurer.BuildTable(*table_, 1200.0f, stop.get_token()); }));
     }
 }

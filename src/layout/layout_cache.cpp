@@ -20,6 +20,15 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, std::min(row_count, static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower))) };
 }
 
+bool TableLayoutData::HasEvictedRowsIn(float local_top, float local_bottom) const noexcept
+{
+    if (!HasEvictedRows()) {
+        return false;
+    }
+    const auto [r_begin, r_end] = VisibleRowRange(local_top, local_bottom);
+    return std::ranges::any_of(std::views::iota(r_begin, r_end), [this](size_t r) { return IsRowEvicted(r); });
+}
+
 std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, float local_right) const noexcept
 {
     // 列 c の右端は col_cum_x[c + 1]、左端は col_cum_x[c]。

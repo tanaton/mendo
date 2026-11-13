@@ -11,7 +11,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 
 namespace {
 
@@ -67,14 +66,9 @@ protected:
     // 組み終えた表を待って受け取る。
     std::vector<TableMeasureJobs::Result> WaitResults()
     {
-        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while (std::chrono::steady_clock::now() < until) {
-            if (auto results = jobs_.TakeResults(); !results.empty()) {
-                return results;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        return {};
+        std::vector<TableMeasureJobs::Result> results;
+        PollUntil([&] { results = jobs_.TakeResults(); return !results.empty(); }, std::chrono::seconds(30));
+        return results;
     }
 
     float NodeWidth(float width) const
@@ -145,10 +139,7 @@ TEST_F(TableMeasureJobsTest, DropsResultsOfReplacedDocument)
 {
     Open(TableMd(2000));
     // 受け取る前に組み終えるのを待つ。
-    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (wakes_.load() == 0 && std::chrono::steady_clock::now() < until) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    PollUntil([&] { return wakes_.load() > 0; }, std::chrono::seconds(30));
     ASSERT_EQ(wakes_.load(), 1);
     const Document other = Document::FromMarkdown("別の文書\n", L"other.md");
     jobs_.SetDocument(other.ShareData());
@@ -167,19 +158,18 @@ TEST_F(TableMeasureJobsTest, CancelAllDropsAndAllowsRestart)
     EXPECT_EQ(WaitResults().size(), 1u);
 }
 
-// 止める印が立っていたら、組まずに nullopt を返す。
+// 止める印が立っていたら、組まずに table が null のものを返す。
 TEST_F(TableMeasureJobsTest, BuildTableStopsWhenRequested)
 {
     const Document doc = Document::FromMarkdown(TableMd(2000), L"t.md");
     const auto& node = doc.GetNodes()[static_cast<size_t>(FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Table))];
     std::stop_source stop;
     stop.request_stop();
-    EXPECT_FALSE(measurer_.BuildTable(node, 700.0f, stop.get_token()).has_value());
+    EXPECT_EQ(measurer_.BuildTable(node, 700.0f, stop.get_token()).table, nullptr);
     // 止めなければ組む。
     const auto built = measurer_.BuildTable(node, 700.0f, {});
-    ASSERT_TRUE(built.has_value());
-    EXPECT_NE(built->table, nullptr);
-    EXPECT_GT(built->height, 0.0f);
+    EXPECT_NE(built.table, nullptr);
+    EXPECT_GT(built.height, 0.0f);
 }
 
 // 推定の高さのまま表の中を見ていたら、置いた後も表の中の同じ割合の位置を見せる。

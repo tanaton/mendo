@@ -13,8 +13,6 @@
 #include <variant>
 
 struct ID2D1DeviceContext5;
-struct ID3D11Device;
-struct IDXGISwapChain1;
 
 namespace diagram_view {
 

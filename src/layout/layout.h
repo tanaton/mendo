@@ -76,10 +76,10 @@ public:
         return {};
     }
     // 表の幾何を entry に触れずに初めから組む (巨大な表をワーカーで組む TableMeasureJobs が使う)。stop が立つか、
-    // 測れなければ nullopt。
-    virtual std::optional<BuiltTable> BuildTable(const Node& /*node*/, float /*max_width*/, std::stop_token /*stop*/) const
+    // 測れなければ table が null。
+    virtual BuiltTable BuildTable(const Node& /*node*/, float /*max_width*/, std::stop_token /*stop*/) const
     {
-        return std::nullopt;
+        return {};
     }
 
 protected:
@@ -147,8 +147,6 @@ public:
     struct Result {
         uint64_t job = 0;
         size_t node = 0;
-        // 組んだ幅 (NodeContentWidth)。
-        float max_width = 0.0f;
         // 測れなければ table が null。
         BuiltTable built;
         // 組む間に数式か画像の寸法が届いた (NoteInlineChanged)。
@@ -190,6 +188,9 @@ private:
         std::stop_source stop;
         bool inline_changed = false;
     };
+
+    // 組んでいる表を止めて忘れる。待たない。
+    void StopRunning() noexcept;
 
     TaskScheduler& scheduler_;
     const ITextMeasurer& measurer_;
@@ -282,7 +283,7 @@ public:
     PlacedTables PlaceMeasuredTables(const Document& doc, LayoutCache& cache, float width, std::vector<TableMeasureJobs::Result> results);
 
 private:
-    // 前後で scroll target を確定・適用し、見ている位置を保ったまま op を行う。op の結果を返す。
+    // 前後で scroll target を確定・適用し、見ている位置を保ったまま op を行う。op が値を返せばそれを返す。
     template <class Op>
     auto KeepingAnchor(LayoutCache& cache, Op&& op);
     // [top, bottom] を計測する。見ている位置は保つ。

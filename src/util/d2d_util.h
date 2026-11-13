@@ -130,6 +130,9 @@ struct IDXGISwapChain1;
 struct ID2D1Device;
 struct ID2D1DeviceContext;
 
+// スワップチェーンの今のバッファを、dpi の描画先として dc に付ける (dc の DPI も dpi にする)。本体の窓と WindowSwapTarget で共有する。
+HRESULT BindSwapChainTarget(ID2D1DeviceContext* dc, IDXGISwapChain1* swap_chain, float dpi) noexcept;
+
 // 本体の描画デバイスで、ほかの窓 (ポップアップ・図の拡大表示) を描くスワップチェーンと DeviceContext。
 // dxgi を読む TU を増やさないため (このヘッダはポップアップを通じて広く読まれる)、定義は d2d_util.cpp に置く。
 class WindowSwapTarget {
@@ -160,8 +163,6 @@ public:
     }
 
 private:
-    bool BindBackBuffer(float dpi);
-
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc_;
 };

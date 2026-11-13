@@ -29,7 +29,7 @@ bool WindowSwapTarget::Create(ID3D11Device* d3d, ID2D1Device* device, HWND hwnd,
     ComPtr<IDXGIFactory2> factory;
     if (FAILED(d3d->QueryInterface(IID_PPV_ARGS(&dxgi))) || FAILED(dxgi->GetAdapter(&adapter)) || FAILED(adapter->GetParent(IID_PPV_ARGS(&factory))) ||
         FAILED(factory->CreateSwapChainForHwnd(d3d, hwnd, &desc, nullptr, nullptr, &swap_chain_)) ||
-        FAILED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc_)) || !BindBackBuffer(dpi)) {
+        FAILED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc_)) || FAILED(BindSwapChainTarget(dc_.Get(), swap_chain_.Get(), dpi))) {
         Reset();
         return false;
     }
@@ -39,26 +39,30 @@ bool WindowSwapTarget::Create(ID3D11Device* d3d, ID2D1Device* device, HWND hwnd,
 bool WindowSwapTarget::Resize(UINT width, UINT height, float dpi)
 {
     dc_->SetTarget(nullptr);
-    if (FAILED(swap_chain_->ResizeBuffers(0, std::max(width, 1u), std::max(height, 1u), DXGI_FORMAT_UNKNOWN, 0)) || !BindBackBuffer(dpi)) {
+    if (FAILED(swap_chain_->ResizeBuffers(0, std::max(width, 1u), std::max(height, 1u), DXGI_FORMAT_UNKNOWN, 0)) || FAILED(BindSwapChainTarget(dc_.Get(), swap_chain_.Get(), dpi))) {
         Reset();
         return false;
     }
     return true;
 }
 
-bool WindowSwapTarget::BindBackBuffer(float dpi)
+HRESULT BindSwapChainTarget(ID2D1DeviceContext* dc, IDXGISwapChain1* swap_chain, float dpi) noexcept
 {
-    dc_->SetDpi(dpi, dpi);
+    dc->SetDpi(dpi, dpi);
     ComPtr<IDXGISurface> surface;
     ComPtr<ID2D1Bitmap1> target;
-    // 不透明な窓なので IGNORE にする (PREMULTIPLIED だと文字が ClearType からグレースケールに落ちる)。
+    // 不透明な窓なので IGNORE にする。PREMULTIPLIED だと D2D が透過のある描画先とみなし、文字のアンチエイリアスを
+    // ClearType からグレースケールに落とす。
     const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
                                                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE), dpi, dpi);
-    if (FAILED(swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface))) || FAILED(dc_->CreateBitmapFromDxgiSurface(surface.Get(), &props, &target))) {
-        return false;
+    HRESULT hr = swap_chain->GetBuffer(0, IID_PPV_ARGS(&surface));
+    if (SUCCEEDED(hr)) {
+        hr = dc->CreateBitmapFromDxgiSurface(surface.Get(), &props, &target);
     }
-    dc_->SetTarget(target.Get());
-    return true;
+    if (SUCCEEDED(hr)) {
+        dc->SetTarget(target.Get());
+    }
+    return hr;
 }
 
 bool WindowSwapTarget::EndDrawAndPresent()

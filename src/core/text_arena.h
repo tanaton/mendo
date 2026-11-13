@@ -46,9 +46,8 @@ public:
         reserved_memory::Release(data_);
     }
     ReservedArray(ReservedArray&& other) noexcept
-        : data_(std::exchange(other.data_, nullptr)), size_(std::exchange(other.size_, 0)), committed_(std::exchange(other.committed_, 0)),
-          reserved_(std::exchange(other.reserved_, 0))
     {
+        *this = std::move(other);
     }
     ReservedArray& operator=(ReservedArray&& other) noexcept
     {
@@ -249,7 +248,7 @@ private:
         }
         if (data_) {
             const size_t used = RoundUpToPage(size_ * sizeof(T));
-            if (used > 0 && !reserved_memory::Commit(fresh, used)) {
+            if (!reserved_memory::Commit(fresh, used)) {
                 reserved_memory::Release(fresh);
                 throw std::bad_alloc();
             }

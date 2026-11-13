@@ -412,10 +412,9 @@ void App::OnTableMeasured()
     if (!placed.placed) {
         return;
     }
-    FinishLayout(LayoutChange::Reflowed, LayoutCaller::Message);
-    if (placed.stale_inline) {
-        RelayoutPendingInline(/*force_tables=*/false);
-    }
+    // 届く前の寸法で組んだかもしれない表は、先に組み直す印を付けて、後始末を 1 回で済ませる。
+    const bool remeasure = placed.stale_inline && InvalidatePendingInline(/*force_tables=*/false);
+    FinishLayout(remeasure ? LayoutChange::Remeasure : LayoutChange::Reflowed, LayoutCaller::Message);
 }
 
 bool App::RequestInlineMathChunk(uint64_t key)
@@ -1830,12 +1829,8 @@ void App::OnDeferredLayout()
         }
         // 大きな表は画面の外の行をいつも退避しているので、見えている行だけを見る。
         const auto* table = cache[i].table_layout();
-        if (!table || !table->HasEvictedRows()) {
-            return false;
-        }
         const YRange local = YRange{ scroll_y, scroll_y + md.height }.ToLocal(cache.Top(i));
-        const auto [begin, end] = table->VisibleRowRange(local.top, local.bottom);
-        return std::ranges::any_of(std::views::iota(begin, end), [table](size_t r) { return table->IsRowEvicted(r); });
+        return table && table->HasEvictedRowsIn(local.top, local.bottom);
     });
     const auto batch = layout_service_.ProcessDirtyBatch(
         state_.document.doc, cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,

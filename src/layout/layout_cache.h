@@ -180,6 +180,8 @@ struct TableLayoutData {
     // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
     // 座標はいずれもエントリ上端からのローカル系。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
+    // [local_top, local_bottom] に重なる行に、セル layout を退避した行があるか。
+    bool HasEvictedRowsIn(float local_top, float local_bottom) const noexcept;
     // x は列順に単調なので、[local_left, local_right] に重なる列も連続した区間 [c_begin, c_end) になる。
     // 座標は col_cum_x と同じ base_x からのローカル系。
     std::pair<size_t, size_t> VisibleColRange(float local_left, float local_right) const noexcept;

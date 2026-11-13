@@ -4109,7 +4109,10 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
     }
     const std::lock_guard lock(m.mutex);
     auto& face = m.faces[file][simulations];
-    if (!face && !m.files[file]) {
+    if (face) {
+        return face.Get();
+    }
+    if (!m.files[file]) {
         // 展開したストリームを持ち主として渡し、DirectWrite に写させない。最初の数式で 20 個を展開して写していた頃は、
         // 新しいエンジンの最初の数式 (x^2) が 9.4ms、使う書体だけにして 4.7ms。
         ComPtr<IDWriteFontFileStream> stream;
@@ -4127,15 +4130,7 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
             return nullptr;
         }
     }
-    if (!face) {
-        m.dw->CreateFontFace(
-            DWRITE_FONT_FACE_TYPE_TRUETYPE,
-            1,
-            m.files[file].GetAddressOf(),
-            0,
-            static_cast<DWRITE_FONT_SIMULATIONS>(simulations),
-            &face);
-    }
+    m.dw->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1, m.files[file].GetAddressOf(), 0, static_cast<DWRITE_FONT_SIMULATIONS>(simulations), &face);
     return face.Get();
 }
 

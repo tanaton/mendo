@@ -19,7 +19,6 @@ struct ID3D11Device;
 struct IDXGISwapChain2;
 struct IWICImagingFactory;
 struct IWICBitmap;
-class DiagramBitmapCache;
 class MathMaskCache;
 
 // D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
@@ -252,7 +251,7 @@ private:
     // インライン数式の SVG の形のマスク。デバイスごとに作り直す。
     std::unique_ptr<MathMaskCache> math_masks_;
     // スクロールの間だけ、見えている図をビットマップで描く。デバイスごとに作り直す。
-    std::unique_ptr<DiagramBitmapCache> diagram_bitmaps_;
+    DiagramBitmapCache diagram_bitmaps_;
     bool scrolling_diagrams_ = false;
 
     void RecreateAllTextFormats();
