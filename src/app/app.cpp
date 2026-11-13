@@ -1657,6 +1657,8 @@ PopupEnv App::MakePopupEnv() const noexcept
 {
     return {
         .d2d_factory = renderer_.GetD2DFactory(),
+        .d3d = renderer_.GetD3DDevice(),
+        .device = renderer_.GetD2DDevice(),
         .dwrite_factory = renderer_.GetDWriteFactory(),
         .theme = &theme_service_.GetTheme(),
         .dpi_scale = state_.window.cached_dpi_scale,

@@ -131,6 +131,10 @@ public:
     {
         return d3d_device_.Get();
     }
+    ID2D1Device* GetD2DDevice() const noexcept
+    {
+        return d2d_device_.Get();
+    }
     ID2D1RenderTarget* GetRenderTarget() const noexcept
     {
         return device_context_.Get();
