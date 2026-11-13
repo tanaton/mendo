@@ -332,8 +332,166 @@ private:
 
 } // namespace
 
+struct DiagramBitmapCache::Impl {
+    struct Entry {
+        // 図を捨てるとアドレスが別の図に使い回されうるので、キーの図を持っておく。
+        Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> bitmap;
+        UINT width = 0;
+        UINT height = 0;
+        // 描いたときの、装置の画素での拡大と図の左上の位置。ビットマップの左上は (ox, oy)。
+        float scale = 0.0f;
+        float x = 0.0f;
+        float y = 0.0f;
+        float ox = 0.0f;
+        float oy = 0.0f;
+        // 描いた帯 (図の上端からの記録の単位)。
+        float band_top = 0.0f;
+        float band_bottom = 0.0f;
+        uint64_t last_frame = 0;
+
+        size_t Bytes() const noexcept
+        {
+            return bitmap ? static_cast<size_t>(width) * height * 4 : 0;
+        }
+    };
+
+    Microsoft::WRL::ComPtr<ID2D1Device> device;
+    // 帯を描く。本体の context は描いている最中で、BeginDraw は入れ子にできないので別に持つ。
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    std::vector<Entry> entries;
+    uint64_t frame = 0;
+
+    bool Render(Entry& e, UINT width, UINT height)
+    {
+        if (!e.bitmap || e.width != width || e.height != height) {
+            e.bitmap.Reset();
+            const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            if (FAILED(dc->CreateBitmap(D2D1::SizeU(width, height), nullptr, 0, &props, &e.bitmap))) {
+                return false;
+            }
+            e.width = width;
+            e.height = height;
+        }
+        dc->SetTarget(e.bitmap.Get());
+        dc->BeginDraw();
+        dc->Clear(D2D1::ColorF(0, 0.0f));
+        dc->SetTransform(D2D1::Matrix3x2F::Scale(e.scale, e.scale) * D2D1::Matrix3x2F::Translation(e.x - e.ox, e.y - e.oy));
+        dc->DrawImage(e.commands.Get());
+        const HRESULT hr = dc->EndDraw();
+        dc->SetTarget(nullptr);
+        return SUCCEEDED(hr);
+    }
+};
+
+DiagramBitmapCache::DiagramBitmapCache() : impl_(std::make_unique<Impl>())
+{
+}
+
+DiagramBitmapCache::~DiagramBitmapCache() = default;
+
+void DiagramBitmapCache::Reset(ID2D1Device* device) noexcept
+{
+    auto& m = *impl_;
+    m.entries.clear();
+    m.dc.Reset();
+    m.device = device;
+    if (device) {
+        device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &m.dc);
+    }
+}
+
+void DiagramBitmapCache::Clear() noexcept
+{
+    impl_->entries.clear();
+}
+
+void DiagramBitmapCache::EndFrame() noexcept
+{
+    auto& m = *impl_;
+    std::erase_if(m.entries, [frame = m.frame](const Impl::Entry& e) noexcept { return e.last_frame != frame; });
+    ++m.frame;
+}
+
+bool DiagramBitmapCache::Draw(ID2D1DeviceContext* dc, ID2D1CommandList* commands, float left, float top, float scale, float width, float height)
+{
+    auto& m = *impl_;
+    if (!m.dc || !(scale > 0.0f) || !(width > 0.0f) || !(height > 0.0f)) {
+        return false;
+    }
+    // 装置の画素への変換。拡大と平行移動だけの変換でしか写せない (本文は平行移動だけ)。
+    D2D1::Matrix3x2F base;
+    dc->GetTransform(&base);
+    if (base._12 != 0.0f || base._21 != 0.0f || base._11 != base._22) {
+        return false;
+    }
+    float dpi_x = 0.0f;
+    float dpi_y = 0.0f;
+    dc->GetDpi(&dpi_x, &dpi_y);
+    const float dpr = dpi_x / DEFAULT_DPI;
+    const float k = scale * base._11 * dpr;
+    const float x = (left * base._11 + base._31) * dpr;
+    const float y = (top * base._22 + base._32) * dpr;
+    const auto target = dc->GetPixelSize();
+    const auto view_height = static_cast<float>(target.height);
+    // 見えている部分 (図の上端からの記録の単位)。
+    const float visible_top = std::max(0.0f, -y / k);
+    const float visible_bottom = std::min(height, (view_height - y) / k);
+    if (visible_bottom <= visible_top) {
+        return true;
+    }
+
+    auto it = std::ranges::find(m.entries, commands, [](const Impl::Entry& e) noexcept { return e.commands.Get(); });
+    if (it == m.entries.end()) {
+        it = m.entries.insert(m.entries.end(), Impl::Entry{ .commands = commands });
+    }
+    Impl::Entry& e = *it;
+    e.last_frame = m.frame;
+    const bool covered = e.bitmap && e.scale == k && (e.band_top <= visible_top || e.band_top == 0.0f) &&
+                         (e.band_bottom >= visible_bottom || e.band_bottom == height);
+    if (!covered) {
+        const float margin = view_height / 4.0f / k;
+        e.scale = k;
+        e.x = x;
+        e.y = y;
+        e.band_top = visible_top - margin > 0.0f ? visible_top - margin : 0.0f;
+        e.band_bottom = visible_bottom + margin < height ? visible_bottom + margin : height;
+        e.ox = std::floor(x);
+        e.oy = std::floor(y + e.band_top * k);
+        const float right = std::ceil(x + width * k);
+        const float bottom = std::ceil(y + e.band_bottom * k);
+        const auto max_dim = static_cast<float>(m.dc->GetMaximumBitmapSize());
+        if (right - e.ox > max_dim || bottom - e.oy > max_dim || !m.Render(e, static_cast<UINT>(right - e.ox), static_cast<UINT>(bottom - e.oy))) {
+            m.entries.erase(it);
+            return false;
+        }
+    }
+    // 描いたときから動いた分だけ、画素単位でずらして写す (半画素未満のずれはスクロールの間だけ)。
+    const float ox = e.ox + std::round(x - e.x);
+    const float oy = e.oy + std::round(y - e.y);
+    dc->SetTransform(D2D1::Matrix3x2F::Identity());
+    dc->DrawBitmap(e.bitmap.Get(), D2D1::RectF(ox / dpr, oy / dpr, (ox + static_cast<float>(e.width)) / dpr, (oy + static_cast<float>(e.height)) / dpr), 1.0f,
+                   D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    dc->SetTransform(base);
+    return true;
+}
+
+size_t DiagramBitmapCache::Count() const noexcept
+{
+    return impl_->entries.size();
+}
+
+size_t DiagramBitmapCache::Bytes() const noexcept
+{
+    size_t total = 0;
+    for (const auto& e : impl_->entries) {
+        total += e.Bytes();
+    }
+    return total;
+}
+
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
-                         MathMaskCache* math_masks)
+                         MathMaskCache* math_masks, DiagramBitmapCache* diagram_bitmaps)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
     // 図のコマンドリストを描くときに 1 フレーム 1 回だけ問い合わせる。
@@ -377,9 +535,13 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (c.width <= 0.0f || (!dc && FAILED(rt->QueryInterface(IID_PPV_ARGS(&dc))))) {
                 return;
             }
+            const float scale = (c.dest.right - c.dest.left) / c.width;
+            if (diagram_bitmaps &&
+                diagram_bitmaps->Draw(dc.Get(), c.commands, c.dest.left, c.dest.top, scale, c.width, (c.dest.bottom - c.dest.top) / scale)) {
+                return;
+            }
             D2D1::Matrix3x2F base;
             dc->GetTransform(&base);
-            const float scale = (c.dest.right - c.dest.left) / c.width;
             dc->SetTransform(D2D1::Matrix3x2F::Scale(scale, scale) * D2D1::Matrix3x2F::Translation(c.dest.left, c.dest.top) * base);
             dc->DrawImage(c.commands);
             dc->SetTransform(base);

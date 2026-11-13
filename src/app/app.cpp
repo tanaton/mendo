@@ -621,6 +621,13 @@ void App::HandleTimer(UINT_PTR timer_id)
     case IMAGE_RELOAD:
         resource_manager_.OnImageReloadTimer();
         return;
+    case SCROLL_SETTLE:
+        KillTimer(id);
+        // 止まった画面は、図をくっきりしたベクタで描き直す。
+        if (renderer_.SetScrollingDiagrams(false)) {
+            Invalidate();
+        }
+        return;
     }
 }
 
@@ -1054,6 +1061,9 @@ void App::Execute(const SideEffect& effect)
             // 空き時間で先読みの範囲を確かめさせる (組むものが無ければ OnDeferredLayout は走査だけで描き直さない)。
             state_.document.layout_cache.SetHasDirtyNodes(true);
             resource_manager_.ScheduleBitmapManage();
+            // スクロールの間は、見えている図をビットマップで描く。止まったらベクタに戻す。
+            renderer_.SetScrollingDiagrams(true);
+            SetTimer(app_timer::Id::SCROLL_SETTLE, app_timer::SCROLL_SETTLE_MS);
         },
         // ---- Timer ----
         [this](const effect::SetTimer& ev) {

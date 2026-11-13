@@ -284,6 +284,16 @@ void Renderer::SetDpi(float dpi) noexcept
     }
 }
 
+bool Renderer::SetScrollingDiagrams(bool scrolling) noexcept
+{
+    scrolling_diagrams_ = scrolling;
+    if (scrolling || diagram_bitmaps_->Count() == 0) {
+        return false;
+    }
+    diagram_bitmaps_->Clear();
+    return true;
+}
+
 void Renderer::TrimForInactive() noexcept
 {
     // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限を下げると目次を戻るたびに作り直す (目次の全行が
@@ -302,6 +312,7 @@ void Renderer::TrimForMinimize() noexcept
     }
     d2d_device_->ClearResources();
     math_masks_->Reset(d2d_device_.Get());
+    diagram_bitmaps_->Clear();
     // IDXGIDevice3::Trim の前に ClearState で参照を外しておく必要がある。
     ComPtr<ID3D11DeviceContext> d3d_ctx;
     d3d_device_->GetImmediateContext(&d3d_ctx);
@@ -339,6 +350,7 @@ bool Renderer::CreateDevice()
         device_context_->SetTarget(nullptr);
     }
     math_masks_->Reset(nullptr);
+    diagram_bitmaps_->Reset(nullptr);
     device_context_.Reset();
     d2d_device_.Reset();
     swap_chain_.Reset();
@@ -357,6 +369,7 @@ bool Renderer::CreateDevice()
     }
     device_.MarkCreated();
     math_masks_->Reset(d2d_device_.Get());
+    diagram_bitmaps_->Reset(d2d_device_.Get());
     OnThemeColorsChanged();
     LoadAppIconBitmap();
     return true;

@@ -1458,6 +1458,66 @@ void BM_DiagramFrameDraw(benchmark::State& state)
 }
 BENCHMARK(BM_DiagramFrameDraw)->Unit(benchmark::kMillisecond);
 
+// test.md の図を 1 個ずつ、画面の下端から上へ 40 DIP ずつ動かして出ていくまで描く (ホイールのスクロール)。
+// bitmaps はスクロールの間の DiagramBitmapCache で写す。frame は 1 フレームあたりの時間。
+void BM_DiagramScrollDraw(benchmark::State& state, bool bitmaps)
+{
+    const ComScope com;
+    const auto assets = PeleTestAssets::Load();
+    if (!assets.ok() || !SharedDWriteFactory()) {
+        state.SkipWithError("pele bytecode, KaTeX fonts or DirectWrite not found");
+        return;
+    }
+    const Theme theme = GetLightTheme();
+    OffscreenTarget target;
+    if (!target.Init(theme, static_cast<UINT>(kViewWidth), static_cast<UINT>(kViewHeight))) {
+        state.SkipWithError("D3D device init failed");
+        return;
+    }
+    const auto engine = assets.NewEngine(SharedDWriteFactory());
+    const auto drawings = TestMdDiagramDrawings(state, *engine);
+    const auto record_dc = CreateRecordContext(target.context.Get());
+    const auto wic = wic_util::CreateWicFactory("bench");
+    struct Recorded {
+        Microsoft::WRL::ComPtr<ID2D1CommandList> list;
+        float width;
+        float height;
+    };
+    std::vector<Recorded> lists;
+    for (const auto& d : drawings) {
+        if (auto list = RecordDiagram(record_dc.Get(), SharedDWriteFactory(), wic.Get(), *d, L"ja-jp")) {
+            lists.push_back({ std::move(list), d->width, d->height });
+        }
+    }
+    DiagramBitmapCache cache;
+    cache.Reset(target.device.Get());
+    const InlineDrawings inline_drawings;
+    DrawCommandList cmds;
+    constexpr float kStep = 40.0f;
+    size_t frames = 0;
+    size_t peak_bytes = 0;
+    for (auto _ : state) {
+        for (const auto& r : lists) {
+            const float scale = std::min(1.0f, kViewWidth / r.width);
+            for (float y = kViewHeight; y > -r.height * scale; y -= kStep) {
+                cmds.clear();
+                cmds.emplace_back(DrawDiagramCmd{ r.list.Get(), D2D1::RectF(0.0f, y, r.width * scale, y + r.height * scale), r.width });
+                target.context->BeginDraw();
+                target.context->Clear(theme.Color(BrushId::Background));
+                ExecuteDrawCommands(cmds, target.context.Get(), target.brushes, inline_drawings, nullptr, bitmaps ? &cache : nullptr);
+                target.context->EndDraw();
+                peak_bytes = std::max(peak_bytes, cache.Bytes());
+                cache.EndFrame();
+                ++frames;
+            }
+        }
+    }
+    state.counters["frame"] = benchmark::Counter(static_cast<double>(frames), benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+    state.counters["peak_MB"] = static_cast<double>(peak_bytes) / (1024.0 * 1024.0);
+}
+BENCHMARK_CAPTURE(BM_DiagramScrollDraw, vector, false)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_DiagramScrollDraw, bitmap, true)->Unit(benchmark::kMillisecond);
+
 // 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
 // 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
 // HTML の合計は約 1.5MB で、PeleEngine が覚える上限 (4MB) に収まる。

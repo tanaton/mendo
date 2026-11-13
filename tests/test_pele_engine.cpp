@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include "diagram_raster.h"
+#include "draw_command.h"
 #include "mermaid_util.h"
 #include "pele_engine.h"
 #include "pele_test_assets.h"
 #include "string_convert.h"
 #include "test_helpers.h"
 #include "wic_util.h"
-#include <d2d1_1.h>
+#include <d2d1_3.h>
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -610,6 +611,63 @@ TEST_F(MathDrawTest, MaskCacheEvictsUndrawnMasksOverBudget)
     masks.Reset(nullptr);
     Draw(canvas, { math.get(), 1 }, &masks);
     EXPECT_EQ(masks.Count(), 0u);
+}
+
+// スクロールの間に図をビットマップで写しても、ベクタで描くのとほぼ同じ画素になる。描いた帯の中を画素単位で動くうちは
+// 写すだけで、帯から出たら描き直す。描かなかったフレームの後で捨てる。
+TEST_F(MathDrawTest, DiagramBitmapsMatchVectorWhileScrolling)
+{
+    const auto out = engine_->Render("flowchart TD\n  A[開始] --> B{判定}\n  B --> C[終了]\n  B --> D[やり直し] --> A", false, 400.0f);
+    ASSERT_EQ(out.status, Status::Drawn);
+    const auto& drawing = out.drawing;
+    constexpr float kDpr = 1.5f;
+    constexpr float kViewHeight = 120.0f;
+    Canvas c;
+    c.width = static_cast<UINT>(std::ceil((drawing.width + 8.0f) * kDpr));
+    c.height = static_cast<UINT>(kViewHeight * kDpr);
+    ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(c.width, c.height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &c.bitmap));
+    const auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                                                    96.0f * kDpr, 96.0f * kDpr);
+    ASSERT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(c.bitmap.Get(), props, &c.rt));
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    ASSERT_HRESULT_SUCCEEDED(c.rt.As(&dc));
+    dc->GetDevice(&c.device);
+    const auto commands = RecordDiagram(CreateRecordContext(c.rt.Get()).Get(), dw_.Get(), wic_.Get(), drawing, L"ja-jp");
+    ASSERT_NE(commands, nullptr);
+    ASSERT_GT(drawing.height, kViewHeight * 1.5f) << "画面より高い図で、帯を試す";
+
+    DiagramBitmapCache cache;
+    cache.Reset(c.device.Get());
+    const FixedBrushArray brushes{};
+    const InlineDrawings inline_drawings;
+    const auto draw = [&](float top, DiagramBitmapCache* bitmaps) {
+        const DrawCommandList cmds{ DrawDiagramCmd{ commands.Get(), D2D1::RectF(2.3f, top, 2.3f + drawing.width, top + drawing.height), drawing.width } };
+        c.rt->BeginDraw();
+        c.rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        ExecuteDrawCommands(cmds, c.rt.Get(), brushes, inline_drawings, nullptr, bitmaps);
+        EXPECT_HRESULT_SUCCEEDED(c.rt->EndDraw());
+        std::vector<uint32_t> pixels(static_cast<size_t>(c.width) * c.height);
+        EXPECT_HRESULT_SUCCEEDED(c.bitmap->CopyPixels(nullptr, c.width * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
+        return pixels;
+    };
+
+    // 端数のある位置から、装置の画素で割り切れる量 (10 DIP = 15 画素) ずつ動かす。
+    float top = 0.7f;
+    EXPECT_LE(MaxChannelDiff(draw(top, &cache), draw(top, nullptr)), 2);
+    cache.EndFrame();
+    ASSERT_EQ(cache.Count(), 1u);
+    const size_t bytes = cache.Bytes();
+    EXPECT_LT(bytes, static_cast<size_t>(c.width) * c.height * 4 * 2) << "見えている部分の上下に 1/4 画面ずつの帯";
+    for (int i = 0; i < 8; ++i) {
+        top -= 10.0f;
+        EXPECT_LE(MaxChannelDiff(draw(top, &cache), draw(top, nullptr)), 2) << i;
+        cache.EndFrame();
+    }
+
+    // 描かなかったフレームの後で捨てる。
+    cache.EndFrame();
+    EXPECT_EQ(cache.Count(), 0u);
+    EXPECT_EQ(cache.Bytes(), 0u);
 }
 
 // ---- KaTeX の HTML の配置 (箱の計算) ----

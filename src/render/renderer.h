@@ -18,6 +18,7 @@ struct ID3D11Device;
 struct IDXGISwapChain2;
 struct IWICImagingFactory;
 struct IWICBitmap;
+class DiagramBitmapCache;
 class MathMaskCache;
 
 // D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
@@ -125,6 +126,9 @@ public:
     void TrimForMinimize() noexcept;
     // 別のアプリへ切り替わった後に、作り置いた短い文字列のレイアウトを手放す。戻った最初のフレームで見えている分を作り直す。
     void TrimForInactive() noexcept;
+    // スクロールの間は見えている図をビットマップで描き (DiagramBitmapCache)、止まったらビットマップを捨ててベクタに戻す。
+    // 捨てたビットマップがあれば true (ベクタで描き直させる)。
+    bool SetScrollingDiagrams(bool scrolling) noexcept;
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
     ID3D11Device* GetD3DDevice() const noexcept
@@ -248,6 +252,9 @@ private:
     FixedBrushArray brushes_;
     // インライン数式の SVG の形のマスク。デバイスごとに作り直す。
     std::unique_ptr<MathMaskCache> math_masks_;
+    // スクロールの間だけ、見えている図をビットマップで描く。デバイスごとに作り直す。
+    std::unique_ptr<DiagramBitmapCache> diagram_bitmaps_;
+    bool scrolling_diagrams_ = false;
 
     void RecreateAllTextFormats();
     void CreateTextFormats(bool zoomed_only = false);

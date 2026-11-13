@@ -129,6 +129,37 @@ struct InlineDrawings {
     }
 };
 
+// スクロールの間、見えている図を装置の画素のビットマップに描いておき、次のフレームからはそれを写す。図は毎フレームベクタで
+// 描くと 1 個 0.25ms (重い図は 1ms 超) かかるが、写すのは数十 µs。ビットマップは見えている部分の上下に 1/4 画面ずつ足した
+// 帯だけを持ち、帯から出たら描き直す。持つのは描いたフレームで見えていた図の分だけで、合計は画面の約 1.5 倍まで。
+// 止まったら Clear で捨ててベクタに戻す (くっきり描き、静止中は持たない)。全部の図をビットマップで持つ案は GPU +161MB /
+// private +125MB で見送った。見えている分だけをスクロールの間だけ持つ形は、ユーザーが選んだ (2026-11-13)。
+class DiagramBitmapCache {
+public:
+    DiagramBitmapCache();
+    ~DiagramBitmapCache();
+    DiagramBitmapCache(const DiagramBitmapCache&) = delete;
+    DiagramBitmapCache& operator=(const DiagramBitmapCache&) = delete;
+
+    // 持っているビットマップを捨て、以後は device の描画先に描く。null なら描かない。
+    void Reset(ID2D1Device* device) noexcept;
+    // 持っているビットマップを捨てる。
+    void Clear() noexcept;
+    // 1 フレームを描き終えたら呼ぶ。このフレームで描かなかった図のビットマップを捨てる。
+    void EndFrame() noexcept;
+    // dc の今の変換で、図の左上を (left, top)、拡大を scale として commands を描く。height は図の高さ (記録の単位)。
+    // dc は Reset で渡したデバイスの描画先。描けなければ false で、呼び出し側がベクタで描く。
+    bool Draw(ID2D1DeviceContext* dc, ID2D1CommandList* commands, float left, float top, float scale, float width, float height);
+
+    size_t Count() const noexcept;
+    size_t Bytes() const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない。math_masks があればインライン数式の SVG の形をマスクで塗る。
+// diagram_bitmaps があれば図をビットマップで描く (スクロールの間)。
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
-                         MathMaskCache* math_masks = nullptr);
+                         MathMaskCache* math_masks = nullptr, DiagramBitmapCache* diagram_bitmaps = nullptr);
