@@ -204,6 +204,7 @@ private:
         bool used_pele = false;
     };
 
+    // 描き終えて待ちが空になった時点で 1 個まで減らし (ProcessJobResults)、最後の 1 個をこの時間で捨てる。
     // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
     // 別のアプリへ切り替わったときは待たずに捨てる (App::OnActivateApp)。
     static constexpr UINT PELE_TRIM_MS = 10000;

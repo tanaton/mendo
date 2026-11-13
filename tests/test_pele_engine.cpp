@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <latch>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -274,6 +275,30 @@ TEST_F(PeleEngineTest, RendersConcurrentlyAndAfterTrim)
     EXPECT_EQ(results[1].status, Status::Drawn);
     engine_->Trim();
     EXPECT_EQ(engine_->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
+}
+
+// 描き終えた後に 1 個まで減らすと、同時に描いて増えたランタイムを捨て、残りで続けて描ける。
+TEST_F(PeleEngineTest, TrimKeepsRequestedRuntimes)
+{
+    const auto engine = NewEngine();
+    // 同時に描いたつもりでも片方が先に終わると 1 個で足りるので、2 個できるまで試す。
+    for (int attempt = 0; attempt < 20 && engine->IdleRuntimes() < 2; ++attempt) {
+        std::latch start(2);
+        std::thread other([&] {
+            start.arrive_and_wait();
+            engine->Render("flowchart LR\n  A --> B --> C", false, 800.0f);
+        });
+        start.arrive_and_wait();
+        engine->Render("flowchart TD\n  X --> Y --> Z", false, 800.0f);
+        other.join();
+    }
+    ASSERT_GE(engine->IdleRuntimes(), 2u);
+    engine->Trim(nullptr, 1);
+    EXPECT_EQ(engine->IdleRuntimes(), 1u);
+    EXPECT_EQ(engine->Render("flowchart LR\n  C --> D", false, 800.0f).status, Status::Drawn);
+    EXPECT_EQ(engine->IdleRuntimes(), 1u);
+    engine->Trim();
+    EXPECT_EQ(engine->IdleRuntimes(), 0u);
 }
 
 // 取り消した後は、HTML を覚えている数式も描かない。

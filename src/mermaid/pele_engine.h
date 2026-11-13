@@ -72,9 +72,12 @@ public:
     {
         cancel_.store(true, std::memory_order_relaxed);
     }
-    // 使っていないランタイムを捨てる。次はバイトコードから作り直す。捨てる処理は全オブジェクトをたどり、pele と KaTeX を
-    // 読んだランタイム 1 個で約 3.5ms かかるので、scheduler があればその worker で行う。
-    void Trim(TaskScheduler* scheduler = nullptr);
+    // 使っていないランタイムを keep 個まで捨てる。残すのは読んだモジュールの多いもので、捨てたものは次にバイトコードから
+    // 作り直す。捨てる処理は全オブジェクトをたどり、pele と KaTeX を読んだランタイム 1 個で約 3.5ms かかるので、
+    // scheduler があればその worker で行う。
+    void Trim(TaskScheduler* scheduler = nullptr, size_t keep = 0);
+    // 使っていないランタイムの数 (テスト用)。
+    size_t IdleRuntimes();
 
 private:
     bool Cancelled() const noexcept

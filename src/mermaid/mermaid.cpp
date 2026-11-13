@@ -338,11 +338,17 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         used_pele |= r.used_pele;
         resolved |= ApplyJobResult(r);
     });
-    if (used_pele) {
-        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
-    }
     if (render_done) {
         PumpRenders();
+    }
+    if (used_pele) {
+        // 描き終えて待ちが空になったら、同時に描いた分のランタイム (1 個あたり pele 約 2.9MB・KaTeX 約 2.6MB) を 1 個まで返す。
+        // 10 秒以内に次の図や数式が来ると、増やした分は読み直し (pele 5ms・KaTeX 3.4ms) になるが、メモリを早く返すほうを
+        // ユーザーが選んだ (2026-11-13)。残りの 1 個は PELE_TRIM で捨てる。
+        if (renders_running_ == 0 && render_waiting_.empty()) {
+            pele_->Trim(bg_scheduler_, 1);
+        }
+        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {

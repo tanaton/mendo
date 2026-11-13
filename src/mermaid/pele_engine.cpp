@@ -372,16 +372,31 @@ KatexAssets* PeleEngine::Assets()
     return assets_->ok() ? assets_.get() : nullptr;
 }
 
-void PeleEngine::Trim(TaskScheduler* scheduler)
+void PeleEngine::Trim(TaskScheduler* scheduler, size_t keep)
 {
-    std::vector<std::unique_ptr<PeleContext>> idle;
+    std::vector<std::unique_ptr<PeleContext>> doomed;
     {
         const std::lock_guard lock(mutex_);
-        idle.swap(idle_);
+        if (idle_.size() <= keep) {
+            return;
+        }
+        // Acquire は後ろから取るので、読んだモジュールの多いものを後ろへ寄せて残す。
+        std::ranges::stable_sort(idle_, {}, [](const std::unique_ptr<PeleContext>& c) {
+            return c->ctx ? int{ JS_IsFunction(c->ctx, c->render) } + int{ JS_IsFunction(c->ctx, c->katex) } : 0;
+        });
+        const auto cut = idle_.end() - static_cast<ptrdiff_t>(keep);
+        doomed.assign(std::make_move_iterator(idle_.begin()), std::make_move_iterator(cut));
+        idle_.erase(idle_.begin(), cut);
     }
     if (scheduler) {
-        DisposeOnWorkerIfLarge(*scheduler, idle.size(), 1, std::move(idle));
+        DisposeOnWorkerIfLarge(*scheduler, doomed.size(), 1, std::move(doomed));
     }
+}
+
+size_t PeleEngine::IdleRuntimes()
+{
+    const std::lock_guard lock(mutex_);
+    return idle_.size();
 }
 
 std::shared_ptr<const MathDrawing> PeleEngine::LayoutHtml(std::string_view html, float font_size)
