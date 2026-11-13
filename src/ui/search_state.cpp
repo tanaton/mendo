@@ -44,7 +44,7 @@ void SearchState::BeginSearch(std::string_view query)
     searching_ = true;
 }
 
-bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
+bool SearchState::ContinueSearch(std::span<const Node> nodes, std::chrono::steady_clock::time_point deadline)
 {
     if (!searching_) {
         return true;

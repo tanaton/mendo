@@ -21,7 +21,7 @@ namespace {
 
 // 範囲外の node index を飛ばしながら選択範囲内のノードを走査し、fn(i, node, start, end) にノード内の選択範囲を渡す。
 template <class Fn>
-void ForEachSelectedNode(const std::vector<Node>& nodes, const TextSelection& selection, Fn&& fn)
+void ForEachSelectedNode(std::span<const Node> nodes, const TextSelection& selection, Fn&& fn)
 {
     const int first = std::max(selection.start_node, 0);
     const int last = std::min(selection.end_node, static_cast<int>(nodes.size()) - 1);
@@ -566,7 +566,7 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
 
 } // namespace
 
-std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelection& selection)
+std::string ExtractSelectedText(std::span<const Node> nodes, const TextSelection& selection)
 {
     if (!selection.active()) {
         return {};
@@ -613,7 +613,7 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
     return result;
 }
 
-std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
+std::string ExtractSelectedTextAsHtml(std::span<const Node> nodes, const TextSelection& selection, bool dark_mode)
 {
     if (!selection.active()) {
         return {};

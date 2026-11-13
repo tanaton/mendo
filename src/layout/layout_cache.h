@@ -616,7 +616,7 @@ public:
 
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
+    void InvalidateAllLayouts(std::span<const Node> nodes) noexcept;
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
     // table_indices は文書の表のノード (Document::GetTableNodeIndices)。tables が false なら表は待たせたままにする

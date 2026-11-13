@@ -131,7 +131,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run);
 
 // diff_offset 以下で最も後ろの source_offset を持つノードのうち、先頭のものを返す (位置を受け継いだノードより前)。
 // 該当なしの場合は -1。
-[[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;
+[[nodiscard]] int FindNodeBySourceOffset(std::span<const Node> nodes, size_t diff_offset) noexcept;
 
 struct LinkClickResult {
     enum class Type : uint8_t {

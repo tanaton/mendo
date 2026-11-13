@@ -119,7 +119,7 @@ public:
         selection_.Clear();
     }
 
-    constexpr void SelectAll(const std::vector<Node>& nodes) noexcept
+    constexpr void SelectAll(std::span<const Node> nodes) noexcept
     {
         if (nodes.empty()) {
             ClearSelection();

@@ -43,7 +43,7 @@ inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexce
 }
 
 struct MdPaneHitContext {
-    const std::vector<Node>& nodes;
+    std::span<const Node> nodes;
     const LayoutCache& cache;
     const Theme& theme;
     float scroll_y;

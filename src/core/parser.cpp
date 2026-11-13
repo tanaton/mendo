@@ -92,8 +92,11 @@ struct ParseContext : NodeStorage {
 
     // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で DocumentData::raw を
     // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
-    std::string current_text;
+    ReservedArray<char> current_text;
     std::vector<TextRun> current_runs;
+    // 表の全セルの本文 (NodeTableData::concat_text) を組む置き場。表を閉じたら、小さな表は arena へ写し、大きな表は
+    // 写さずに表へ渡して取り直す。
+    ReservedArray<char> table_text;
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
 
@@ -118,8 +121,8 @@ struct ParseContext : NodeStorage {
     // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
     // 47-94 万回呼ばれる hot path で毎回テーブルセル内かを判定しないよう、
     // 状態遷移点 (BeginNode / TD/TH 進入 / current_node clear) で更新したポインタを直接使う。
-    // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
-    std::string* active_text_buffer = nullptr;
+    // &current_text 以外を指すのはテーブルセル内 (table_text) のときだけ。
+    ReservedArray<char>* active_text_buffer = nullptr;
 
     // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
     std::vector<std::string_view> current_link_urls;
@@ -199,16 +202,6 @@ struct ParseContext : NodeStorage {
         active_text_buffer = nullptr;
     }
 
-    // 予約を使い切ったら、読み終えた入力の割合から最終的なノード数を見積もって 1 回で広げる。
-    // リンク集のようにノードが細かい文書でも 1.5 倍ずつの伸長 (全ノードの移動) を繰り返さない。
-    // ソース位置を持たないノード (HR 等) だけが続くと見積もりが過大になるので 4 倍で頭打ちにする。
-    void GrowNodes()
-    {
-        const size_t size = nodes.size();
-        const size_t projected = size * markdown.size() / std::max<size_t>(last_source_offset, 1);
-        nodes.reserve(std::clamp(projected + projected / 8, size + size / 2, size * 4));
-    }
-
     void BeginNode(NodeType type)
     {
         // UL/OL/QUOTE の進入はノードを閉じないので、LI の中の最初の子ブロックが始まる時点ではまだ LI が開いている。
@@ -216,9 +209,6 @@ struct ParseContext : NodeStorage {
             current_node->set_has_child_blocks();
         }
         FinalizeCurrentNode();
-        if (nodes.size() == nodes.capacity()) [[unlikely]] {
-            GrowNodes();
-        }
         nodes.emplace_back();
         current_node = &nodes.back();
         active_text_buffer = &current_text;
@@ -363,8 +353,8 @@ struct ParseContext : NodeStorage {
             if (move_line) {
                 // 行の頭に積んだ字下げは続きのノードへ移す。コードには run が無いので、テキストだけ直せばよい。
                 FlushPendingRun();
-                indent.assign(std::string_view{ current_text }.substr(line_begin));
-                current_text.resize(line_begin - 1);
+                indent.assign(current_text.view().substr(line_begin));
+                current_text.truncate(line_begin - 1);
             }
             else {
                 cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
@@ -388,7 +378,7 @@ struct ParseContext : NodeStorage {
         if (current_node->type != NodeType::CodeBlock) {
             return std::string_view::npos;
         }
-        const size_t newline = current_text.rfind('\n');
+        const size_t newline = current_text.view().rfind('\n');
         if (newline == std::string_view::npos || newline == 0) {
             return std::string_view::npos;
         }
@@ -597,11 +587,11 @@ struct ParseContext : NodeStorage {
     // テキストを現在のノードまたはセルに追加する (UTF-8)。
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
-    // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は
+    // セル内では active_text_buffer が table_text を指す。pending_run_start は
     // バッファサイズベースで、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
     void AppendDoc(std::string_view text)
     {
-        std::string* const target = active_text_buffer;
+        ReservedArray<char>* const target = active_text_buffer;
         assert(target);
         // md4c は size 0 の text コールバックを発生させない契約 (md4c.c の MD_TEXT マクロで size > 0 ガード済) なので empty 判定は省く。
         if (!has_pending_run) {
@@ -628,7 +618,7 @@ struct ParseContext : NodeStorage {
     void FlushPendingRun()
     {
         if (has_pending_run) {
-            std::string* const buf = active_text_buffer;
+            ReservedArray<char>* const buf = active_text_buffer;
             assert(buf);
             if (buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
@@ -686,7 +676,8 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     auto* const tbl = ctx->tables.emplace_back(std::make_unique<NodeTableData>()).get();
     ctx->current_node->set_table_data(tbl);
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
-    // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
+    // 余りを持たせない。セル本文の長さは分からないので、table_text (入力の長さまで予約してある) に組む。
+    ctx->table_text.clear();
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
     // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
     tbl->col_count = static_cast<uint16_t>(detail->col_count);
@@ -707,16 +698,16 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
     const bool first_row = (tbl->row_count == 1);
     // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
     if (col > 0) {
-        tbl->concat_text.push_back('\t');
+        ctx->table_text.push_back('\t');
     }
     else if (!first_row) {
-        tbl->concat_text.push_back('\n');
+        ctx->table_text.push_back('\n');
     }
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(ctx->table_text.size()));
     if (!tbl->cell_run_starts.empty()) {
         tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
     }
-    ctx->active_text_buffer = &tbl->concat_text;
+    ctx->active_text_buffer = &ctx->table_text;
 
     // 列単位の align は header 行 (1 行目) で決まる。col_count は BeginTable で確定済み。
     if (first_row) {
@@ -725,10 +716,10 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 }
 
 // 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
-void FinalizeTableOffsets(NodeTableData& tbl)
+void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size)
 {
     assert(tbl.cell_text_starts.size() == static_cast<size_t>(tbl.row_count) * tbl.col_count);
-    tbl.cell_text_starts.push_back(static_cast<uint32_t>(tbl.concat_text.size()));
+    tbl.cell_text_starts.push_back(static_cast<uint32_t>(text_size));
     if (!tbl.cell_run_starts.empty()) {
         tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
     }
@@ -761,7 +752,7 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 
 // GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
 // 後の定義の中の参照は前の定義を閉じた後に届くので、パースを終えてからまとめて付ける。
-void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
+void AppendFootnoteBackrefs(std::span<Node> nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
 {
     std::string text;
     std::vector<TextRun> runs;
@@ -807,7 +798,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     ctx->CancelPendingSplit();
     ctx->FlushPendingRun();
     assert(ctx->current_runs.empty());
-    if (ctx->current_text.ends_with('\n')) {
+    if (ctx->current_text.view().ends_with('\n')) {
         ctx->current_text.pop_back();
     }
     // ```math は $$..$$ だけの段落と同じく、段落の中にディスプレイ形式の数式として描く。テキストを $$ で囲んで
@@ -1073,12 +1064,28 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_TABLE: {
         auto* const cn = ctx->current_node;
         assert(cn && cn->has_table());
-        FinalizeTableOffsets(*cn->table_data());
+        auto* const tbl = cn->table_data();
+        auto& text = ctx->table_text;
+        FinalizeTableOffsets(*tbl, text.size());
         if (std::ranges::any_of(cn->table_data()->all_runs, &TextRun::math)) {
             ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
         }
-        // 以後 concat_text は伸縮しないので、本文として直接指す。
-        cn->SetText(cn->table_data()->concat_text);
+        // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、test.md を繰り返した 100MB の文書で
+        // commit が 86 → 115MB に増えた)。大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す
+        // (std::string で組んでいた頃は伸びるたびに写し、最後の倍の余りを持ち続けた。60MB の表でパース中の commit の最大
+        // 179 → 123MB)。置き場は残りの入力の長さで取り直す。
+        constexpr size_t kOwnTableTextBytes = 1024 * 1024;
+        if (text.size() <= kOwnTableTextBytes) {
+            tbl->concat_text = ctx->arena.CopyText(text);
+            text.clear();
+        }
+        else {
+            text.shrink_to_fit();
+            tbl->own_text = std::move(text);
+            tbl->concat_text = tbl->own_text;
+            text = ReservedArray<char>(ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size()) + 64);
+        }
+        cn->SetText(tbl->concat_text);
         ctx->EndNode();
         break;
     }
@@ -1282,19 +1289,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-// 入力 128 byte あたり 1 ノードを予約する。256 と 2 往復した (8b22f224, cc98b79b で 256 にし、8eee1cc6, 29e67089 で戻した)。
-// 256 に戻さないこと。実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
-// 100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
-// 余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
-// リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
+// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする (ReservedArray)。ノードは
+// 少なくとも 2 byte の入力から作られる (空のリスト項目 "-\n" や見出し "#\n")。超えたら倍を予約し直して写す。
+// 以前は入力 128 byte に 1 個を std::vector に予約し (256 と 2 往復した。8b22f224・cc98b79b と 8eee1cc6・29e67089)、
+// 足りなければ読み終えた割合から見積もって全ノードを写して広げ、パース後に容量が要素数の 1.25 倍を超えたら写して詰めていた
+// (詰める処理は 100MB の文書で commit 約 -30MB・約 3.6ms。「アプリ全体のメモリの 10% 以上効くものだけ置く」基準で置いた)。
+// 2026-11-13 に、予約したアドレス空間に置く形をユーザーが選んだ。パース中に実際の約 2 倍をコミットすることも、写すことも無い。
+// current_text と表の本文の置き場も入力の長さまで予約する (AppendDoc が置き場を分岐せずに足せるよう同じ型にする)。
 // arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
-constexpr size_t kInputBytesPerNode = 128;
+constexpr size_t kInputBytesPerNode = 2;
 
 void ReserveForInput(ParseContext& ctx)
 {
-    // 段落とコードは kTextChunkTarget 前後で区切るので、current_text はほぼこの長さに収まる。
-    ctx.current_text.reserve(kTextChunkTarget + kTextChunkWindow);
-    ctx.nodes.reserve(std::max(ctx.markdown.size() / kInputBytesPerNode, 64uz));
+    ctx.current_text = ReservedArray<char>(ctx.markdown.size() + 64);
+    ctx.table_text = ReservedArray<char>(ctx.markdown.size() + 64);
+    ctx.nodes = ReservedArray<Node>(ctx.markdown.size() / kInputBytesPerNode + 64);
     ctx.list_counter.reserve(8);
 }
 
@@ -1336,13 +1345,9 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
     }
 
-    // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。
-    // 詰める処理は全体のメモリ (commit) の 10% 以上効くものだけ置く。これは 100MB の文書で
-    // commit を約 30MB (詰めないときの 266MB の約 12%) 減らし、約 3.6ms かかる。物理メモリは変わらない。
+    // コミットを足したときの余り (最大 1/4) を、写さずに外す。
     // 表・構文トークン・ヒットテストのバッファ・表の行の背景は 0.5MB 未満しか効かないので詰めない (e48be6cc)。
-    if (ctx.nodes.capacity() > ctx.nodes.size() + ctx.nodes.size() / 4) {
-        ctx.nodes.shrink_to_fit();
-    }
+    ctx.nodes.shrink_to_fit();
 
     return std::move(static_cast<NodeStorage&>(ctx));
 }

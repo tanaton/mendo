@@ -28,7 +28,7 @@ protected:
         ::SetDocument(state_, md, L"C:\\docs\\a.md", node_height);
     }
 
-    const std::vector<Node>& Nodes() const noexcept
+    std::span<const Node> Nodes() const noexcept
     {
         return state_.document.doc.GetNodes();
     }

@@ -12,7 +12,7 @@
 namespace layout {
 
 int MeasureIndicesParallel(
-    const std::vector<Node>& nodes,
+    std::span<const Node> nodes,
     LayoutCache& cache,
     float content_width,
     const ITextMeasurer& backend,
@@ -64,7 +64,7 @@ bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
     return measurer_->RecreateFormats();
 }
 
-bool LayoutEngine::Reestimate(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+bool LayoutEngine::Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");
     assert(cache.size() == nodes.size());
@@ -86,7 +86,7 @@ bool LayoutEngine::Reestimate(const std::vector<Node>& nodes, LayoutCache& cache
 }
 
 LayoutEngine::PassResult LayoutEngine::MeasurePass(
-    const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
+    std::span<const Node> nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
 {
     MENDO_PROFILE("LayoutEngine::MeasurePass");
     const Theme& theme = GetTheme();
@@ -139,7 +139,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     return result;
 }
 
-bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const YRange range{ viewport_top, viewport_bottom };
@@ -170,7 +170,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
 }
 
 LayoutEngine::PassResult LayoutEngine::ProcessDirtyBatch(
-    const std::vector<Node>& nodes, LayoutCache& cache,
+    std::span<const Node> nodes, LayoutCache& cache,
     float viewport_width, LayoutDeadline deadline,
     YRange range)
 {

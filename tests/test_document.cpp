@@ -7,6 +7,59 @@
 #include <string_view>
 #include <utility>
 
+// 予約した中で伸ばすうちは要素を動かさず、コミットは使う分の 1/4 増しまで。shrink_to_fit で余りのコミットを外す。
+TEST(ReservedArray, GrowsInPlaceWithinReservation)
+{
+    ReservedArray<Node> nodes(10000);
+    nodes.emplace_back();
+    const Node* const first = nodes.data();
+    for (int i = 1; i < 10000; ++i) {
+        nodes.emplace_back().type = NodeType::Heading;
+    }
+    EXPECT_EQ(nodes.data(), first) << "写していない";
+    EXPECT_EQ(nodes.size(), 10000u);
+    EXPECT_EQ(nodes[9999].type, NodeType::Heading);
+    EXPECT_LE(nodes.capacity(), nodes.size() + nodes.size() / 4 + reserved_memory::kPageSize / sizeof(Node));
+    nodes.shrink_to_fit();
+    EXPECT_LT(nodes.capacity() - nodes.size(), reserved_memory::kPageSize / sizeof(Node)) << "末尾のページの端数だけ残る";
+    EXPECT_EQ(nodes.data(), first);
+}
+
+// 予約を超えたら、max まで (max も超えたら倍ずつ) 予約し直して写す。中身は変わらない。
+TEST(ReservedArray, RelocatesBeyondReservation)
+{
+    ReservedArray<char> text(16, 100000);
+    std::string expected;
+    for (int i = 0; i < 30000; ++i) {
+        const std::string piece = std::to_string(i) + ',';
+        text.append(piece);
+        expected += piece;
+    }
+    EXPECT_EQ(text, expected);
+    text.push_back('!');
+    expected.push_back('!');
+    EXPECT_EQ(text.view(), expected);
+}
+
+// 文字の並びとして、前に入れる・縮める・比べる。移した後の元は空。
+TEST(ReservedArray, EditsTextAndMoves)
+{
+    ReservedArray<char> text;
+    text.append("x+1\n");
+    text.pop_back();
+    text.insert(0, "$$");
+    text.append("$$");
+    EXPECT_EQ(text, std::string_view{ "$$x+1$$" });
+    text.truncate(2);
+    EXPECT_EQ(text, std::string_view{ "$$" });
+
+    ReservedArray<char> moved = std::move(text);
+    EXPECT_EQ(moved, std::string_view{ "$$" });
+    EXPECT_TRUE(text.empty());
+    text.append("again");
+    EXPECT_EQ(text, std::string_view{ "again" }) << "移した後も使える";
+}
+
 // リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
 // NUL は CommonMark と GitHub と同じく U+FFFD (3 byte) にする。

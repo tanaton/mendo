@@ -44,7 +44,7 @@ inline void KeepAlive(NodeStorage storage)
 inline std::vector<Node> ParseNodes(std::string_view markdown_text)
 {
     auto storage = ParseMarkdown(markdown_text);
-    auto nodes = std::move(storage.nodes);
+    std::vector<Node> nodes(storage.nodes.begin(), storage.nodes.end());
     test_nodes_detail::KeepAlive(std::move(storage));
     return nodes;
 }

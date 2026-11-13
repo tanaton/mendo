@@ -20,7 +20,7 @@ class DWriteMeasurerTest : public DWriteTestBase {};
 namespace {
 
 // 文書の表のノードを集めて、仮に組んだノードを組み直させる (アプリは Document::GetTableNodeIndices を渡す)。
-bool InvalidatePending(const std::vector<Node>& nodes, LayoutCache& cache, bool tables)
+bool InvalidatePending(std::span<const Node> nodes, LayoutCache& cache, bool tables)
 {
     std::vector<size_t> table_indices;
     for (size_t i = 0; i < nodes.size(); ++i) {

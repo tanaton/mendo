@@ -37,7 +37,7 @@ struct NodeIndices {
 // パーサーの出力。ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) と特殊ノードのインデックス。
 // ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続けること。
 struct NodeStorage {
-    std::vector<Node> nodes;
+    ReservedArray<Node> nodes;
     // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。
     TextArena arena;
     // Table ノードが指すテーブル本体。

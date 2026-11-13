@@ -29,7 +29,7 @@ using layout::CalcScrollYForDiff;
 
 namespace {
 
-TextSelection SelectAll(const std::vector<Node>& nodes)
+TextSelection SelectAll(std::span<const Node> nodes)
 {
     ViewportManager viewport;
     viewport.SelectAll(nodes);
@@ -1468,7 +1468,7 @@ std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> ru
 }
 
 // ignored_tail_lines > 0 なら、各ノードの末尾のその行数から始まるトークンは比べない (続きのノードを先読みできない言語のため)。
-void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::vector<Node>& nodes, size_t ignored_tail_lines = 0)
+void ExpectChunkTokensMatchRunTokenizedAtOnce(std::span<const Node> nodes, size_t ignored_tail_lines = 0)
 {
     auto expected = TokenizeRunAtOnce(nodes);
     for (size_t i = 0; i < nodes.size(); ++i) {

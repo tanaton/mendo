@@ -321,7 +321,7 @@ int MapDiagramAcrossReload(std::span<const Node> old_nodes, std::span<const Node
     return it != pairs.end() ? static_cast<int>(it->second) : -1;
 }
 
-int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept
+int FindNodeBySourceOffset(std::span<const Node> nodes, size_t diff_offset) noexcept
 {
     // 本文の位置を持たないノードは前のノードの位置を受け継いでいるので、同じ位置の先頭のノードを返す。
     const auto it = std::ranges::upper_bound(nodes, diff_offset, {}, &Node::SourceOffset);

@@ -69,7 +69,7 @@ WordKind KindOf(const Node& node)
 }
 
 // "w<数字>" トークンを種別ごとに集める。生成側は各語を 1 回だけ置くので、2 回目の出現は失敗にする。
-std::map<std::string, WordKind> CollectWords(const std::vector<Node>& nodes)
+std::map<std::string, WordKind> CollectWords(std::span<const Node> nodes)
 {
     std::map<std::string, WordKind> words;
     for (const auto& node : nodes) {

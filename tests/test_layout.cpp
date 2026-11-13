@@ -69,7 +69,7 @@ LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
     return cache;
 }
 
-LayoutCache EstimateHeights(const std::vector<Node>& nodes, const Theme& theme)
+LayoutCache EstimateHeights(std::span<const Node> nodes, const Theme& theme)
 {
     LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, 0.0f, {});

@@ -108,7 +108,7 @@ BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& mea
 }
 
 // ProcessDirtyBatch を残り dirty なしまで回し、回したバッチ数を返す。収束しなければ失敗にする。
-int DrainDirtyBatches(LayoutEngine& engine, const std::vector<Node>& nodes, LayoutCache& cache)
+int DrainDirtyBatches(LayoutEngine& engine, std::span<const Node> nodes, LayoutCache& cache)
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {

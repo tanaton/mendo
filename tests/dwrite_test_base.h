@@ -41,7 +41,7 @@ protected:
     }
 
     // ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置 (本文ペインの中の文書の座標)。
-    DipPoint PointInChar(const std::vector<Node>& nodes, const LayoutCache& cache, size_t node, uint32_t pos, float fraction) const
+    DipPoint PointInChar(std::span<const Node> nodes, const LayoutCache& cache, size_t node, uint32_t pos, float fraction) const
     {
         FLOAT x = 0.0f, y = 0.0f;
         DWRITE_HIT_TEST_METRICS m{};

@@ -1545,7 +1545,7 @@ namespace {
 constexpr size_t kChunkMax = kTextChunkTarget + kTextChunkWindow + 16;
 
 // first から始まる区切ったノードの並びを、区切る前のテキストに戻す。
-std::string JoinChunks(const std::vector<Node>& nodes, size_t first)
+std::string JoinChunks(std::span<const Node> nodes, size_t first)
 {
     std::string out{ nodes[first].GetText() };
     for (size_t i = first + 1; i < nodes.size() && nodes[i].continues_prev(); ++i) {

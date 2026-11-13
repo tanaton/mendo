@@ -16,7 +16,7 @@ namespace {
 constexpr float Y_POSITION_EPSILON = 0.01f;
 
 // nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
-float NodeStartY(const std::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
+float NodeStartY(std::span<const Node> nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
 {
     if (index == 0) {
         return theme.margin_top;
@@ -38,7 +38,7 @@ float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_be
 // nodes[from, end) の高さを height_fn(i) で決めながら Top を積む。y は nodes[from] の spacing_above を足す前の Y で、
 // 戻ると nodes[end] の手前の Y になる。height_fn は高さを書き換えてよい。
 template <class HeightFn>
-void AccumulateTops(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
+void AccumulateTops(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
 {
     for (size_t i = from; i < end; i++) {
         const float h = height_fn(i);
@@ -47,7 +47,7 @@ void AccumulateTops(const std::vector<Node>& nodes, LayoutCache& cache, const Th
 }
 
 // node_start を超える最初の source offset。見つからなければ fallback。
-size_t NextSourceOffset(const std::vector<Node>& nodes, size_t node_start, size_t fallback) noexcept
+size_t NextSourceOffset(std::span<const Node> nodes, size_t node_start, size_t fallback) noexcept
 {
     const auto it = std::ranges::upper_bound(nodes, node_start, {}, &Node::SourceOffset);
     return it != nodes.end() ? it->SourceOffset() : fallback;
@@ -159,7 +159,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
+void EstimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // DirectWriteを一切呼ばないため、数千ノードでも数百マイクロ秒で完了する。
@@ -181,7 +181,7 @@ void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, con
     }
 }
 
-void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width)
+void ReestimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, float content_width)
 {
     MENDO_PROFILE("ReestimateNodeHeights");
     assert(cache.size() == nodes.size());
@@ -195,8 +195,8 @@ void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, c
 }
 
 size_t CarryOverUnchanged(
-    const std::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
+    std::span<const Node> old_nodes, LayoutCache& old_cache,
+    std::span<const Node> new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
 {
     MENDO_PROFILE("layout::CarryOverUnchanged");
     assert(old_cache.size() == old_nodes.size() && new_cache.size() == new_nodes.size());
@@ -213,7 +213,7 @@ size_t CarryOverUnchanged(
     return ends.head + ends.tail + stale;
 }
 
-LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
+LayoutCache MakeEstimatedLayoutCache(std::span<const Node> nodes, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, content_width, std::move(stop_token));
@@ -242,7 +242,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
 }
 
 void RecomputeYPositions(
-    const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    std::span<const Node> nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
@@ -265,7 +265,7 @@ void RecomputeYPositions(
 }
 
 float CalcScrollYForDiff(
-    const std::vector<Node>& nodes,
+    std::span<const Node> nodes,
     const LayoutCache& cache,
     size_t content_size,
     size_t diff_pos,

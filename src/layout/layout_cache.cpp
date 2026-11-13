@@ -174,7 +174,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 
 // ---------- LayoutCache public ----------
 
-void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
 {
     assert(entries_.size() == nodes.size());
     for (size_t i = 0; i < entries_.size(); i++) {

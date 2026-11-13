@@ -169,6 +169,8 @@ void RunLargeDocument(benchmark::State& state, const std::string& src)
         if (first) {
             const auto after = MemoryCounters();
             state.counters["commit_MB"] = (static_cast<double>(after.PrivateUsage) - static_cast<double>(before.PrivateUsage)) / kMiB;
+            // パースの途中の最大。プロセスの最大なので、1 つずつ別のプロセスで (--benchmark_filter で) 測る。
+            state.counters["peak_commit_MB"] = (static_cast<double>(after.PeakPagefileUsage) - static_cast<double>(before.PrivateUsage)) / kMiB;
             state.counters["working_set_MB"] = (static_cast<double>(after.WorkingSetSize) - static_cast<double>(before.WorkingSetSize)) / kMiB;
             state.counters["nodes"] = static_cast<double>(doc->GetNodes().size());
             first = false;
@@ -204,6 +206,26 @@ void BM_LargeLinkDocument(benchmark::State& state)
     RunLargeDocument(state, src);
 }
 BENCHMARK(BM_LargeLinkDocument)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+
+// 60MB の表。giant は 1 つの表、many は 200 行ずつの表の並び。セルの本文は表ごとに伸ばす置き場 (concat_text) に入る。
+void BM_LargeTableDocument(benchmark::State& state, bool giant)
+{
+    constexpr size_t kTableBytes = 60 * 1024 * 1024;
+    std::string src;
+    src.reserve(kTableBytes + 256);
+    constexpr std::string_view kHeader = "| id | name | value | note |\n|---|---|---|---|\n";
+    src += kHeader;
+    for (size_t i = 0; src.size() < kTableBytes; ++i) {
+        std::format_to(std::back_inserter(src), "| {} | item-{} | {} | **note** {} |\n", i, i % 977, i * 7 % 10007, i % 13);
+        if (!giant && i % 200 == 199) {
+            src += '\n';
+            src += kHeader;
+        }
+    }
+    RunLargeDocument(state, src);
+}
+BENCHMARK_CAPTURE(BM_LargeTableDocument, giant, true)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_LargeTableDocument, many, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 80MB のリスト。毎行にリンク・太字・コード・強調・実体参照、50 行ごとに見出しと引用。
 void BM_LargeInlineDocument(benchmark::State& state)
@@ -506,7 +528,7 @@ void WorkerCounts(benchmark::Benchmark* b)
 }
 
 // 文書の大きさのキャッシュを確保するところから全ノードを組む秒数。キャッシュの破棄は測らない。
-double FullLayoutSeconds(LayoutEngine& engine, const std::vector<Node>& nodes)
+double FullLayoutSeconds(LayoutEngine& engine, std::span<const Node> nodes)
 {
     LayoutCache cache;
     return SecondsOf([&] {
@@ -605,7 +627,7 @@ BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Un
 BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
-void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, const std::vector<Node>& nodes)
+void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, std::span<const Node> nodes)
 {
     LayoutCache cache(nodes.size());
     ComputeLayout(engine, nodes, cache, 1200.0f);

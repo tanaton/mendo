@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <utility>
 #include "syntax.h"
+#include "text_arena.h"
 #include "text_types.h"
 
 enum class NodeType : uint8_t {
@@ -81,8 +82,11 @@ enum class TableAlign : uint8_t {
 //   all_runs が空なら cell_run_starts も空。そうでなければ
 //   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
-    // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
-    std::string concat_text;
+    // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。小さな表は arena に写したもの、大きな表は
+    // own_text を指す。
+    std::string_view concat_text;
+    // 大きな表の本文。パースで伸ばした置き場を写さずに持つ。小さな表では空。
+    ReservedArray<char> own_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
     std::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
@@ -165,7 +169,12 @@ struct NodeTableData {
         return aligns[c];
     }
 
-    bool operator==(const NodeTableData&) const = default;
+    // 本文の置き場 (arena か own_text か) は比べない。
+    bool operator==(const NodeTableData& other) const noexcept
+    {
+        return concat_text == other.concat_text && all_runs == other.all_runs && cell_text_starts == other.cell_text_starts &&
+               cell_run_starts == other.cell_run_starts && aligns == other.aligns && row_count == other.row_count && col_count == other.col_count;
+    }
 };
 
 // 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。
