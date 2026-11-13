@@ -686,15 +686,43 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     };
     // ワーカーで組むとき (TableMeasureJobs) は行を区切り、区切りごとに止める印を見る。1 回の ParallelFor の手伝いは chunk が
     // 尽きるまで抜けないので、区切らないと組み終えるまで計測ワーカーを全部ふさぎ、UI スレッドの計測が手伝いを得られない。
-    // 区切りは 4096 セル (計測ワーカー 8 本で数 ms)。
+    // 区切りは測るセル (代表) 4096 個 (計測ワーカー 8 本で数 ms)。全セルの数で区切ると、代表と同じ中身で測らないセルばかりの
+    // 区切りが続き、区切りごとの ParallelFor の待ち合わせが重なる (BM_TableFewValuesStoppable の 20 万行で 39.4 → 32.2ms、
+    // 2 万行で 4.5 → 3.3ms。長い文の表の TableMeasure/InitialStoppable は変わらない)。
     constexpr size_t kCellsPerStopCheck = 4096;
-    const size_t rows_per_batch = stop.stop_possible() ? std::max<size_t>(kCellsPerStopCheck / std::max<size_t>(col_count, 1), 1) : tbl.row_count;
-    for (size_t first = 0; first < tbl.row_count; first += rows_per_batch) {
+    // first から始まる区切り [first, end) と、その中で測るセルのある最後の行の次 (work_end)。work_end から先の行は回さない
+    // (同じ値ばかりの表は代表が先頭の数行に集まり、残りの全行を 1 行ずつの chunk で回していた。BM_TableFewValuesStoppable の
+    // 20 万行で -21%。上の値とは別の時に新旧を交互に回して 36.2 → 28.6ms)。
+    struct Batch {
+        size_t work_end;
+        size_t end;
+    };
+    const auto next_batch = [&](size_t first) {
+        if (!stop.stop_possible()) {
+            return Batch{ tbl.row_count, tbl.row_count };
+        }
+        size_t cells = 0;
+        Batch batch{ first, first };
+        for (; batch.end < tbl.row_count && cells < kCellsPerStopCheck; ++batch.end) {
+            size_t row_cells = 0;
+            for (size_t c = 0; c < col_count; ++c) {
+                row_cells += measured(tl.CellIndex(batch.end, c));
+            }
+            if (row_cells > 0) {
+                cells += row_cells;
+                batch.work_end = batch.end + 1;
+            }
+        }
+        return batch;
+    };
+    for (size_t first = 0; first < tbl.row_count;) {
         if (stop.stop_requested()) {
             return;
         }
-        const size_t rows = std::min<size_t>(rows_per_batch, tbl.row_count - first);
-        ParallelFor(scheduler_, rows, TableRowsPerChunk(col_count), [&](size_t begin, size_t end) { measure_rows(first + begin, first + end); });
+        const Batch batch = next_batch(first);
+        ParallelFor(scheduler_, batch.work_end - first, TableRowsPerChunk(col_count),
+                    [&](size_t begin, size_t chunk_end) { measure_rows(first + begin, first + chunk_end); });
+        first = batch.end;
     }
     const auto load = [](const std::atomic<float>& w) noexcept { return w.load(std::memory_order_relaxed); };
     std::ranges::transform(min_widths, tl.min_col_widths.begin(), load);

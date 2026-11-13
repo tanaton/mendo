@@ -1726,11 +1726,10 @@ void BM_TableResizeFastPath(benchmark::State& state)
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
 
-// 列に同じ値が並ぶ大きな表の計測 (20 列)。測るセルが代表だけになるので、代表のセルの探索が時間の大半を占める。ワーカー 8 本。
-void BM_TableFewValues(benchmark::State& state)
+// 列に同じ値が並ぶ rows 行 20 列の表。
+std::string FewValuesTableMd(size_t rows)
 {
     constexpr int kCols = 20;
-    const auto rows = static_cast<size_t>(state.range(0));
     std::string head;
     std::string rule;
     for (int c = 0; c < kCols; ++c) {
@@ -1744,7 +1743,13 @@ void BM_TableFewValues(benchmark::State& state)
         }
         md += "|\n";
     }
-    const auto [opened, table] = OpenTableOrSkip(state, std::move(md), 8);
+    return md;
+}
+
+// 列に同じ値が並ぶ大きな表の計測 (20 列)。測るセルが代表だけになるので、代表のセルの探索が時間の大半を占める。ワーカー 8 本。
+void BM_TableFewValues(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(static_cast<size_t>(state.range(0))), 8);
     if (!table) {
         return;
     }
@@ -1755,6 +1760,42 @@ void BM_TableFewValues(benchmark::State& state)
     }
 }
 BENCHMARK(BM_TableFewValues)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+
+// BM_TableFewValues の表を、ワーカーで組むとき (TableMeasureJobs) と同じく止める印を渡して組む。止める印を見る区切りの手間。
+void BM_TableFewValuesStoppable(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(static_cast<size_t>(state.range(0))), 8);
+    if (!table) {
+        return;
+    }
+    auto& l = opened->l;
+    const std::stop_source stop;
+    for (auto _ : state) {
+        BuiltTable built;
+        state.SetIterationTime(SecondsOf([&] { built = l.measurer.BuildTable(*table, 1200.0f, stop.get_token()); }));
+    }
+}
+BENCHMARK(BM_TableFewValuesStoppable)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+
+// BM_TableFewValues の表を組んだ後に幅を 1200 → 1100 に変える。全行が退避しているので、行の高さを見積もる
+// FinalizeTableLayout の全セルの走査の手間。workers はワーカーの数 (0 は直列)。
+void BM_TableFewValuesResize(benchmark::State& state)
+{
+    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(200'000), static_cast<int>(state.range(0)));
+    if (!table) {
+        return;
+    }
+    auto& l = opened->l;
+    NodeLayoutEntry entry;
+    MeasureEntry(l.measurer, *table, entry, 1200.0f, nullptr);
+    for (auto _ : state) {
+        l.measurer.MeasureNode(*table, entry, 1200.0f);
+        // ワーカーが寝た状態から測る (間を空けずに続けると、起きているかどうかで値が 2 つに分かれる)。
+        Sleep(16);
+        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*table, entry, 1100.0f); }));
+    }
+}
+BENCHMARK(BM_TableFewValuesResize)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(20)->Unit(benchmark::kMillisecond);
 
 // インラインコードを含む 5000 行の表。行ごとにインラインコードの背景も作られる。
 Document MakeInlineCodeTableDoc()
