@@ -300,6 +300,9 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
         },
         [&](JobDrawing& d) {
             DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
+            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。IDWriteTextLayout の解放は 1 個 1.5µs ほどで、
+            // test.md の図 27 個 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
+            DisposeOnWorkerIfLarge(*bg_scheduler_, d.texts.runs.size(), 1, std::move(d.texts));
             if (!result.commands) {
                 // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。
                 if (rendered) {
