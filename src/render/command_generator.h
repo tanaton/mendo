@@ -33,7 +33,7 @@ public:
         entries_.clear();
     }
 
-    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory まで有効。underline は下線を引く範囲 (IME の合成中の文字列)。
+    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory / Clear まで有効。underline は下線を引く範囲 (IME の合成中の文字列)。
     // fonts は fmt の主フォントとロケールに合うものだけを渡す。
     IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box, DWRITE_TEXT_RANGE underline = {}, const FallbackFontMap* fonts = nullptr)
     {
@@ -68,6 +68,12 @@ public:
             std::erase_if(entries_, [prev = frame_](const auto& kv) noexcept { return kv.second.last_used != prev; });
         }
         ++frame_;
+    }
+
+    // 全部捨てる。返したレイアウトもこれで無効になるので、次のフレームを作る前 (描画の合間) に呼ぶ。
+    void Clear() noexcept
+    {
+        entries_.clear();
     }
 
     // fmt で作ったレイアウトを捨てる。書式を作り直すと古い書式のレイアウトは二度と引かれないが、上限までは残る

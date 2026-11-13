@@ -284,6 +284,17 @@ void Renderer::SetDpi(float dpi) noexcept
     }
 }
 
+void Renderer::TrimForInactive() noexcept
+{
+    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限を下げると目次を戻るたびに作り直す (目次の全行が
+    // 入れ替わるフレームで 0.38ms) ので、上限は保ち、使わない間だけ手放すほうをユーザーが選んだ (2026-11-13)。
+    // 見出し 2000 個の目次をホイールで 300 回送ってから切り替えると、commit 40.0〜40.4 → 39.2〜39.7MB。
+    // 1 秒後の trim の直前に捨てると、解放の後で触ったページが private WS に 0.5MB 残るので、切り替わった時点で捨てる。
+    // 描画コマンドが指すレイアウトも消えるので、描くコマンドも捨てる (次のフレームは作り直してから描く)。
+    frame_cmds_.clear();
+    text_layouts_.Clear();
+}
+
 void Renderer::TrimForMinimize() noexcept
 {
     if (!d2d_device_) {

@@ -123,6 +123,8 @@ public:
     void SetDpi(float dpi) noexcept;
     // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
     void TrimForMinimize() noexcept;
+    // 別のアプリへ切り替わった後に、作り置いた短い文字列のレイアウトを手放す。戻った最初のフレームで見えている分を作り直す。
+    void TrimForInactive() noexcept;
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
     ID3D11Device* GetD3DDevice() const noexcept

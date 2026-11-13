@@ -93,6 +93,20 @@ TEST_F(TextLayoutCacheTest, ForgetDropsOnlyLayoutsOfTheFormat)
     EXPECT_EQ(cache_.TextOf(kept), Item(1));
 }
 
+// 非アクティブの間に手放すときは、直前のフレームで使ったものも含めて全部捨て、次に頼まれたら作り直す。
+TEST_F(TextLayoutCacheTest, ClearDropsEverything)
+{
+    cache_.BeginFrame();
+    const auto layouts = FillOverLimit();
+    cache_.Clear();
+
+    EXPECT_TRUE(cache_.TextOf(layouts[0]).empty());
+    EXPECT_TRUE(cache_.TextOf(layouts[kOverLimit - 1]).empty());
+    auto* const again = cache_.Get(fmt_.Get(), Item(0), kBox);
+    ASSERT_NE(again, nullptr);
+    EXPECT_EQ(cache_.TextOf(again), Item(0));
+}
+
 // 同じ書式でも、フォントを明示したレイアウトとしていないレイアウトを取り違えない。
 TEST_F(TextLayoutCacheTest, KeepsLayoutsApartByFallbackFonts)
 {

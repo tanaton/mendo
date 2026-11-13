@@ -380,6 +380,7 @@ void App::OnActivateApp(bool active)
         // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する。空にした後に PELE_TRIM で
         // 捨てると約 1000 ページを触り直して 1MB 残る (図 28 個の文書) ので、空にするまでの待ちの間に済ませる。
         mermaid_renderer_.TrimIdleRuntimes();
+        renderer_.TrimForInactive();
         SetTimer(app_timer::Id::TRIM_WORKING_SET, app_timer::TRIM_WORKING_SET_DELAY_MS);
     }
 }
