@@ -347,6 +347,29 @@ TEST_F(CommandExecutorIntegrationTest, ColorEmojiIsDrawnWithLayerColors)
     EXPECT_EQ(RenderTextLayout(cmd, Via::SingleBrush), body);
 }
 
+// 文字の不透明度 (非アクティブの窓のタイトルなど) は絵文字の色の層にも効く。層ごとに半分の不透明度で白の上に重ねるので、
+// いちばん濃い画素も元より薄くなる (225 → 133)。層を不透明のまま塗っていた頃は元と同じ濃さが残った (226)。
+TEST_F(CommandExecutorIntegrationTest, ColorEmojiFollowsTextOpacity)
+{
+    const auto layout = CreateTextLayout(L"😀", L"Segoe UI", L"en-us", 30.0f, 30.0f);
+    ASSERT_TRUE(layout);
+    DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
+    const auto darkest = [](std::span<const uint32_t> pixels) static {
+        uint32_t most = 0;
+        for (const uint32_t px : pixels) {
+            const uint32_t lightest_channel = std::min({ (px >> 16) & 0xFFu, (px >> 8) & 0xFFu, px & 0xFFu });
+            most = std::max(most, 0xFFu - lightest_channel);
+        }
+        return most;
+    };
+    const auto opaque = RenderTextLayout(cmd, Via::Executor);
+    ASSERT_TRUE(HasColoredPixel(opaque)) << "絵文字に色が付いていない";
+    cmd.opacity = 0.5f;
+    const auto faded = RenderTextLayout(cmd, Via::Executor);
+    EXPECT_TRUE(HasColoredPixel(faded));
+    EXPECT_LT(darkest(faded), darkest(opaque) * 4 / 5);
+}
+
 // 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、
 // D2D の DrawTextLayout と同じ画素になること。
 TEST_F(CommandExecutorIntegrationTest, TrimmingSignMatchesDrawTextLayout)

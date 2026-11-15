@@ -547,7 +547,7 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
     if (const auto* tbl = node.table_data()) {
         // 数式と画像の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
         if (std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept { return r.math() || r.image(); })) {
-            const size_t cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
+            const size_t cells = tbl->CellCount();
             for (size_t idx = tbl->CellIndexAt(start); idx < cells && tbl->cell_text_starts[idx] < end; ++idx) {
                 if (tbl->cell_run_starts[idx] == tbl->cell_run_starts[idx + 1]) {
                     continue;

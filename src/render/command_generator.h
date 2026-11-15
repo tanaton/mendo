@@ -24,7 +24,8 @@
 // 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
 // (書式, フォントの対応, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
 // これで得たレイアウトを DrawTextLayout で描く。キーで書式を参照して持つので、書式を作り直しても
-// 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはなく、古いものは上限で捨てる。
+// 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはない。作り直した書式のものは Forget で捨て、
+// ほかの古いものは上限で捨てる。
 class TextLayoutCache {
 public:
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -190,7 +191,7 @@ struct CmdWriter {
 // 本文の文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) の書式。持ち主は Renderer。
 struct MdPaneFormats {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> checkbox;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> overlay_btn_icon;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
 };

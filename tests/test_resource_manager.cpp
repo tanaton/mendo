@@ -1155,7 +1155,7 @@ TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
 
 // ---- ファイル切替時クリーンアップ ----
 
-// 解決済みパスは src をキーに持ち、文書フォルダが変わったら捨てる。同じ index が別画像を指しても、
+// 解決済みパスは src をキーに持ち、別の文書を開いたら捨てる。同じ index が別画像を指しても、
 // 別フォルダの同じ src を指しても旧パスの寸法を引かない。
 TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 {

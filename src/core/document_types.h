@@ -1,7 +1,6 @@
 #pragma once
 #include <algorithm>
 #include <cassert>
-#include <string>
 #include <string_view>
 #include <span>
 #include <vector>
@@ -101,6 +100,10 @@ struct NodeTableData {
     constexpr size_t CellIndex(size_t r, size_t c) const noexcept
     {
         return r * static_cast<size_t>(col_count) + c;
+    }
+    constexpr size_t CellCount() const noexcept
+    {
+        return static_cast<size_t>(row_count) * col_count;
     }
 
     // concat_text 内の offset が属するセルの CellIndex。区切り文字の位置は前のセルに属する。
@@ -346,7 +349,8 @@ struct Node {
         flags_ |= kHasAlertLabel;
     }
 
-    // 長いテキストはパーサが区切り、同じ種別のノードの並びにする (DirectWrite の計測が長さに対して二乗に近く遅くなるため)。
+    // 長いテキストはパーサが区切り、同じ種別のノードの並びにする (DirectWrite の計測は長いレイアウトほど 1 文字あたりも遅くなる。
+    // 理由と計測値は parser.h の kTextChunkTarget)。
     // 並びは見た目もコピーも 1 つのブロックとして扱う。
     constexpr bool continues_prev() const noexcept
     {

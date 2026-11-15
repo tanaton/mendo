@@ -19,7 +19,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 // 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ (DIP)。図とコードブロックのボタン
-// (COPY_BTN_SIZE) とジェスチャーのパネルもズームしないので、中の文字も固定にする。
+// (OVERLAY_BTN_SIZE) とジェスチャーのパネルもズームしないので、中の文字も固定にする。
 constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
 // タイトルバーと検索バーのアイコン。
 constexpr float UI_ICON_FONT_SIZE = 14.0f;
@@ -250,9 +250,12 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
     }
     auto* const dw = dwrite_factory_.Get();
     const float size = theme_->pane_font_size * zoom;
+    // 本文のズーム (CreateTextFormats) と同じく、見えている項目の分が上限まで残らないよう古い書式のレイアウトを捨てる。
+    text_layouts_.Forget(f.item.Get());
     f.item = CreateTextFormat(dw, { .family = theme_->font_family.c_str(), .size = size, .locale = theme_->text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     // アイコンはファイル一覧だけ。
     if (target == PaneTarget::File) {
+        text_layouts_.Forget(f.icon.Get());
         f.icon = CreateTextFormat(dw, { .family = theme_->icon_font.c_str(), .size = size, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     }
     f.zoom = zoom;
@@ -299,7 +302,7 @@ void Renderer::CreateTextFormats(bool zoomed_only)
     // clang-format off
     const FormatSpec specs[] = {
         { fmt_.md.checkbox,          Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR }, true },
-        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       OVERLAY_BUTTON_ICON_FONT_SIZE, nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.md.overlay_btn_icon,  Loc::En,   { icon_font, W,                       OVERLAY_BUTTON_ICON_FONT_SIZE, nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, true,  BODY_LINE_HEIGHT_FACTOR }, true },
         { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false, 0.0f, true }, true },
         { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true, 0.0f, true } },

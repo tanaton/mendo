@@ -79,7 +79,7 @@ constexpr D2D1_RECT_F SquareAround(float cx, float cy, float half) noexcept
 
 // DIP。
 constexpr float NAV_BTN_CORNER = 6.0f;
-constexpr float COPY_BTN_CORNER = 4.0f;
+constexpr float OVERLAY_BTN_CORNER = 4.0f;
 constexpr float INLINE_CODE_CORNER = 6.0f;
 constexpr float CODE_BLOCK_CORNER = 4.0f;
 constexpr float LIST_BULLET_X_FACTOR = 0.6f;
@@ -793,8 +793,8 @@ NodeOverhang MaxNodeOverhang(const Theme& theme) noexcept
     const float box = std::max({ theme.code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
     // コピー/保存ボタンはズームに依らない固定サイズで box 上端から下へ伸びるため、縮小表示の
     // 低いブロックでは box の下へはみ出す。ノード上端からのボタン下端までを下側の上限に含める。
-    const float copy_button = COPY_BTN_MARGIN + COPY_BTN_SIZE;
-    return { box, std::max({ box, underline, empty_li, copy_button }) };
+    const float overlay_button = OVERLAY_BTN_MARGIN + OVERLAY_BTN_SIZE;
+    return { box, std::max({ box, underline, empty_li, overlay_button }) };
 }
 
 // ノードのマッチ。spill_length_w は前のノードのマッチ (first_global - 1 番) がこのノードの先頭へはみ出した長さ。
@@ -1023,13 +1023,13 @@ struct MdPaneEmitter : CmdWriter {
 
     void GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
     {
-        if (!formats.copy_btn_icon) {
+        if (!formats.overlay_btn_icon) {
             return;
         }
         const bool dark = theme.dark;
         const float bg_alpha = is_hovered ? (dark ? 0.30f : 0.15f) : (dark ? 0.10f : 0.05f);
         const float text_alpha = is_hovered ? (dark ? 0.9f : 0.8f) : (dark ? 0.4f : 0.35f);
-        Button(formats.copy_btn_icon.Get(), btn, { &icon, 1 }, { BrushId::Overlay, COPY_BTN_CORNER, bg_alpha }, BrushId::Overlay, text_alpha);
+        Button(formats.overlay_btn_icon.Get(), btn, { &icon, 1 }, { BrushId::Overlay, OVERLAY_BTN_CORNER, bg_alpha }, BrushId::Overlay, text_alpha);
     }
 
     void GenListBullet(const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)

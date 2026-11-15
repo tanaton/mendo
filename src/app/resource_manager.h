@@ -98,12 +98,14 @@ public:
     // 画像のフォルダが監視の枠 (ImageFolderWatcher::kMaxFolders) を占め続け、使い切った後の文書では更新が出なかった。
     // 2026-11-11 からは開くたびにフォルダの監視ごと捨てていたが、同じフォルダの文書を渡り歩くたびに開き直すので、
     // 2026-11-13 にフォルダの読み取りは残し、枠が埋まったら今の文書で使っていないものから前に使った順にやめる形にした
-    // (ユーザーの判断)。
+    // (ユーザーの判断)。ImageLoader に残る寸法は監視を外した後の更新を知らないままになるが、戻ったときはビットマップを
+    // 読み直すので、そのデコードの結果で寸法も入れ替わる。
     void ForgetInlineImages();
     // 旧デバイスのビットマップと図のコマンドリストを捨て、新しい RT で読み直す。
     void OnRenderDeviceRecreated();
 
-    // 本文中の画像のファイルが更新されたら読み直す。監視するのは src を解決した (先読み範囲に入ったことのある) 画像で、
+    // 本文中の画像のファイルが更新されたら読み直す。監視するのは src を解決した画像 (先読み範囲に入ったか、開くとき・
+    // リロードで寸法を入れたもの) で、
     // 別の文書を開くまで続ける。フォルダは worker で開き、開き終えるまでそのフォルダの画像は読まない
     // (読んでから監視を始めるまでの更新を取りこぼさない)。
     // メッセージループが待つ、画像のフォルダの監視のイベント。out は kMaxImageWatchEvents 以上。数を返す。
@@ -180,7 +182,6 @@ private:
     bool last_mermaid_dark_mode_ = false;
     float last_request_scroll_ = 0.0f;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
-    std::wstring resolved_dir_;
     // resolved_image_paths_ に入れた画像のファイルの監視と、更新の通知が来て IMAGE_RELOAD タイマーを待っているパス。
     ImageFolderWatcher image_watcher_;
     std::vector<std::wstring> changed_image_paths_;

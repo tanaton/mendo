@@ -172,16 +172,6 @@ DiagramTextLayouts::Run LayoutRun(IDWriteFactory* dw, DiagramTextMeasurer& forma
     return { std::move(layout), line.baseline };
 }
 
-void DrawRun(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Matrix3x2F& base, const mermaid_util::DrawingText& t,
-             const DiagramTextLayouts::Run& run)
-{
-    if (!run.layout) {
-        return;
-    }
-    Place(dc, brush, base, t.at);
-    DrawTextLayoutWithColorLayers(dc, D2D1::Point2F(t.at.x, t.at.y - run.baseline), run.layout.Get(), brush);
-}
-
 void AppendFontKey(std::wstring& key, const DiagramFont& font)
 {
     const auto bits = std::bit_cast<uint32_t>(font.size);
@@ -4117,6 +4107,8 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
     if (!m.files[file]) {
         // 展開したストリームを持ち主として渡し、DirectWrite に写させない。最初の数式で 20 個を展開して写していた頃は、
         // 新しいエンジンの最初の数式 (x^2) が 9.4ms、使う書体だけにして 4.7ms。
+        // ReleaseFileFragment の後も data を使うのは、UnpackFontFile のストリームが展開した中身を自分で持ち、
+        // ReleaseFileFragment が何もしないことに頼っている (IDWriteFontFileStream の決まりでは、手放した後の data は保証されない)。
         ComPtr<IDWriteFontFileStream> stream;
         UINT64 size = 0;
         const void* data = nullptr;
@@ -4790,10 +4782,12 @@ bool DrawDiagram(
             dc->DrawSvgDocument(doc.Get());
         }
         for (const auto& t : layer.texts) {
-            if (run < texts->runs.size()) {
-                DrawRun(dc, brush.Get(), base, t, texts->runs[run]);
-            }
+            const auto* laid = run < texts->runs.size() ? &texts->runs[run] : nullptr;
             ++run;
+            if (laid && laid->layout) {
+                Place(dc, brush.Get(), base, t.at);
+                DrawTextLayoutWithColorLayers(dc, D2D1::Point2F(t.at.x, t.at.y - laid->baseline), laid->layout.Get(), brush.Get());
+            }
         }
         for (const auto& m : layer.maths) {
             if (!m.drawing) {

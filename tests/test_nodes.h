@@ -29,9 +29,10 @@ inline TextArena& Arena()
     return arena;
 }
 
-// storage.nodes は取り出し済みであること。
+// ノードは写し終えていること。ノードの配列 (予約とコミット) は捨て、ノードが指す arena とテーブルだけを残す。
 inline void KeepAlive(NodeStorage storage)
 {
+    storage.nodes = {};
     static std::vector<NodeStorage> kept;
     const std::scoped_lock lock{ Mutex() };
     kept.push_back(std::move(storage));

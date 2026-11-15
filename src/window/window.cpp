@@ -351,7 +351,7 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
-LRESULT Win32Window::HitTestNonClient(POINT pt)
+LRESULT Win32Window::HitTestNonClient(POINT pt) const noexcept
 {
     ScreenToClient(hwnd_, &pt);
 

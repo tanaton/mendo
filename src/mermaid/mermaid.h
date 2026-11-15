@@ -250,7 +250,7 @@ private:
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
-    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts = nullptr);
+    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
     void InsertCache(uint64_t hash, DiagramResult result);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
     DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);

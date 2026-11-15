@@ -219,7 +219,8 @@ public:
     // (DirectWrite は呼ばない)。戻り値は全ノードを dirty にしたか。
     bool Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width);
     // [viewport_top, viewport_bottom] に入る dirty を計測し、退避したテーブル行を戻す。
-    // 計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで繰り返す。
+    // 計測で高さが変わると範囲に入るノードも変わるため、パスが何も変えなくなるまで繰り返す (TableMeasureJobs に回した表は
+    // dirty のまま残る)。
     // 戻り値は高さ・位置・テーブル行のいずれかが変わったか。
     bool EnsureVisibleLayout(
         std::span<const Node> nodes, LayoutCache& cache, float viewport_width,
@@ -270,7 +271,7 @@ public:
         float height, float buffer_screens);
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。見ている位置は保つ。
-    bool EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
+    void EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
     void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept;
     struct PlacedTables {
         bool placed = false;

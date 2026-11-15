@@ -672,7 +672,6 @@ TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Alpha"));
 }
 
-// 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
 // 拡大表示は本体の描画デバイスで描くので、本体がデバイスを作り直したら拡大表示にも渡す。
 TEST_F(MermaidRendererTest, ViewerFollowsRenderDevice)
 {
@@ -683,6 +682,7 @@ TEST_F(MermaidRendererTest, ViewerFollowsRenderDevice)
     EXPECT_EQ(viewer_.device_changes, 1);
 }
 
+// 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
 TEST_F(MermaidRendererTest, ViewerDrawingWaitsForRenderTarget)
 {
     renderer_.SetRenderTarget(nullptr);

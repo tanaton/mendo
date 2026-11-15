@@ -68,6 +68,7 @@ struct LaunchNewWindow {
 // 表示中の文書とは別のファイルのロードを取り消す。同じファイルの再読み込みは止めない。
 struct CancelOtherFileLoad {};
 
+// 本文がスクロールした。先読みの範囲を確かめさせ、画像と図を頼み直し (ScheduleResourceManage)、止まるまで図をビットマップで描く。
 struct ResourceManage {};
 
 struct SetTimer {

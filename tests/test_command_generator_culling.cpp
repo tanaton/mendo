@@ -300,7 +300,7 @@ TEST_F(CullingParityTest, ZoomedOutEmptyCodeBlockKeepsCopyButton)
     const auto pl = ParseAndLayout("para one\n\n```\n```\n\npara two\n\npara three\n", PANE_W);
     const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
     ASSERT_GE(code_idx, 0);
-    ASSERT_LT(pl.cache[code_idx].height + 2.0f * theme_.code_block_padding, COPY_BTN_MARGIN + COPY_BTN_SIZE);
+    ASSERT_LT(pl.cache[code_idx].height + 2.0f * theme_.code_block_padding, OVERLAY_BTN_MARGIN + OVERLAY_BTN_SIZE);
     ExpectCullingParity(pl, BlockHScrollContext{});
 }
 

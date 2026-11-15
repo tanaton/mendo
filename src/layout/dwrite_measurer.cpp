@@ -137,7 +137,7 @@ constexpr size_t kMaxKeptTableCells = 1024;
 // セル数は concat_text 内の uint32_t オフセットで数えられる範囲に収まるので、uint32_t で持って巨大表の一時メモリを半分にする。
 std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
 {
-    std::vector<uint32_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    std::vector<uint32_t> reps(tbl.CellCount());
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
             // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (20 万行 20 列で 47 → 39ms)。
@@ -633,13 +633,12 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     const NodeTableData& tbl = *node.table_data();
     MENDO_PROFILE("MeasureTableCells");
     const size_t col_count = tbl.col_count;
-    auto& natural_widths = tl.natural_col_widths;
     const bool keep_layouts = tl.CellCount() <= kMaxKeptTableCells;
     // layout を残す小さい表は、全セルの layout が要るので代表を探さない (空のまま)。
     const auto reps = keep_layouts ? std::vector<uint32_t>{} : FindRepresentativeCells(tbl, scheduler_);
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
-    // セルは chunk ごとに別 index へ書くので排他不要。残さない layout は worker 上で解放する。
+    // セルは chunk ごとに別 index へ書くので排他不要。残さない layout は chunk の中で解放する。
     // 列の最小幅 (最も長い単語) はセルごとには持たず (1 セル 4 byte)、列ごとの最大だけを chunk をまたいで重ねる。chunk は
     // 8 セルと細かいので、chunk ごとの確保とロックは 20 万行の表で計測より重い。自然幅が今の最大以下のセルは最小幅も
     // 効かないので DetermineMinWidth を呼ばない。代表と同じ中身のセルは最小幅も同じ。
@@ -726,25 +725,25 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
         first = batch.end;
     }
     const auto load = [](const std::atomic<float>& w) noexcept { return w.load(std::memory_order_relaxed); };
-    std::ranges::transform(min_widths, tl.min_col_widths.begin(), load);
-    // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。書き込み先は行ごとに重ならない。
-    if (!reps.empty()) {
-        ParallelFor(scheduler_, tbl.row_count, kEstimatedRowsPerChunk, [&](size_t row_begin, size_t row_end) {
-            for (size_t ci = row_begin * col_count; ci < row_end * col_count; ++ci) {
-                tl.cell_natural_widths[ci] = tl.cell_natural_widths[reps[ci]];
-                tl.cell_nowrap_heights[ci] = tl.cell_nowrap_heights[reps[ci]];
-            }
-        });
-        // 代表も同じ画像を含むので画像のセル。
-        for (auto& image_cell : tl.image_cells) {
-            image_cell.image_width = tl.FindImageCell(reps[image_cell.index])->image_width;
-        }
-    }
     // 測れなかったセルと空のセルは 0 のままなので効かない。
-    std::ranges::transform(natural_maxes, natural_widths.begin(), load);
-    if (!keep_layouts) {
-        tl.MarkAllRowsEvicted();
+    std::ranges::transform(min_widths, tl.min_col_widths.begin(), load);
+    std::ranges::transform(natural_maxes, tl.natural_col_widths.begin(), load);
+    // layout を残す小さい表は全セルを測ったので、写す値も退避する行も無い。
+    if (keep_layouts) {
+        return;
     }
+    // 代表と同じ中身のセルは代表の値を写す (代表は別の chunk にあるので測り終えてから)。書き込み先は行ごとに重ならない。
+    ParallelFor(scheduler_, tbl.row_count, kEstimatedRowsPerChunk, [&](size_t row_begin, size_t row_end) {
+        for (size_t ci = row_begin * col_count; ci < row_end * col_count; ++ci) {
+            tl.cell_natural_widths[ci] = tl.cell_natural_widths[reps[ci]];
+            tl.cell_nowrap_heights[ci] = tl.cell_nowrap_heights[reps[ci]];
+        }
+    });
+    // 代表も同じ画像を含むので画像のセル。
+    for (auto& image_cell : tl.image_cells) {
+        image_cell.image_width = tl.FindImageCell(reps[image_cell.index])->image_width;
+    }
+    tl.MarkAllRowsEvicted();
 }
 
 float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const
@@ -855,9 +854,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     }
 
     BuiltTable built = BuildTable(node, max_width, {});
-    if (built.pending_inline) {
-        entry.pending_inline = true;
-    }
+    entry.pending_inline = built.pending_inline;
     entry.set_table_layout(std::move(built.table));
     return built.height;
 }

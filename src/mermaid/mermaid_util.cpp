@@ -35,11 +35,11 @@ float ParseFloatPrefix(std::wstring_view s) noexcept
     return std::wcstof(buf, nullptr);
 }
 
-// sep で区切った数を先頭から out に読む。足りない分は 0 のまま。
-void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noexcept
+// カンマで区切った数を先頭から out に読む。足りない分は 0 のまま。
+void ParseFloatList(std::wstring_view s, std::span<float> out) noexcept
 {
     for (float& v : out) {
-        const auto pos = s.find(sep);
+        const auto pos = s.find(L',');
         v = ParseFloatPrefix(s.substr(0, pos));
         if (pos == std::wstring_view::npos) {
             break;
@@ -48,10 +48,10 @@ void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noex
     }
 }
 
-// s の先頭から sep までを切り出して進める。sep が無ければ nullopt。
-std::optional<std::wstring_view> TakeField(std::wstring_view& s, wchar_t sep = L':') noexcept
+// s の先頭から ':' までを切り出して進める。':' が無ければ nullopt。
+std::optional<std::wstring_view> TakeField(std::wstring_view& s) noexcept
 {
-    const auto pos = s.find(sep);
+    const auto pos = s.find(L':');
     if (pos == std::wstring_view::npos) {
         return std::nullopt;
     }
@@ -129,7 +129,7 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
         return std::nullopt;
     }
     float v[kPlacementNumbers + 3]{};
-    ParseFloatList(*numbers, L',', v);
+    ParseFloatList(*numbers, v);
     const auto at = ToPlacement(v);
     const float weight = v[11];
     if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
@@ -158,7 +158,7 @@ std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
         return std::nullopt;
     }
     float v[kPlacementNumbers]{};
-    ParseFloatList(*numbers, L',', v);
+    ParseFloatList(*numbers, v);
     const auto at = ToPlacement(v);
     const auto tex = at ? TakeText(s) : std::nullopt;
     if (!tex) {

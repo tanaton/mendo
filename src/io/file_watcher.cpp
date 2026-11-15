@@ -62,6 +62,20 @@ std::unique_ptr<DirectoryChangeRead> OpenDirectoryRead(const std::wstring& dir)
     return nullptr;
 }
 
+// 画像のパス paths のうち、ファイル名が name のものを changed に足す。あれば true。
+bool AddNamed(std::span<const std::wstring> paths, std::wstring_view name, std::vector<std::wstring>& changed)
+{
+    // フォルダのほかのファイルの通知でも登録した画像を全部見るので、大小無視の比較の前に長さで弾く。
+    bool found = false;
+    for (const std::wstring& path : paths) {
+        if (const auto watched = path_util::FilenameView(path); watched.size() == name.size() && path_util::iequal(watched, name)) {
+            changed.push_back(path);
+            found = true;
+        }
+    }
+    return found;
+}
+
 } // namespace
 
 bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept
@@ -176,9 +190,6 @@ void FileWatcher::CheckForChanges()
     }
 }
 
-ImageFolderWatcher::Inbox::Inbox() : event(CreateEventW(nullptr, TRUE, FALSE, nullptr))
-{}
-
 void ImageFolderWatcher::Inbox::Put(WorkerResult result)
 {
     if (results.Push(std::move(result))) {
@@ -206,12 +217,6 @@ bool ImageFolderWatcher::PostWork(std::move_only_function<void(Inbox&)> task)
     return true;
 }
 
-template <class T>
-void ImageFolderWatcher::DisposeOnWorker(T obj) noexcept
-{
-    ::DisposeOnWorker(*scheduler_, std::move(obj));
-}
-
 void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* scheduler)
 {
     auto dir = path_util::ParentDirectory(abs_path);
@@ -229,7 +234,7 @@ void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* sche
                 return;
             }
             if (unused->read) {
-                DisposeOnWorker(std::move(unused->read));
+                DisposeOnWorker(*scheduler_, std::move(unused->read));
             }
             folders_.erase(unused);
         }
@@ -267,7 +272,7 @@ bool ImageFolderWatcher::IsOpening(std::wstring_view abs_path) const noexcept
 void ImageFolderWatcher::Clear() noexcept
 {
     if (!folders_.empty()) {
-        DisposeOnWorker(std::exchange(folders_, {}));
+        DisposeOnWorker(*scheduler_, std::exchange(folders_, {}));
     }
 }
 
@@ -294,19 +299,6 @@ size_t ImageFolderWatcher::EventHandles(std::span<HANDLE> out) const noexcept
     return count;
 }
 
-bool ImageFolderWatcher::AddNamed(const Folder& folder, std::wstring_view name, std::vector<std::wstring>& changed)
-{
-    // フォルダのほかのファイルの通知でも登録した画像を全部見るので、大小無視の比較の前に長さで弾く。
-    bool found = false;
-    for (const std::wstring& path : folder.paths) {
-        if (const auto watched = path_util::FilenameView(path); watched.size() == name.size() && path_util::iequal(watched, name)) {
-            changed.push_back(path);
-            found = true;
-        }
-    }
-    return found;
-}
-
 bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
 {
     bool any_opened = false;
@@ -317,7 +309,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             if (it == folders_.end()) {
                 // やめたフォルダ (枠のために Watch が外した・Clear) の結果。
                 if (result.read) {
-                    DisposeOnWorker(std::move(result.read));
+                    DisposeOnWorker(*scheduler_, std::move(result.read));
                 }
                 continue;
             }
@@ -330,11 +322,17 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
                 any_opened = true;
             }
             else {
-                AddNamed(*it, result.long_name, changed);
+                AddNamed(it->paths, result.long_name, changed);
             }
         }
     }
 
+    // 途中で読めなくなったフォルダは、開けなかったときと同じく画像も外す (外さないと、枠が埋まってもやめるフォルダに選ばれず、
+    // 次の文書まで枠を 1 つ占める)。次の文書で開き直す。
+    const auto stop_reading = [this](Folder& f) {
+        DisposeOnWorker(*scheduler_, std::move(f.read));
+        f.paths.clear();
+    };
     using Poll = DirectoryChangeRead::Poll;
     for (Folder& f : folders_) {
         std::span<const std::byte> notified;
@@ -344,7 +342,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         }
         if (poll == Poll::Failed) {
             // フォルダが消えたなど。このフォルダの監視をやめる。
-            DisposeOnWorker(std::move(f.read));
+            stop_reading(f);
             continue;
         }
         if (notified.empty()) {
@@ -360,7 +358,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
                 // 問い合わせはファイルに触れるので worker でし、結果は次の CheckForChanges で照らす。
                 const size_t tilde = name.find(L'~');
                 const bool short_form = name.size() <= 12 && tilde != name.npos && tilde + 1 < name.size() && ascii_util::IsAsciiDigit(name[tilde + 1]);
-                if (!AddNamed(f, name, changed) && short_form) {
+                if (!AddNamed(f.paths, name, changed) && short_form) {
                     PostWork([id = f.id, short_path = f.dir + L'\\' + std::wstring{ name }](Inbox& inbox) {
                         const auto long_path = QueryPath([&](wchar_t* b, UINT n) { return GetLongPathNameW(short_path.c_str(), b, n); });
                         inbox.Put({ .folder_id = id, .long_name = std::wstring{ path_util::FilenameView(long_path) } });
@@ -370,7 +368,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             });
         }
         if (!f.read->Begin()) {
-            DisposeOnWorker(std::move(f.read));
+            stop_reading(f);
         }
     }
     return any_opened;

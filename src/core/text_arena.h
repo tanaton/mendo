@@ -29,7 +29,8 @@ void Release(void* p) noexcept;
 // 要素数の上限の分のアドレスを予約し、使う分だけコミットして伸ばす配列。std::vector と違い、伸ばしても要素を写さず、
 // 予約の余りはコミットしない。アドレスは 64bit の空間から取るので、上限は多めに決めてよい。
 // 予約は丸ごとしか返せず、使わない部分のアドレスも寿命の間持つ。予約を超えたら 2 倍ずつ予約し直す (そのときだけ写す)。
-// 要素は写して動かすので trivially copyable に限る。
+// 要素は写して動かすので trivially copyable に限る。std::vector と違い、自分の要素を指す引数で足すと、予約し直したときに
+// 古い場所を読む (今の呼び出しはどれも外の値を渡す)。
 template <class T>
     requires std::is_trivially_copyable_v<T>
 class ReservedArray {
@@ -108,16 +109,6 @@ public:
     {
         assert(i < size_);
         return data_[i];
-    }
-    T& back() noexcept
-    {
-        assert(size_ > 0);
-        return data_[size_ - 1];
-    }
-    const T& back() const noexcept
-    {
-        assert(size_ > 0);
-        return data_[size_ - 1];
     }
 
     template <class... Args>

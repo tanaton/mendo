@@ -34,7 +34,7 @@ private:
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     // スクリーン座標 pt での WM_NCHITTEST の結果。
-    LRESULT HitTestNonClient(POINT pt);
+    LRESULT HitTestNonClient(POINT pt) const noexcept;
     // 最大化時は HTNOWHERE を返す。
     LRESULT HitTestResizeFrame(POINT pt) const noexcept;
     LRESULT HitTestTitleBar(POINT pt) const noexcept;

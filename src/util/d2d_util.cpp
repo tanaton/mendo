@@ -77,10 +77,12 @@ private:
     }
 
     // 色の部分の無い字形 (paletteIndex 0xFFFF) は brush_ で描く。色のブラシを作れないときも brush_ で描く。
+    // 色のブラシは brush_ の不透明度 (非アクティブの窓のタイトルなど) に合わせる (DrawMath の色の字形と同じ)。
     void Paint(D2D1_POINT_2F origin, const DWRITE_GLYPH_RUN& run, bool foreground, const D2D1_COLOR_F& color) noexcept
     {
         ID2D1Brush* fill = brush_;
-        if (!foreground && (color_brush_ || SUCCEEDED(rt_->CreateSolidColorBrush(color, &color_brush_)))) {
+        if (!foreground &&
+            (color_brush_ || SUCCEEDED(rt_->CreateSolidColorBrush(color, D2D1::BrushProperties(brush_->GetOpacity()), &color_brush_)))) {
             color_brush_->SetColor(color);
             fill = color_brush_.Get();
         }

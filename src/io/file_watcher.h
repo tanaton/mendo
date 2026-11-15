@@ -93,7 +93,7 @@ private:
 //
 // フォルダを開く・短縮名を長い名前に直す・読み取りを取り消して閉じる、はどれも worker で行い、UI スレッドではファイルに
 // 触れない (文書の監視と同じ。切断されたネットワークドライブの画像を参照する文書で、フォルダごとに数秒〜数十秒
-// ウィンドウが固まる)。Watch・Clear・EventHandles・CheckForChanges・IsOpening は UI スレッドから呼ぶ。
+// ウィンドウが固まる)。メンバ関数はどれも UI スレッドから呼ぶ (worker が触るのは受け箱だけ)。
 class ImageFolderWatcher {
 public:
     // 監視するフォルダの数の上限。待つハンドルはメッセージループの MsgWaitForMultipleObjects に足すので増やしすぎない。
@@ -114,7 +114,8 @@ public:
     {
         return awaited_results_ > 0;
     }
-    // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。
+    // 監視を全部やめる。開いている最中のフォルダは、開き終えた読み取りを受け取らずに捨てる。本番では使わず (別の文書を
+    // 開いても ForgetPaths で読み取りを残す)、テストが監視を空に戻すのに使う。
     void Clear() noexcept;
     // 別の文書を開いた。登録した画像を外し、フォルダの読み取りは次の文書のために残す (同じフォルダの文書を渡り歩くたびに
     // 開き直さない)。残したフォルダは、枠が埋まったときに前に使った順にやめる。開けなかったフォルダは次の文書で開き直す。
@@ -147,22 +148,16 @@ private:
     // worker が結果を置く受け箱。worker のタスクが共有して持つので、監視より長生きできる。
     // 知らせは投函ではなくイベントにする (フォルダの通知と同じ待ちに載せる)。
     struct Inbox {
-        Inbox();
         void Put(WorkerResult result);
         std::vector<WorkerResult> Take();
 
         PostedInbox<WorkerResult> results;
         // 手動リセット。空の受け箱に 1 件目が入ったら立ち、取り出す前に倒す。
-        UniqueNullHandle event;
+        UniqueNullHandle event{ CreateEventW(nullptr, TRUE, FALSE, nullptr) };
     };
 
     // task を worker で走らせる。結果は必ず 1 つ置かせる。投函できなければ false。
     bool PostWork(std::move_only_function<void(Inbox&)> task);
-    // 読み取りを発行したままの解放は、取り消して書き終わるのを待つので worker でする。
-    template <class T>
-    void DisposeOnWorker(T obj) noexcept;
-    // folder の画像のうち、ファイル名が name のものを changed に足す。あれば true。
-    static bool AddNamed(const Folder& folder, std::wstring_view name, std::vector<std::wstring>& changed);
 
     std::vector<Folder> folders_;
     std::shared_ptr<Inbox> inbox_;

@@ -69,7 +69,6 @@ void MermaidRenderer::TrimIdleRuntimes()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
     // 描いている途中のものは捨てない。図 4 個の文書で mendo の private bytes が 63 → 52MB、1 個で 51 → 48MB になる。
-    // 捨てる処理は bg の worker で行う (pele と KaTeX を読んだランタイム 1 個で約 3.5ms)。
     if (pele_) {
         pele_->Trim(bg_scheduler_);
     }
@@ -144,7 +143,7 @@ bool MermaidRenderer::RequestRender(
     }
     // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録したときに捨てているので、
     // ここで組む (図 1 個約 0.9ms)。デバイスを作り直している間は記録できないので、次の要求まで待たせる。
-    if (result->drawing && !result->commands && result->error.empty()) {
+    if (result->drawing && !result->commands) {
         result->commands = RecordDrawing(*result->drawing, nullptr);
         if (!result->commands) {
             return false;

@@ -20,6 +20,19 @@ inline std::wstring ExePath()
     return QueryPath([](wchar_t* b, UINT n) static { return GetModuleFileNameW(nullptr, b, n); });
 }
 
+// 参照カウントを持たない COM 実装の基底。寿命は実装側が管理する。
+template <class Iface>
+struct UncountedCom : Iface {
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+};
+
 inline bool IsKeyDown(int vk) noexcept
 {
     return (GetKeyState(vk) & 0x8000) != 0;

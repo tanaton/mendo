@@ -1,7 +1,7 @@
 #pragma once
 #include "document_types.h"
+#include <span>
 #include <string>
-#include <vector>
 
 // ノード間を \r\n で連結する。区切ったテキストの続きは元のとおりにつなぐ。
 std::string ExtractSelectedText(std::span<const Node> nodes, const TextSelection& selection);
