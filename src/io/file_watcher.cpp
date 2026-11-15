@@ -327,6 +327,12 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         }
     }
 
+    // 途中で読めなくなったフォルダは、開けなかったときと同じく画像も外す (外さないと、枠が埋まってもやめるフォルダに選ばれず、
+    // 次の文書まで枠を 1 つ占める)。次の文書で開き直す。
+    const auto stop_reading = [this](Folder& f) {
+        DisposeOnWorker(*scheduler_, std::move(f.read));
+        f.paths.clear();
+    };
     using Poll = DirectoryChangeRead::Poll;
     for (Folder& f : folders_) {
         std::span<const std::byte> notified;
@@ -336,7 +342,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         }
         if (poll == Poll::Failed) {
             // フォルダが消えたなど。このフォルダの監視をやめる。
-            DisposeOnWorker(*scheduler_, std::move(f.read));
+            stop_reading(f);
             continue;
         }
         if (notified.empty()) {
@@ -362,7 +368,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
             });
         }
         if (!f.read->Begin()) {
-            DisposeOnWorker(*scheduler_, std::move(f.read));
+            stop_reading(f);
         }
     }
     return any_opened;
