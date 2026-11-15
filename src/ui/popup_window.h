@@ -62,7 +62,9 @@ struct PopupWindow {
 
     ID2D1Factory* d2d_factory = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;
-    // 本体の描画デバイス (無ければ SOFTWARE の描画先で描く)。
+    // 本体の描画デバイス (無ければ SOFTWARE の描画先で描く)。借りるだけなので、使うのは開いたときに描画先を作るときだけにする。
+    // 開いている間も本体のメッセージは進み、本体がデバイスを作り直すと借りたデバイスは解放されうる (置き直しはスワップ
+    // チェーンの大きさを変えて済ませ、作れなかったときと描けなくなったときは開いている間 SOFTWARE で描く)。
     ID3D11Device* d3d = nullptr;
     ID2D1Device* device = nullptr;
     // 呼び出し側から借りる。
@@ -175,8 +177,14 @@ struct PopupWindow {
         const int pixel_w = r.right - r.left;
         const int pixel_h = r.bottom - r.top;
         SetWindowPos(hwnd, nullptr, r.left, r.top, pixel_w, pixel_h, SWP_NOZORDER | SWP_NOACTIVATE);
-        // 描画先は大きさと DPI ごと作り直す (DPI の違うモニタへ移ったとき・設定ダイアログが言語を替えて大きさが変わったとき)。
-        if (rt) {
+        // 描画先を大きさと DPI に合わせる (DPI の違うモニタへ移ったとき・設定ダイアログが言語を替えて大きさが変わったとき)。
+        // 本体のデバイスのスワップチェーンは大きさを変え、SOFTWARE の描画先は次の WM_PAINT で作り直す。
+        if (swap_target.dc()) {
+            if (!swap_target.Resize(static_cast<UINT>(pixel_w), static_cast<UINT>(pixel_h), dpi_scale * DEFAULT_DPI)) {
+                DropDevice();
+            }
+        }
+        else if (rt) {
             ReleaseTarget();
         }
         ApplyRegion(pixel_w, pixel_h);
@@ -380,6 +388,14 @@ private:
         brushes = {};
     }
 
+    // 本体のデバイスで描けなくなったら、開いている間は SOFTWARE で描く。次の WM_PAINT で作り直す。
+    void DropDevice() noexcept
+    {
+        ReleaseTarget();
+        d3d = nullptr;
+        device = nullptr;
+    }
+
     bool CreateDeviceResources()
     {
         RECT rc{};
@@ -393,6 +409,8 @@ private:
             rt = swap_target.dc();
         }
         else {
+            d3d = nullptr;
+            device = nullptr;
             D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
             props.dpiX = dpi_scale * DEFAULT_DPI;
             props.dpiY = dpi_scale * DEFAULT_DPI;
@@ -435,10 +453,7 @@ private:
         derived().PaintContent();
         const bool kept = swap_target.dc() ? swap_target.EndDrawAndPresent() : rt->EndDraw() != D2DERR_RECREATE_TARGET;
         if (!kept) {
-            // 本体のデバイスを失ったら、開いている間は SOFTWARE で描く。次の WM_PAINT で作り直させる。
-            ReleaseTarget();
-            d3d = nullptr;
-            device = nullptr;
+            DropDevice();
             InvalidateRect(hwnd, nullptr, FALSE);
         }
     }
