@@ -186,17 +186,6 @@ protected:
         return rt->EndDraw();
     }
 
-    // R・G・B が揃っていない (灰色でない) 画素があるか。
-    static bool HasColoredPixel(std::span<const uint32_t> pixels)
-    {
-        return std::ranges::any_of(pixels, [](uint32_t px) static {
-            const uint32_t r = (px >> 16) & 0xFF;
-            const uint32_t g = (px >> 8) & 0xFF;
-            const uint32_t b = px & 0xFF;
-            return r != g || g != b;
-        });
-    }
-
     UINT size_ = 32;
     InlineDrawings no_drawings_;
     static inline ComPtr<ID2D1Factory> d2d_factory_;

@@ -4,43 +4,131 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <algorithm>
+#include <array>
 #include <bit>
 
 using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// COLR の層を 1 枚ずつ、層の色の単色で塗る。COLR の層が無ければ false。
+// COLR の層を順に受け取って塗る。同じ色と原点で続く 1 字形の層は、送り幅 0 の 1 つのランにためてまとめて描く。
+// 絵文字の一覧 (example/emoji.md) では隣り合う層の 31% が直前と同じ色で、DrawGlyphRun が 31% 減り、BM_EmojiFrameDraw が
+// 928〜937 → 863〜867µs になる (新旧を交互に 3 回)。手間の正体は D2D が色の変わるたびに描画のまとまりを切ることで
+// (全層を 1 色で描くと −290µs)、ブラシの使い回しや (書体, 字形) ごとの層の並びの記憶は効かなかった。
+// 画素は、同じ色の層の縁が重なるところのアンチエイリアスが少し薄くなるだけ (250% で最大 62 階調・824 画素、100% で最大
+// 11 階調・16 画素、500% は同じ)。
+// 右から左のランは送り幅 0 だと字形の位置がずれ、縦書きは使わないので、どちらもまとめない。
+class LayerPainter {
+public:
+    LayerPainter(ID2D1RenderTarget* rt, ID2D1Brush* brush, DWRITE_MEASURING_MODE mode) noexcept : rt_(rt), brush_(brush), mode_(mode)
+    {}
+
+    void Add(const DWRITE_COLOR_GLYPH_RUN& layer) noexcept
+    {
+        const DWRITE_GLYPH_RUN& run = layer.glyphRun;
+        const D2D1_POINT_2F origin = D2D1::Point2F(layer.baselineOriginX, layer.baselineOriginY);
+        const bool foreground = layer.paletteIndex == 0xFFFF;
+        const bool single = run.glyphCount == 1 && !run.isSideways && (run.bidiLevel & 1) == 0;
+        if (count_ > 0 && !(single && Continues(origin, run, foreground, layer.runColor))) {
+            Flush();
+        }
+        if (!single) {
+            Paint(origin, run, foreground, layer.runColor);
+            return;
+        }
+        if (count_ == 0) {
+            origin_ = origin;
+            face_ = run.fontFace;
+            size_ = run.fontEmSize;
+            foreground_ = foreground;
+            color_ = layer.runColor;
+        }
+        glyphs_[count_] = run.glyphIndices[0];
+        offsets_[count_] = run.glyphOffsets ? run.glyphOffsets[0] : DWRITE_GLYPH_OFFSET{};
+        ++count_;
+    }
+
+    void Flush() noexcept
+    {
+        if (count_ == 0) {
+            return;
+        }
+        const DWRITE_GLYPH_RUN run{
+            .fontFace = face_,
+            .fontEmSize = size_,
+            .glyphCount = count_,
+            .glyphIndices = glyphs_.data(),
+            .glyphAdvances = kZeroAdvances.data(),
+            .glyphOffsets = offsets_.data(),
+        };
+        Paint(origin_, run, foreground_, color_);
+        count_ = 0;
+    }
+
+private:
+    static constexpr UINT32 kCapacity = 64;
+    static constexpr std::array<FLOAT, kCapacity> kZeroAdvances{};
+
+    // ためた層に続けて同じランで描けるか。
+    bool Continues(D2D1_POINT_2F origin, const DWRITE_GLYPH_RUN& run, bool foreground, const D2D1_COLOR_F& c) const noexcept
+    {
+        return count_ < kCapacity && origin.x == origin_.x && origin.y == origin_.y && run.fontFace == face_ && run.fontEmSize == size_ &&
+               foreground == foreground_ && (foreground || (c.r == color_.r && c.g == color_.g && c.b == color_.b && c.a == color_.a));
+    }
+
+    // 色の部分の無い字形 (paletteIndex 0xFFFF) は brush_ で描く。色のブラシを作れないときも brush_ で描く。
+    void Paint(D2D1_POINT_2F origin, const DWRITE_GLYPH_RUN& run, bool foreground, const D2D1_COLOR_F& color) noexcept
+    {
+        ID2D1Brush* fill = brush_;
+        if (!foreground && (color_brush_ || SUCCEEDED(rt_->CreateSolidColorBrush(color, &color_brush_)))) {
+            color_brush_->SetColor(color);
+            fill = color_brush_.Get();
+        }
+        rt_->DrawGlyphRun(origin, &run, fill, mode_);
+    }
+
+    ID2D1RenderTarget* rt_;
+    ID2D1Brush* brush_;
+    DWRITE_MEASURING_MODE mode_;
+    ComPtr<ID2D1SolidColorBrush> color_brush_;
+    D2D1_POINT_2F origin_{};
+    IDWriteFontFace* face_ = nullptr;
+    float size_ = 0.0f;
+    bool foreground_ = false;
+    D2D1_COLOR_F color_{};
+    UINT32 count_ = 0;
+    std::array<UINT16, kCapacity> glyphs_{};
+    std::array<DWRITE_GLYPH_OFFSET, kCapacity> offsets_{};
+};
+
+// COLR の層を塗る。層の無い字形なら何も描かずに false。
 bool DrawColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
-                     const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush, const DWRITE_MATRIX& world) noexcept
+                     const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept
 {
     static const ComPtr<IDWriteFactory2> factory = [] {
         ComPtr<IDWriteFactory2> created;
         DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory2), reinterpret_cast<IUnknown**>(created.GetAddressOf()));
         return created;
     }();
+    // 字形の座標から装置の画素への変換。
+    D2D1::Matrix3x2F transform;
+    rt->GetTransform(&transform);
+    float dpi_x = DEFAULT_DPI;
+    float dpi_y = DEFAULT_DPI;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    const auto world =
+        std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(transform * D2D1::Matrix3x2F::Scale(DpiScaleFrom(dpi_x), DpiScaleFrom(dpi_y))));
     ComPtr<IDWriteColorGlyphRunEnumerator> layers;
     if (!factory || FAILED(factory->TranslateColorGlyphRun(origin.x, origin.y, &run, desc, mode, &world, 0, &layers))) {
         return false;
     }
-    ComPtr<ID2D1SolidColorBrush> color;
+    LayerPainter painter(rt, brush, mode);
     BOOL has_run = FALSE;
-    while (SUCCEEDED(layers->MoveNext(&has_run)) && has_run) {
-        const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
-        if (FAILED(layers->GetCurrentRun(&layer))) {
-            break;
-        }
-        // 色の部分の無い字形 (paletteIndex 0xFFFF) は brush で描く。
-        ID2D1Brush* fill = brush;
-        if (layer->paletteIndex != 0xFFFF) {
-            if (!color && FAILED(rt->CreateSolidColorBrush(layer->runColor, &color))) {
-                break;
-            }
-            color->SetColor(layer->runColor);
-            fill = color.Get();
-        }
-        rt->DrawGlyphRun(D2D1::Point2F(layer->baselineOriginX, layer->baselineOriginY), &layer->glyphRun, fill, mode);
+    const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
+    while (SUCCEEDED(layers->MoveNext(&has_run)) && has_run && SUCCEEDED(layers->GetCurrentRun(&layer))) {
+        painter.Add(*layer);
     }
+    painter.Flush();
     return true;
 }
 
@@ -79,6 +167,30 @@ private:
 };
 
 } // namespace
+
+bool IsColorFont(IDWriteFontFace* face) noexcept
+{
+    ComPtr<IDWriteFontFace2> face2;
+    return face && SUCCEEDED(face->QueryInterface(IID_PPV_ARGS(&face2))) && face2->IsColorFont();
+}
+
+bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
+                       const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept
+{
+    if (DrawColorLayers(rt, origin, mode, run, desc, brush)) {
+        return true;
+    }
+    // COLR のフォントで層の無い字形 (国旗の地域指示子など) は、D2D に任せても単色になるうえ 1 回 0.5ms ほどかかる。
+    if (ComPtr<IDWriteFontFace4> face; FAILED(run.fontFace->QueryInterface(IID_PPV_ARGS(&face))) ||
+                                       (face->GetGlyphImageFormats() & DWRITE_GLYPH_IMAGE_FORMATS_COLR)) {
+        return false;
+    }
+    if (ComPtr<ID2D1DeviceContext7> dc7; SUCCEEDED(rt->QueryInterface(IID_PPV_ARGS(&dc7)))) {
+        dc7->DrawGlyphRunWithColorSupport(origin, &run, desc, brush, nullptr, 0, mode);
+        return true;
+    }
+    return false;
+}
 
 RenderTargetTextRenderer::RenderTargetTextRenderer(ID2D1RenderTarget* rt) noexcept : rt_(rt)
 {
@@ -120,25 +232,7 @@ HRESULT STDMETHODCALLTYPE RenderTargetTextRenderer::GetPixelsPerDip(void*, FLOAT
 bool RenderTargetTextRenderer::DrawColorGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
                                                  const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) const noexcept
 {
-    ComPtr<IDWriteFontFace4> face;
-    if (!run.fontFace || FAILED(run.fontFace->QueryInterface(IID_PPV_ARGS(&face))) || !face->IsColorFont()) {
-        return false;
-    }
-    const D2D1::Matrix3x2F device = *D2D1::Matrix3x2F::ReinterpretBaseType(&transform_) * D2D1::Matrix3x2F::Scale(pixels_per_dip_, pixels_per_dip_);
-    const auto world = std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(device));
-    const D2D1_POINT_2F origin = D2D1::Point2F(x, y);
-    if (DrawColorLayers(rt_, origin, mode, run, desc, brush, world)) {
-        return true;
-    }
-    // COLR のフォントで層の無い字形 (国旗の地域指示子など) は、D2D に任せても単色になるうえ 1 回 0.5ms ほどかかる。
-    if (face->GetGlyphImageFormats() & DWRITE_GLYPH_IMAGE_FORMATS_COLR) {
-        return false;
-    }
-    if (ComPtr<ID2D1DeviceContext7> dc7; SUCCEEDED(rt_->QueryInterface(IID_PPV_ARGS(&dc7)))) {
-        dc7->DrawGlyphRunWithColorSupport(origin, &run, desc, brush, nullptr, 0, mode);
-        return true;
-    }
-    return false;
+    return IsColorFont(run.fontFace) && ::DrawColorGlyphRun(rt_, D2D1::Point2F(x, y), mode, run, desc, brush);
 }
 
 void DrawTextLayoutWithColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, IDWriteTextLayout* layout, ID2D1Brush* brush) noexcept

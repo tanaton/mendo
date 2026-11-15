@@ -264,6 +264,18 @@ TEST_F(PeleEngineTest, FallsBackForCharactersOutsideKatexFonts)
     EXPECT_GT(ja->width, 0.0f);
 }
 
+// 絵文字は色のフォントの字形として組み、フォントの色で描く印を付ける。KaTeX の書体とほかのフォールバック (日本語) には付けない。
+TEST_F(PeleEngineTest, MarksEmojiGlyphsAsColorFont)
+{
+    const auto math = Math("\\text{a😀日}");
+    ASSERT_NE(math, nullptr);
+    const auto runs = ItemsOf<MathDrawing::Glyphs>(*math);
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_FALSE(runs[0].color_font);
+    EXPECT_TRUE(runs[1].color_font);
+    EXPECT_FALSE(runs[2].color_font);
+}
+
 // 同時に呼ぶとランタイムを増やし、どちらも描ける。捨てた後もバイトコードから作り直して描ける。
 TEST_F(PeleEngineTest, RendersConcurrentlyAndAfterTrim)
 {
@@ -590,6 +602,29 @@ TEST_F(MathDrawTest, MergedGlyphRunsMatchSeparateRuns)
             const auto canvas = MakeCanvas(*math, dpr);
             EXPECT_EQ(MaxChannelDiff(Draw(canvas, { math.get(), 1 }), Draw(canvas, separate)), 0) << tex << " dpr=" << dpr;
         }
+    }
+}
+
+// 数式の中の絵文字も、本文と同じくフォントの色で描く (左右に反転しても、色を指定しても)。印を外すと単色になる。
+TEST_F(MathDrawTest, EmojiIsDrawnInFontColors)
+{
+    const auto with = [](MathDrawing math, auto&& edit) {
+        for (auto& item : math.items) {
+            if (auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+                edit(*g);
+            }
+        }
+        return math;
+    };
+    const auto emoji = Math("\\text{😀}");
+    const auto gray = Math("\\textcolor{#888}{\\text{😀}}");
+    ASSERT_TRUE(emoji && gray);
+    const auto canvas = MakeCanvas(*emoji, 1.0f);
+    const MathDrawing cases[]{ *emoji, with(*emoji, [](MathDrawing::Glyphs& g) { g.mirror = true; }), *gray };
+    for (size_t i = 0; i < std::size(cases); ++i) {
+        EXPECT_TRUE(HasColoredPixel(Draw(canvas, { &cases[i], 1 }))) << i;
+        const auto plain = with(cases[i], [](MathDrawing::Glyphs& g) { g.color_font = false; });
+        EXPECT_FALSE(HasColoredPixel(Draw(canvas, { &plain, 1 }))) << i << ": 単色の描き方では色が付かない (比べる意味がある)";
     }
 }
 
