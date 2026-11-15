@@ -207,24 +207,10 @@ private:
             return s;
         };
         const auto tokens = cmd_.syntax_tokens;
-        if (tokens.empty()) {
-            const Span s = take_until(run.glyphCount);
-            if (s.first < s.last) {
-                DWRITE_GLYPH_RUN part = run;
-                part.glyphCount = s.last - s.first;
-                part.glyphIndices += s.first;
-                part.glyphAdvances += s.first;
-                if (part.glyphOffsets) {
-                    part.glyphOffsets += s.first;
-                }
-                rt_->DrawGlyphRun(D2D1::Point2F(s.first_x, y), &part, default_brush_, mode);
-            }
-            return;
-        }
 
         // トークンごとに DrawGlyphRun を呼ぶと、トークンの細かい JSON 60 行で 1 フレーム 1.5ms かかる。同じ色のグリフを 1 つのランに
         // 集め、間の別の色のグリフの送り幅は直前のグリフの送り幅に足して、色ごとに 1 回で描く (0.35ms。BM_CodeBlockDraw)。
-        // 置き場は使い回し、映るグリフの数までしか伸びない。
+        // 置き場は使い回し、映るグリフの数までしか伸びない。トークンの無いラン (色分けしない長い行) も同じ形で、組が 1 つになる。
         struct BrushGlyphs {
             ID2D1Brush* brush = nullptr;
             float start_x = 0.0f;

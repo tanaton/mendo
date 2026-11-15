@@ -599,13 +599,7 @@ struct ParseContext : NodeStorage {
             pending_run_start = static_cast<uint32_t>(target->size());
             has_pending_run = true;
         }
-        // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
-        if (text.size() == 1) {
-            target->push_back(text[0]);
-        }
-        else {
-            target->append(text);
-        }
+        target->append(text);
     }
 
     // DirectWrite は書式を付けるたびに範囲の並びを作り直すので、1 レイアウトに数万の装飾があると

@@ -100,6 +100,8 @@ void DisposeOnWorker(TaskScheduler& scheduler, T&& obj) noexcept
 // [0, count) を grain 単位の chunk に分け、scheduler の worker と呼び出し元で分担して fn(begin, end) を実行する。
 // 呼び出し元自身も chunk を取りに行くため、同じ scheduler の worker 上から呼んでもデッドロックしない
 // (着手前の helper は chunk 枯渇を見て fn に触れず即 return する)。fn は chunk 間で排他不要であること。
+// fn の例外は chunk ごとに捕まえて記録し、残りの chunk を続ける (呼び出し元へは投げない)。helper が要らないとき
+// (scheduler が無い・chunk が 1 つ) も同じ経路で呼び出し元が全 chunk を回し、例外の扱いを並列のときとそろえる。
 template <class Fn>
 void ParallelFor(TaskScheduler* scheduler, size_t count, size_t grain, Fn&& fn)
 {
@@ -109,10 +111,6 @@ void ParallelFor(TaskScheduler* scheduler, size_t count, size_t grain, Fn&& fn)
     grain = std::max<size_t>(grain, 1);
     const size_t chunk_count = (count + grain - 1) / grain;
     const size_t helper_count = scheduler ? std::min(scheduler->WorkerCount(), chunk_count - 1) : 0;
-    if (helper_count == 0) {
-        fn(size_t{ 0 }, count);
-        return;
-    }
 
     struct State {
         std::atomic<size_t> next{ 0 };
