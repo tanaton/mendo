@@ -65,10 +65,6 @@ struct ReloadBase {
     bool accept_prefix_shrink = false;
 };
 
-// 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
-// 表等の解放で UI を十数 ms 止めるため、これ以上のノード数なら worker で破棄する (DisposeOnWorkerIfLarge)。
-inline constexpr size_t kDisposeMinNodes = 4096;
-
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
 // NoChange / DeferPrefixShrink / StillGrowing / Locked はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
 struct ReloadCheck {

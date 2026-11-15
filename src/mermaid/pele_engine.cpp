@@ -389,7 +389,7 @@ void PeleEngine::Trim(TaskScheduler* scheduler, size_t keep)
         idle_.erase(idle_.begin(), cut);
     }
     if (scheduler) {
-        DisposeOnWorkerIfLarge(*scheduler, doomed.size(), 1, std::move(doomed));
+        DisposeOnWorker(*scheduler, std::move(doomed));
     }
 }
 

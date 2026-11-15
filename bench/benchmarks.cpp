@@ -1644,17 +1644,6 @@ BENCHMARK_DEFINE_F(TableMeasure, Initial)(benchmark::State& state)
 }
 BENCHMARK_REGISTER_F(TableMeasure, Initial)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
-// ワーカーで組むとき (TableMeasureJobs) と同じく、止める印を渡して行を区切った初回の計測。
-BENCHMARK_DEFINE_F(TableMeasure, InitialStoppable)(benchmark::State& state)
-{
-    const std::stop_source stop;
-    for (auto _ : state) {
-        BuiltTable built;
-        state.SetIterationTime(SecondsOf([&] { built = layout_->measurer.BuildTable(*table_, 1200.0f, stop.get_token()); }));
-    }
-}
-BENCHMARK_REGISTER_F(TableMeasure, InitialStoppable)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
-
 // 反復ごとに別の位置を復元する。
 BENCHMARK_DEFINE_F(TableMeasure, RestoreScreen)(benchmark::State& state)
 {
@@ -1767,22 +1756,6 @@ void BM_TableFewValues(benchmark::State& state)
     }
 }
 BENCHMARK(BM_TableFewValues)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
-
-// BM_TableFewValues の表を、ワーカーで組むとき (TableMeasureJobs) と同じく止める印を渡して組む。止める印を見る区切りの手間。
-void BM_TableFewValuesStoppable(benchmark::State& state)
-{
-    const auto [opened, table] = OpenTableOrSkip(state, FewValuesTableMd(static_cast<size_t>(state.range(0))), 8);
-    if (!table) {
-        return;
-    }
-    auto& l = opened->l;
-    const std::stop_source stop;
-    for (auto _ : state) {
-        BuiltTable built;
-        state.SetIterationTime(SecondsOf([&] { built = l.measurer.BuildTable(*table, 1200.0f, stop.get_token()); }));
-    }
-}
-BENCHMARK(BM_TableFewValuesStoppable)->Arg(20'000)->Arg(200'000)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
 
 // BM_TableFewValues の表を組んだ後に幅を 1200 → 1100 に変える。全行が退避しているので、行の高さを見積もる
 // FinalizeTableLayout の全セルの走査の手間。workers はワーカーの数 (0 は直列)。

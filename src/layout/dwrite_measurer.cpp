@@ -126,7 +126,9 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
 }
 
 // 初回計測でセル layout を残す表の大きさの上限。layout は 1 セル 7KB ほどあり、5 万行 6 列の表で 2GB になる。
-// これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す。
+// これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す
+// (どの表も捨てる形にそろえると、test.md x8 を全部測る BM_ComputeLayoutCold が 8 本で 180 → 244ms・直列で +6%。
+// 1 画面ずつめくる・開く・ジャンプでは揺れの内だった。2026-11-15)。
 constexpr size_t kMaxKeptTableCells = 1024;
 
 // 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。
@@ -684,23 +686,22 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
             }
         }
     };
-    // ワーカーで組むとき (TableMeasureJobs) は行を区切り、区切りごとに止める印を見る。1 回の ParallelFor の手伝いは chunk が
+    // 行を区切り、区切りごとに止める印を見る。ワーカーで組むとき (TableMeasureJobs) は、1 回の ParallelFor の手伝いが chunk の
     // 尽きるまで抜けないので、区切らないと組み終えるまで計測ワーカーを全部ふさぎ、UI スレッドの計測が手伝いを得られない。
+    // UI スレッドで測る表 (TableMeasureJobs::kMinCells 以下) も同じ形で測る。区切りは 3 つまでで、止める印が無いときだけ区切らずに
+    // 測っていた頃と速さは変わらない (BM_ComputeLayoutCold・BM_ViewportOpen・TableMeasure/Initial が ±1% 以内。2026-11-15)。
     // 区切りは測るセル (代表) 4096 個 (計測ワーカー 8 本で数 ms)。全セルの数で区切ると、代表と同じ中身で測らないセルばかりの
-    // 区切りが続き、区切りごとの ParallelFor の待ち合わせが重なる (BM_TableFewValuesStoppable の 20 万行で 39.4 → 32.2ms、
-    // 2 万行で 4.5 → 3.3ms。長い文の表の TableMeasure/InitialStoppable は変わらない)。
+    // 区切りが続き、区切りごとの ParallelFor の待ち合わせが重なる (BM_TableFewValues の 20 万行で 39.4 → 32.2ms、
+    // 2 万行で 4.5 → 3.3ms。長い文の表の TableMeasure/Initial は変わらない)。
     constexpr size_t kCellsPerStopCheck = 4096;
     // first から始まる区切り [first, end) と、その中で測るセルのある最後の行の次 (work_end)。work_end から先の行は回さない
-    // (同じ値ばかりの表は代表が先頭の数行に集まり、残りの全行を 1 行ずつの chunk で回していた。BM_TableFewValuesStoppable の
+    // (同じ値ばかりの表は代表が先頭の数行に集まり、残りの全行を 1 行ずつの chunk で回していた。BM_TableFewValues の
     // 20 万行で -21%。上の値とは別の時に新旧を交互に回して 36.2 → 28.6ms)。
     struct Batch {
         size_t work_end;
         size_t end;
     };
     const auto next_batch = [&](size_t first) {
-        if (!stop.stop_possible()) {
-            return Batch{ tbl.row_count, tbl.row_count };
-        }
         size_t cells = 0;
         Batch batch{ first, first };
         for (; batch.end < tbl.row_count && cells < kCellsPerStopCheck; ++batch.end) {

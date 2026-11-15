@@ -715,15 +715,11 @@ void App::ShowEmbeddedResource(std::wstring_view path)
     OpenDocument(std::move(doc), std::move(estimated), /*follow_file_pane=*/false, {});
 }
 
-namespace {
-// IDWriteTextLayout の解放は 1 個 2〜3µs かかる。
-constexpr size_t kDisposeMinLayouts = 256;
-} // namespace
-
 void App::DisposeReleasedLayouts()
 {
-    auto released = state_.document.layout_cache.TakeReleasedLayouts();
-    DisposeOnWorkerIfLarge(scheduler_, released.size(), kDisposeMinLayouts, std::move(released));
+    if (auto released = state_.document.layout_cache.TakeReleasedLayouts(); !released.empty()) {
+        DisposeOnWorker(scheduler_, std::move(released));
+    }
 }
 
 void App::ReplaceDocument(Document next, LayoutCache estimated)
@@ -735,9 +731,7 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     table_jobs_.SetDocument(state_.document.doc.ShareData());
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
     old_cache.ReleaseDiagrams();
-    // 表は 1 ノードにセルの数だけレイアウトを持つので、ノード数によらずワーカーで捨てる。
-    scheduler_.Post([o = std::move(old_cache)] {});
-    DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), kDisposeMinNodes, std::move(old));
+    DisposeOnWorker(scheduler_, std::pair{ std::move(old), std::move(old_cache) });
 }
 
 void App::BeginAsyncLoad(std::wstring path, bool show_animation)
@@ -848,7 +842,7 @@ void App::OnParseComplete()
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
     // 差し替えに使わない文書を捨てる。worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
     const auto dispose_result = [&] {
-        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+        DisposeOnWorker(scheduler_, std::move(outcome));
     };
     switch (step) {
     case ParseCompleteStep::IgnoreStale:

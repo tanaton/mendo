@@ -305,7 +305,7 @@ private:
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
     void OnDeferredLayout();
-    // 捨てたテキストレイアウトが多ければワーカーで解放する。
+    // 捨てたテキストレイアウトをワーカーで解放する。
     void DisposeReleasedLayouts();
     void RecomputeLayout(IndexRange changed) override;
     void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override;
