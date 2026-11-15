@@ -157,7 +157,7 @@ void App::AwaitImageFoldersBeforeDevice()
     while (device_ready && resource_manager_.IsOpeningImageFolders()) {
         HANDLE handles[kMaxFileWatchEvents + 1]{ device_ready };
         const auto count = static_cast<DWORD>(1 + GetFileWatchEvents(std::span{ handles }.subspan(1)));
-        // 作成が先に終われば待たない (画像は従来どおり最初のフレームの後に頼む)。
+        // 作成が先に終われば待たない (画像は最初のフレームの後に頼む)。
         const DWORD wait = WaitForMultipleObjects(count, handles, FALSE, INFINITE);
         if (wait == WAIT_OBJECT_0 || wait >= WAIT_OBJECT_0 + count) {
             return;

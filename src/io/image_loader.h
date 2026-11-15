@@ -99,7 +99,7 @@ public:
     // 載せず寸法だけを入れる。速いスクロールで待ち行列に溜まった要求を読み続けると、止まった位置の画像が後回しになる
     // (写真 200 枚の表を 16ms おきにめくると、止まってから画像が揃うまで 404 → 283ms、GPU への転送 133 → 76 回。2026-11-08)。
     void CancelStaleBitmapRequests() noexcept;
-    // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
+    // 時間切れで取り込まずに残した結果があるか (新しい結果は投函で知らせる)。描画先が無い間は取り込めないので偽。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
         return render_target_ && completed_.HasLeftover();

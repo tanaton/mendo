@@ -175,7 +175,7 @@ struct PopupWindow {
         const int pixel_w = r.right - r.left;
         const int pixel_h = r.bottom - r.top;
         SetWindowPos(hwnd, nullptr, r.left, r.top, pixel_w, pixel_h, SWP_NOZORDER | SWP_NOACTIVATE);
-        // 描画先は大きさごと作り直す (DPI の違うモニタへ移ったときだけ)。
+        // 描画先は大きさと DPI ごと作り直す (DPI の違うモニタへ移ったとき・設定ダイアログが言語を替えて大きさが変わったとき)。
         if (rt) {
             ReleaseTarget();
         }
@@ -187,24 +187,6 @@ struct PopupWindow {
         const int pixel_w = DipToPixelCeil(width, dpi_scale);
         const int pixel_h = DipToPixelCeil(height, dpi_scale);
         return { (around.left + around.right - pixel_w) / 2, (around.top + around.bottom - pixel_h) / 2 };
-    }
-
-    void HoverAt(float x, float y)
-    {
-        if (derived().UpdateHover(x, y)) {
-            InvalidateRect(hwnd, nullptr, FALSE);
-        }
-    }
-
-    // カーソルの位置からホバーを引き直す。キャプチャしているので窓の外の動きも届き、外では何にも当たらずに消える。
-    void RefreshHover()
-    {
-        POINT pt{};
-        if (!GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt)) {
-            return;
-        }
-        const auto [x, y] = PixelToDip(pt.x, pt.y, dpi_scale);
-        HoverAt(x, y);
     }
 
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
@@ -318,6 +300,24 @@ private:
         return static_cast<Derived&>(*this);
     }
 
+    void HoverAt(float x, float y)
+    {
+        if (derived().UpdateHover(x, y)) {
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+    }
+
+    // カーソルの位置からホバーを引き直す。キャプチャしているので窓の外の動きも届き、外では何にも当たらずに消える。
+    void RefreshHover()
+    {
+        POINT pt{};
+        if (!GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt)) {
+            return;
+        }
+        const auto [x, y] = PixelToDip(pt.x, pt.y, dpi_scale);
+        HoverAt(x, y);
+    }
+
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
         auto* self = BindWindowInstance<Derived>(hwnd, msg, lParam);
@@ -419,7 +419,7 @@ private:
 
     void Paint()
     {
-        // デバイスロスト後 (EndDraw が D2DERR_RECREATE_TARGET で rt を破棄) はここで再生成する。
+        // 描画先を捨てた後 (置き直し・デバイスロスト) はここで作り直す。
         if (!rt && !CreateDeviceResources()) {
             return;
         }

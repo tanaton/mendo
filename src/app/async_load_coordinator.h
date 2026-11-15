@@ -142,7 +142,7 @@ private:
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
     void NotifyLocked() const noexcept;
 
-    // sink を swap-out して mutex の外で破棄する。大きな文書は worker に回す。
+    // sink を swap-out して mutex の外で破棄する。結果の文書は worker で捨てる。
     void ResetSinks() noexcept;
 
     // worker の完了を待つ (latch_) ので coordinator より長く生きる。
