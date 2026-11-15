@@ -1,10 +1,158 @@
 #include "d2d_util.h"
-#include <d2d1_1.h>
+#include "ui_constants.h"
+#include <d2d1_3.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <algorithm>
+#include <bit>
 
 using Microsoft::WRL::ComPtr;
+
+namespace {
+
+// COLR の層を 1 枚ずつ、層の色の単色で塗る。COLR の層が無ければ false。
+bool DrawColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
+                     const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept
+{
+    static const ComPtr<IDWriteFactory2> factory = [] {
+        ComPtr<IDWriteFactory2> created;
+        DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory2), reinterpret_cast<IUnknown**>(created.GetAddressOf()));
+        return created;
+    }();
+    D2D1::Matrix3x2F transform;
+    rt->GetTransform(&transform);
+    float dpi_x = DEFAULT_DPI;
+    float dpi_y = DEFAULT_DPI;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    const float pixels_per_dip = DpiScaleFrom(dpi_x);
+    const auto world = std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(transform * D2D1::Matrix3x2F::Scale(pixels_per_dip, pixels_per_dip)));
+    ComPtr<IDWriteColorGlyphRunEnumerator> layers;
+    if (!factory || FAILED(factory->TranslateColorGlyphRun(origin.x, origin.y, &run, desc, mode, &world, 0, &layers))) {
+        return false;
+    }
+    ComPtr<ID2D1SolidColorBrush> color;
+    BOOL has_run = FALSE;
+    while (SUCCEEDED(layers->MoveNext(&has_run)) && has_run) {
+        const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
+        if (FAILED(layers->GetCurrentRun(&layer))) {
+            break;
+        }
+        ID2D1Brush* fill = brush;
+        if (layer->paletteIndex != 0xFFFF) {
+            const auto c = D2D1::ColorF(layer->runColor.r, layer->runColor.g, layer->runColor.b, layer->runColor.a);
+            if (!color && FAILED(rt->CreateSolidColorBrush(c, &color))) {
+                break;
+            }
+            color->SetColor(c);
+            fill = color.Get();
+        }
+        rt->DrawGlyphRun(D2D1::Point2F(layer->baselineOriginX, layer->baselineOriginY), &layer->glyphRun, fill, mode);
+    }
+    return true;
+}
+
+// 1 つの brush で描くテキストレイアウトのレンダラ。絵文字は DrawColorGlyphRun で描く。
+// スタック上でのみ使うので参照カウントは持たない。
+class ColorLayerTextRenderer final : public IDWriteTextRenderer {
+public:
+    ColorLayerTextRenderer(ID2D1RenderTarget* rt, ID2D1Brush* brush) noexcept : rt_(rt), brush_(brush)
+    {
+        rt->GetTransform(&transform_);
+        float dpi_x = DEFAULT_DPI;
+        float dpi_y = DEFAULT_DPI;
+        rt->GetDpi(&dpi_x, &dpi_y);
+        pixels_per_dip_ = DpiScaleFrom(dpi_x);
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
+    {
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDWritePixelSnapping) || riid == __uuidof(IDWriteTextRenderer)) {
+            *out = this;
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+
+    HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override
+    {
+        *disabled = FALSE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) noexcept override
+    {
+        *transform = std::bit_cast<DWRITE_MATRIX>(transform_);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override
+    {
+        *pixels_per_dip = pixels_per_dip_;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(void*, FLOAT x, FLOAT y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN* run,
+                                           const DWRITE_GLYPH_RUN_DESCRIPTION* desc, IUnknown*) noexcept override
+    {
+        if (!DrawColorGlyphRun(rt_, D2D1::Point2F(x, y), mode, *run, desc, brush_)) {
+            rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, brush_, mode);
+        }
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT x, FLOAT y, const DWRITE_UNDERLINE* u, IUnknown*) noexcept override
+    {
+        rt_->FillRectangle(D2D1::RectF(x, y + u->offset, x + u->width, y + u->offset + u->thickness), brush_);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*, FLOAT x, FLOAT y, const DWRITE_STRIKETHROUGH* s, IUnknown*) noexcept override
+    {
+        rt_->FillRectangle(D2D1::RectF(x, y + s->offset, x + s->width, y + s->offset + s->thickness), brush_);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawInlineObject(void* context, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL sideways, BOOL rtl,
+                                               IUnknown* effect) noexcept override
+    {
+        return object ? object->Draw(context, this, x, y, sideways, rtl, effect) : S_OK;
+    }
+
+private:
+    ID2D1RenderTarget* rt_;
+    ID2D1Brush* brush_;
+    D2D1_MATRIX_3X2_F transform_{};
+    float pixels_per_dip_ = 1.0f;
+};
+
+} // namespace
+
+bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
+                       const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept
+{
+    ComPtr<IDWriteFontFace2> face;
+    if (!run.fontFace || FAILED(run.fontFace->QueryInterface(IID_PPV_ARGS(&face))) || !face->IsColorFont()) {
+        return false;
+    }
+    if (DrawColorLayers(rt, origin, mode, run, desc, brush)) {
+        return true;
+    }
+    if (ComPtr<ID2D1DeviceContext7> dc7; SUCCEEDED(rt->QueryInterface(IID_PPV_ARGS(&dc7)))) {
+        dc7->DrawGlyphRunWithColorSupport(origin, &run, desc, brush, nullptr, 0, mode);
+        return true;
+    }
+    return false;
+}
+
+void DrawTextLayoutWithColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, IDWriteTextLayout* layout, ID2D1Brush* brush) noexcept
+{
+    ColorLayerTextRenderer renderer{ rt, brush };
+    layout->Draw(nullptr, &renderer, origin.x, origin.y);
+}
 
 WindowSwapTarget::WindowSwapTarget() noexcept = default;
 

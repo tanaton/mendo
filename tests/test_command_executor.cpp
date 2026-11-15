@@ -333,16 +333,37 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     EXPECT_EQ(RenderTextLayout(cmd, true), expected);
 }
 
-// 本文の絵文字はフォントの色で描き、図のラベル (DrawTextLayout の ENABLE_COLOR_FONT) と同じ画素になる。周りの文字は黒のまま。
-TEST_F(CommandExecutorIntegrationTest, ColorEmojiMatchesDrawTextLayoutWithColorFont)
+// 本文の絵文字は COLR の層をフォントの色で塗る。D2D に任せる描き方 (DrawTextLayout の ENABLE_COLOR_FONT) は Windows 11 で
+// グラデーションの陰影まで描くので画素は同じにならない。
+TEST_F(CommandExecutorIntegrationTest, ColorEmojiIsDrawnWithLayerColors)
 {
     const auto layout = CreateTextLayout(L"a😀", L"Segoe UI", L"en-us", 30.0f, 30.0f);
     ASSERT_TRUE(layout);
     const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
-    const auto expected = RenderTextLayout(cmd, false, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-    ASSERT_TRUE(HasColoredPixel(expected)) << "絵文字に色が付いていない";
-    EXPECT_EQ(RenderTextLayout(cmd, true), expected);
+    EXPECT_TRUE(HasColoredPixel(RenderTextLayout(cmd, true))) << "絵文字に色が付いていない";
     EXPECT_FALSE(HasColoredPixel(RenderTextLayout(cmd, false))) << "色を付けない描き方では単色になる (比べる意味がある)";
+}
+
+// 図のラベル (DrawTextLayoutWithColorLayers) は、絵文字も下線・取り消し線も本文 (executor) と同じ画素になる。
+TEST_F(CommandExecutorIntegrationTest, DiagramLabelTextMatchesBodyText)
+{
+    const auto layout = CreateTextLayout(L"a😀b", L"Segoe UI", L"en-us", 20.0f, 30.0f);
+    ASSERT_TRUE(layout);
+    layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, 1 });
+    layout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 3, 1 });
+    const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
+    const auto body = RenderTextLayout(cmd, true);
+    ASSERT_TRUE(HasColoredPixel(body)) << "絵文字に色が付いていない";
+
+    ComPtr<ID2D1RenderTarget> rt;
+    ASSERT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
+    ComPtr<ID2D1SolidColorBrush> black;
+    ASSERT_HRESULT_SUCCEEDED(rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &black));
+    rt->BeginDraw();
+    rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    DrawTextLayoutWithColorLayers(rt.Get(), cmd.origin, layout.Get(), black.Get());
+    ASSERT_HRESULT_SUCCEEDED(rt->EndDraw());
+    EXPECT_EQ(ReadAllPixels(), body);
 }
 
 // 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、
