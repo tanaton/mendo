@@ -380,6 +380,11 @@ struct LexerConfig {
     bool lua_long_bracket = false;                // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
 };
 
+// 行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin) を持つか。持つ言語だけが行頭の判定を保ち、
+// 区切ったコードの続きを行の途中から読むときは kSyntaxMidLine を受け取る。
+template <LexerConfig Cfg>
+inline constexpr bool kHasLineHeadTokens = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
+
 // Cfg の言語で、識別子と数値以外のトークンを始める文字 (rem のような語で始まるものは識別子の文字なので要らない)。
 // TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かないので、
 // SyntaxSequence.TokenStartCharsReachTheirBranches にも足す。
@@ -416,21 +421,23 @@ constexpr bool IsShellWordBoundary(char c) noexcept
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
 // 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
+// line_head は begin が行の頭か (区切ったコードの続きを行の途中から読むときは偽)。
 template <LexerConfig Cfg>
 void TokenizeRange(
     std::string_view text,
     size_t begin,
     kw::KeywordTable keywords,
     kw::KeywordTable types,
-    std::vector<SyntaxToken>& tokens)
+    std::vector<SyntaxToken>& tokens,
+    bool line_head = true)
 {
     // 行頭判定が必要な言語のみフラグを保持する。それ以外では at_line_start の維持コストを払わない。
-    constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
+    constexpr bool kNeedAtLineStart = kHasLineHeadTokens<Cfg>;
 
     size_t i = begin;
     // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
     // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
-    [[maybe_unused]] bool at_line_start = true;
+    [[maybe_unused]] bool at_line_start = line_head;
 
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
     const auto emit_from = [&](size_t start, SyntaxTokenType type) {
@@ -3037,55 +3044,63 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 
 namespace {
 
+// 状態はトークンの中にしか無いので、トークンの外ならどこからでも始められる。ただし行の頭でだけ効くトークンを持つ言語は、
+// 行の途中から始めることを state (kSyntaxMidLine) で受け取る (受け取らないと、長い 1 行を区切った続きのノードの頭の rem や # を
+// 行の頭として読み、続きがまるごとコメントになる)。
 template <LexerConfig Cfg>
-bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, std::vector<SyntaxToken>& tokens)
+bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, std::vector<SyntaxToken>& tokens,
+         SyntaxLexState state, SyntaxStateTrace* trace)
 {
-    TokenizeRange<Cfg>(text, begin, keywords, types, tokens);
+    if (trace) {
+        trace->SetStateless(kHasLineHeadTokens<Cfg>);
+    }
+    TokenizeRange<Cfg>(text, begin, keywords, types, tokens, state != kSyntaxMidLine);
     return true;
 }
 
-// TokenizeRange で解析する言語なら解析して true を返す。状態はトークンの中にしか無いので、トークンの外ならどこからでも始められる。
-bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
+// TokenizeRange で解析する言語なら解析して true を返す。
+bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, SyntaxLexState state,
+                           SyntaxStateTrace* trace)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
-        return Lex<CPP_LEXER_CONFIG>(text, begin, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+        return Lex<CPP_LEXER_CONFIG>(text, begin, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens, state, trace);
     case SyntaxLanguage::Python:
-        return Lex<PYTHON_LEXER_CONFIG>(text, begin, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+        return Lex<PYTHON_LEXER_CONFIG>(text, begin, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens, state, trace);
     case SyntaxLanguage::JavaScript:
-        return Lex<JS_LEXER_CONFIG>(text, begin, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+        return Lex<JS_LEXER_CONFIG>(text, begin, kw::JS_KEYWORDS, kw::JS_TYPES, tokens, state, trace);
     case SyntaxLanguage::Go:
-        return Lex<GO_LEXER_CONFIG>(text, begin, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+        return Lex<GO_LEXER_CONFIG>(text, begin, kw::GO_KEYWORDS, kw::GO_TYPES, tokens, state, trace);
     case SyntaxLanguage::Rust:
-        return Lex<RUST_LEXER_CONFIG>(text, begin, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+        return Lex<RUST_LEXER_CONFIG>(text, begin, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens, state, trace);
     case SyntaxLanguage::TypeScript:
-        return Lex<JS_LEXER_CONFIG>(text, begin, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+        return Lex<JS_LEXER_CONFIG>(text, begin, kw::TS_KEYWORDS, kw::TS_TYPES, tokens, state, trace);
     case SyntaxLanguage::Bash:
-        return Lex<BASH_LEXER_CONFIG>(text, begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+        return Lex<BASH_LEXER_CONFIG>(text, begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens, state, trace);
     case SyntaxLanguage::PowerShell:
-        return Lex<PWSH_LEXER_CONFIG>(text, begin, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+        return Lex<PWSH_LEXER_CONFIG>(text, begin, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens, state, trace);
     case SyntaxLanguage::Cmd:
-        return Lex<CMD_LEXER_CONFIG>(text, begin, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+        return Lex<CMD_LEXER_CONFIG>(text, begin, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens, state, trace);
     case SyntaxLanguage::Json:
-        return Lex<JSON_LEXER_CONFIG>(text, begin, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+        return Lex<JSON_LEXER_CONFIG>(text, begin, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens, state, trace);
     case SyntaxLanguage::Java:
-        return Lex<JAVA_LEXER_CONFIG>(text, begin, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+        return Lex<JAVA_LEXER_CONFIG>(text, begin, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens, state, trace);
     case SyntaxLanguage::CSharp:
-        return Lex<CSHARP_LEXER_CONFIG>(text, begin, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+        return Lex<CSHARP_LEXER_CONFIG>(text, begin, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens, state, trace);
     case SyntaxLanguage::Kotlin:
-        return Lex<KOTLIN_LEXER_CONFIG>(text, begin, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+        return Lex<KOTLIN_LEXER_CONFIG>(text, begin, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens, state, trace);
     case SyntaxLanguage::Swift:
-        return Lex<SWIFT_LEXER_CONFIG>(text, begin, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+        return Lex<SWIFT_LEXER_CONFIG>(text, begin, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens, state, trace);
     case SyntaxLanguage::Php:
-        return Lex<PHP_LEXER_CONFIG>(text, begin, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+        return Lex<PHP_LEXER_CONFIG>(text, begin, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens, state, trace);
     case SyntaxLanguage::Ruby:
-        return Lex<RUBY_LEXER_CONFIG>(text, begin, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+        return Lex<RUBY_LEXER_CONFIG>(text, begin, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens, state, trace);
     case SyntaxLanguage::Sql:
-        return Lex<SQL_LEXER_CONFIG>(text, begin, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+        return Lex<SQL_LEXER_CONFIG>(text, begin, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens, state, trace);
     case SyntaxLanguage::Zig:
-        return Lex<ZIG_LEXER_CONFIG>(text, begin, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
+        return Lex<ZIG_LEXER_CONFIG>(text, begin, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens, state, trace);
     case SyntaxLanguage::Lua:
-        return Lex<LUA_LEXER_CONFIG>(text, begin, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
+        return Lex<LUA_LEXER_CONFIG>(text, begin, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens, state, trace);
     default:
         return false;
     }
@@ -3159,6 +3174,7 @@ void SyntaxStateTrace::Reset(SyntaxLexState entry, size_t text_size, std::span<c
     unsettled_ = false;
     unsettled_line_ = false;
     stateless_ = false;
+    line_head_ = false;
     outer = 0;
 }
 
@@ -3222,11 +3238,25 @@ SyntaxStateTrace::Point SyntaxStateTrace::RestartFor(size_t token_start) const n
 void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin, SyntaxLexState state,
                   SyntaxStateTrace* trace)
 {
-    if (TokenizeByLexerConfig(text, begin, language, tokens)) {
-        MarkStateless(trace);
+    if (TokenizeByLexerConfig(text, begin, language, tokens, state, trace)) {
         return;
     }
     TokenizeStateful(text, language, begin, state, tokens, trace);
+}
+
+std::optional<bool> EndsAtLineHead(SyntaxLanguage language, std::string_view text) noexcept
+{
+    // TokenizeRange の行頭の判定と同じ規則 (@ で行の頭を崩さないのは rem_comment を持つ cmd だけ)。
+    const bool cmd = language == SyntaxLanguage::Cmd;
+    for (size_t i = text.size(); i-- > 0;) {
+        if (text[i] == '\n') {
+            return true;
+        }
+        if (!(cmd ? KeepsLineStart<CMD_LEXER_CONFIG.rem_comment>(text[i]) : KeepsLineStart<false>(text[i]))) {
+            return false;
+        }
+    }
+    return std::nullopt;
 }
 
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

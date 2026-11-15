@@ -1942,6 +1942,14 @@ TEST(ChunkCopy, LongLineSplitMidLineIsNotReadAsLineStart)
         ExpectStatefulChunksMatch("make", "SRCS = " + pad + repeat("a.c name: $(X) k=v ", 20000) + "\nall: dep\n    echo " + pad +
                                               repeat("x: y=1 $@ \"s\" ", 25000) + "\n    rm -f $@\nX = 1\ntarget: " + pad + repeat("dep: d2 ", 40000) +
                                               "\n    echo done\n");
+        // 状態を持たない lexer の言語でも、行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin) を
+        // 続きのノードの頭で読まない。継ぎ目をまたぐコメントの直後も行の途中のまま読む。
+        ExpectStatefulChunksMatch("cmd", "echo " + pad + repeat("rem :: @rem x ", 40000) + "\nrem real\n@:: label\n");
+        ExpectStatefulChunksMatch("cpp", "int a = " + pad + repeat("b # c ", 80000) + ";\n#define X 1\n");
+        ExpectStatefulChunksMatch("cpp", "f(" + pad + repeat("/* c */ #x ", 40000) + ");\n#if 1\n#endif\n");
+        ExpectStatefulChunksMatch("csharp", "var a = " + pad + repeat("b #c ", 80000) + ";\n#region r\n");
+        ExpectStatefulChunksMatch("swift", "let a = " + pad + repeat("b #c ", 80000) + "\n#if DEBUG\n#endif\n");
+        ExpectStatefulChunksMatch("ruby", "x = " + pad + repeat("=begin y ", 50000) + "\n=begin\nc\n=end\n");
     }
 }
 

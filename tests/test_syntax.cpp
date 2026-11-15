@@ -1773,3 +1773,44 @@ TEST(SyntaxSequence, QuoteEscapesAndLineEnds)
                         { { "RUN", Keyword }, { "echo", Type }, { "\"a\\\"b\"", String }, { "'c'", String }, { "# d", Comment } });
     ExpectTokenSequence("(f \"a\\\"b\" \"c\nd\" e)", CommonLisp, { { "f", Function }, { "\"a\\\"b\"", String }, { "\"c\nd\"", String } });
 }
+
+// 区切ったコードの続きを読み始める所が行の頭か。改行から後ろが空白だけなら行の頭で、cmd だけはエコーを抑える @ も行の頭を崩さない。
+// 改行が無ければ前のテキストで決まる。
+TEST(EndsAtLineHead, BlanksAfterNewlineKeepLineHead)
+{
+    using enum SyntaxLanguage;
+    EXPECT_EQ(EndsAtLineHead(Cpp, "int a;\n  \t"), true);
+    EXPECT_EQ(EndsAtLineHead(Cpp, "int a;\n  b "), false);
+    EXPECT_EQ(EndsAtLineHead(Cpp, "  "), std::nullopt);
+    EXPECT_EQ(EndsAtLineHead(Cpp, ""), std::nullopt);
+    EXPECT_EQ(EndsAtLineHead(Cmd, "echo\n @@ "), true);
+    EXPECT_EQ(EndsAtLineHead(Cpp, "x\n @"), false);
+}
+
+// 行の途中から始める状態 (kSyntaxMidLine) を渡すと、行の頭でだけ効くトークンにしない。
+TEST(EndsAtLineHead, MidLineStateSkipsLineHeadTokens)
+{
+    using enum SyntaxLanguage;
+    const std::pair<SyntaxLanguage, std::string_view> cases[] = {
+        { Cpp, "#define X 1" },
+        { CSharp, "#region r" },
+        { Swift, "#if DEBUG" },
+        { Cmd, "rem note" },
+        { Cmd, ":: note" },
+        { Ruby, "=begin\nnote\n=end" },
+    };
+    // 先頭の文字から始まるコメントかプリプロセッサのトークンがあるか。
+    const auto starts_with_line_head_token = [](std::span<const SyntaxToken> tokens) {
+        return !tokens.empty() && tokens.front().start == 0 &&
+               (tokens.front().type == SyntaxTokenType::Comment || tokens.front().type == SyntaxTokenType::Preprocessor);
+    };
+    for (const auto& [language, text] : cases) {
+        SCOPED_TRACE(text);
+        std::vector<SyntaxToken> head;
+        AppendTokens(text, language, head, 0, 0);
+        EXPECT_TRUE(starts_with_line_head_token(head));
+        std::vector<SyntaxToken> mid;
+        AppendTokens(text, language, mid, 0, kSyntaxMidLine);
+        EXPECT_FALSE(starts_with_line_head_token(mid));
+    }
+}

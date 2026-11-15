@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -83,6 +84,9 @@ struct SyntaxToken {
 // 符号は言語ごとで、Node が続くトークンと一緒に持てるよう kSyntaxLexStateBits に収める。0 はコードの先頭の状態。
 using SyntaxLexState = uint32_t;
 inline constexpr int kSyntaxLexStateBits = 24;
+// 状態を持たない lexer の言語のうち、行の頭でだけ効くトークン (C 系・C#・Swift の #、cmd の rem と ::、Ruby の =begin) を持つ言語に
+// 渡す、行の途中から解析を始める状態。渡さなければ行の頭から始める。
+inline constexpr SyntaxLexState kSyntaxMidLine = 1;
 
 // 解析の途中の状態の記録。区切ったコードの並びを窓ごとに前から解析するとき (AnnotateCodeChunkLeads) にだけ渡し、
 // 継ぎ目での状態と、次の窓を始められる位置を取り出す。位置は解析したテキストの先頭から数える。
@@ -99,9 +103,12 @@ public:
     // wanted は状態を知りたい位置 (昇順)。位置 0 の状態は entry。
     void Reset(SyntaxLexState entry, size_t text_size, std::span<const size_t> wanted);
     // どのトークンの頭からでも状態なしで始め直せる言語 (LexerConfig の言語と、状態を持たない専用 lexer) の解析だった。
-    void SetStateless() noexcept
+    // line_head なら行の頭でだけ効くトークンを持つ言語で、行の途中から始め直すときは kSyntaxMidLine を渡す。位置ごとの状態は
+    // 残さないので、行の途中かは呼び出し側が前の文字から EndsAtLineHead で求める。
+    void SetStateless(bool line_head = false) noexcept
     {
         stateless_ = true;
+        line_head_ = line_head;
     }
 
     // --- lexer が呼ぶ。pos は昇順 ---
@@ -145,6 +152,11 @@ public:
     {
         return unsettled_line_;
     }
+    // SetStateless(true) だった。始め直す位置が行の途中なら kSyntaxMidLine を渡す。
+    bool NeedsLineHeadState() const noexcept
+    {
+        return line_head_;
+    }
 
     // 入れ子の lexer (HTML の <style> の中の CSS) が残す状態に重ねる、外側の lexer の状態。
     SyntaxLexState outer = 0;
@@ -162,6 +174,7 @@ private:
     bool unsettled_ = false;
     bool unsettled_line_ = false;
     bool stateless_ = false;
+    bool line_head_ = false;
 };
 
 SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept;
@@ -172,3 +185,7 @@ std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language
 // state は begin での状態で、begin はトークンの外にあること。trace があれば、Reset で渡した位置での状態を残す (呼ぶ前に Reset する)。
 void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin = 0, SyntaxLexState state = 0,
                   SyntaxStateTrace* trace = nullptr);
+
+// text の後ろから language の解析を続けるとき、そこが行の頭か。text の最後の改行から後ろが、行の頭を崩さない文字 (空白。cmd は
+// エコーを抑える @ も) だけなら行の頭。改行に届かずに text が尽きたら nullopt (前のテキストで決まる)。
+std::optional<bool> EndsAtLineHead(SyntaxLanguage language, std::string_view text) noexcept;

@@ -371,6 +371,22 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     }
     // 区切ったコードの並びをつないだテキストでの、ノード k の終わり。
     const auto run_end = [&](size_t k) noexcept { return begins[k] + run[k].GetText().size(); };
+    // つないだテキストの pos から解析を始めるとき、そこが行の頭か。前の改行まで、継ぎ目を越えてさかのぼる (ふつうは直前の文字で決まる)。
+    const SyntaxLanguage language = run.front().code_language;
+    const auto at_line_head = [&](size_t pos) {
+        size_t k = static_cast<size_t>(std::ranges::upper_bound(begins, pos) - begins.begin()) - 1;
+        std::string_view before = run[k].GetText().substr(0, pos - begins[k]);
+        for (;;) {
+            if (const auto head = EndsAtLineHead(language, before)) {
+                return *head;
+            }
+            // ノードの頭まで行の頭を崩す文字が無かった。前のノードとの間で改行していたか、並びの先頭なら行の頭。
+            if (k == 0 || run[k].newline_before_chunk()) {
+                return true;
+            }
+            before = run[--k].GetText();
+        }
+    };
 
     // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す。16MB のコードのパースが C++ で 51〜72ms、JS で 96ms、
     // YAML で 98ms ほどになるが、巨大なコードを開くときだけなので worker に配らない。LexerConfig の言語は継ぎ目をまたぐトークンだけを
@@ -411,7 +427,12 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         wanted.erase(dup_begin, dup_end);
         trace.Reset(restart_state, seg.size(), wanted);
         tokens.clear();
-        AppendTokens(seg, run.front().code_language, tokens, 0, restart_state, &trace);
+        AppendTokens(seg, language, tokens, 0, restart_state, &trace);
+        // 状態を持たない lexer でも、行の頭でだけ効くトークン (C 系の # など) を持つ言語は、行の途中から始めることを状態で渡す。
+        // 続くトークンの後ろも行の途中 (トークンは空白でない文字で終わる)。
+        const auto resume_state = [&](size_t pos, SyntaxLexState traced) {
+            return trace.NeedsLineHeadState() && !at_line_head(pos) ? kSyntaxMidLine : traced;
+        };
 
         // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、解析を始め直せる位置から次の窓を読む。
         // 先読みが窓の端に届いた所から後ろも、続きを読むまで決まらない。
@@ -458,11 +479,11 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
                 resume = std::min(restart + tokens[t].start + tokens[t].length, run_end(next));
                 lead_type = tokens[t].type;
             }
-            run[next].set_code_lead(static_cast<uint32_t>(resume - b), lead_type, trace.For(b - restart).state);
+            run[next].set_code_lead(static_cast<uint32_t>(resume - b), lead_type, resume_state(resume, trace.For(b - restart).state));
         }
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
         window = limit == restart ? window * 2 : kWindowNodes;
-        restart_state = stop.state;
+        restart_state = resume_state(limit, stop.state);
         restart = limit;
     }
 }
