@@ -20,9 +20,6 @@ struct ID2D1CommandList;
 struct ID2D1DeviceContext5;
 struct ID2D1RenderTarget;
 struct ID2D1Factory;
-struct IDWriteFactory;
-struct IDWriteFontCollection;
-struct IDWriteTextFormat;
 
 // 図の背景。拡大表示の窓もそろえる。
 inline constexpr uint32_t kDiagramLightBackground = 0xFFFFFF;
@@ -115,7 +112,6 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(ID2D1Factory* d2d, IDWriteFa
 // ---------------------------------------------------------------------------------------------------------------
 // KaTeX の HTML 出力を、ブラウザを使わずに配置して描く。
 
-struct IDWriteFontFace;
 struct ID2D1Brush;
 struct ID2D1PathGeometry;
 
