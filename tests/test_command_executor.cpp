@@ -102,21 +102,31 @@ protected:
         return layout;
     }
 
-    // cmd を executor か D2D の DrawTextLayout (options で) で、黒の BrushId::Text で描いた画素。
-    std::vector<uint32_t> RenderTextLayout(const DrawTextLayoutCmd& cmd, bool via_executor, D2D1_DRAW_TEXT_OPTIONS options = D2D1_DRAW_TEXT_OPTIONS_NONE)
+    // 描き方。Executor は本文、SingleBrush は図のラベル (DrawTextLayoutWithColorLayers)、DrawTextLayout は D2D の単色。
+    enum class Via : uint8_t { Executor, SingleBrush, DrawTextLayout };
+
+    // cmd を via で、黒の BrushId::Text で描いた画素。
+    std::vector<uint32_t> RenderTextLayout(const DrawTextLayoutCmd& cmd, Via via)
     {
         ComPtr<ID2D1RenderTarget> rt;
         EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
         const auto brushes = MakeBrushes(rt.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
+        auto* const black = brushes[std::to_underlying(BrushId::Text)].Get();
         rt->BeginDraw();
         rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
-        if (via_executor) {
+        switch (via) {
+        case Via::Executor: {
             DrawCommandList cmds;
             cmds.emplace_back(cmd);
             ExecuteDrawCommands(cmds, rt.Get(), brushes, no_drawings_);
+            break;
         }
-        else {
-            rt->DrawTextLayout(cmd.origin, cmd.layout, brushes[std::to_underlying(BrushId::Text)].Get(), options);
+        case Via::SingleBrush:
+            DrawTextLayoutWithColorLayers(rt.Get(), cmd.origin, cmd.layout, black);
+            break;
+        case Via::DrawTextLayout:
+            rt->DrawTextLayout(cmd.origin, cmd.layout, black);
+            break;
         }
         EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
         return ReadAllPixels();
@@ -328,21 +338,24 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 5, 2 });
     layout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 12, 2 });
     const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, -13.5f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f };
-    const auto expected = RenderTextLayout(cmd, false);
+    const auto expected = RenderTextLayout(cmd, Via::DrawTextLayout);
     EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
-    EXPECT_EQ(RenderTextLayout(cmd, true), expected);
+    EXPECT_EQ(RenderTextLayout(cmd, Via::Executor), expected);
 }
 
-// 本文の絵文字はフォントの色で描き、図のラベル (DrawTextLayout の ENABLE_COLOR_FONT) と同じ画素になる。周りの文字は黒のまま。
-TEST_F(CommandExecutorIntegrationTest, ColorEmojiMatchesDrawTextLayoutWithColorFont)
+// 絵文字は COLR の層をフォントの色で塗り、図のラベル (SingleBrush) も本文と同じ画素になる (下線・取り消し線も)。
+// D2D に任せる描き方 (DrawTextLayout の ENABLE_COLOR_FONT) は Windows 11 でグラデーションの陰影まで描くので比べない。
+TEST_F(CommandExecutorIntegrationTest, ColorEmojiIsDrawnWithLayerColors)
 {
-    const auto layout = CreateTextLayout(L"a😀", L"Segoe UI", L"en-us", 30.0f, 30.0f);
+    const auto layout = CreateTextLayout(L"a😀b", L"Segoe UI", L"en-us", 20.0f, 30.0f);
     ASSERT_TRUE(layout);
+    layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 0, 1 });
+    layout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 3, 1 });
     const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
-    const auto expected = RenderTextLayout(cmd, false, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-    ASSERT_TRUE(HasColoredPixel(expected)) << "絵文字に色が付いていない";
-    EXPECT_EQ(RenderTextLayout(cmd, true), expected);
-    EXPECT_FALSE(HasColoredPixel(RenderTextLayout(cmd, false))) << "色を付けない描き方では単色になる (比べる意味がある)";
+    const auto body = RenderTextLayout(cmd, Via::Executor);
+    EXPECT_TRUE(HasColoredPixel(body)) << "絵文字に色が付いていない";
+    EXPECT_FALSE(HasColoredPixel(RenderTextLayout(cmd, Via::DrawTextLayout))) << "色を付けない描き方では単色になる (比べる意味がある)";
+    EXPECT_EQ(RenderTextLayout(cmd, Via::SingleBrush), body);
 }
 
 // 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、
@@ -352,9 +365,9 @@ TEST_F(CommandExecutorIntegrationTest, TrimmingSignMatchesDrawTextLayout)
     const auto layout = CreateTextLayout(L"Wg Wg Wg Wg Wg Wg Wg Wg", L"Segoe UI", L"en-us", 30.0f, 20.0f, true);
     ASSERT_TRUE(layout);
     const DrawTextLayoutCmd cmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text };
-    const auto expected = RenderTextLayout(cmd, false);
+    const auto expected = RenderTextLayout(cmd, Via::DrawTextLayout);
     EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
-    EXPECT_EQ(RenderTextLayout(cmd, true), expected);
+    EXPECT_EQ(RenderTextLayout(cmd, Via::Executor), expected);
 }
 
 // インライン数式は描画命令を周りの文字の色で、箱の左上をベースラインから height だけ上にして描く。

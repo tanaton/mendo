@@ -123,6 +123,43 @@ constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept
     return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
 }
 
+// IDWriteTextLayout::Draw で rt へ描くレンダラの土台。字形は作ったときの rt の変換と DPI で置く。
+// スタック上でのみ使うので参照カウントは持たない。
+class RenderTargetTextRenderer : public IDWriteTextRenderer {
+public:
+    explicit RenderTargetTextRenderer(ID2D1RenderTarget* rt) noexcept;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override;
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+    HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override;
+    HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) noexcept override;
+    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override;
+
+protected:
+    // 色のフォント (絵文字) のランを、フォントの色で描く。色のフォントでなければ false で、呼び出し側が brush の単色で描く。
+    // COLR の層 (単色の字形の重ね) があれば自分で塗る。Windows 11 の D2D (DrawGlyphRunWithColorSupport) に任せると
+    // グラデーションの陰影 (COLRv1) まで描けるが、毎フレーム描き直すので絵文字 1 個に 3〜4ms かかる (絵文字の一覧
+    // example/emoji.md の 1 フレームが 139〜167ms、層を塗ると約 0.93ms。BM_EmojiFrameDraw)。層を塗ると陰影の無い
+    // 平らな色になり、GitHub (ブラウザ) の見た目とは変わるが、mendo の簡素な見た目に合うのでユーザーが選んだ (2026-11-15)。
+    // COLR の層が無いフォント (ビットマップや SVG だけのもの) は D2D に任せ、それも無ければ (Windows 10) false を返す。
+    bool DrawColorGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc,
+                           ID2D1Brush* brush) const noexcept;
+
+    ID2D1RenderTarget* rt_;
+    D2D1_MATRIX_3X2_F transform_{};
+    float pixels_per_dip_ = 1.0f;
+};
+
+// layout を brush の単色で描く。絵文字は DrawColorGlyphRun で描く。
+void DrawTextLayoutWithColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, IDWriteTextLayout* layout, ID2D1Brush* brush) noexcept;
+
 struct ID3D11Device;
 struct IDXGISwapChain1;
 struct ID2D1Device;

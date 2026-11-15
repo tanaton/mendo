@@ -1324,6 +1324,13 @@ BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd_toc, std::string{}, true)->Unit(benchm
 BENCHMARK_CAPTURE(BM_DocFrameDraw, testmd, std::string{}, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_DocFrameDraw, code_edges, CodeBlocksMd(60), false)->Unit(benchmark::kMicrosecond);
 
+// 絵文字の一覧 (表に 3,972 個) の 1 フレーム。画面に 40 個ほどの色の字形を描く。
+void BM_EmojiFrameDraw(benchmark::State& state)
+{
+    BM_DocFrameDraw(state, ReadOrSkip(state, "example/emoji.md"), false);
+}
+BENCHMARK(BM_EmojiFrameDraw)->Unit(benchmark::kMicrosecond);
+
 constexpr float kDiagramMaxWidth = 1000.0f;
 
 // WIC (図形の SVG を読むストリーム) が使う COM を、スコープの間だけ初期化する。

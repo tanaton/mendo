@@ -1,4 +1,5 @@
 #include "diagram_raster.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "ascii_util.h"
 #include "string_convert.h"
@@ -178,7 +179,7 @@ void DrawRun(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Ma
         return;
     }
     Place(dc, brush, base, t.at);
-    dc->DrawTextLayout(D2D1::Point2F(t.at.x, t.at.y - run.baseline), run.layout.Get(), brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+    DrawTextLayoutWithColorLayers(dc, D2D1::Point2F(t.at.x, t.at.y - run.baseline), run.layout.Get(), brush);
 }
 
 void AppendFontKey(std::wstring& key, const DiagramFont& font)
