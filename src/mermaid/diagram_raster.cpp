@@ -3636,7 +3636,8 @@ void KatexLayout::Text(std::string_view text, const KInherit& inh, KBox& out)
         face->GetDesignGlyphMetrics(&glyph, 1, &gm, FALSE);
         const float advance = gm.advanceWidth * size / fm.designUnitsPerEm;
         if (!run || run->face.Get() != face) {
-            run = &std::get<MathDrawing::Glyphs>(out.items.emplace_back(MathDrawing::Glyphs{ .face = face, .size = size, .x = x, .color = inh.color }));
+            run = &std::get<MathDrawing::Glyphs>(
+                out.items.emplace_back(MathDrawing::Glyphs{ .face = face, .size = size, .x = x, .color_font = IsColorFont(face), .color = inh.color }));
         }
         run->glyphs.push_back(glyph);
         run->advances.push_back(advance);
@@ -4373,7 +4374,7 @@ size_t MathMaskCache::Bytes() const noexcept
 
 namespace {
 
-// 色の指定の無いグリフを、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける。DrawGlyphRun は
+// 色の指定の無い単色のグリフ (絵文字でないもの) を、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける。DrawGlyphRun は
 // 1 回ごとの手間が大きく、形の多い数式 (1 式 7.5 run) の画面で 1 割ほど縮む。画素は 1 つずつ描くのと同じ。
 // 同じブラシで塗る分どうしは描く順で画素が変わらないので、まとめた run は色を指定した部分の手前か数式の最後に描く。
 class GlyphRunMerger {
@@ -4472,14 +4473,15 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
     };
     thread_local GlyphRunMerger merger;
     for (const auto& item : math.items) {
-        // 色を指定した部分 (\colorbox の背景など) との重なりの順を保つ。
-        if (std::visit([](const auto& it) noexcept { return it.color.has_value(); }, item)) {
+        const auto* g = std::get_if<MathDrawing::Glyphs>(&item);
+        // 色を指定した部分 (\colorbox の背景など) や絵文字との重なりの順を保つ。
+        if ((g && g->color_font) || std::visit([](const auto& it) noexcept { return it.color.has_value(); }, item)) {
             merger.Flush(rt, brush);
         }
-        if (const auto* g = std::get_if<MathDrawing::Glyphs>(&item)) {
+        if (g) {
             // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
             const float gy = snap_y(y + g->y);
-            if (!g->color && !g->mirror) {
+            if (!g->color && !g->mirror && !g->color_font) {
                 merger.Add(*g, x + g->x, gy);
                 continue;
             }
@@ -4492,7 +4494,12 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             if (g->mirror) {
                 rt->SetTransform(D2D1::Matrix3x2F::Scale(-1.0f, 1.0f, D2D1::Point2F(x + g->x + RunWidth(*g) / 2, gy)) * base);
             }
-            rt->DrawGlyphRun(D2D1::Point2F(x + g->x, gy), &run, brush_for(g->color), DWRITE_MEASURING_MODE_NATURAL);
+            const D2D1_POINT_2F origin = D2D1::Point2F(x + g->x, gy);
+            ID2D1Brush* const fill = brush_for(g->color);
+            // 絵文字は本文と同じくフォントの色で描く。層の無い字形 (国旗の地域指示子など) は単色。
+            if (!g->color_font || !DrawColorGlyphRun(rt, origin, DWRITE_MEASURING_MODE_NATURAL, run, nullptr, fill)) {
+                rt->DrawGlyphRun(origin, &run, fill, DWRITE_MEASURING_MODE_NATURAL);
+            }
             if (g->mirror) {
                 rt->SetTransform(base);
             }

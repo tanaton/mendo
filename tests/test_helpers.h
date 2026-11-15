@@ -4,12 +4,14 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <d2d1.h>
 #include <dwrite.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -61,6 +63,17 @@ inline std::string RepeatTo(std::string_view unit, size_t min_bytes, std::string
         prefix += unit;
     }
     return prefix;
+}
+
+// 32bpp の画素に、R・G・B が揃っていない (灰色でない) ものがあるか。絵文字が色で描かれたかを確かめる。
+inline bool HasColoredPixel(std::span<const uint32_t> pixels)
+{
+    return std::ranges::any_of(pixels, [](uint32_t px) static {
+        const uint32_t r = (px >> 16) & 0xFF;
+        const uint32_t g = (px >> 8) & 0xFF;
+        const uint32_t b = px & 0xFF;
+        return r != g || g != b;
+    });
 }
 
 // 重なりを許さず needle の出現回数を数える。

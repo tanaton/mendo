@@ -154,6 +154,9 @@ struct MathDrawing {
         float x = 0.0f;
         float y = 0.0f;
         bool mirror = false; // \reflectbox。字形の並びの中央で左右を反転する
+        // 色のフォント (絵文字の Segoe UI Emoji) の字形。本文と同じく DrawColorGlyphRun で描く。毎フレーム書体に
+        // 問い合わせないよう、組むときに決める。
+        bool color_font = false;
         Color color;
         std::vector<uint16_t> glyphs;
         std::vector<float> advances;
@@ -263,6 +266,7 @@ private:
 };
 
 // (x, y) を数式のベースラインの左端として、色の指定の無い部分を brush で描く。指定した色には brush の不透明度を掛ける。
+// 絵文字 (Glyphs::color_font) は本文と同じくフォントの色で描く。
 // 罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から
 // 装置の画素に合わせる (変換は拡大と平行移動だけとみなす)。
 // masks があれば SVG の形をマスクで塗る。図のラベルは記録した後で拡大・縮小して描くので渡さない。
