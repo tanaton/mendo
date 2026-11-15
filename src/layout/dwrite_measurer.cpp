@@ -126,7 +126,9 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
 }
 
 // 初回計測でセル layout を残す表の大きさの上限。layout は 1 セル 7KB ほどあり、5 万行 6 列の表で 2GB になる。
-// これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す。
+// これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す
+// (どの表も捨てる形にそろえると、test.md x8 を全部測る BM_ComputeLayoutCold が 8 本で 180 → 244ms・直列で +6%。
+// 1 画面ずつめくる・開く・ジャンプでは揺れの内だった。2026-11-15)。
 constexpr size_t kMaxKeptTableCells = 1024;
 
 // 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。
