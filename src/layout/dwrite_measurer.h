@@ -10,9 +10,8 @@
 class InlineMathTable;
 class InlineImageTable;
 
-// ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
-// theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
-// Format の再生成は RecreateFormats 経由のみ許可し、並列計測中の同時更新を契約で禁止する。
+// ITextMeasurer の DirectWrite 実装。重い書式 (IDWriteTextFormat) を作り置き、計測のたびに IDWriteTextLayout を作る。
+// 書式は RecreateFormats でだけ作り直し、並列計測中には呼ばない。
 // 書式を作ったスレッド (UI) 以外は、自分専用の ISOLATED ファクトリと書式で測る。共有ファクトリを全スレッドで使うと
 // ファクトリ内部の競合で 4 本を超えると遅くなる (test.md x8 の全計測で、共有は 8 本 705ms・16 本 1480ms、
 // 分けると 410ms・260ms)。書式もファクトリに結び付いているので、スレッドごとに作る。

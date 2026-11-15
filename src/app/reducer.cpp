@@ -153,7 +153,7 @@ void EmitScrollChangedSideEffects(ReduceContext& c)
     Invalidate(c);
     // ライブリサイズ中に上限へ収めても図や画像を取りに行かない。幅が決まるのはサイズ変更の終わり。
     if (!c.state.window.IsSizing()) {
-        PushEffect(c.effects, effect::BitmapManage{});
+        PushEffect(c.effects, effect::ResourceManage{});
     }
 }
 
@@ -586,7 +586,6 @@ void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
     auto& viewport = c.state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
     c.state.view.drag = left_drag::MdScrollbar{ grip.drag_offset };
-    // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), info.max_scroll);
     }
@@ -703,8 +702,8 @@ void ScrollToCurrentMatch(ReduceContext& c)
     c.layout.EnsureNodeLayout(match.node_index);
     const auto info = MdScrollInfo(c.state);
     const auto& entry = cache[match.node_index];
-    // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
-    //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
+    // ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
+    // 「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
     const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache.Top(static_cast<size_t>(match.node_index)));
     const float visible_height = info.content_height - (ss.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
     auto& viewport = c.state.view.viewport;

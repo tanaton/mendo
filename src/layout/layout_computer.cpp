@@ -249,8 +249,6 @@ void RecomputeYPositions(
     const auto node_count = nodes.size();
     float y = NodeStartY(nodes, cache, theme, from_index);
 
-    // safe_exit_after の契約: 以降のノードは height/sa/sb が不変なので、
-    // text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
 
     AccumulateTops(nodes, cache, theme, from_index, tail_start, y, [&cache](size_t i) noexcept { return cache[i].height; });

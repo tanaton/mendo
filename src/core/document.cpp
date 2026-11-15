@@ -49,7 +49,6 @@ Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view pa
 
 Document Document::FromMarkdown(std::string utf8, std::wstring_view path)
 {
-    // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されている。
     NormalizeSource(utf8);
     return FromNormalizedMarkdown(std::move(utf8), path);
 }

@@ -91,7 +91,6 @@ std::string_view TocHeadingText(const Node& heading, std::string& scratch);
 // 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
 // NUL は CommonMark (§2.3) と GitHub と同じく入力の段で置き換える。md4c は NUL を行内・コードブロック・コードスパン・
 // 数式で別々の形で渡す (コードスパンと数式では置き換えない) ので、パーサで受けると経路ごとの継ぎ当てになる。
-// CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // CR も NUL も無いファイルは find_first_of 1 回で素通し (memchr 1 回と比べて 64MB で +0.6ms、2 回だと +3.7ms)。
 void NormalizeSource(std::string& s);
 

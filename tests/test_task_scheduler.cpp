@@ -103,7 +103,6 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
     EXPECT_TRUE(PollUntil([&] { return finished.load() == WORKERS; }));
     sch.Shutdown();
 
-    // 最低でも2つ以上の異なるスレッドで処理されているはず
     std::lock_guard lock(m);
     EXPECT_GE(observed_threads.size(), 2u);
 }

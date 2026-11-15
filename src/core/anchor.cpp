@@ -25,7 +25,7 @@ std::optional<uint32_t> ParsePositive(std::string_view s) noexcept
     return value;
 }
 
-// GitHub のスラグが使う toLowerCase に合わせる (UTF-8 長が伸びる変換は表から除いてある)。
+// GitHub のスラグが使う toLowerCase に合わせる。
 constexpr uint32_t ToLowerNonAscii(uint32_t cp) noexcept
 {
     // 見出しに多い CJK などは大文字を持たないので、表を引かずに返す (生成時に確認済み)。

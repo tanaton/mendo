@@ -37,9 +37,9 @@ public:
     std::vector<const Node*> requested;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
-    // true のとき RequestRender でキャッシュヒットを模し、同期で描画命令を設定して true を返す。
-    bool sync_apply_bitmap = false;
-    // true のとき RequestRender でエラーの確定を模し、描画命令なしで true を返す。
+    // true のとき RequestRender でキャッシュヒットを模し、同期でコマンドリストを設定して true を返す。
+    bool sync_apply_commands = false;
+    // true のとき RequestRender でエラーの確定を模し、コマンドリストなしで true を返す。
     bool sync_error = false;
 
     bool RequestRender(
@@ -53,7 +53,7 @@ public:
             diagram_entry.error = { DiagramError::Kind::Render, L"Parse error" };
             return true;
         }
-        if (!sync_apply_bitmap) {
+        if (!sync_apply_commands) {
             return false;
         }
         diagram_entry.commands = &SharedStubCommandList();
@@ -382,7 +382,7 @@ TEST_F(ResourceManagerImageFileTest, TableReadsBitmapsOnlyForRowsInRange)
 
     // 範囲は [3800, 6800)。ヘッダを除く 15〜27 行目 (i14〜i26) が入る。
     viewport_.SetScrollY(5000.0f);
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     const int updates = host_.inline_updates;
     ASSERT_TRUE(SettleLoads());
     for (int i = 0; i < kRows; ++i) {
@@ -393,7 +393,7 @@ TEST_F(ResourceManagerImageFileTest, TableReadsBitmapsOnlyForRowsInRange)
     EXPECT_FALSE(host_.last_sizes_changed);
 }
 
-// 寸法が揃って組み直した表は、同じ取り込みの中で範囲の行の画像を頼む (BITMAP_MANAGE を待たない)。
+// 寸法が揃って組み直した表は、同じ取り込みの中で範囲の行の画像を頼む (RESOURCE_MANAGE を待たない)。
 TEST_F(ResourceManagerImageFileTest, TableSettledBySizesRequestsBitmapsRightAway)
 {
     constexpr int kRows = 3;
@@ -791,7 +791,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesAppliesOnlyGivenRange)
 }
 
 // ビットマップは保持範囲の画像の分だけ残す。寸法は残すので、戻ってきても組み直さない。
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesDropsFarImageBitmaps)
 {
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
     image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
@@ -799,27 +799,27 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsDropsFarImageBitmaps)
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
     GiveBitmaps({ "one.png", "two.png" });
 
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     EXPECT_TRUE(HasBitmap("one.png"));
     EXPECT_FALSE(HasBitmap("two.png"));
     EXPECT_EQ(Entry("two.png").state, InlineImageState::Ready);
 }
 
 // 先読み範囲を出ても、保持範囲の中の画像は捨てない。境目の画像を小刻みなスクロールのたびに読み直さない。
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsBitmapsBeyondPrefetchRange)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsBitmapsBeyondPrefetchRange)
 {
     // two は先読み範囲の下端と保持範囲の下端の間から始まる。
     constexpr float kBlockHeight = kViewportHeight * (1.0f + (ResourceManager::PREFETCH_BUFFER_SCREENS + ResourceManager::EVICT_BUFFER_SCREENS) / 2.0f);
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", kBlockHeight);
     GiveBitmaps({ "one.png", "two.png" });
 
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     EXPECT_TRUE(HasBitmap("one.png"));
     EXPECT_TRUE(HasBitmap("two.png"));
 }
 
 // 表は保持範囲の行の画像の分だけ残す。行の位置が決まらない間は、読んだ行を見分けられないので全部残す。
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsTableRowsInRange)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 {
     LoadMarkdown("| i |\n|---|\n| ![a](a.png) |\n| ![b](b.png) |\n");
     // a の行は保持範囲の下端の 6 割、b の行は 12 割の位置から。
@@ -828,12 +828,12 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsTableRowsInRange)
     GiveBitmaps({ "a.png", "b.png" });
 
     cache_[0].pending_inline = true;
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     EXPECT_TRUE(HasBitmap("a.png"));
     EXPECT_TRUE(HasBitmap("b.png"));
 
     cache_[0].pending_inline = false;
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     EXPECT_TRUE(HasBitmap("a.png"));
     EXPECT_FALSE(HasBitmap("b.png"));
 }
@@ -842,7 +842,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsTableRowsInRange)
 
 // 図のコマンドリストは保持範囲の図の分だけ残す。寸法と描画命令は残し、戻ってきたら描画命令から記録し直させる。
 // 仮表示中の図は描き直しが届くまでの代わりなので残す。
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesFarDiagramCommands)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramCommands)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
                  /*block_height=*/3000.0f);
@@ -855,7 +855,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesFarDiagramCommands)
     }
     cache_.EnsureDiagram(indices[2]).stale = true;
 
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     const auto& kept = *cache_.FindDiagram(indices[0]);
     const auto& released = *cache_.FindDiagram(indices[1]);
     const auto& stale_far = *cache_.FindDiagram(indices[2]);
@@ -869,7 +869,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesFarDiagramCommands)
     EXPECT_EQ(mock_mermaid_.released_commands, std::vector<ID2D1CommandList*>{ &SharedStubCommandList() });
 
     // 捨てた後の図は、もう一度捨てない。
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
     EXPECT_EQ(mock_mermaid_.released_commands.size(), 1u);
 }
 
@@ -885,7 +885,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
     EXPECT_FALSE(mock_mermaid_.last_dark_mode);
 
     // 保留だった図は、次の要求で結果が揃えば適用して組み直す。
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
     rm_.RequestMermaidRenders();
     const auto* diagram = cache_.FindDiagram(doc_.GetDiagramNodeIndices()[0]);
     ASSERT_NE(diagram, nullptr);
@@ -936,7 +936,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesDoesNotCarryChangeRange)
     image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     ASSERT_TRUE(rm_.ApplyCachedImageSizes({ 0, SIZE_MAX }));
 
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
     rm_.RequestMermaidRenders();
 
     const size_t diagram = doc_.GetDiagramNodeIndices()[0];
@@ -967,11 +967,11 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeClearsError)
 }
 
 // 幅の変化で描き直す図は、新しい結果が届くまで旧幅の結果を仮表示として残す (プレースホルダに戻して跳ねさせない)。
-TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
+TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsCommandsAsStale)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
     SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
@@ -979,7 +979,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsBitmapAsStale)
     // 幅の上限より広い図 (幅に縛られる結果) なので、幅が変われば描き直しになる。
     diagram.width = 2000.0f;
 
-    mock_mermaid_.sync_apply_bitmap = false;
+    mock_mermaid_.sync_apply_commands = false;
     SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
 
@@ -995,7 +995,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
     ASSERT_TRUE(diagram.commands);
@@ -1009,7 +1009,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     EXPECT_FALSE(diagram.stale);
     EXPECT_EQ(mock_mermaid_.drop_queued_count, initial_drop);
 
-    mock_mermaid_.sync_apply_bitmap = false;
+    mock_mermaid_.sync_apply_commands = false;
     theme_.dark = true;
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(diagram.commands) << "描き直しの間も旧結果を表示する";
@@ -1025,7 +1025,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n");
     ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 3u);
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
 
     rm_.RequestMermaidRenders();
     EXPECT_EQ(mock_mermaid_.requested.size(), 3u);
@@ -1075,29 +1075,29 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
 }
 
 // 再レイアウトの Flush の直後に後始末 (App::FinishLayout) が呼んでも、走査を繰り返さずタイマーに回す。
-TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
+TEST_F(ResourceManagerTest, ScheduleResourceManageSetsTimer)
 {
     LoadMarkdown("# heading\n");
-    rm_.ScheduleBitmapManage();
-    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
+    rm_.ScheduleResourceManage();
+    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::RESOURCE_MANAGE);
 }
 
-TEST_F(ResourceManagerTest, FlushPendingResourcesThrottlesFollowingBitmapManage)
+TEST_F(ResourceManagerTest, FlushPendingResourcesThrottlesFollowingResourceManage)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.FlushPendingResources();
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 
-    rm_.ScheduleBitmapManage();
+    rm_.ScheduleResourceManage();
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u) << "直前の Flush があれば二重に走査しない";
-    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
+    EXPECT_EQ(host_.last_set_timer_id, app_timer::Id::RESOURCE_MANAGE);
 }
 
-// ---- ビットマップ管理 ----
+// ---- 画面外の整理と読み込み (ResourceManage) ----
 
 // 保持範囲外のノードも text_layout を捨てるだけで、計測済み (layout_dirty=false) のまま残す。
 // text_layout は実物の COM オブジェクトが要るので、layout_dirty の遷移だけを確かめる。
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsEvictedNodesMeasured)
 {
     std::string md;
     for (int i = 0; i < 80; i++) {
@@ -1110,7 +1110,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     const float keep_bottom = kViewportHeight * (1.0f + decltype(rm_)::LAYOUT_EVICT_BUFFER_SCREENS);
     ASSERT_GT(cache_.Top(cache_.size() - 1), keep_bottom) << "前提: 末尾のノードが保持範囲外にあること";
 
-    rm_.EvictOffscreenBitmaps();
+    rm_.EvictOffscreenResources();
 
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
@@ -1118,10 +1118,10 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
 }
 
 // スクロール停止のたびに全画面再描画しないよう、何も適用されなければ再レイアウト (と再描画) しない。
-TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
+TEST_F(ResourceManagerTest, OnResourceManageTimerSkipsRecomputeWhenNothingApplied)
 {
     LoadMarkdown("# heading\n");
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     EXPECT_GE(host_.kill_timer, 1);
     EXPECT_EQ(host_.recompute_layout, 0);
 }
@@ -1132,7 +1132,7 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesRecomputesOnceForImagesAndDiagr
     LoadMarkdown("![a](one.png)\n\n![b](two.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
     image_loader_.InsertImageForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertImageForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
-    mock_mermaid_.sync_apply_bitmap = true;
+    mock_mermaid_.sync_apply_commands = true;
 
     rm_.FlushPendingResources();
 
@@ -1175,7 +1175,7 @@ TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 
 // ---- 別の文書の読み込み中 ----
 
-// 別の文書を読み込んでいる間は、結果の到着・スクロール・BITMAP_MANAGE のどれからも表示中の文書の図を頼まない。
+// 別の文書を読み込んでいる間は、結果の到着・スクロール・RESOURCE_MANAGE のどれからも表示中の文書の図を頼まない。
 // 始まった描画は取り消せず、開いた文書の最初の図を待たせる。差し替えずに終わったら頼み直す。
 TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
 {
@@ -1187,11 +1187,11 @@ TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
     rm_.DropQueues();
     rm_.RequestMermaidRenders();
     rm_.FlushPendingResources();
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
 
     host_.loading_other = false;
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
 }
 
@@ -1218,11 +1218,11 @@ TEST_F(ResourceManagerTest, NoViewerDrawingRequestWhileLoadingOtherDocument)
     rm_.DropQueues();
     rm_.RequestMermaidRenders();
     rm_.FlushPendingResources();
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     EXPECT_TRUE(mock_mermaid_.viewer_requests.empty());
 
     host_.loading_other = false;
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     EXPECT_EQ(mock_mermaid_.viewer_requests.size(), 1u);
 }
 
@@ -1242,7 +1242,7 @@ TEST_F(ResourceManagerImageFileTest, NoImageRequestsWhileLoadingOtherDocument)
     ASSERT_TRUE(DrainScheduler(scheduler_));
     rm_.OnImagesDecoded(kNoDeadline);
     rm_.FlushPendingResources();
-    rm_.OnBitmapManageTimer();
+    rm_.OnResourceManageTimer();
     ASSERT_TRUE(DrainScheduler(scheduler_));
     EXPECT_FALSE(image_loader_.ProcessCompletedDecodes(kNoDeadline));
     EXPECT_EQ(image_loader_.ImageInfoCount(), 0u) << "読み込み中に表示中の文書の画像を読んだ";

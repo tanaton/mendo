@@ -167,8 +167,8 @@ bool LayoutEngine::Reestimate(std::span<const Node> nodes, LayoutCache& cache, f
         cache.SetHasDirtyNodes(true);
         cache.SetEstimateBasis({ content_width, theme.zoom });
     }
-    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(basis_changed));
-    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(nodes.size()));
+    MENDO_PLOT("layout.reestimate.basis_changed", static_cast<int64_t>(basis_changed));
+    MENDO_PLOT("layout.reestimate.node_count", static_cast<int64_t>(nodes.size()));
     return basis_changed;
 }
 
@@ -285,13 +285,13 @@ auto LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
 
 void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
 {
-    const bool width_changed = engine_.Reestimate(doc.GetNodes(), cache, width);
+    const bool basis_changed = engine_.Reestimate(doc.GetNodes(), cache, width);
     // ズームや幅変更で推定し直すと Y がずれるので、計測の前に見ていた位置を当て直す。
     // 古い scroll_y のまま計測すると、見えない範囲を 1 画面分ムダに計測してしまう。
     viewport_.ApplyScrollTarget(cache);
     const float scroll_y = viewport_.GetScrollY();
-    if (width_changed) {
-        // 幅が変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
+    if (basis_changed) {
+        // 幅かズームが変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
         // (2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms)。
         cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), layout::BufferedRange(scroll_y, height, 0.0f));
     }

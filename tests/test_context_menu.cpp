@@ -311,7 +311,7 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
 
 // ─── ヒットテスト ───
 
-// Text 項目の中心は自身の id、NavRow / Separator の中心は 0 を返す。
+// Text 項目の中心は自身の id、NavRow / ZoomRow / Separator の中心は 0 を返す。
 TEST_F(ContextMenuLayoutTest, HitTestAtItemCenters)
 {
     BuildAndLayout(MakeParams());

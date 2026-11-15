@@ -120,7 +120,6 @@ TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
     vm.SetScrollTarget(3, 25.0f);
 
     vm.EnsureScrollTarget(cache);
-    // 既存ターゲットは上書きされない
     EXPECT_EQ(vm.GetScrollTarget().node, 3);
     EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 25.0f);
 }

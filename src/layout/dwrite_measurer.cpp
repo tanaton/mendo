@@ -845,13 +845,10 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
 std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("MeasureTable");
-    // 全セルを測り終えている。前回と max_width がほぼ一致し幾何が揃っていれば、セル幅・行高さ・行の位置は
-    // すべて変化しないため、幾何の高さのまま確定させる。entry.height は返さない。別の幅で推定が伸ばした高さが残っている
-    // ことがある (A → B → A と幅を戻したとき)。行ごとの inline_code_bgs も幅で決まるので保持できる。
-    // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
-    // 幅が変わったら、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。自然幅はセルのテキストだけで決まり、
-    // evict しても残る。行の高さは FinalizeTableLayout が新しい列幅で全行測り、見えている evict 行は次の計測パス
-    // (RestoreEvictedTableRows) が戻す。
+    // table_layout があれば全セルを測り終えている。幾何を組んだ幅とほぼ同じなら、列幅・行の高さ・行ごとのコードの背景は変わらないので
+    // 幾何の高さで確定させる (entry.height は返さない。A → B → A と幅を戻すと、別の幅で推定が伸ばした高さが残っていることがある)。
+    // 幅が変わったら FinalizeTableLayout で列幅と全行の高さを組み直す (自然幅はセルのテキストだけで決まり、evict しても残る)。
+    // evict した行のセルは、見えたときに次の計測パスの RestoreEvictedTableRows が作り直す。
     if (auto* tl = entry.table_layout()) {
         return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
     }

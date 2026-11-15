@@ -16,7 +16,6 @@ protected:
 
 // ─── 基本状態 ───
 
-// 空の履歴では戻るも進むもできない。
 TEST_F(NavHistoryTest, InitiallyEmpty)
 {
     EXPECT_FALSE(hist_.CanGoBack());
@@ -39,7 +38,6 @@ TEST_F(NavHistoryTest, PushClearsForwardStack)
     hist_.CommitOpened({ L"b.md", 0, 0.0f });
     EXPECT_TRUE(hist_.CanGoForward());
 
-    // 新規ナビゲーションは進むスタックをクリアすべき
     hist_.Push({ L"a.md", 0, 0.0f });
     EXPECT_FALSE(hist_.CanGoForward());
 }

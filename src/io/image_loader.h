@@ -93,7 +93,7 @@ public:
     }
     // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
     // 戻り値: 見えている画像を要求し直すべきか。結果を 1 件以上取り込んだ (失敗も含む) か、捨てた要求が待ちの間に要求し直されていた。
-    bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kImportSliceBudget);
     // 前に呼んでから RequestLoadAsync で頼み直されなかったビットマップの要求 (範囲を出た画像) を取り消す。取り込みのたびに、
     // まだ要るビットマップを頼み直させてから呼ぶ。取り消した要求は、worker が始める前なら読まずに返し、デコードの後なら GPU に
     // 載せず寸法だけを入れる。速いスクロールで待ち行列に溜まった要求を読み続けると、止まった位置の画像が後回しになる

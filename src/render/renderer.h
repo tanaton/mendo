@@ -220,7 +220,6 @@ private:
     void ConfigureFrameLatency() noexcept;
     // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
     // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
-    // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
     void AcquireFrame() noexcept;
     // EndDraw 後に呼ぶ。デバイスロスト系の失敗は device_ に知らせる。
     void Present() noexcept;

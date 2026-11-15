@@ -209,9 +209,8 @@ TEST_F(DiagramRasterTest, ResolvesInstalledFamiliesInOrder)
     EXPECT_TRUE(ResolveFontFamilies(fonts.Get(), L"No Such Font 12345").empty());
 }
 
-// 描画命令の図はビットマップを持たないので、画面外へ出ても追い出さない (見えたときに記録し直さない)。
-// デバイスロストでは旧デバイスのコマンドリストを捨てる。
-TEST_F(DiagramRasterTest, VectorDiagramSurvivesOffscreenEvictionButNotDeviceLoss)
+// デバイスロストでは旧デバイスのコマンドリストを捨てて描き直させる。寸法はレイアウトを保つため残す。
+TEST_F(DiagramRasterTest, DeviceLossDropsDiagramCommandsButKeepsSize)
 {
     ComPtr<IWICBitmap> bitmap;
     ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(4, 4, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap));

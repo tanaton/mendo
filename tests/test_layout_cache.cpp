@@ -36,7 +36,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
 }
 
 // 図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
-TEST(LayoutCacheTest, InvalidateAllLayoutsKeepsBitmapNodes)
+TEST(LayoutCacheTest, InvalidateAllLayoutsKeepsDiagramSizes)
 {
     LayoutCache cache(2);
     std::vector<Node> nodes(2);
@@ -345,7 +345,7 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     tl.col_widths = { 100.0f, 200.0f };
     tl.CommitGeometry(300.0f);
     const auto& theme = GetLightTheme();
-    // cache_hit = true 経路 → table_layout を保持
+    // 同じ幅で計測済みなので推定せず、table_layout も保持する。
     EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_FLOAT_EQ(entry.height, 200.0f);
     EXPECT_EQ(entry.table_layout(), &tl);

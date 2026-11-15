@@ -507,7 +507,6 @@ TEST(Parser, TaskListItem)
 
 // ---- テーブル ----
 
-// NodeTableData の concat 構造が parser で正しく populate されることを確認。
 TEST(Parser, TableConcatStructure)
 {
     auto nodes = ParseNodes(
@@ -1332,6 +1331,14 @@ TEST(Parser, NewlinesInTextAndLineCount)
     }
 }
 
+// 空のリスト項目が 200MB ほど続くと md4c の確保が溢れる。1.4GB ほど確保して数秒かかるので、md4c を替えたときに
+// --gtest_also_run_disabled_tests で回す。
+TEST(Parser, DISABLED_Md4cAllocationFailureThrowsBadAlloc)
+{
+    const std::string markdown = RepeatTo("-\n", 256 * 1024 * 1024);
+    EXPECT_THROW(ParseMarkdown(markdown), std::bad_alloc);
+}
+
 // ---- 協調キャンセル (AsyncLoadCoordinator 用) ----
 
 TEST(Parser, ParseMarkdownStopTokenAlreadyRequestedAbortsEarly)
@@ -1347,7 +1354,7 @@ TEST(Parser, ParseMarkdownStopTokenAlreadyRequestedAbortsEarly)
     ss.request_stop();
 
     auto result = ParseMarkdown(markdown, ss.get_token());
-    // 初回 OnEnterBlock で abort されるためノード列は空。
+    // 止めたパースは組みかけのノードも捨てて空で返す。
     EXPECT_TRUE(result.nodes.empty());
 }
 

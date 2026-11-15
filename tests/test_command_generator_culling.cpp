@@ -3,7 +3,6 @@
 // ノード高さの外にはみ出す描画 (見出し下線、空 LI の bullet/checkbox、コードブロック背景の上下
 // padding とその中の横スクロールバー、アラート背景など) がビューポート端で消えないことを守る。
 // 空 LI の高さ 0 は MockTextMeasurer では再現できないため DWriteTestBase を使う。
-// インラインコード背景は Renderer の effects パスで作られるため対象外。
 #include <gtest/gtest.h>
 #include "command_generator.h"
 #include "document_test_helpers.h"

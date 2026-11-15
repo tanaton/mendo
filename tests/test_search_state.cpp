@@ -107,7 +107,7 @@ TEST(SearchStateTest, FindsAllMatches)
         { "AfterSurrogatePair", TextNodes({ "\xF0\x9F\x98\x80\xE3\x81\x82\xE3\x81\x84" }), "\xE3\x81\x84", false, { { 0, 3, 1 } } },
         { "NonTextNodeSkipped", Nodes(TypedNode(NodeType::HorizontalRule), MakeTextNode("hello")), "hello", false, { { 1, 0, 5 } } },
         // Mermaid のソースは描画されないので一致させない。
-        { "BitmapNodesExcluded", Nodes(TypedNode(NodeType::Diagram, "graph keyword TD; A-->B", SyntaxLanguage::Mermaid), MakeTextNode("keyword in paragraph")), "keyword", false, { { 1, 0, 7 } } },
+        { "DiagramNodesExcluded", Nodes(TypedNode(NodeType::Diagram, "graph keyword TD; A-->B", SyntaxLanguage::Mermaid), MakeTextNode("keyword in paragraph")), "keyword", false, { { 1, 0, 7 } } },
         { "NonMermaidCodeBlock", Nodes(TypedNode(NodeType::CodeBlock, "int main()", SyntaxLanguage::Cpp)), "main", false, { { 0, 4, 4 } } },
         { "TableCell", Nodes(MakeTableNode({ { "hello", "world" } })), "hello", false, { { 0, 0, 5, 0, 0 } } },
         { "TableMultipleCells", Nodes(MakeTableNode({ { "test one", "test two" } })), "test", false, { { 0, 0, 4, 0, 0 }, { 0, 0, 4, 0, 1 } } },

@@ -29,7 +29,7 @@ constexpr AnchorCase kAnchorCases[] = {
     { "TabsToHyphens", "a\tb", "a-b" },
     { "SpecialCharsStripped", "Hello, World!", "hello-world" },
     { "CjkCharactersPreserved", "見出しレベル2", "見出しレベル2" },
-    // U+0080–U+2FFF の文字 (アクセント付きラテン等) が脱落せず、GitHub と同じく小文字になること。
+    // ASCII 以外の文字 (アクセント付きラテン等) が脱落せず、GitHub と同じく小文字になること。
     { "LatinAccentPreserved", "Café", "café" },
     { "LatinAccentLowered", "Über Ŷ", "über-ŷ" },
     { "CyrillicLowered", "Привет Ёж", "привет-ёж" },
@@ -46,7 +46,7 @@ constexpr AnchorCase kAnchorCases[] = {
     { "EmptyString", "", "" },
     { "AllSpecialChars", "!@#$%^&*()", "" },
     { "MultipleSpacesMultipleHyphens", "a  b", "a--b" },
-    // 全角数字（０-９）は0x3000以上なので保持される
+    // 全角数字（０-９）は除外する記号の範囲に入らないので保持される
     { "FullWidthDigits", "テスト０１", "テスト０１" },
     // 全角括弧（U+FF08）と（U+FF09）はGitHubと同様に除去される
     { "FullWidthParenthesesStripped", "テスト（サンプル）", "テストサンプル" },

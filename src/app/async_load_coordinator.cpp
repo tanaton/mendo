@@ -36,7 +36,9 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
 }
 
 namespace {
-// md4c が長さを int で取るため ~2GB-1 が実効上限。
+// md_parse の長さ (MD_SIZE) と Node の位置 (source_offset_ など) が 32 bit なので 4GB 未満にする。INT_MAX は文書全体を
+// UTF-16 に変換していた頃 (MultiByteToWideChar の長さが int) の値で、それより大きい文書を開ける必要は無いので残す。
+// この上限の内でも、短い行が続くと md4c が確保に失敗する (ParseMarkdown)。
 constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 } // namespace
 
@@ -105,7 +107,6 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
 void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_width, ReloadBase reload_base)
 {
     // 旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
-    // request_stop 後の source は再使用できないので作り直す。
     Cancel();
     stop_source_ = std::stop_source{};
     in_flight_ = true;
@@ -115,7 +116,8 @@ void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_w
         try {
             RunWorker(path, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
-            // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
+            // 空の表の行補完などは入力の百倍以上を確保させられる。md4c の確保の失敗も ParseMarkdown がここへ投げる。
+            // worker で投げると terminate するので失敗として返す。
             Publish(stop_token, std::unexpected(FileLoadError::TooLarge));
         }
     });

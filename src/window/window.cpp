@@ -203,7 +203,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 void Win32Window::AwaitInitialParseBeforeDevice()
 {
     // 読み込みが D3D デバイスの作成より先に終われば、可視範囲の計測を join 前 (作成の裏) で済ませる。
-    // 作成が先に終わったら待たずに進み、結果は従来どおり最初のフレームの直前に取り込む。
+    // 作成が先に終わったら待たずに進み、結果は最初のフレームの直前に取り込む。
     if (!app_->IsLoadingInitialDocument()) {
         return;
     }

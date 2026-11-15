@@ -2020,9 +2020,9 @@ private:
 enum class ReduceEvent : uint8_t {
     Hover,         // ホバー強調が変わる (InvalidateWindow)
     HoverSame,     // 同じ対象の上を動く (副作用なし)
-    Wheel,         // 本文のスクロール (InvalidateWindow + BitmapManage)
+    Wheel,         // 本文のスクロール (InvalidateWindow + ResourceManage)
     SelectDrag,    // テキスト選択のドラッグ (InvalidateWindow)
-    ScrollbarDrag, // スクロールバーのドラッグ (InvalidateWindow + BitmapManage)
+    ScrollbarDrag, // スクロールバーのドラッグ (InvalidateWindow + ResourceManage)
 };
 
 AppAction MakeReduceEvent(ReduceEvent kind, int i)

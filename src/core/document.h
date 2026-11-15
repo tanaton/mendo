@@ -48,11 +48,11 @@ public:
     // ノードのテキストとテーブルは data_ の中を直接指す。共有で持つため、move しても relocate せず付け替えは不要。
     constexpr Document() noexcept = default;
 
-    // text は LF 正規化済み (LoadFile の出力) であること。
+    // text は NormalizeSource 済み (LoadFile の出力) であること。
     // 既定の stop_token ではキャンセルしない。
     static Document FromNormalizedMarkdown(
         std::string text, std::wstring_view path, std::stop_token stop_token = {});
-    // LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
+    // NormalizeSource を通してから読む (埋め込みの文書とテスト用。入力は BOM 無し前提)。
     static Document FromMarkdown(std::string utf8, std::wstring_view path);
 
     std::span<const Node> GetNodes() const noexcept
@@ -78,7 +78,7 @@ public:
     {
         return data_ ? std::string_view{ data_->raw } : std::string_view{};
     }
-    // 非同期リロードの worker が旧文書と比べるための共有参照。同一性 (ポインタ一致) で「同じ文書か」を判定できる。
+    // worker (非同期リロードの旧文書との比較・表の組み) に渡す共有参照。
     const std::shared_ptr<const DocumentData>& ShareData() const noexcept
     {
         return data_;

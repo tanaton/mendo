@@ -198,8 +198,6 @@ TEST_F(FileExplorerTest, ListsMarkdownFilesAndDirectoriesOnly)
     EXPECT_FALSE(FindEntry(L"aaa.md")->is_directory);
 }
 
-// ---- SetCurrentFile テスト ----
-
 TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
 {
     WriteTempFile(L"a.md");
@@ -224,11 +222,9 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
     EXPECT_EQ(CountCurrent(), 0u);
 }
 
-// ---- 初回起動シナリオ（ファイル未選択でディレクトリ表示） ----
-
+// 初回起動で cwd を表示した後、ファイルのあるディレクトリに切り替える。
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
 {
-    // 初回起動でcwdを表示した後、ファイルのあるディレクトリに切り替えるシナリオ
     WriteTempFile(L"test.md");
     CreateDir(L"other");
     WriteTempFile(L"other/other.md");

@@ -54,7 +54,6 @@ struct LoadedFileDoc {
 
 // ファイルを ReadFile で string バッファへ直接読み込み、UTF-8 BOM を除去して LF に正規化して返す。
 // Document とリロード diff はこの出力が LF-only であることを前提にする (issue #273)。
-// wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
 // stop_token は AsyncLoadCoordinator::LoadFileFn に合わせて受けるだけで、読み込みの途中では止めない。
 std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, const std::stop_token& stop_token);
 
@@ -117,7 +116,8 @@ public:
     }
 
     // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの ThemeService
-    // (ApplyZoom・ToggleDarkMode) が std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
+    // (ApplyZoom・ToggleDarkMode) がメンバ (ApplyZoom ではフォント名の std::wstring も) を非アトミックに書き換えるため、
+    // 参照キャプチャだと EstimateNodeHeights と race。
     // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
@@ -131,8 +131,6 @@ public:
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
     // request_stop で走行中の parse/Estimate を協調的に打ち切り、worker の以後の publish を弾く。outcome_ も即時クリア。
-    // worker 側 emplace と Cancel reset は同一 mutex 上で直列化される (worker は
-    // sink 書き込み前に lock 内で stop を再確認)。
     void Cancel() noexcept
     {
         stop_source_.request_stop();
@@ -164,7 +162,6 @@ private:
     // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
     std::stop_source stop_source_;
 
-    // dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;
 };
 

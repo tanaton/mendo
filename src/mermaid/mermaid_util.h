@@ -109,7 +109,7 @@ struct DiagramDrawing {
 // 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値 (IsStorable を満たさない置き方など)
 // があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
-// ParseDrawing が読む形の UTF-8。C++ で作った描画命令をディスクキャッシュに置くのに使う。
+// ParseDrawing が読む形の UTF-8。描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
 size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;

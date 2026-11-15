@@ -80,7 +80,7 @@ public:
         }
     }
 
-    // 全行に prefix を付ける。空行には blank_prefix を付ける (リスト継続行の字下げ / 引用の ">")。
+    // 先頭行に first、続く行に rest、続く空行に blank を付ける (リスト継続行の字下げ / 引用の ">")。
     static std::string PrefixLines(std::string_view body, std::string_view first, std::string_view rest, std::string_view blank)
     {
         std::string out;

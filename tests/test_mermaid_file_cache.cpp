@@ -398,8 +398,7 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
 TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
 {
-    // LookupDimensionsはLRU使用順を更新しないことを確認する。
-    // エビクション対象の選択に影響しないため、推定専用の軽量パスとして安全。
+    // 高さの推定で引く (touch=false) だけなら、追い出す順を変えない。
     cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
 

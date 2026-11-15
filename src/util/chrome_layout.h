@@ -101,7 +101,7 @@ inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_
     }
     l.case_btn = place_btn();
     l.highlight_btn = place_btn();
-    // close_btn だけバー右端へ寄せる。狭幅で左側ボタン群と重なる場合は従来の左詰め位置 x へフォールバック
+    // close_btn だけバー右端へ寄せる。狭くて左のボタンと重なるなら、左詰めの位置 x に置く。
     const float close_x = std::max(x, bar_right - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
     l.close_btn = D2D1::RectF(close_x, center_y, close_x + SEARCH_BTN_SIZE, center_bottom);
 

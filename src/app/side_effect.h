@@ -46,7 +46,7 @@ struct ApplyDpi {
 struct ApplyZoom {};
 struct ToggleDarkMode {};
 // リサイズ・スプリッタやスクロールバーのドラッグの終わり・ペインの開閉の後に、表示位置を落ち着かせる。
-// App の後始末 (FinishLayout) が BitmapManage (または遅延レイアウト) も出すので、併せて積まない。
+// App の後始末 (FinishLayout) が ScheduleResourceManage (または遅延レイアウト) も呼ぶので、ResourceManage を併せて積まない。
 struct SettleViewport {};
 struct RendererResize {
     UINT width;
@@ -68,7 +68,7 @@ struct LaunchNewWindow {
 // 表示中の文書とは別のファイルのロードを取り消す。同じファイルの再読み込みは止めない。
 struct CancelOtherFileLoad {};
 
-struct BitmapManage {};
+struct ResourceManage {};
 
 struct SetTimer {
     app_timer::Id id;
@@ -105,7 +105,7 @@ using SideEffect = std::variant<
     effect::LaunchNewWindow,
     effect::CancelOtherFileLoad,
     // Layout
-    effect::BitmapManage,
+    effect::ResourceManage,
     // Timer
     effect::SetTimer,
     effect::KillTimer>;

@@ -223,8 +223,7 @@ Theme BuildTheme(bool dark)
 }
 } // namespace
 
-// 初回呼び出し時に 1 回だけ構築する。Magic statics の保護コストは
-// 呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
+// Magic statics の保護コストは呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
 const Theme& GetLightTheme()
 {
     static const Theme kLight = BuildTheme(false);

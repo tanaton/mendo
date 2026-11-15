@@ -102,7 +102,6 @@ DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width
 
 void MermaidRenderer::DropQueued()
 {
-    // 投入済みの表示用の図の描画とディスクキャッシュの読み込みも取り消す。
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
     // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
     std::erase_if(render_waiting_, [this](const RenderRequest& r) {
@@ -218,7 +217,6 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     if (!drawing) {
         return JobUnreadable{};
     }
-    // 描画命令のラベルの数式は TeX だけを置いてあるので組み直す。
     job.used_pele = pele_->ResolveMaths(*drawing);
     JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
     read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
@@ -301,7 +299,7 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
         [&](JobDrawing& d) {
             DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
             // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。IDWriteTextLayout の解放は 1 個 1.5µs ほどで、
-            // test.md の図 27 個 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
+            // 図が 27 個だった頃の test.md の全図 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
             DisposeOnWorkerIfLarge(*bg_scheduler_, d.texts.runs.size(), 1, std::move(d.texts));
             if (!result.commands) {
                 // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。

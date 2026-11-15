@@ -93,7 +93,6 @@ protected:
 
 } // namespace
 
-// 図のコードから描画命令を作る。
 TEST_F(PeleEngineTest, RendersDiagramToDrawing)
 {
     const auto out = engine_->Render("flowchart LR\n  A[開始] --> B[終了]", false, 800.0f);

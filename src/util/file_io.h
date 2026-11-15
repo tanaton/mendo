@@ -154,7 +154,7 @@ inline std::optional<std::wstring> ToWin32Path(std::wstring_view path)
 enum class FileLoadError : uint8_t {
     NotFound,   // ファイルが見つからない、またはアクセス拒否 (Locked 以外の CreateFileW の失敗)
     Locked,     // 他のプロセスが共有を許さずに開いている (エディタの保存中など)。時間をおけば読める
-    TooLarge,   // ファイルサイズが上限を超過
+    TooLarge,   // ファイルサイズが上限を超過したか、読み込み・パースでメモリを確保できなかった
     ReadFailed, // サイズの取得や読み込み中のI/Oエラー
 };
 

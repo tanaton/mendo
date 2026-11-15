@@ -166,7 +166,7 @@ inline size_t CountDirty(const LayoutCache& cache) noexcept
 }
 
 // 並列計測の stress 用の Mixed fixture を決定論的に生成する。配分:
-// Paragraph 60% / Heading 10% / HorizontalRule 5% / Table(1x2) 10% / Image 10% / 空 Paragraph 5%
+// Paragraph 60% / Heading 10% / HorizontalRule 5% / Table(1x2) 10% / Diagram 10% / 空 Paragraph 5%
 // include_code_block=true の場合は bucket==0,1 を CodeBlock(Cpp) に置換し Paragraph を 50% に減らす。
 inline Node MakeStressNode(size_t i, bool include_code_block)
 {

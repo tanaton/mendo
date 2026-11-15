@@ -45,8 +45,8 @@ struct NodeStorage {
     NodeIndices indices;
 };
 
-// md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
 // stop_token を渡すと md4c コールバックから途中で abort できる。既定の stop_token では最後まで走る。
+// 確保に失敗したら (md4c の中でも) std::bad_alloc を投げる。
 NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
 
 // ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。

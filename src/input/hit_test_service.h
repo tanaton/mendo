@@ -11,8 +11,8 @@
 #include <unordered_map>
 
 // テーブルの行/列ヒット判定。座標はテーブル原点 (エントリ上端 / base_x) からのローカル系。
-// 罫線の帰属は描画 (GenTable) に合わせる: 行 r は上罫線を含む [cum_y[r], cum_y[r+1])、
-// 列 c は左罫線を含む [cum_x[c] - border, cum_x[c+1] - border)。
+// 罫線の帰属は描画 (GenTable) に合わせる: 行 r は上罫線を含む [row_cum_y[r], row_cum_y[r+1])、
+// 列 c は左罫線を含む [col_cum_x[c] - border, col_cum_x[c+1] - border)。
 struct TableRowHit {
     int row = -1;
     float row_top = 0.0f;

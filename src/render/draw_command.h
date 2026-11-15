@@ -63,9 +63,9 @@ struct DrawBitmapCmd {
     float opacity = 1.0f;
 };
 
-// 描画命令から描く図。commands は図の左上を原点とする CSS px で記録してあり、dest に合わせて縮めて描く。
+// コマンドリストで描く図。commands は図の左上を原点とする CSS px で記録してあり、dest に合わせて縮めて描く。
 struct DrawDiagramCmd {
-    ID2D1CommandList* commands; // 非所有; ライフタイムは LayoutCache::DiagramEntry が管理。
+    ID2D1CommandList* commands; // 非所有; ライフタイムは LayoutCache の DiagramEntry が管理。
     D2D1_RECT_F dest;
     float width; // 記録した図の幅 (CSS px)
 };

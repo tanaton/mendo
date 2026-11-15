@@ -150,7 +150,6 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
 {
     auto [nodes, cache] = ParseAndLayout("# H1\n\n## H2\n\n### H3");
     ASSERT_EQ(nodes.size(), 3u);
-    // H1はH2より高く、H2はH3以上であること
     EXPECT_GT(cache[0].height, cache[1].height);
     EXPECT_GE(cache[1].height, cache[2].height);
 }
@@ -165,7 +164,7 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
     }
     long_line += "\n```";
 
-    auto [nodes, cache] = ParseAndLayout(long_line, 200.0f); // Very narrow
+    auto [nodes, cache] = ParseAndLayout(long_line, 200.0f);
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
@@ -175,7 +174,7 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 }
 
 // ========================================================
-// 抽出されたフリー関数のテスト
+// フリー関数のテスト
 // ========================================================
 
 // ---- ComputeColumnWidths テスト ----
@@ -461,32 +460,26 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
     }
 }
 
-// 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
-// ズーム/テーマ変更直後の Y 位置に stale な height が混入しないことを保証する。
-TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
+// ズームアウトの直後 (App::ApplyZoom の InvalidateAllLayouts の後) の部分レイアウトで、画面外の Y に旧倍率の大きな
+// height を引きずらない (InvalidateAllLayouts が高さを捨てる理由は test_layout_cache.cpp の InvalidateAllLayoutsDropsMeasurement)。
+TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
 {
-    // フル幅でフルレイアウト → 全ノード正確な height を持つ
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
     const float baseline_total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     ASSERT_GT(baseline_total, 0.0f);
 
-    // 不可視（後方）ノードを「旧テーマで非常に大きかった」状態にしてダーティ化する。
-    // これは zoom-out 直後に invisible 領域だけ stale height が残るケースを模す。
+    // 後半のノードを、旧倍率で測った大きな高さにする。
     const size_t node_count = nodes.size();
     constexpr float STALE_HEIGHT = 9999.0f;
     for (size_t i = node_count / 2; i < node_count; i++) {
         cache[i].height = STALE_HEIGHT;
-        cache[i].layout_dirty = true;
     }
 
-    // 部分レイアウト：可視範囲は先頭わずかのみ。後方の invisible ダーティ群は
-    // 現テーマでの推定値に置き換わるはずで、stale な巨大 height は混ざらない。
+    cache.InvalidateAllLayouts(nodes);
+    // 可視範囲は先頭だけなので、後半のノードは測らずに推定で組み直す。
     ComputeLayout(engine_, nodes, cache, 800.0f, 0.0f, 50.0f);
-    const float last_top_after = cache.Top(node_count - 1);
 
-    // baseline と同程度（推定誤差ぶんはあり得る）に収束し、stale の合計を
-    // 引きずった巨大値にはならないこと。
-    EXPECT_LT(last_top_after, baseline_total * 2.0f)
+    EXPECT_LT(cache.Top(node_count - 1), baseline_total * 2.0f)
         << "stale height (=" << STALE_HEIGHT << ") を Y 位置に取り込んでいる";
 }
 
@@ -747,7 +740,6 @@ TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
     ComputeLayout(engine_, nodes, actual_cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
-        // 推定値は実測値の0.2倍〜5倍の範囲内であること
         if (actual_cache[i].height > 0.0f) {
             float ratio = est_cache[i].height / actual_cache[i].height;
             EXPECT_GT(ratio, 0.2f) << "ノード " << i << " の推定値が実測値に対して小さすぎる";

@@ -387,10 +387,9 @@ TEST_F(SessionTest, LoadPanesOverwritesCurrentState)
 
 TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
 {
-    // 過剰幅の制限はレイアウト側 (md_width = max(md_min_width, total_width - x) で MD ペイン
-    // 下限を保証) に委ねるため、LoadPanes はウィンドウ幅に基づく上限 clamp を行わず、
-    // 保存値をそのまま使う。これにより狭いウィンドウ起動時に保存値が min へ潰れて
-    // 終了時の再保存で恒久喪失するのを防ぐ。
+    // 過剰幅は PaneController::ComputeLayout が表示幅だけを縮めて扱うので、LoadPanes はウィンドウ幅で
+    // clamp せず保存値をそのまま使う。clamp すると狭いウィンドウで起動したときに保存値が min へ潰れ、
+    // 終了時の再保存で失われる。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 

@@ -270,7 +270,6 @@ void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices,
         if (!tl) {
             continue;
         }
-        // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。
         const auto local = keep.ToLocal(Top(idx));
         const auto [keep_begin, keep_end] = tl->VisibleRowRange(local.top, local.bottom);
         tl->EvictRowsOutside(keep_begin, keep_end, released_layouts_);

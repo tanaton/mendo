@@ -114,7 +114,7 @@ TEST_F(TableMeasureJobsTest, DefersGiantTableAndPlacesSameGeometry)
     EXPECT_GT(after, cache_.Top(table_) + cache_[table_].height);
 }
 
-// セル数が kMinCells 以下の表は、これまでどおりその場で測る。
+// セル数が kMinCells 以下の表は、その場で測る。
 TEST_F(TableMeasureJobsTest, SmallTableIsMeasuredInPlace)
 {
     Open(TableMd(100));

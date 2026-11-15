@@ -121,7 +121,7 @@ void ResourceManager::LoadImages()
     };
     const InlineImageUpdate update = request(image_loader_.TakeDelivered());
     NotifyInlineImages(update);
-    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む。BITMAP_MANAGE を待つと、初めて開いた
+    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む。RESOURCE_MANAGE を待つと、初めて開いた
     // 写真の表の最初の画像が 275ms、すぐ頼むと 123ms (行ごとに読む前は 96ms。2026-11-08)。受け取ったものは無いので、
     // 表は変わらない。
     if (update.pending_resolved && update.unsettled_tables) {
@@ -146,7 +146,7 @@ void ResourceManager::RequestMermaidRenders()
     }
 }
 
-void ResourceManager::EvictOffscreenBitmaps()
+void ResourceManager::EvictOffscreenResources()
 {
     const auto keep = ComputeBufferedRange(EVICT_BUFFER_SCREENS);
     if (!keep) {
@@ -160,7 +160,7 @@ void ResourceManager::EvictOffscreenBitmaps()
     // ノード単位の evict では拾えない不可視行のセルも捨てる。
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す (test.md の図 27 個で commit 1〜2MB、1 個 40〜70KB)。寸法と描画命令は
+    // 図のコマンドリストも保持範囲の図の分だけ残す (図が 27 個だった頃の test.md で commit 1〜2MB、1 個 40〜70KB)。寸法と描画命令は
     // 残すので組み直さず、戻ってきたら先読み範囲に入ったときに UI で記録し直す (文字を組むので 1 個約 0.9ms)。
     // メモリを返すほうをユーザーが選んだ (2026-11-13)。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
@@ -199,7 +199,7 @@ void ResourceManager::EvictOffscreenBitmaps()
 void ResourceManager::FlushPendingResources()
 {
     image_loader_.ProcessCompletedDecodes();
-    // ScheduleBitmapManage 以外（OnBitmapManageTimer 等）からのフラッシュでも
+    // ScheduleResourceManage 以外（OnResourceManageTimer 等）からのフラッシュでも
     // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
     last_flush_time_ = std::chrono::steady_clock::now();
 
@@ -207,7 +207,7 @@ void ResourceManager::FlushPendingResources()
     RequestMermaidRenders();
 }
 
-void ResourceManager::ScheduleBitmapManage()
+void ResourceManager::ScheduleResourceManage()
 {
     // 直近の flush から間がなければ再実行を抑止する。
     // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
@@ -215,17 +215,17 @@ void ResourceManager::ScheduleBitmapManage()
     constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
     if (std::chrono::steady_clock::now() - last_flush_time_ >= kFlushThrottle) {
         // 連続スクロール中も通過した範囲のレイアウトを溜め込まないよう、停止を待たずに捨てる。
-        EvictOffscreenBitmaps();
+        EvictOffscreenResources();
         FlushPendingResources();
     }
-    host_.SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+    host_.SetTimer(app_timer::Id::RESOURCE_MANAGE, app_timer::RESOURCE_MANAGE_DELAY_MS);
 }
 
-void ResourceManager::OnBitmapManageTimer()
+void ResourceManager::OnResourceManageTimer()
 {
-    host_.KillTimer(app_timer::Id::BITMAP_MANAGE);
+    host_.KillTimer(app_timer::Id::RESOURCE_MANAGE);
 
-    EvictOffscreenBitmaps();
+    EvictOffscreenResources();
     // evict 直後は可視範囲のリソースを読み直す。
     // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (RecomputeLayout) だけでよい。
     FlushPendingResources();
