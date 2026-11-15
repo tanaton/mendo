@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-// d3d11.h / dxgi は renderer_device.cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
+// d3d11.h / dxgi はヘッダに出さず、renderer.h から app.h を読む翻訳単位へ広げない。
 struct ID3D11Device;
 struct IDXGISwapChain2;
 struct IWICImagingFactory;

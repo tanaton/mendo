@@ -190,7 +190,7 @@ struct CmdWriter {
 // 本文の文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) の書式。持ち主は Renderer。
 struct MdPaneFormats {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> checkbox;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> overlay_btn_icon;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
 };

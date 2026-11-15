@@ -138,19 +138,11 @@ bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASU
 
 // IDWriteTextLayout::Draw で rt へ描くレンダラの土台。字形は作ったときの rt の変換と DPI で置く。
 // スタック上でのみ使うので参照カウントは持たない。
-class RenderTargetTextRenderer : public IDWriteTextRenderer {
+class RenderTargetTextRenderer : public UncountedCom<IDWriteTextRenderer> {
 public:
     explicit RenderTargetTextRenderer(ID2D1RenderTarget* rt) noexcept;
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override;
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        return 1;
-    }
     HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override;
     HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) noexcept override;
     HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override;

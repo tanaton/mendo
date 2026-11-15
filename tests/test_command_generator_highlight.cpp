@@ -418,9 +418,9 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     ASSERT_HRESULT_SUCCEEDED(rt.As(&dc));
     ASSERT_HRESULT_SUCCEEDED(dc->CreateCommandList(diagram.commands.GetAddressOf()));
 
-    auto icon = CreateThemeFormat(COPY_BTN_SIZE);
+    auto icon = CreateThemeFormat(OVERLAY_BTN_SIZE);
     ASSERT_NE(icon, nullptr);
-    const MdPaneFormats formats{ .copy_btn_icon = icon };
+    const MdPaneFormats formats{ .overlay_btn_icon = icon };
     gen_.Init(theme_, formats, NoTextLayouts());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };

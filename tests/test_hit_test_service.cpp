@@ -314,14 +314,14 @@ protected:
 
 // ---- OverlayButtonRect ----
 
-// コピーボタンは COPY_BTN_SIZE の正方形で、ブロックの右上から COPY_BTN_MARGIN だけ内側に置く。
+// コピーボタンは OVERLAY_BTN_SIZE の正方形で、ブロックの右上から OVERLAY_BTN_MARGIN だけ内側に置く。
 TEST_F(CopyButtonTest, CopyButtonRectSitsInsideBlockTopRight)
 {
     const D2D1_RECT_F r = OverlayButtonRect(500.0f, 100.0f, OverlayButton::CodeCopy);
-    EXPECT_FLOAT_EQ(r.right - r.left, COPY_BTN_SIZE);
-    EXPECT_FLOAT_EQ(r.bottom - r.top, COPY_BTN_SIZE);
-    EXPECT_FLOAT_EQ(r.right, 500.0f - COPY_BTN_MARGIN);
-    EXPECT_FLOAT_EQ(r.top, 100.0f + COPY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(r.right - r.left, OVERLAY_BTN_SIZE);
+    EXPECT_FLOAT_EQ(r.bottom - r.top, OVERLAY_BTN_SIZE);
+    EXPECT_FLOAT_EQ(r.right, 500.0f - OVERLAY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(r.top, 100.0f + OVERLAY_BTN_MARGIN);
 }
 
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、重ならず並ぶ。
@@ -330,9 +330,9 @@ TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
     const D2D1_RECT_F save = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramSave);
     const D2D1_RECT_F copy = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramCopy);
     const D2D1_RECT_F view = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramView);
-    EXPECT_FLOAT_EQ(save.right, 500.0f - COPY_BTN_MARGIN);
-    EXPECT_FLOAT_EQ(copy.right, save.left - COPY_BTN_GAP);
-    EXPECT_FLOAT_EQ(view.right, copy.left - COPY_BTN_GAP);
+    EXPECT_FLOAT_EQ(save.right, 500.0f - OVERLAY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(copy.right, save.left - OVERLAY_BTN_GAP);
+    EXPECT_FLOAT_EQ(view.right, copy.left - OVERLAY_BTN_GAP);
     EXPECT_FLOAT_EQ(view.top, save.top);
 }
 

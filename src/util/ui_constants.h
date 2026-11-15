@@ -62,9 +62,9 @@ inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x, float visible_width, fl
 }
 
 // コードブロック・図の右上のボタン (OverlayButtonRect) の定数（DIP単位）。描画とヒット判定で共有する。
-inline constexpr float COPY_BTN_SIZE = 28.0f;
-inline constexpr float COPY_BTN_MARGIN = 6.0f;
-inline constexpr float COPY_BTN_GAP = 4.0f;
+inline constexpr float OVERLAY_BTN_SIZE = 28.0f;
+inline constexpr float OVERLAY_BTN_MARGIN = 6.0f;
+inline constexpr float OVERLAY_BTN_GAP = 4.0f;
 
 // 本文の行送りをフォントサイズの何倍にするか (GitHub の line-height: 1.5)。
 // 行頭に重ねて描くリスト番号・チェックボックスも同じ行送りにしてベースラインを揃える。
@@ -109,15 +109,15 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
 }
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存/拡大表示）の矩形を返す。
-// 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 COPY_BTN_GAP で並ぶ。
+// 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 OVERLAY_BTN_GAP で並ぶ。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
     const float slot = kind == OverlayButton::DiagramView ? 2.0f : kind == OverlayButton::DiagramCopy ? 1.0f
                                                                                                       : 0.0f;
-    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - slot * (COPY_BTN_SIZE + COPY_BTN_GAP);
-    const float by = anchor_top + COPY_BTN_MARGIN;
-    return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
+    const float bx = anchor_right - OVERLAY_BTN_MARGIN - OVERLAY_BTN_SIZE - slot * (OVERLAY_BTN_SIZE + OVERLAY_BTN_GAP);
+    const float by = anchor_top + OVERLAY_BTN_MARGIN;
+    return D2D1::RectF(bx, by, bx + OVERLAY_BTN_SIZE, by + OVERLAY_BTN_SIZE);
 }
 
 // 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。

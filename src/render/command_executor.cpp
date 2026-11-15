@@ -7,7 +7,6 @@
 #include "utility.h"
 #include <dwrite.h>
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <new>
 #include <span>
@@ -401,8 +400,7 @@ bool DiagramBitmapCache::Draw(ID2D1DeviceContext* dc, ID2D1CommandList* commands
     }
     Impl::Entry& e = *it;
     e.last_frame = m.frame;
-    const bool covered = e.bitmap && e.scale == k && (e.band_top <= visible_top || e.band_top == 0.0f) &&
-                         (e.band_bottom >= visible_bottom || e.band_bottom == height);
+    const bool covered = e.bitmap && e.scale == k && e.band_top <= visible_top && e.band_bottom >= visible_bottom;
     if (!covered) {
         const float margin = view_height / 4.0f / k;
         e.scale = k;

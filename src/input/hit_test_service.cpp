@@ -170,13 +170,13 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
     OverlayButtonHit out;
     for (int i = first; i < count && !out.Any(); i++) {
         const float entry_text_top = ctx.cache.Top(static_cast<size_t>(i));
-        // ボタンは上端 (コードブロックは padding だけ上) から COPY_BTN_MARGIN 下に 1 段だけ並ぶ。上端は単調に増えるので、
+        // ボタンは上端 (コードブロックは padding だけ上) から OVERLAY_BTN_MARGIN 下に 1 段だけ並ぶ。上端は単調に増えるので、
         // 段がポインタより下から始まるノードより先には当たるボタンが無い。
-        if (entry_text_top - ctx.theme.code_block_padding + COPY_BTN_MARGIN > dip_y) {
+        if (entry_text_top - ctx.theme.code_block_padding + OVERLAY_BTN_MARGIN > dip_y) {
             break;
         }
         const auto& node = ctx.nodes[i];
-        if (!layout::MayHaveOverlayButtons(node) || dip_y > entry_text_top + COPY_BTN_MARGIN + COPY_BTN_SIZE) {
+        if (!layout::MayHaveOverlayButtons(node) || dip_y > entry_text_top + OVERLAY_BTN_MARGIN + OVERLAY_BTN_SIZE) {
             continue;
         }
         const float x = NodeBlockX(node, ctx.theme);
