@@ -179,7 +179,6 @@ void DrawRun(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Ma
         return;
     }
     Place(dc, brush, base, t.at);
-    // 絵文字は本文と同じく COLR の層を塗る (陰影の無い平らな色)。
     DrawTextLayoutWithColorLayers(dc, D2D1::Point2F(t.at.x, t.at.y - run.baseline), run.layout.Get(), brush);
 }
 

@@ -5,8 +5,7 @@
 #include "profiler.h"
 #include "ui_constants.h"
 #include "utility.h"
-#include <d2d1_3.h>
-#include <dwrite_3.h>
+#include <dwrite.h>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -62,44 +61,12 @@ private:
 // 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
 // 構文トークンがあれば、グリフランをトークン境界で分けて種別の色で描く。SetDrawingEffect は
 // 1 回ごとに既存の範囲数に比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
-// スタック上でのみ使うので参照カウントは持たない。
-class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
+class VisibleRunRenderer final : public RenderTargetTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
                        MathMaskCache* math_masks) noexcept
-        : rt_(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings), math_masks_(math_masks)
+        : RenderTargetTextRenderer(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings), math_masks_(math_masks)
     {
-        rt->GetTransform(&transform_);
-        float dpi_x = DEFAULT_DPI;
-        float dpi_y = DEFAULT_DPI;
-        rt->GetDpi(&dpi_x, &dpi_y);
-        pixels_per_dip_ = DpiScaleFrom(dpi_x);
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
-    {
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDWritePixelSnapping) || riid == __uuidof(IDWriteTextRenderer)) {
-            *out = this;
-            return S_OK;
-        }
-        *out = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override
-    {
-        *disabled = FALSE;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) noexcept override
-    {
-        *transform = std::bit_cast<DWRITE_MATRIX>(transform_);
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override
-    {
-        *pixels_per_dip = pixels_per_dip_;
-        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(
@@ -110,8 +77,8 @@ public:
         if (y + run->fontEmSize < cmd_.cull_top || y - run->fontEmSize > cmd_.cull_bottom) {
             return S_OK;
         }
-        // 色のフォント (絵文字) のランはフォントの色で描く。数が少ないので、トークンの色分けと左右の間引きはしない。
-        if (::DrawColorGlyphRun(rt_, D2D1::Point2F(x, y), mode, *run, desc, BrushOr(BrushEffect::IdOf(effect)))) {
+        // 色のランは数が少ないので、トークンの色分けと左右の間引きはしない。
+        if (DrawColorGlyphRun(x, y, mode, *run, desc, BrushOr(BrushEffect::IdOf(effect)))) {
             return S_OK;
         }
         const bool split = !cmd_.syntax_tokens.empty() || std::isfinite(cmd_.cull_left);
@@ -326,11 +293,8 @@ private:
         rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushOr(BrushEffect::IdOf(effect)));
     }
 
-    ID2D1RenderTarget* rt_;
     ID2D1Brush* default_brush_;
     const DrawTextLayoutCmd& cmd_;
-    D2D1_MATRIX_3X2_F transform_{};
-    float pixels_per_dip_ = 1.0f;
     const FixedBrushArray& brushes_;
     const InlineDrawings& inline_;
     MathMaskCache* math_masks_;
