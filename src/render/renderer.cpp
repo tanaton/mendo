@@ -250,9 +250,12 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
     }
     auto* const dw = dwrite_factory_.Get();
     const float size = theme_->pane_font_size * zoom;
+    // 本文のズーム (CreateTextFormats) と同じく、見えている項目の分が上限まで残らないよう古い書式のレイアウトを捨てる。
+    text_layouts_.Forget(f.item.Get());
     f.item = CreateTextFormat(dw, { .family = theme_->font_family.c_str(), .size = size, .locale = theme_->text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     // アイコンはファイル一覧だけ。
     if (target == PaneTarget::File) {
+        text_layouts_.Forget(f.icon.Get());
         f.icon = CreateTextFormat(dw, { .family = theme_->icon_font.c_str(), .size = size, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     }
     f.zoom = zoom;
