@@ -169,10 +169,6 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept;
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language);
 
 // text の begin から後ろを解析し、Tokenize と同じトークンを tokens の後ろに足す。位置は text の先頭から数える。
-// state は begin での状態で、begin はトークンの外にあること。
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin = 0, SyntaxLexState state = 0);
-
-// state から始めた Tokenize の結果のうち、boundaries (昇順の位置) のどれかをまたぐトークンと text の末尾に届くトークンを返す。
-// LexerConfig で解析する言語はそれだけを作るので Tokenize より速い。そのほかの言語は全部のトークンを返し、trace に途中の状態を残す。
-std::vector<SyntaxToken> TokensCrossing(std::string_view text, SyntaxLanguage language, std::span<const size_t> boundaries,
-                                        SyntaxLexState state = 0, SyntaxStateTrace* trace = nullptr);
+// state は begin での状態で、begin はトークンの外にあること。trace があれば、Reset で渡した位置での状態を残す (呼ぶ前に Reset する)。
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin = 0, SyntaxLexState state = 0,
+                  SyntaxStateTrace* trace = nullptr);

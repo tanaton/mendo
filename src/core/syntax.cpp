@@ -88,8 +88,7 @@ constexpr bool IsIdentChar(char c) noexcept
 
 // [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
 // Plain は描画・HTML 化ともトークン間の隙間と同じ扱いなので出力しない (出すとトークンの大半を占める)。
-template <class Tokens>
-constexpr size_t EmitRange(Tokens& tokens, size_t start, size_t end, SyntaxTokenType type)
+constexpr size_t EmitRange(std::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
 {
     if (end > start && type != SyntaxTokenType::Plain) {
         tokens.emplace_back(static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
@@ -381,9 +380,9 @@ struct LexerConfig {
     bool lua_long_bracket = false;                // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
 };
 
-// Cfg の言語で、識別子と数値以外のトークンを始める文字。rem は語だが、語として飛ばさないように頭文字を入れる。
-// TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かない。Tokenize と TokensCrossing が
-// 同じように壊れて突き合わせでは分からないので、SyntaxSequence.TokenStartCharsReachTheirBranches にも足す。
+// Cfg の言語で、識別子と数値以外のトークンを始める文字 (rem のような語で始まるものは識別子の文字なので要らない)。
+// TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かないので、
+// SyntaxSequence.TokenStartCharsReachTheirBranches にも足す。
 template <LexerConfig Cfg>
 inline constexpr auto kTokenStartStorage = [] {
     constexpr std::pair<bool, char> rules[] = {
@@ -399,8 +398,6 @@ inline constexpr auto kTokenStartStorage = [] {
         { Cfg.backslash_line_string,                                       '\\' },
         { Cfg.backtick_string,                                             '`'  },
         { Cfg.ruby_block_comment,                                          '='  },
-        { Cfg.rem_comment,                                                 'r'  },
-        { Cfg.rem_comment,                                                 'R'  },
     };
     struct {
         std::array<char, std::size(rules)> chars{};
@@ -424,72 +421,6 @@ inline constexpr CharSet kTokenStartSet{ kTokenStarts<Cfg> };
 template <LexerConfig Cfg>
 inline constexpr CharSet kPlainChars{ [](char c) static noexcept { return !IsIdentChar(c) && c != '.' && !kTokenStartSet<Cfg>.contains(c); } };
 
-// TokensCrossing の出力先。区切りをまたぐか末尾に届くトークンだけを残す。トークンは位置の順に届く。
-class CrossingTokens {
-public:
-    CrossingTokens(size_t text_size, std::span<const size_t> boundaries) noexcept : text_size_(text_size), boundaries_(boundaries)
-    {}
-
-    bool Wants(size_t start, size_t end) noexcept
-    {
-        return end == text_size_ || NextBoundary(start) < end;
-    }
-    void emplace_back(uint32_t start, uint32_t length, SyntaxTokenType type)
-    {
-        if (Wants(start, size_t{ start } + length)) {
-            tokens_.emplace_back(start, length, type);
-        }
-    }
-    // i から、コメントや文字列が始まりうる文字の手前の空白まで語をまとめて飛ばす。飛ばす区間にコメントも文字列も無いので、
-    // 空白はトークンの外にある。区切りをまたぐ語は分類が要るので、区切りの手前の空白までしか飛ばさない。
-    // 飛ばせないと分かった所は探し直さない (探し直すと、空白の無い 16MB の JSON の配列のパースが 69ms から 30 秒になる)。
-    template <LexerConfig Cfg>
-    size_t SkipWords(std::string_view text, size_t i)
-    {
-        if (i < searched_until_) {
-            return i;
-        }
-        if (token_start_ < i) {
-            token_start_ = FindTokenStart<Cfg>(text, i);
-        }
-        searched_until_ = std::min(token_start_, NextBoundary(i));
-        size_t space = searched_until_;
-        while (space > i && !IsMarkupSpace(text[space - 1])) {
-            --space;
-        }
-        return space > i ? space - 1 : i;
-    }
-    std::vector<SyntaxToken> Take() noexcept
-    {
-        return std::move(tokens_);
-    }
-
-private:
-    // pos より後ろの最初の区切り。無ければ text の大きさ。
-    size_t NextBoundary(size_t pos) noexcept
-    {
-        while (next_ < boundaries_.size() && boundaries_[next_] <= pos) {
-            ++next_;
-        }
-        return next_ < boundaries_.size() ? boundaries_[next_] : text_size_;
-    }
-    // すぐ先に見つかることが多いので、CharSet の先頭の注意書きのとおり、ベクトル化した検索を呼ぶ前に数バイト見る。
-    template <LexerConfig Cfg>
-    static size_t FindTokenStart(std::string_view text, size_t pos) noexcept
-    {
-        const size_t nearby = std::min(pos + 16, text.size());
-        const size_t found = SkipWhile(text, pos, nearby, [](char c) static noexcept { return !kTokenStartSet<Cfg>.contains(c); });
-        return found < nearby ? found : std::min(text.find_first_of(kTokenStarts<Cfg>, found), text.size());
-    }
-
-    size_t text_size_ = 0;
-    std::span<const size_t> boundaries_;
-    size_t next_ = 0;
-    size_t token_start_ = 0;
-    size_t searched_until_ = 0;
-    std::vector<SyntaxToken> tokens_;
-};
-
 // シェルの単語を区切る文字 (空白とメタ文字) か。
 constexpr bool IsShellWordBoundary(char c) noexcept
 {
@@ -500,13 +431,13 @@ constexpr bool IsShellWordBoundary(char c) noexcept
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
 // 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
-template <LexerConfig Cfg, class Tokens>
+template <LexerConfig Cfg>
 void TokenizeRange(
     std::string_view text,
     size_t begin,
     kw::KeywordTable keywords,
     kw::KeywordTable types,
-    Tokens& tokens)
+    std::vector<SyntaxToken>& tokens)
 {
     // 行頭判定が必要な言語のみフラグを保持する。それ以外では at_line_start の維持コストを払わない。
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
@@ -541,22 +472,7 @@ void TokenizeRange(
         i++;
     };
 
-    constexpr bool kCrossing = std::is_same_v<Tokens, CrossingTokens>;
-
     while (i < text.size()) {
-        if constexpr (kCrossing) {
-            if (const size_t skipped = tokens.template SkipWords<Cfg>(text, i); skipped != i) {
-                i = skipped;
-                if constexpr (kNeedAtLineStart) {
-                    size_t line = i;
-                    while (line > 0 && KeepsLineStart<Cfg.rem_comment>(text[line - 1])) {
-                        --line;
-                    }
-                    at_line_start = line == 0 || text[line - 1] == '\n';
-                }
-            }
-        }
-
         const char c = text[i];
 
         if (kPlainChars<Cfg>.contains(c)) {
@@ -732,14 +648,6 @@ void TokenizeRange(
                         i = ScanString(text, i, '"', false);
                     }
                     emit_from(start, SyntaxTokenType::String);
-                    continue;
-                }
-            }
-
-            // 結果を使わない語ではキーワードの表を引かない。
-            if constexpr (kCrossing) {
-                if (!tokens.Wants(start, i)) {
-                    emit_from(start, SyntaxTokenType::Plain);
                     continue;
                 }
             }
@@ -3144,16 +3052,15 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 
 namespace {
 
-template <LexerConfig Cfg, class Tokens>
-bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, Tokens& tokens)
+template <LexerConfig Cfg>
+bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, std::vector<SyntaxToken>& tokens)
 {
     TokenizeRange<Cfg>(text, begin, keywords, types, tokens);
     return true;
 }
 
 // TokenizeRange で解析する言語なら解析して true を返す。状態はトークンの中にしか無いので、トークンの外ならどこからでも始められる。
-template <class Tokens>
-bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, Tokens& tokens)
+bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
@@ -3327,38 +3234,14 @@ SyntaxStateTrace::Point SyntaxStateTrace::RestartFor(size_t token_start) const n
     return after != points_.begin() ? *std::prev(after) : entry_;
 }
 
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin, SyntaxLexState state)
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin, SyntaxLexState state,
+                  SyntaxStateTrace* trace)
 {
-    if (!TokenizeByLexerConfig(text, begin, language, tokens)) {
-        TokenizeStateful(text, language, begin, state, tokens, nullptr);
+    if (TokenizeByLexerConfig(text, begin, language, tokens)) {
+        MarkStateless(trace);
+        return;
     }
-}
-
-std::vector<SyntaxToken> TokensCrossing(std::string_view text, SyntaxLanguage language, std::span<const size_t> boundaries,
-                                        SyntaxLexState state, SyntaxStateTrace* trace)
-{
-    CrossingTokens crossing(text.size(), boundaries);
-    if (TokenizeByLexerConfig(text, 0, language, crossing)) {
-        if (trace) {
-            trace->Reset(0, text.size(), {});
-            trace->SetStateless();
-        }
-        return crossing.Take();
-    }
-    if (trace) {
-        // 末尾に届いたトークンは最後の行にあることが多いので、そこから解析し直せるように最後の行の頭での状態も残す。
-        std::vector<size_t> wanted(boundaries.begin(), boundaries.end());
-        if (const size_t newline = text.rfind('\n'); newline != npos) {
-            wanted.insert(std::ranges::lower_bound(wanted, newline + 1), newline + 1);
-        }
-        const auto [first, last] = std::ranges::unique(wanted);
-        wanted.erase(first, last);
-        trace->Reset(state, text.size(), wanted);
-    }
-    std::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 32);
-    TokenizeStateful(text, language, 0, state, tokens, trace);
-    return tokens;
+    TokenizeStateful(text, language, begin, state, tokens, trace);
 }
 
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

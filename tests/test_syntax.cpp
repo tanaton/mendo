@@ -997,79 +997,7 @@ TEST(SyntaxSequence, BashHashAfterQuoteOrEscapeIsNotComment)
                         { { "echo", Type }, { "\"a\"", String }, { "1", Number }, { "#tab", Comment } });
 }
 
-namespace {
-
-// TokensCrossing が返すべきトークンに絞る。Tokenize の結果をそのまま返す言語があるので、実際の結果も通して比べる。
-std::vector<SyntaxToken> KeepCrossing(std::vector<SyntaxToken> tokens, size_t text_size, std::span<const size_t> boundaries)
-{
-    std::erase_if(tokens, [&](const SyntaxToken& t) {
-        const size_t end = size_t{ t.start } + t.length;
-        const auto b = std::ranges::upper_bound(boundaries, size_t{ t.start });
-        return end != text_size && (b == boundaries.end() || *b >= end);
-    });
-    return tokens;
-}
-
-} // namespace
-
-// TokensCrossing は語の分類を省き、コメントや文字列が始まりうる文字まで語を飛ばす。言語ごとの規則を別に持たないことを、
-// 全トークンを作った結果との突き合わせで確かめる。断片はどれかの言語でトークンを始めるか、数値や語の途中に現れる文字。
-TEST(TokensCrossing, MatchesFullTokenizeOnRandomCode)
-{
-    constexpr std::string_view kPieces[] = {
-        "\"", "'", "`", "'''", "\"\"\"", "\"\"\"\"", "/*", "*/", "//", "#", "#[", "\n", "\n", "\n", " ", " ", "\t",
-        "R\"(", ")\"", "R\"x(", ")x\"", "r\"", "@\"", "$\"", "<#", "#>", "--", "--[[", "]]", "[[", "[==[", "]==]",
-        "\n=begin\n", "\n=end\n", "=begin", "::", "\nrem ", "REM ", "\n@rem ", "@", "LR\"(", "\\\\", "\\", "${", "}", "$x", "$class", "@import",
-        "foo", "int", "return", "class", "x_1", "日本語", "(", ")", ";", ",", "=", "-", "+", "*", "/", ".", ":", "<", ">", "[", "]",
-        "123", "1'000", "0x1F", "1.5e+3", ".5", "1.", "1e", "0b1'0",
-    };
-    // 100 seed で足りる。語を飛ばすときに区切りを無視する・空白まで戻らない改変は、300 seed で 291 件・1179 件落ち、
-    // そのうち 95 件・372 件が最初の 100 seed に入る (2026-11-06)。
-    for (int l = 0; l <= kLastLanguage; ++l) {
-        const auto language = static_cast<SyntaxLanguage>(l);
-        for (uint32_t seed = 0; seed < 100; ++seed) {
-            std::mt19937 rng(seed * 1000 + l);
-            std::string text;
-            const size_t pieces = rng() % 400;
-            for (size_t i = 0; i < pieces; ++i) {
-                text += kPieces[rng() % std::size(kPieces)];
-            }
-            std::vector<size_t> boundaries;
-            for (size_t i = rng() % 8; i > 0 && !text.empty(); --i) {
-                boundaries.push_back(1 + rng() % text.size());
-            }
-            std::ranges::sort(boundaries);
-            const auto [first, last] = std::ranges::unique(boundaries);
-            boundaries.erase(first, last);
-
-            ASSERT_TRUE(KeepCrossing(TokensCrossing(text, language, boundaries), text.size(), boundaries) ==
-                        KeepCrossing(Tokenize(text, language), text.size(), boundaries))
-                << std::format("language={} seed={} text={}", l, seed, utf8_fuzz::HexEscape(text));
-        }
-    }
-}
-
-// 空白の無い長い行。語を飛ばす先が無く、区切りをまたぐ語の分類も要る。
-// 区切りの間隔 1003 は単位の長さ (8, 9, 14) と互いに素なので、14 個目までに単位のどの位置にも区切りが当たる。30KB で 29 個ある。
-TEST(TokensCrossing, MatchesFullTokenizeOnLinesWithoutBlanks)
-{
-    constexpr std::string_view kUnits[] = { "1,22,333,", "a.b(c,d);", "\"k\":\"v\",", "if(x){return;}" };
-    constexpr SyntaxLanguage kLanguages[] = { SyntaxLanguage::Json, SyntaxLanguage::JavaScript, SyntaxLanguage::Cpp, SyntaxLanguage::Python };
-    for (const SyntaxLanguage language : kLanguages) {
-        for (const std::string_view unit : kUnits) {
-            std::string text = RepeatTo(unit, 30000);
-            std::vector<size_t> boundaries;
-            for (size_t b = 1003; b < text.size(); b += 1003) {
-                boundaries.push_back(b);
-            }
-            ASSERT_TRUE(KeepCrossing(TokensCrossing(text, language, boundaries), text.size(), boundaries) ==
-                        KeepCrossing(Tokenize(text, language), text.size(), boundaries))
-                << unit;
-        }
-    }
-}
-
-// kTokenStartStorage から漏れた文字は Tokenize でも TokensCrossing でも同じように見落とされ、突き合わせでは分からない。
+// kTokenStartStorage から漏れた文字は、その分岐を通るはずの入力でもトークンにならない。
 // 規則ごとに、その規則だけで開始文字が入る言語で確かめる。
 TEST(SyntaxSequence, TokenStartCharsReachTheirBranches)
 {
@@ -1113,7 +1041,9 @@ std::vector<SyntaxToken> ResumeAt(std::string_view text, SyntaxLanguage language
 {
     SyntaxStateTrace trace;
     const size_t wanted[]{ begin };
-    TokensCrossing(text, language, wanted, 0, &trace);
+    trace.Reset(0, text.size(), wanted);
+    std::vector<SyntaxToken> from_head;
+    AppendTokens(text, language, from_head, 0, 0, &trace);
     std::vector<SyntaxToken> resumed;
     AppendTokens(text, language, resumed, begin, trace.For(begin).state);
     return resumed;

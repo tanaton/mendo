@@ -372,16 +372,19 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     // 区切ったコードの並びをつないだテキストでの、ノード k の終わり。
     const auto run_end = [&](size_t k) noexcept { return begins[k] + run[k].GetText().size(); };
 
-    // 全トークンを作ると 16MB のコードでパースが 18ms から 65ms になり、worker 4 本に配っても 27ms かかる。
-    // TokensCrossing は語を飛ばすので直列で約 20ms (実際の C++ で 107ms が約 40ms) で済み、worker に配っても 1〜2ms しか縮まない。
-    // 語を飛ばせない言語は全トークンを作るので、16MB で HTML 45ms、YAML 100ms、Lisp 130ms ほどかかるが、並列にするほど現れない。
+    // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す。16MB のコードのパースが C++ で 51〜72ms、JS で 96ms、
+    // YAML で 98ms ほどになるが、巨大なコードを開くときだけなので worker に配らない。LexerConfig の言語は継ぎ目をまたぐトークンだけを
+    // 作る経路 (語を飛ばしてキーワードの表も引かない) も持っていたが、効くのは巨大なコードだけなので、言語で分けずにそろえた
+    // (2026-11-15。C++ は 21.6 → 50.6ms・38.5 → 72.2ms、JS は 52 → 96ms と遅くなり、JSON は 8〜24% 速くなった)。
     constexpr size_t kWindowNodes = 8;
     // 改行が無いまま窓の端に届いた行は、頭からこれだけ読んでいれば、行の頭の読み方 (キー・命令・ルールか代入か) が決まった
     // ものとして行の途中から次の窓を読む。行の頭から読み直すと、窓より長い 1 行で、窓を倍にしながら行の頭から何度も読む
     // (4MB の 1 行で YAML 30ms、Vim script 45ms)。これより後ろにだけ区切りのある行は、頭の色付けが 1 度に読んだときと変わる。
     constexpr size_t kLineHeadBytes = 64 * 1024;
     std::string seg;
-    std::vector<size_t> boundaries;
+    // 状態を知りたい位置 (seg の中の継ぎ目と最後の行の頭)。
+    std::vector<size_t> wanted;
+    std::vector<SyntaxToken> tokens;
     SyntaxStateTrace trace;
     // next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
     // (トークンの先頭か、どのトークンにも入らない位置) で、restart_state はそこでの状態。
@@ -395,12 +398,20 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         const std::string_view head = run[next - 1].GetText();
         seg.reserve(end - restart);
         seg.assign(head.substr(std::min(restart - begins[next - 1], head.size())));
-        boundaries.clear();
+        wanted.clear();
         for (size_t j = next; j < last; ++j) {
             seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
-            boundaries.push_back(begins[j] - restart);
+            wanted.push_back(begins[j] - restart);
         }
-        const auto tokens = TokensCrossing(seg, run.front().code_language, boundaries, restart_state, &trace);
+        // 末尾に届いたトークンは最後の行にあることが多いので、そこから解析し直せるように最後の行の頭での状態も残す。
+        if (const size_t newline = seg.rfind('\n'); newline != std::string::npos) {
+            wanted.insert(std::ranges::lower_bound(wanted, newline + 1), newline + 1);
+        }
+        const auto [dup_begin, dup_end] = std::ranges::unique(wanted);
+        wanted.erase(dup_begin, dup_end);
+        trace.Reset(restart_state, seg.size(), wanted);
+        tokens.clear();
+        AppendTokens(seg, run.front().code_language, tokens, 0, restart_state, &trace);
 
         // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、解析を始め直せる位置から次の窓を読む。
         // 先読みが窓の端に届いた所から後ろも、続きを読むまで決まらない。
