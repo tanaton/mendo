@@ -175,7 +175,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     if (col_count == 0 || starts.size() < 2) {
         return;
     }
-    const size_t cell_limit = std::min(tbl.row_count * col_count, starts.size() - 1);
+    const size_t cell_limit = std::min(tbl.CellCount(), starts.size() - 1);
     const uint32_t query_len = static_cast<uint32_t>(query.size());
 
     size_t cursor_cell = std::numeric_limits<size_t>::max();

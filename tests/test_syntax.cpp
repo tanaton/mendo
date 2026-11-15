@@ -997,7 +997,7 @@ TEST(SyntaxSequence, BashHashAfterQuoteOrEscapeIsNotComment)
                         { { "echo", Type }, { "\"a\"", String }, { "1", Number }, { "#tab", Comment } });
 }
 
-// kTokenStartStorage から漏れた文字は、その分岐を通るはずの入力でもトークンにならない。
+// kTokenStartSet から漏れた文字は、その分岐を通るはずの入力でもトークンにならない。
 // 規則ごとに、その規則だけで開始文字が入る言語で確かめる。
 TEST(SyntaxSequence, TokenStartCharsReachTheirBranches)
 {

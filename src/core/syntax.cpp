@@ -384,7 +384,7 @@ struct LexerConfig {
 // TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かないので、
 // SyntaxSequence.TokenStartCharsReachTheirBranches にも足す。
 template <LexerConfig Cfg>
-inline constexpr auto kTokenStartStorage = [] {
+inline constexpr CharSet kTokenStartSet{ [](char c) static noexcept {
     constexpr std::pair<bool, char> rules[] = {
         { true,                                                            '"'  },
         { !Cfg.skip_single_quote || Cfg.triple_quote != TripleQuote::None, '\'' },
@@ -399,23 +399,8 @@ inline constexpr auto kTokenStartStorage = [] {
         { Cfg.backtick_string,                                             '`'  },
         { Cfg.ruby_block_comment,                                          '='  },
     };
-    struct {
-        std::array<char, std::size(rules)> chars{};
-        size_t size = 0;
-    } r;
-    for (const auto& [enabled, c] : rules) {
-        if (enabled) {
-            r.chars[r.size++] = c;
-        }
-    }
-    return r;
-}();
-
-template <LexerConfig Cfg>
-inline constexpr std::string_view kTokenStarts{ kTokenStartStorage<Cfg>.chars.data(), kTokenStartStorage<Cfg>.size };
-
-template <LexerConfig Cfg>
-inline constexpr CharSet kTokenStartSet{ kTokenStarts<Cfg> };
+    return std::ranges::contains(rules, std::pair{ true, c });
+} };
 
 // Cfg の言語でどのトークンも始めない文字。IsIdentChar の表引きと合わせて、16KB の C++ のトークン化が 46→39µs になる。
 template <LexerConfig Cfg>

@@ -213,8 +213,7 @@ struct ParseContext : NodeStorage {
             current_node->set_has_child_blocks();
         }
         FinalizeCurrentNode();
-        nodes.emplace_back();
-        current_node = &nodes.back();
+        current_node = &nodes.emplace_back();
         active_text_buffer = &current_text;
         current_node->type = type;
         current_node->indent_level = SaturateToInt8(indent_level);
@@ -713,7 +712,7 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 // 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
 void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size)
 {
-    assert(tbl.cell_text_starts.size() == static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    assert(tbl.cell_text_starts.size() == tbl.CellCount());
     tbl.cell_text_starts.push_back(static_cast<uint32_t>(text_size));
     if (!tbl.cell_run_starts.empty()) {
         tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
@@ -1072,7 +1071,6 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         constexpr size_t kOwnTableTextBytes = 1024 * 1024;
         if (text.size() <= kOwnTableTextBytes) {
             tbl->concat_text = ctx->arena.CopyText(text);
-            text.clear();
         }
         else {
             text.shrink_to_fit();

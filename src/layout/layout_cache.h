@@ -70,7 +70,8 @@ struct IndexRange {
 
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）。
 // エントリは中身の同じノードの間でしか移らない (TakeEntries) ので、行数・列数は作ったときに決まり変わらない。
-// 全セルを測って幾何を積んでから entry に置く (DWriteTextMeasurer::MeasureTable) ので、table_layout() があれば幾何も揃っている。
+// 全セルを測って幾何を積んでから entry に置く (DWriteTextMeasurer::BuildTable で組み、MeasureTable か
+// LayoutService::PlaceMeasuredTables が置く) ので、table_layout() があれば幾何も揃っている。
 // 幅が変わっても次に組み直すまでは前の幅の幾何のまま残る (見えている表は描く前に組み直す)。
 struct TableLayoutData {
     const size_t row_count;
@@ -109,9 +110,9 @@ struct TableLayoutData {
 
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
     TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
-        : row_count(rows), col_count(cols), row_layouts_(rows), row_code_bgs(has_inline_code ? rows : 0),
+        : row_count(rows), col_count(cols), row_code_bgs(has_inline_code ? rows : 0),
           col_widths(cols), row_heights(rows), natural_col_widths(cols), min_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
-          row_cum_y(rows + 1), col_cum_x(cols + 1), row_evicted_(rows), live_rows_{ 0, rows }
+          row_cum_y(rows + 1), col_cum_x(cols + 1), row_layouts_(rows), row_evicted_(rows), live_rows_{ 0, rows }
     {
     }
 

@@ -191,7 +191,7 @@ NodeRunHit FindRunAt(const Node& node, uint32_t pos) noexcept
         return { RunContaining(node.runs(), pos), 0 };
     }
     const size_t idx = tbl->CellIndexAt(pos);
-    if (idx >= static_cast<size_t>(tbl->row_count) * tbl->col_count) {
+    if (idx >= tbl->CellCount()) {
         return {};
     }
     const uint32_t base = tbl->cell_text_starts[idx];

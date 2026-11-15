@@ -75,24 +75,24 @@ void TableMeasureJobs::SetDocument(std::shared_ptr<const DocumentData> doc)
 bool TableMeasureJobs::Defer(std::span<const Node> nodes, size_t node, const NodeLayoutEntry& entry, float max_width)
 {
     const NodeTableData* tbl = nodes[node].table_data();
-    if (!tbl || entry.table_layout() || static_cast<size_t>(tbl->row_count) * tbl->col_count <= kMinCells) {
+    if (!tbl || entry.table_layout() || tbl->CellCount() <= kMinCells) {
         return false;
     }
     // 今の文書のノードでなければ (SetDocument の前) その場で測らせる。
-    if (!doc_ || std::span<const Node>{ doc_->parsed.nodes }.data() != nodes.data()) {
+    if (!doc_ || doc_->parsed.nodes.data() != nodes.data()) {
         return false;
     }
     if (std::ranges::contains(running_, node, &Running::node)) {
         return true;
     }
-    Running& r = running_.emplace_back(Running{ .job = ++last_job_, .node = node });
+    Running r{ .job = ++last_job_, .node = node };
     const bool posted = scheduler_.Post([this, doc = doc_, node, max_width, job = r.job, stop = r.stop.get_token(), guard = latch_.Acquire()] {
         if (stop.stop_requested()) {
             return;
         }
         Result result{ .job = job, .node = node };
         try {
-            result.built = measurer_.BuildTable(std::span<const Node>{ doc->parsed.nodes }[node], max_width, stop);
+            result.built = measurer_.BuildTable(doc->parsed.nodes[node], max_width, stop);
             if (stop.stop_requested()) {
                 return;
             }
@@ -105,11 +105,10 @@ bool TableMeasureJobs::Defer(std::span<const Node> nodes, size_t node, const Nod
             wake_();
         }
     });
-    if (!posted) {
-        running_.pop_back();
-        return false;
+    if (posted) {
+        running_.push_back(std::move(r));
     }
-    return true;
+    return posted;
 }
 
 void TableMeasureJobs::NoteInlineChanged() noexcept
@@ -318,13 +317,13 @@ bool LayoutService::EnsureVisibleLayout(const Document& doc, LayoutCache& cache,
     return EnsureRangeLayout(doc, cache, width, scroll_y, scroll_y + height);
 }
 
-bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node)
+void LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node)
 {
     if (node < 0 || static_cast<size_t>(node) >= cache.size() || !cache[node].layout_dirty) {
-        return false;
+        return;
     }
     const float top = cache.Top(static_cast<size_t>(node));
-    return EnsureRangeLayout(doc, cache, width, top, top);
+    EnsureRangeLayout(doc, cache, width, top, top);
 }
 
 void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, IndexRange changed) noexcept
