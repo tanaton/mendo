@@ -59,7 +59,6 @@ void ThemeService::Init(bool dark, ZoomLevel zoom)
     theme_.icon_font = ResolveFontFamily(collection.Get(), theme_palette::kIconFontCandidates);
 }
 
-// ライトとダークの違いは色だけ。
 bool ThemeService::ToggleDarkMode()
 {
     const bool dark = !theme_.dark;

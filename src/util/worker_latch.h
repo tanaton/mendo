@@ -80,9 +80,7 @@ class WorkerLatch {
     struct Release {
         void operator()(WorkerLatch* latch) const noexcept
         {
-            // デクリメントと notify を同一 mutex 区間で完結させる。これにより Wait が
-            // 抜けた時点で worker は cv/mutex へのアクセスを終えており、直後に latch が
-            // 破棄されても use-after-free にならない。
+            // デクリメントと notify を同一 mutex 区間で完結させ、Wait が抜けた後に cv/mutex を触らない。
             const std::lock_guard lock(latch->mutex_);
             if (--latch->in_flight_ == 0) {
                 latch->cv_.notify_all();

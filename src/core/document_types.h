@@ -172,7 +172,7 @@ struct NodeTableData {
 // 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。
 inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 
-// 自分では何も所有しない、trivially copyable なビュー。ノード配列の伸長や詰め直しを memcpy で済ませる。
+// 自分では何も所有しない、trivially copyable なビュー。ノード配列 (ReservedArray) を予約し直すときは memcpy で写す。
 struct Node {
     // テキスト・runs・リンク URL・画像 src はノード自身では持たず、DocumentData::raw (原文をそのまま使えるもの)
     // か TextArena (加工したテキスト・runs・URL の配列) を指す。テーブルは Document が所有する NodeTableData を指す。

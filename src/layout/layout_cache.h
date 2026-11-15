@@ -281,10 +281,8 @@ constexpr YRange BufferedRange(float scroll_y, float height, float screens) noex
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
-    // 直近 MeasureNode の幅。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避ける。
-    // 「未計測」のセンチネルは kUnmeasuredWidth (= 負値)。MeasureNode 入力 (node_width) は
-    // 0 以上なので負値は初期化/invalidate 経路でしか出現しない。per-node で密に並ぶ hot field の
-    // ため optional<float> 化はサイズ膨張を招き避けている (is_measured() で判定統一)。
+    // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避ける。
+    // 未計測は kUnmeasuredWidth (負値)。全ノード分並ぶので optional<float> にせず、判定は is_measured() にまとめる。
     static constexpr float kUnmeasuredWidth = -1.0f;
     float cached_width = kUnmeasuredWidth;
     constexpr bool is_measured() const noexcept
@@ -480,12 +478,12 @@ struct DiagramDrawing;
 }
 
 struct DiagramResult {
-    // 図はビットマップを持たず、毎フレーム commands を描く。どの倍率でもくっきり描け、
-    // 1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
+    // 図はビットマップを持たず、commands を描く (スクロールの間だけ DiagramBitmapCache が見えている分を持つ)。どの倍率でも
+    // くっきり描け、1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
-    // 図の描画命令。クリップボードコピー・保存の画像の元。commands と同時に設定する。
+    // 図の描画命令。クリップボードコピー・保存の画像と、捨てた commands を記録し直す元。
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
     // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
@@ -611,7 +609,6 @@ public:
 
     // 図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
     // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
-    // 要素は node-based のマップに置くので、Mermaid の処理待ちが持つポインタは他ノードの追加で動かない。
     DiagramEntry& EnsureDiagram(size_t i)
     {
         return diagrams_[i];
@@ -633,7 +630,7 @@ public:
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
-    // デバイスロスト時用。旧デバイス上の描画命令は新 RT で描画できず、
+    // デバイスロスト時用。旧デバイスのコマンドリストは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramCommands() noexcept;
@@ -687,7 +684,7 @@ public:
     {
         return std::exchange(released_layouts_, {});
     }
-    // 図の描画命令 (ID2D1CommandList) は UI スレッドで解放させる。残りはどのスレッドで破棄してもよい。
+    // 図のコマンドリスト (ID2D1CommandList) は UI スレッドで解放させる。残りはどのスレッドで破棄してもよい。
     void ReleaseDiagrams() noexcept
     {
         diagrams_.clear();

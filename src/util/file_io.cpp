@@ -70,7 +70,6 @@ bool WriteToHandle(HANDLE file, const void* data, size_t size, bool flush_buffer
 }
 
 // 書き終えた tmp_path で path を置き換える。置き換えられなければ tmp_path を消す。
-// 直書きフォールバックは CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
 bool ReplaceWithTmp(const std::filesystem::path& tmp_path, const std::filesystem::path& path, bool durable) noexcept
 {
     const DWORD move_flags = MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0);

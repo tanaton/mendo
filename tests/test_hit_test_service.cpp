@@ -11,8 +11,7 @@
 #include <utility>
 #include <vector>
 
-// MockTextMeasurer 前提のため、DirectWrite 依存経路 (text_layout
-// 非 null、row_cum_y/col_cum_x による二分探索、cell_layout) は対象外。
+// DirectWrite の経路は test_hit_test_service_dwrite.cpp で見る。
 
 class HitTestTest : public MockLayoutTestBase {
 protected:
@@ -265,7 +264,7 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 
 // ---- OverlayButtonHitTest ----
 
-TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
+TEST_F(HitTestTest, SaveButton_UnrenderedDiagramReturnsNegative)
 {
     // Mermaid ブロックはあるが図を描いていない（未ロード）のでボタンは無い
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
@@ -285,7 +284,6 @@ using layout::NodeBoxPadTop;
 using layout::NodeIndent;
 
 // OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
-// MockTextMeasurer を使用するため DirectWrite / COM は不要。
 
 class CopyButtonTest : public HitTestTest {
 protected:
@@ -338,7 +336,7 @@ TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
     EXPECT_FLOAT_EQ(view.top, save.top);
 }
 
-// ---- CopyButtonHitTest ----
+// ---- コピーボタンの OverlayButtonHitTest ----
 
 // ボタンの外、コードブロックの無い文書、空の文書ではどのボタンにも当たらない。
 TEST_F(CopyButtonTest, MissesOutsideCopyButton)

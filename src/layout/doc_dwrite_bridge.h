@@ -16,8 +16,7 @@
 // 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で UTF-16 にし、
 // UTF-8 byte と UTF-16 code unit の位置は Utf16OffsetCursor で前方に数えて対応させる。
 //
-// 描画用 wchar_t (フォント名 / locale / i18n リテラル等) はこの境界の対象外。
-// それらは std::wstring 経路を維持し、CreateDocTextLayout を経由しない。
+// 描画用 wchar_t (フォント名 / locale / i18n リテラル等) は初めから UTF-16 なので、CreateDocTextLayout を通さない。
 
 namespace utf8_codec {
 struct DecodedCp;
@@ -61,7 +60,7 @@ void DecodeForDWrite(std::string_view text, std::wstring& out);
 // HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
 inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length, std::vector<DWRITE_HIT_TEST_METRICS>& buffer)
 {
-    // 1 行中の inline code run が折り返される想定最大数。描画 hot path 中の resize を避ける。
+    // 範囲が折り返しで分かれる箱の数の想定。描画中の resize を避ける。
     constexpr size_t kInitialCapacity = 64;
     if (buffer.size() < kInitialCapacity) {
         buffer.resize(kInitialCapacity);

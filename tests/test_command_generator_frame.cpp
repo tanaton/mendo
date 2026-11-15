@@ -95,7 +95,7 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
 }
 
 // ═══════════════════════════════════════════════
-// テーマ変更の反映
+// 表の縞
 // ═══════════════════════════════════════════════
 
 TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)

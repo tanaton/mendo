@@ -40,14 +40,9 @@ inline Microsoft::WRL::ComPtr<IWICStream> CreateStreamOnMemory(IWICImagingFactor
     return stream;
 }
 
-// IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。
-// HICON 由来の IWICBitmap など、デコーダを経由しないソースにも使用する。
-//
-// 注意: IWICFormatConverter は呼び出し元が CreateBitmapFromWicBitmap などで
-// 利用するため、この関数の戻り値の lifetime に渡って保持される。
-// 別スレッド/別呼び出しで Initialize を再呼び出ししてしまうと既存の戻り値が
-// 別ソースを指してしまうため、毎回新規生成する（プールしない）。
-// CreateFormatConverter 自体は CoCreateInstance に比べて軽量。
+// IWICBitmapSource を pixel_format (既定は 32bppPBGRA) に変換する。HICON 由来の IWICBitmap など、デコーダを経由しない
+// ソースにも使う。戻り値は呼び出し側が使い終えるまで持つので、使い回さずに毎回作る (Initialize し直すと前の戻り値の
+// 入力も替わる)。CreateFormatConverter は CoCreateInstance に比べて軽い。
 inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
     IWICImagingFactory* wic, IWICBitmapSource* source,
     const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)

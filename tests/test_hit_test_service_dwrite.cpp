@@ -1,8 +1,6 @@
 // hit_test の DirectWrite 経路テスト。
-// MockTextMeasurer では `entry.text_layout` が nullptr になるため、
-// HitTest 内の `if (entry.text_layout)` 経路や HitTestTable の cell_layout
-// 経由の text_pos 計算は到達できない。本ファイルでは実 IDWriteFactory を
-// 使う DWriteTestBase の上で、その経路を踏む。
+// MockTextMeasurer では text_layout() も表のセルのレイアウトも作られず、それらで文字位置を引く経路に
+// 届かないため、実 IDWriteFactory を使う DWriteTestBase の上で踏む。
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"

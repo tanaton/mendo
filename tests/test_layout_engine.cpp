@@ -56,7 +56,6 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     float height_before = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(height_before, 0.0f);
 
-    // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining;
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
@@ -139,9 +138,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     const size_t para_idx = static_cast<size_t>(table_idx) + 1;
     ASSERT_LT(para_idx, nodes.size());
 
-    // 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
-    // テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
-    // 上書きされて高さが縮む。
+    // 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）。テーブルは viewport 外なので推定の対象になる。
     ComputeLayout(engine_, nodes, cache, 600.0f, 0.0f, 10.0f);
 
     // partial モードでも実測した高さを見積もりで縮めない (幅を狭めたので、見積もりで伸びることはある)。
@@ -244,7 +241,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     EXPECT_LT(actual, expected * 1.25f);
 }
 
-// 遅延レイアウトタイマー (OnDeferredLayout) はビューポート制限付きで ProcessDirtyBatch を呼ぶ。
+// 遅延レイアウト (OnDeferredLayout) はビューポート制限付きで ProcessDirtyBatch を呼ぶ。
 TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipOnFreshCacheMeasuresTopNodes)
 {
     const auto md = MakeParagraphs(10);

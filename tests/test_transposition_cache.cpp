@@ -129,7 +129,6 @@ TEST(TranspositionCache, TrimToBudgetEvictsFromTail)
     EXPECT_EQ(cache.Find(1), nullptr);
     EXPECT_NE(cache.Find(3), nullptr);
 
-    // 挿入は引き続き可能 (size_ と head_ の整合が保たれる)
     cache.Insert(4, 1);
     EXPECT_NE(cache.Find(4), nullptr);
     EXPECT_EQ(cache.Size(), 3u);

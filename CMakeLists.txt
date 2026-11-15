@@ -198,7 +198,7 @@ if(MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
 # /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
-# profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
+# profiler.h の MENDO_LOGF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
 # PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
 target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 

@@ -776,10 +776,8 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageCellKeepsLayoutAcrossWidths)
 }
 
 
-// MockTextMeasurer と DWriteTextMeasurer の不変条件を突き合わせる回帰テスト。
-// 絶対値は両者で異なる（mock はヒューリスティック、DWrite は実測）が、
-// 「どちらも正の高さを返す」「順序性を維持する」「同じスケーリング式を使う」等の
-// 共通ルールを検証することで、片方だけ仕様が変わった際の検出ポイントを残す。
+// MockTextMeasurer と DWriteTextMeasurer の共通ルール (正の高さ・順序性) を突き合わせ、片方だけ仕様が変わったら気付けるようにする。
+// 絶対値は両者で異なる（mock はヒューリスティック、DWrite は実測）ので比べない。
 class MeasurerParityTest : public DWriteTestBase {
 protected:
     MockTextMeasurer mock_;

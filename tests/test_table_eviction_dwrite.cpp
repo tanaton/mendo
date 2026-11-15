@@ -80,7 +80,7 @@ protected:
 } // namespace
 
 // 範囲外行を evict すると null セルが発生するが、dirty にはしない
-// (dirty のままだと可視中に毎フレーム全行の再計測と effects 破棄が走る)。
+// (dirty のままだと可視中に毎フレーム全行を測り直す)。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 {
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(40)));
@@ -176,8 +176,6 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     EXPECT_FLOAT_EQ(entry.height, height_before);
 }
 
-// 検索ハイライトは evict 中のセルのマッチを未計算のまま残すので、行を復元しても計算済みの矩形は捨てない。
-// スクロールで行が復元されるたびに表全体のマッチを計算し直すのを防ぐ。
 // 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃い evict 行がなくなる。
 TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 {

@@ -172,8 +172,7 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
     EXPECT_TRUE(CollectRectsByBrush(Draw(pl), { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent, BrushId::Selection }).empty());
 }
 
-// 現在マッチは search_highlight_current_color、それ以外は search_highlight_color
-// で塗られる。current_match_index がインデックス指定 → そのマッチだけ別色。
+// current_match_index で指したマッチだけ SearchHighlightCurrent、それ以外は SearchHighlight で塗る。
 // 失敗するとユーザー視点で「現在マッチがどこにあるか分からない」状態になる。
 TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
@@ -186,7 +185,6 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 }
 
 // start == end の選択範囲は描画ハイライトを発行しない。
-// SetScrollSelectionMoved 等で起きうる空選択で余計な FillRectCmd が出ないことの確認。
 TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
     auto pl = ParseAndLayout("Hello World");

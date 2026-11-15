@@ -360,8 +360,7 @@ TEST_F(SearchBarTest, DocumentReloadedKeepsMatchesOfUnchangedNodes)
 // マッチへのスクロール
 // ═══════════════════════════════════════════════
 
-// scroll_target_ がジャンプでクリアされることを保証する。
-// Why: クリアされないと後続の ApplyScrollTarget で検索ジャンプが上書きされる (検索ジャンプ修正)。
+// マッチへ飛んだら scroll_target_ を捨てる。残すと後の ApplyScrollTarget が飛んだ位置を上書きする。
 TEST_F(SearchBarTest, ScrollToMatchClearsScrollTarget)
 {
     SetDocument("hello\n\nworld hello\n", 500.0f);
@@ -379,8 +378,8 @@ TEST_F(SearchBarTest, ScrollToMatchClearsScrollTarget)
     EXPECT_FALSE(viewport.GetScrollTarget().IsValid());
 }
 
-// 同一ノード内でテーブル複数行のマッチを連続で「次へ」したとき、行ごとに scroll_y が進むこと。
-// Why: 行毎の精密な Y が使われず block 先頭に丸まると、複数マッチ間でスクロールが進まない。
+// 1 つの表の複数行のマッチを続けて「次へ」すると、行ごとに scroll_y が進む。
+// 行の Y を使わず表の先頭に丸めると、マッチの間でスクロールが進まない。
 TEST_F(SearchBarTest, NextMatchAcrossTableRowsAdvancesScroll)
 {
     SetDocument("| hit |\n|---|\n| hit |\n| hit |\n| hit |\n| hit |\n", 2000.0f);
@@ -447,5 +446,5 @@ TEST_F(SearchBarTest, ScrollToMatchNoOpWhenAlreadyVisible)
     const float before = state_.view.viewport.GetScrollY();
     const auto effects = Dispatch(SearchStepAction{ .forward = true });
     EXPECT_FLOAT_EQ(state_.view.viewport.GetScrollY(), before);
-    EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }

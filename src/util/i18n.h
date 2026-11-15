@@ -514,7 +514,7 @@ inline std::wstring_view ConfigLangKey() noexcept
 // これを使うのは文書から来る文字 (本文・ファイル名・目次・タイトル・検索語) だけ。メニュー・ペインの見出し・
 // トースト・設定ダイアログなど UI の決まった文言は、選んだ言語の Strings::lang_locale で組む。OS と違う言語を選んでも
 // UI の漢字をその言語の字形で出し、UI のどこでも字形を揃えるため。
-// 漢字を使わない英語 (と文言を持たない言語) は従来どおり日本語の字形にする。
+// 漢字を使わない英語 (と文言を持たない言語) は日本語の字形にする。
 inline const wchar_t* TextLocaleForUiLanguage(LANGID langid) noexcept
 {
     const Strings* strings = StringsForUiLanguage(langid);

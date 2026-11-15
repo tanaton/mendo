@@ -604,8 +604,8 @@ void App::HandleTimer(UINT_PTR timer_id)
             KillTimer(id);
         }
         return;
-    case BITMAP_MANAGE:
-        resource_manager_.OnBitmapManageTimer();
+    case RESOURCE_MANAGE:
+        resource_manager_.OnResourceManageTimer();
         return;
     case PELE_TRIM:
         mermaid_renderer_.TrimIdleRuntimes();
@@ -764,7 +764,7 @@ void App::RunReloadCommand(const ReloadCommand& cmd)
     }
     if (cmd.resume_resources) {
         // 読み込み中は頼まない (IsLoadingOtherDocument) が、reload_ はもう読み込み中を抜けている。
-        resource_manager_.ScheduleBitmapManage();
+        resource_manager_.ScheduleResourceManage();
     }
     if (cmd.start_reload) {
         // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
@@ -1071,12 +1071,12 @@ void App::Execute(const SideEffect& effect)
             CancelOtherFileLoad();
         },
         // ---- Layout ----
-        [this](const effect::BitmapManage&) {
+        [this](const effect::ResourceManage&) {
             // 先読み (上下 2 画面) は可視範囲で何かを組んだときにしか起きないので、先読み済みの範囲を読み進めると境目で
             // 描画の中の同期の計測になる (test.md x4 で PageDown 30 回のうち 7 回、計 7ms、最大 2.5ms)。スクロールのたびに
             // 空き時間で先読みの範囲を確かめさせる (組むものが無ければ OnDeferredLayout は走査だけで描き直さない)。
             state_.document.layout_cache.SetHasDirtyNodes(true);
-            resource_manager_.ScheduleBitmapManage();
+            resource_manager_.ScheduleResourceManage();
             // スクロールの間は、見えている図をビットマップで描く。止まったらベクタに戻す。
             renderer_.SetScrollingDiagrams(true);
             SetTimer(app_timer::Id::SCROLL_SETTLE, app_timer::SCROLL_SETTLE_MS);
@@ -1184,8 +1184,8 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
-    // 色だけ差し替わるので再適用不要。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
+    // 色のみの変更なのでテキストレイアウトは維持する。レイアウトに付けた描画効果は色の印 (BrushEffect) で、描くときに
+    // 作り直した固定ブラシへ置き換わるので付け直さない。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
@@ -1741,7 +1741,7 @@ void App::RunIdleWork()
     DisposeReleasedLayouts();
     if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults()) {
         // 両方で 1 回分の持ち時間を分け合う。
-        const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
+        const auto deadline = std::chrono::steady_clock::now() + kImportSliceBudget;
         resource_manager_.OnImagesDecoded(deadline);
         mermaid_renderer_.ProcessJobResults(deadline);
         return;
@@ -1774,22 +1774,22 @@ void App::FinishLayout(LayoutChange change, LayoutCaller caller)
         [[fallthrough]];
     case LayoutCaller::Paint:
         // ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、本文幅が広がると画像の
-        // 解像度が足りなくなる。スクロールを待たずに BitmapManage で整理させる。遅延レイアウトが残っていれば、空き時間の
+        // 解像度が足りなくなる。スクロールを待たずに ScheduleResourceManage で整理させる。遅延レイアウトが残っていれば、空き時間の
         // 遅延レイアウト (HasIdleWork) が組み終えたとき (OnDeferredLayout) に出す。
         if (state_.document.layout_cache.HasDirtyNodes()) {
             deferred_layout_.settle = true;
         }
         else {
-            resource_manager_.ScheduleBitmapManage();
+            resource_manager_.ScheduleResourceManage();
         }
         break;
     case LayoutCaller::Import:
-        // 取り込み (FlushPendingResources) に入り直すと、届いたデコード結果の転送が kUploadSliceBudget の区切りを超え、
+        // 取り込み (FlushPendingResources) に入り直すと、届いたデコード結果の転送が kImportSliceBudget の区切りを超え、
         // 走査と図の要求も二重になる。測り直して範囲に入った画像と図は、残った dirty を組み終えたとき (OnDeferredLayout) か
-        // BITMAP_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。図の高さで Y を組み直しただけなら
+        // RESOURCE_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。図の高さで Y を組み直しただけなら
         // 頼み直さない。
         if (change == LayoutChange::Remeasure) {
-            SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+            SetTimer(app_timer::Id::RESOURCE_MANAGE, app_timer::RESOURCE_MANAGE_DELAY_MS);
         }
         break;
     }

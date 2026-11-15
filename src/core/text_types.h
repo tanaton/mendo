@@ -78,7 +78,7 @@ constexpr std::string_view ImageAlt(std::string_view text, const TextRun& image)
     return alt == kImagePlaceholder ? std::string_view{} : alt;
 }
 
-// テキスト選択: 位置は (node_index, char_offset) のペアで表す。
+// テキスト選択: 位置は (ノード番号, ノードのテキストでの UTF-8 byte オフセット) の組で表す。
 struct TextSelection {
     int start_node = -1;
     uint32_t start_pos = 0;

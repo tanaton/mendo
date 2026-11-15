@@ -38,6 +38,6 @@ private:
 
     HWND hwnd_ = nullptr;
     IMermaidRenderer* mermaid_renderer_ = nullptr;
-    IWICImagingFactory* wic_ = nullptr; // アプリ共有ファクトリ (非所有)
+    IWICImagingFactory* wic_ = nullptr;
     ToastCallback show_toast_ = [](std::wstring_view) static {};
 };

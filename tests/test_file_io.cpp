@@ -213,7 +213,7 @@ TEST_F(FileIoTest, WriteToInvalidPathFails)
 // IsFileLargerThan: エディタの書き込み中検知
 // ═══════════════════════════════════════════════
 
-// 読んだ 1000 バイトより、既定の許容差 16 バイトを超えて大きいときだけ true。
+// 読んだ 1000 バイトより、許容差 16 バイトを超えて大きいときだけ true。
 TEST_F(FileIoTest, IsFileLargerThanBeyondTolerance)
 {
     struct Case {
@@ -263,8 +263,7 @@ TEST_F(FileIoTest, AtomicWrite_CreatesAndOverwritesFile)
 
 TEST_F(FileIoTest, AtomicWrite_ToInvalidPath_FailsAndLeavesNoTmp)
 {
-    // 親ディレクトリが存在しないので tmp 書き込みも失敗する。
-    // 直接書き込み fallback も到達しないので path も tmp も生成されない。
+    // 親ディレクトリが存在しないので tmp 書き込みが失敗し、path も tmp も生成されない。
     const auto path = temp_dir_ / L"no_such_dir" / L"atomic.bin";
     const std::string_view payload = "data";
 

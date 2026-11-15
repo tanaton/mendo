@@ -201,7 +201,7 @@ protected:
         }
         case Op::Drag: {
             // ウィンドウ端のドラッグ: 2px 未満 (再計測を省くヒステリシス内) の WM_SIZE が続き、
-            // 合間にタイマーのダーティ処理やスクロールが挟まる。
+            // 合間に遅延レイアウトのダーティ処理やスクロールが挟まる。
             const float dir = rng() % 2 == 0 ? 1.0f : -1.0f;
             const int steps = 2 + static_cast<int>(rng() % 7);
             std::string desc = "Drag";

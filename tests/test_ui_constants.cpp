@@ -84,7 +84,7 @@ TEST(SnapToPhysicalPixelTest, SnapsToNearestPhysicalPixel)
     }
 }
 
-// スナップ前後でスクロール差が1物理ピクセル未満であることを確認
+// スナップで動く量は 0.5 物理ピクセル以内。
 TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
 {
     float scales[] = { 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
@@ -190,10 +190,8 @@ TEST(SearchBarLayoutTest, CloseButtonFallsBackToLeftPackedWhenNarrow)
     }
 }
 
-// 右寄せ⇔フォールバックの遷移を検証する。しきい値幅は SEARCH_* 定数やボタン構成に依存して
-// 動くため、560/600 のようなマジックナンバーではなく ComputeSearchBarLayout 自身を走査して
-// 遷移点を発見し、その前後で挙動が切り替わることを確認する。
-// std::max の選択方向ミス (min 化・不等号反転) を検出するのが狙い。
+// しきい値の幅は SEARCH_* 定数やボタンの並びで動くので、決め打ちの幅ではなく ComputeSearchBarLayout を走査して
+// 遷移点を見つけ、その前後で右寄せとフォールバックが切り替わるかを見る。std::max の取り違え (min 化・不等号反転) を検出する。
 TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 {
     // 右寄せなら close は highlight から離れ、フォールバックなら highlight 直後に密着する

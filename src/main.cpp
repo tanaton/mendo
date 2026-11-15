@@ -64,8 +64,8 @@ StartupPlan PlanStartup(const StartupArgs& args, std::wstring_view last_file)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
-    // Tracy プロファイラ接続を待つ初期遅延 (ms)。1 秒は Tracy GUI が profile-side に
-    // attach するのに十分な時間で、Release ビルドでは MENDO_IF_TRACY が空展開される。
+    // 起動の計測を取りこぼさないよう、Tracy の GUI が接続するのを待つ (ms)。Tracy を組み込まないビルドでは
+    // MENDO_IF_TRACY が空に展開される。
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
     MENDO_FRAME_MARK();
@@ -118,7 +118,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }
 
-    // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
+    // preload の結果は Create の中で取り込むので、復元情報を先に渡す。
     // equivalent は前回のファイルを開くので、ネットワークドライブ上なら確かめずに復元しない (LoadLastFilePath と同じ理由)。
     // clang-format off
     std::visit(overloaded{

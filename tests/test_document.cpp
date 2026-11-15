@@ -172,7 +172,6 @@ TEST(DocumentTest, FromMarkdownBasic)
     EXPECT_FALSE(doc.IsEmpty());
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
     EXPECT_GE(doc.GetNodes().size(), 2u);
-    // TOCに見出しが含まれるべき
     EXPECT_FALSE(doc.GetToc().empty());
     EXPECT_EQ(doc.GetNodes()[doc.GetToc()[0].node_index].GetText(), "Hello");
 }
@@ -227,7 +226,7 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     }
 }
 
-// ---- 1.2 view 化 sanity (Document move) ----
+// ---- Document の move ----
 
 // 原文を直接指すノード (view) と、加工が入って arena に持つノード (owned) が同じ文書に並ぶ。
 // runs・リンク URL・画像 src も arena か原文を指すので、move 後も同じ値を読め、見出しの索引も引ける。

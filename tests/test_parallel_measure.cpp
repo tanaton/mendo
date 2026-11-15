@@ -251,8 +251,8 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     }
 }
 
-// 並列計測の chunk が例外で落ちても、落ちる前に計測できたノードの高さを Y に反映し、
-// 計測できなかったノードは再試行に回さず dirty を外す。
+// 並列計測で例外を投げるノードがあっても、計測できたノードの高さを Y に反映し、
+// 投げたノードは再試行に回さず dirty を外す。
 TEST_F(ParallelMeasureTest, ProcessDirtyBatchGivesUpOnThrowingNode)
 {
     struct Case {
@@ -406,10 +406,7 @@ public:
     }
 };
 
-// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / syntax_tokens を観測する。
-// IDWriteTextLayout (entry.text_layout) は mock では nullptr 固定 / 実装では identity 不一致で
-// equality が無意味なため除外。total_height_ は LayoutEngine 経由でないと
-// 計算されないためスコープ外。
+// text_layout は mock では常に null、実装では毎回別の物になり、比べても意味が無いので除く。
 void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p)
 {
     ASSERT_EQ(s.nodes.size(), p.nodes.size());
@@ -504,7 +501,6 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 {
     auto [nodes, cache] = LayoutThenEvictAll(100);
 
-    // ビューポート制限付きで全バッチ処理
     bool more = true;
     int iterations = 0;
     while (more && iterations < 100) {
@@ -512,7 +508,6 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
         iterations++;
     }
 
-    // 付近のダーティノードが処理され、has_dirty_nodes が false になるべき
     EXPECT_FALSE(cache.HasDirtyNodes())
         << "ビューポート付近の全ダーティノードが処理されたら false であるべき";
 }

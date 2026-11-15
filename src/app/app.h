@@ -307,7 +307,6 @@ private:
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    // 図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(IndexRange changed) override;
     void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) override;
     void EnsureNodeLayout(int node_index) override;
@@ -364,7 +363,7 @@ private:
     bool initialized_ = false;
     // 続けて呼ぶ先読みの計測 (OnDeferredLayout) の一連。組み終えたときに、取り込みと描き直しを決める。
     struct DeferredLayoutRun {
-        // 組み終えるまで画像と図の整理 (FinishLayout の BitmapManage) を待たせた。
+        // 組み終えるまで画像と図の整理 (FinishLayout の ScheduleResourceManage) を待たせた。
         bool settle = false;
         // 何かを組んだ。
         bool measured = false;

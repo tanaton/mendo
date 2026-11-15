@@ -196,7 +196,6 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     if (!node) {
         return false;
     }
-    // ボタンを出す図だけ。
     const DiagramEntry* diagram = ctx.cache.FindDiagram(static_cast<size_t>(node_index));
     if (!layout::HasDiagramButtons(diagram)) {
         return false;

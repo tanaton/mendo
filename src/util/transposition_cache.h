@@ -41,7 +41,7 @@ public:
         entries_.insert(entries_.begin(), Entry{ key, std::move(value) });
     }
 
-    // 件数上限だけではビットマップ等の巨大値でメモリが青天井になるため、cost 合計が
+    // 件数上限だけでは大きな値 (図の描画命令・SVG) でメモリが青天井になるため、cost 合計が
     // budget 以下になるまで末尾 (最も使われていない側) から捨てる。先頭 1 件は常に残す。
     template <class CostFn>
     void TrimToBudget(size_t budget, CostFn cost)

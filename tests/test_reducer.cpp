@@ -69,7 +69,7 @@ TEST_F(ReducerTest, KeyScrollLineDown)
 
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollLineUp_AtTop_NoEffect)
@@ -122,7 +122,7 @@ TEST_F(ReducerTest, MouseWheel_ScrollsMdPane)
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 
     Reduce(state, MouseWheelAction{ .delta = WHEEL_DELTA, .zone = PaneZone::Splitter1 });
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -302,7 +302,7 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
 
 // ---- 検索ジャンプ ----
 
-// 検索ジャンプのスクロールも通常スクロールと同じ副作用 (ツールチップ消去・ビットマップ管理・TOC 追従) を積む。
+// 検索ジャンプのスクロールも通常スクロールと同じ副作用 (ツールチップ消去・ResourceManage) を積む。
 TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
 {
     SetDocument(state, "a\n\ntarget", L"test.md", 1000.0f);
@@ -314,7 +314,7 @@ TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HidesTooltip(effects));
     EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
 TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
@@ -325,7 +325,7 @@ TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
     auto effects = Reduce(state, SearchTextChangedAction{ std::wstring(L"target") });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }
 
 // ---- ActivateAction テスト ----
@@ -709,7 +709,7 @@ TEST_F(ReducerTest, NavigateWithoutHistory_NoEffects)
 
 TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 {
-    // ノード 0 に対してオフセット 50 → y_position(0) + 50 = 50.0f
+    // ノード 0 の上端 (0) からオフセット 50 → 50.0f
     SetDocument(state, "test", L"C:\\file.md", 1000.0f);
     state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 50.0f });
     state.view.viewport.ScrollTo(200.0f, MdMaxScroll(state));
@@ -717,7 +717,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
     auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
 // 戻る (別ファイルをロード中) → 進むで表示中の文書へ戻ったら、ロード中のファイルを取り消させる。
@@ -795,7 +795,7 @@ TEST_F(ReducerTest, Resize_Sizing_RedrawsWithoutSettling)
 }
 
 // ライブリサイズ中はスクロールを上限に収めるだけで、幅が決まる前に図や画像を取りに行かない。
-TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutBitmapManage)
+TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutResourceManage)
 {
     state.window.size_move = SizeMove::Moving;
     state.window.cached_dpi_scale = 1.0f;
@@ -805,7 +805,7 @@ TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutBitmapManage)
     const auto effects = Reduce(state, ResizeAction{ 800, 500 });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
-    EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }
 
 // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面とレイアウトは作り直さない。
@@ -971,7 +971,6 @@ TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
     }
 }
 
-// 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
 TEST_F(ReducerTest, SplitterDragMoved_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
@@ -1083,7 +1082,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
 TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
@@ -1563,7 +1562,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
 // issue#224: 末尾セクションへのジャンプで scroll_y が max_scroll を超えると、
@@ -2101,10 +2100,9 @@ TEST_F(ReducerTest, TocJumpWhileOpenLoading_KeepsBothPositions)
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 2u);
 }
 
-// ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----
-// 期待動作: 可視先頭ノードを SnapshotVisibleTarget で取り、ズーム/モード切替後に
-// SetScrollTarget で同じノードへ戻れるようにする。これが落ちると、ズーム後に
-// 全く別の場所までスクロールが飛ぶという可視的な不具合になる。
+// ---- Zoom: 可視位置の anchor 保持 ----
+// 可視先頭ノードを SnapshotVisibleTarget で取り、ズーム後に SetScrollTarget で同じノードへ戻す。
+// これが落ちると、ズーム後に全く別の場所までスクロールが飛ぶ。
 
 TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 {
@@ -2122,7 +2120,6 @@ TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 
 TEST_F(ReducerTest, ZoomReset_AtDefaultIndex_NoEffect)
 {
-    // ZoomReset は既にデフォルト位置なら 0 を返し、early return する。
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::Reset });
     EXPECT_FALSE(HasEffect<effect::ApplyZoom>(effects));
 }

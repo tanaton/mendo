@@ -36,7 +36,7 @@ public:
     // 別の文書を読み込んでいる。この間は表示中の文書の画像と図 (拡大表示の図も) を新たに頼まない (届いた画像は取り込む)。
     // 読み始めに待ちを捨てても、進行中の 1 件が終わるか捨てた要求が読まずに戻ると次の取り込みが頼み直し、開いた文書の
     // 最初の図と画像を旧文書の描画・デコード (始まると取り消せない) の後回しにしていた。
-    // 差し替えずに終わったら ScheduleBitmapManage で頼み直す (ReloadCommand::resume_resources)。
+    // 差し替えずに終わったら ScheduleResourceManage で頼み直す (ReloadCommand::resume_resources)。
     virtual bool IsLoadingOtherDocument() const = 0;
 
 protected:
@@ -44,7 +44,7 @@ protected:
 };
 
 // 画像・Mermaidリソースのライフサイクル管理。
-// Appから画像読み込み、Mermaidの要求、ビットマップ解放の責務を分離する。
+// Appから画像読み込み、Mermaidの要求、画面外のレイアウト・図・画像を捨てる責務を分離する。
 class ResourceManager {
 public:
     // 遅延レイアウトで計測する範囲。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
@@ -82,15 +82,15 @@ public:
     bool ApplyCachedHeights(IndexRange range);
     void LoadImages();
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
-    void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kImportSliceBudget);
 
     void RequestMermaidRenders();
 
-    void EvictOffscreenBitmaps();
+    void EvictOffscreenResources();
     // 届いたデコード結果を取り込んで先読み範囲の画像に入れ、図の描画を頼む。
     void FlushPendingResources();
-    void ScheduleBitmapManage();
-    void OnBitmapManageTimer();
+    void ScheduleResourceManage();
+    void OnResourceManageTimer();
     // 図の描画待ちと画像のデコード待ちを捨てる (描画中の分は残る)。
     void DropQueues();
     // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップを捨てる。解決したパスと監視する

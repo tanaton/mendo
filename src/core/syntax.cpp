@@ -530,7 +530,6 @@ void TokenizeRange(
     };
 
     const auto step_plain = [&]([[maybe_unused]] char c) {
-        // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
         if constexpr (kNeedAtLineStart) {
             if (c == '\n') {
                 at_line_start = true;

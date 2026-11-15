@@ -11,14 +11,17 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <exception>
 #include <format>
 #include <iterator>
 #include <limits>
+#include <new>
 #include <optional>
 #include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -58,6 +61,8 @@ struct ParseContext : NodeStorage {
     // 最大 1024 callback 分の検知遅延は 600ms parse に対し μs オーダーで許容範囲。
     uint32_t cancel_check_counter = 0;
     bool cancel_requested = false;
+    // コールバックで投げた例外。md_parse の後で投げ直す (NoThrowCallback)。
+    std::exception_ptr callback_error;
 
     bool ShouldCancel() noexcept
     {
@@ -84,13 +89,13 @@ struct ParseContext : NodeStorage {
     std::array<uint32_t, 8> span_depths{};
     // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
-    // 不変式: bit X が立っている <=> 対応する span_depths > 0。
+    // 不変式: kImage 以外の bit X が立っている <=> 対応する span_depths > 0 (kImage は BeginImage / EndImage が立てて消す)。
     uint8_t current_run_flags = 0;
     // 現在の <a> span に対応する current_link_urls のインデックス。-1 = リンク外。
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で DocumentData::raw を
+    // 現在ノード用のテキストと runs の蓄積スクラッチ。FinalizeCurrentNode で DocumentData::raw を
     // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
     ReservedArray<char> current_text;
     std::vector<TextRun> current_runs;
@@ -100,7 +105,7 @@ struct ParseContext : NodeStorage {
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
 
-    // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
+    // active_text_buffer 内の「未確定 TextRun」の開始位置。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
@@ -113,7 +118,6 @@ struct ParseContext : NodeStorage {
     size_t quote_first_node = 0;      // 最外側 blockquote の最初のノード番号（ノードを作らない引用では後続のノードを指す）
 
     // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
-    // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
     std::vector<int> list_counter;
 
     Node* current_node = nullptr;
@@ -584,11 +588,8 @@ struct ParseContext : NodeStorage {
         return attr_scratch;
     }
 
-    // テキストを現在のノードまたはセルに追加する (UTF-8)。
-    // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
-    // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
-    // セル内では active_text_buffer が table_text を指す。pending_run_start は
-    // バッファサイズベースで、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
+    // テキストを現在のノードまたはセル (active_text_buffer) に追加する。
+    // セル内の pending_run_start は table_text での位置で、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
     void AppendDoc(std::string_view text)
     {
         ReservedArray<char>* const target = active_text_buffer;
@@ -1256,7 +1257,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     case MD_TEXT_LATEXMATH:
         // インライン数式は 1 つのノードに収める。区切ると $ が片側にしかない数式ができる。
-        // $$..$$ は今までどおり区切る。区切れた $$..$$ は片側に $$ が無いので、原文のまま組む (MathDelimiterLength)。
+        // $$..$$ は区切る。区切れた $$..$$ は片側に $$ が無いので、原文のまま組む (MathDelimiterLength)。
         if (ctx->current_run_flags & TextRun::kMath) {
             ctx->AppendDoc(chunk);
         }
@@ -1306,6 +1307,27 @@ void ReserveForInput(ParseContext& ctx)
     ctx.list_counter.reserve(8);
 }
 
+// コールバックの例外 (表の行補完などの確保の失敗) を md4c の C のフレームに通さない。通すと md4c が確保したものが残り、
+// /EHsc は extern "C" の md_parse を例外を投げないものとして扱うので ParseContext の後片付けも保証されない。
+// 捕まえたら 0 以外を返して md4c に後片付けさせ、md_parse の後で投げ直す。
+template <auto Callback>
+struct NoThrowCallback;
+
+template <class... Args, int (*Callback)(Args...)>
+struct NoThrowCallback<Callback> {
+    static int Call(Args... args) noexcept
+    {
+        try {
+            return Callback(args...);
+        } catch (...) {
+            // userdata はどのコールバックでも最後の引数。
+            auto* const ctx = static_cast<ParseContext*>(std::get<sizeof...(Args) - 1>(std::tie(args...)));
+            ctx->callback_error = std::current_exception();
+            return 1;
+        }
+    }
+};
+
 } // namespace
 
 NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
@@ -1319,22 +1341,30 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     MD_PARSER parser{};
     // Alert は引用の先頭の段落から自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。
     parser.flags = (MD_DIALECT_GITHUB & ~MD_FLAG_ADMONITIONS) | MD_FLAG_LATEXMATHSPANS;
-    parser.enter_block = OnEnterBlock;
-    parser.leave_block = OnLeaveBlock;
-    parser.enter_span = OnEnterSpan;
-    parser.leave_span = OnLeaveSpan;
-    parser.text = OnText;
+    parser.enter_block = NoThrowCallback<OnEnterBlock>::Call;
+    parser.leave_block = NoThrowCallback<OnLeaveBlock>::Call;
+    parser.enter_span = NoThrowCallback<OnEnterSpan>::Call;
+    parser.leave_span = NoThrowCallback<OnLeaveSpan>::Call;
+    parser.text = NoThrowCallback<OnText>::Call;
 
     {
         MENDO_PROFILE("md_parse");
-        md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
-        assert(ctx.cancel_requested || !ctx.current_node);
-    }
-
-    // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・詰め) を飛ばし、
-    // 呼び出し側がチェックしやすいよう空の NodeStorage を返す。
-    if (ctx.cancel_requested) {
-        return {};
+        const int ret = md_parse(markdown_text.data(), static_cast<MD_SIZE>(markdown_text.size()), &parser, &ctx);
+        if (ctx.callback_error) {
+            std::rethrow_exception(ctx.callback_error);
+        }
+        // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・詰め) を飛ばし、
+        // 呼び出し側がチェックしやすいよう空の NodeStorage を返す。
+        if (ctx.cancel_requested) {
+            return {};
+        }
+        // ほかの失敗は md4c の確保の失敗。ブロックと行の並びの大きさを int で持つので、短い行が続くと溢れる (空のリスト項目は
+        // 200MB、1 文字の行は 400MB で失敗し、test.md の繰り返しは 4000MB でも通る。2026-11-14)。途中までのノードでは
+        // 文書が黙って欠けるので投げる。
+        if (ret != 0) {
+            throw std::bad_alloc();
+        }
+        assert(!ctx.current_node);
     }
 
     AppendFootnoteBackrefs(ctx.nodes, ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
