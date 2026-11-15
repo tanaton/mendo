@@ -144,7 +144,7 @@ void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
 void FileWatcher::StopWatching() noexcept
 {
     if (target_.read && disposer_) {
-        DisposeOnWorkerIfLarge(*disposer_, 1, 1, std::move(target_.read));
+        DisposeOnWorker(*disposer_, std::move(target_.read));
     }
     target_.read.reset();
     on_change_ = nullptr;
@@ -209,7 +209,7 @@ bool ImageFolderWatcher::PostWork(std::move_only_function<void(Inbox&)> task)
 template <class T>
 void ImageFolderWatcher::DisposeOnWorker(T obj) noexcept
 {
-    DisposeOnWorkerIfLarge(*scheduler_, 1, 1, std::move(obj));
+    ::DisposeOnWorker(*scheduler_, std::move(obj));
 }
 
 void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* scheduler)

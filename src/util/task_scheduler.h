@@ -84,14 +84,13 @@ private:
     bool shutdown_ = false;
 };
 
-// count が min_count 以上なら obj を worker で破棄する。投函できなければ (Shutdown 後・確保の失敗) ここで破棄する。
+// obj を worker で破棄する。投函できなければ (Shutdown 後・確保の失敗) ここで破棄する。
 // 渡すものは D2D の参照を持たないこと (確保元のヒープはスレッド安全)。
+// 小さいものも UI では捨てない。数で分けていた頃 (文書 4096 ノード・レイアウト 256 個未満は UI) も、UI に残す理由は無く、
+// 投函は 1 回 1µs ほどで、UI で捨てていた分は空き時間 1 回で最大 0.2ms あった (性能レビュー G5)。
 template <class T>
-void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t count, size_t min_count, T&& obj) noexcept
+void DisposeOnWorker(TaskScheduler& scheduler, T&& obj) noexcept
 {
-    if (count < min_count) {
-        return;
-    }
     try {
         scheduler.Post([o = std::forward<T>(obj)] {});
     } catch (...) {

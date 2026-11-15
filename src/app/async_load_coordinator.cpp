@@ -97,10 +97,10 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         const std::lock_guard lock(mutex_);
         stale.swap(outcome_);
     }
+    // 100MB 級の文書は、テキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と表などの解放で UI を十数 ms 止める。
     // 推定済みの LayoutCache は D2D の参照を持たない。
     if (stale && *stale) {
-        const size_t nodes = (*stale)->doc.GetNodes().size();
-        DisposeOnWorkerIfLarge(scheduler_, nodes, kDisposeMinNodes, std::move(stale));
+        DisposeOnWorker(scheduler_, std::move(stale));
     }
 }
 
