@@ -197,6 +197,12 @@ struct TableLayoutData {
         RebuildRowCumY(0);
         RebuildColCumX();
         last_applied_max_width = max_width;
+        has_geometry_ = true;
+    }
+    // 一度でも幾何を確定したか (BuildTable の最初の確定の前は col_widths も row_cum_y も 0)。
+    constexpr bool HasGeometry() const noexcept
+    {
+        return has_geometry_;
     }
 
     // 列幅 + パディング + 罫線の合計。
@@ -233,6 +239,7 @@ private:
     std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
     size_t evicted_row_count_ = 0;
     IndexRange live_rows_;
+    bool has_geometry_ = false;
 };
 
 // セル枠の左端 (左罫線の右) と行上端 (上罫線の位置) から、セル本文の描画原点を求める。

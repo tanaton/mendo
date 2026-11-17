@@ -284,8 +284,22 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     viewport_.ApplyScrollTarget(cache);
     const float scroll_y = viewport_.GetScrollY();
     if (basis_changed) {
-        // 幅かズームが変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
-        cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), layout::BufferedRange(scroll_y, height, 0.0f));
+        // 列幅が変わる表は、残っている行 (上下 8 画面分) が全部組み直しになるので、画面の外の行は捨てて見えたときに作らせる。
+        // 列幅の変わらない表 (収まる表の大半) の行はそのまま使える。ズームは表の幾何ごと捨てているので、ここに残るのは幅の変化だけ。
+        const Theme& theme = engine_.GetTheme();
+        const float content_width = theme.ContentWidth(width);
+        const auto nodes = doc.GetNodes();
+        std::vector<size_t> changed;
+        std::vector<float> col_widths;
+        for (const size_t i : doc.GetTableNodeIndices()) {
+            if (const auto* tl = cache[i].table_layout()) {
+                layout::ComputeTableColumnWidths(col_widths, *tl, NodeContentWidth(nodes[i], theme, content_width));
+                if (col_widths != tl->col_widths) {
+                    changed.push_back(i);
+                }
+            }
+        }
+        cache.EvictInvisibleTableRows(changed, layout::BufferedRange(scroll_y, height, 0.0f));
     }
     engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);

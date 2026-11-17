@@ -720,13 +720,19 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
     MENDO_PROFILE("FinalizeTableLayout");
     const auto& tbl = *node.table_data();
     const size_t col_count = tl.col_count;
-    const float borders_width = (static_cast<float>(col_count) + 1.0f) * TABLE_BORDER_WIDTH;
-    const float paddings_width = static_cast<float>(col_count) * TABLE_CELL_PADDING * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
+    // 列幅が前に組んだときと同じなら、セルの layout も行の高さも累積位置も変わらないので、組んだ幅だけ進める。
+    // 収まる表と最小幅でも収まらない表は、どの幅でも自然幅か最小幅を写すだけなので、ここを通る。
+    std::vector<float> col_widths;
+    layout::ComputeTableColumnWidths(col_widths, tl, max_width);
+    if (tl.HasGeometry() && col_widths == tl.col_widths) {
+        tl.last_applied_max_width = max_width;
+        return tl.TotalHeight();
+    }
+    tl.col_widths = std::move(col_widths);
 
-    // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (BM_ImageTableResize が 759 → 17µs)。layout の無いセル
-    // (evict 中の行) は行を戻すときに組む。
+    // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (ほかのセルは下で幅を付け替えるだけで済む)。layout の
+    // 無いセル (evict 中の行) は行を戻すときに組む。
     if (!tl.image_cells.empty()) {
         const auto& ctx = Context();
         for (auto& image_cell : tl.image_cells) {

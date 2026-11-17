@@ -149,6 +149,8 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
 // min_widths は列ごとの最小幅 (最も長い単語)。自然幅以下であること。
 void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width);
+// 表を max_width (罫線とパディングを含む表の幅の上限) で組むときの列幅。
+void ComputeTableColumnWidths(std::vector<float>& out, const TableLayoutData& tl, float max_width);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;

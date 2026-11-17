@@ -122,6 +122,13 @@ void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural
     }
 }
 
+void ComputeTableColumnWidths(std::vector<float>& out, const TableLayoutData& tl, float max_width)
+{
+    const float borders_width = (static_cast<float>(tl.col_count) + 1.0f) * TABLE_BORDER_WIDTH;
+    const float paddings_width = static_cast<float>(tl.col_count) * TABLE_CELL_PADDING * 2.0f;
+    ComputeColumnWidths(out, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
+}
+
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept
 {
     const float line_height = theme.font_size_body * BODY_LINE_HEIGHT_FACTOR;

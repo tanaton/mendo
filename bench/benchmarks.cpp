@@ -1657,7 +1657,7 @@ BENCHMARK_DEFINE_F(TableMeasure, RestoreScreen)(benchmark::State& state)
 }
 BENCHMARK_REGISTER_F(TableMeasure, RestoreScreen)->UseManualTime()->Iterations(TableMeasure::kRestores)->Unit(benchmark::kMicrosecond);
 
-// あちこちを復元したあとに幅を変えたときの、先頭 1 画面の計測。
+// あちこちを復元したあとに、列幅の変わる幅 (500) へ変えたときの、先頭 1 画面の計測。
 BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
 {
     for (auto _ : state) {
@@ -1667,12 +1667,13 @@ BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
             RestoreScreen(entry, k);
         }
         entry.layout_dirty = true;
-        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, nullptr); }));
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 500.0f, nullptr); }));
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Resize)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
 
-// 大きな表の上下 8 画面分の行が残っている状態で幅を変えたときの、可視範囲のレイアウト。
+// 大きな表の上下 8 画面分の行が残っている状態で幅を変えたときの、可視範囲のレイアウト。表は 900 以上の幅に収まるので、
+// 列幅が変わるのは 500 だけ。
 BENCHMARK_DEFINE_F(TableMeasure, ResizeViewport)(benchmark::State& state)
 {
     constexpr float kScreen = 1000.0f;
@@ -1694,6 +1695,7 @@ BENCHMARK_REGISTER_F(TableMeasure, ResizeViewport)
     ->Arg(1000)
     ->Arg(1200)
     ->Arg(900)
+    ->Arg(500)
     ->UseManualTime()
     ->Iterations(3)
     ->Unit(benchmark::kMicrosecond);
