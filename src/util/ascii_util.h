@@ -119,7 +119,7 @@ inline bool EqualBytes(const char* t, const char* q, size_t n) noexcept
 // kFold なら query は ASCII 小文字化済みで、text 側をその場で小文字化して比べる (文書全体の小文字コピーを持たない)。
 // 候補は先頭と末尾のバイトの 2 点一致で絞る。UTF-8 の日本語は先頭バイトが 0xE3〜0xE9 に集中し、先頭 1 点だけだと
 // 約 3 バイトに 1 回候補が立って memcmp が支配的になる。マルチバイトの中間バイトとの偶然一致は後続の比較で弾ける。
-// 1 バイトのクエリもここを通る。専用のループより 64MB で約 2ms 遅いが、検索は MAX_MATCHES で止まる。
+// 1 バイトのクエリもここを通る。専用のループより少し遅いが、検索は MAX_MATCHES で止まる。
 template <bool kFold>
 inline size_t FindImpl(std::string_view text, std::string_view query, size_t start) noexcept
 {

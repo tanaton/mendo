@@ -1,4 +1,4 @@
-// pele と KaTeX をビルドの時に QuickJS のバイトコードにする。実行時のコンパイル (約 60ms と約 20ms) を最初の図と数式から省き、
+// pele と KaTeX をビルドの時に QuickJS のバイトコードにする。実行時のコンパイルを最初の図と数式から省き、
 // バイトコードはヒープに写さず exe のリソースから読む。
 // js_compile <入力> <出力> module|global
 #include <quickjs.h>

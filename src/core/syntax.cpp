@@ -24,7 +24,7 @@ constexpr auto npos = std::string_view::npos;
 
 // ASCII の文字集合。1 文字ごとの判定と連続のスキップを表引きにする。std::string_view の contains や
 // find_first_not_of は、ベクトル化した検索関数を呼び出すので 1 文字・短い連続に使うと呼び出しの分だけ遅い
-// (16KB のトークン化で C++ 50→45µs、HTML 34→27µs、Emacs Lisp 119→79µs、TOML 52→37µs)。
+// (BM_TokenizeLanguage/elisp が 119 → 79µs)。
 class CharSet {
 public:
     template <size_t N>
@@ -405,7 +405,7 @@ inline constexpr CharSet kTokenStartSet{ [](char c) static noexcept {
     return std::ranges::contains(rules, std::pair{ true, c });
 } };
 
-// Cfg の言語でどのトークンも始めない文字。IsIdentChar の表引きと合わせて、16KB の C++ のトークン化が 46→39µs になる。
+// Cfg の言語でどのトークンも始めない文字。IsIdentChar の表引きと合わせて、BM_TokenizeCodeChunk/head が 46 → 39µs になる。
 template <LexerConfig Cfg>
 inline constexpr CharSet kPlainChars{ [](char c) static noexcept { return !IsIdentChar(c) && c != '.' && !kTokenStartSet<Cfg>.contains(c); } };
 
@@ -1263,7 +1263,7 @@ constexpr SyntaxLexState kTomlNoKey = SyntaxLexState{ 1 } << kPackedDepthBits;
 constexpr SyntaxLexState kTomlMidLine = kTomlNoKey << 1;
 
 // 1 文字ずつ進む lexer が、状態を残すために次に解析を区切る位置。ループの中で毎回確かめると、状態を残さないふだんの解析まで
-// 1 割遅くなるので (16KB の TOML で 28.7 → 32.8µs)、区切りまでを内側のループで進め、その外で状態を残す。
+// 1 割遅くなるので (BM_TokenizeLanguage/toml が 28.7 → 32.8µs)、区切りまでを内側のループで進め、その外で状態を残す。
 size_t NextStateStop(const SyntaxStateTrace* trace, size_t text_size) noexcept
 {
     return trace ? std::min(trace->next_wanted(), text_size) : text_size;

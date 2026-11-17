@@ -297,8 +297,7 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
         },
         [&](JobDrawing& d) {
             DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
-            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。IDWriteTextLayout の解放は 1 個 1.5µs ほどで、
-            // 図が 27 個だった頃の test.md の全図 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
+            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。数が多いので worker で捨てる。
             if (!d.texts.runs.empty()) {
                 DisposeOnWorker(*bg_scheduler_, std::move(d.texts));
             }

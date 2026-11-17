@@ -111,9 +111,9 @@ Microsoft::WRL::ComPtr<IDWriteFont> MapSystemFallback(IDWriteFactory* factory, u
                                                       DWRITE_FONT_STYLE style, const wchar_t* locale, float* scale = nullptr);
 
 // 書式のフォントに字形が無い文字体系の文字を、システムのフォールバックが選ぶフォント名に対応させる。計測の手間の大半は
-// フォールバックの処理で、同じフォントを範囲に明示するとグリフは同じまま速くなる (test.md の幅変更 192 → 56ms)。
+// フォールバックの処理で、同じフォントを範囲に明示するとグリフは同じまま速くなる (BM_ResizeRemeasure/test_md が 192 → 56ms)。
 // 選ばれるフォントは言語設定と環境で変わる (同じ漢字が ko-kr では Malgun Gothic) ので、名前を持たずシステムに尋ねる。
-// 解決には 1 文字体系で数百 µs かかるので、文字体系ごとに文書に初めて現れたときに解決する。kScripts に無い文字体系、
+// 解決は重いので、文字体系ごとに文書に初めて現れたときに解決する。kScripts に無い文字体系、
 // 尋ねても分からないもの、書式のフォントに字形がある文字はこれまでどおりに組むので、どの言語の文字も表示は変わらない。
 class FallbackFontMap {
 public:

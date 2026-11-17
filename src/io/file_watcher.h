@@ -45,8 +45,8 @@ struct DirectoryChangeRead {
 
 // 監視の対象。ReadDirectoryChangesW は最初に呼んだ後の変更を貯めるので、読み込みの worker がファイルを読む前に作り
 // (OpenWatchTarget)、UI スレッドの StartWatching に渡す。読んでから監視を始めるまでの保存も、ほかの変更と同じく通知で届く。
-// 短縮名の問い合わせと親フォルダを開くことは、ネットワーク上のファイルではパスの要素ごとに往復が入る
-// (ループバックの SMB でもローカルの約 5 倍、約 1ms) ので、これも worker で済ませる。
+// 短縮名の問い合わせと親フォルダを開くことは、ネットワーク上のファイルではパスの要素ごとに往復が入るので、
+// これも worker で済ませる。
 struct FileWatchTarget {
     std::wstring filename;
     // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ持つ。

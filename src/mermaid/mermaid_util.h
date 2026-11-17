@@ -14,7 +14,7 @@ namespace mermaid_util {
 
 // 図のキーのうちノードのテキストだけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
 // 結果を待つ図を要求し直すたびに計算し直す。DiagramEntry に覚えておくのは #434 でやめた。test.md の図 28 個 (29KB) を
-// 全部引いても 0.9µs で、コードを替えたら覚えた値を捨てるという約束のほうが重い。
+// 全部引いても軽く、コードを替えたら覚えた値を捨てるという約束のほうが重い。
 uint64_t DiagramCodeHash(const Node& node) noexcept;
 uint64_t DiagramCodeHash(std::string_view code) noexcept;
 uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept;

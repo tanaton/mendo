@@ -48,11 +48,10 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
 
-// 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。KaTeX は 1 個 平均 0.2ms ほどなので、
-// 1 つの仕事が 13ms ほどで終わり、ほかの図や画像のデコードを長く待たせない。
+// 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。
+// 1 つの仕事が短く終わる数にして、ほかの図や画像のデコードを長く待たせない。
 inline constexpr size_t kInlineMathPerChunk = 64;
-// 文書の最初の組だけ小さくし、開いた直後の画面の数式を早く出す (組は描き終わるまで返らない)。数式 3000 個の文書を開いて
-// 最初の数式が画面に出るまで、64 個では 94.7ms、16 個では 80.3ms (8 回の中央値)。
+// 文書の最初の組だけ小さくし、開いた直後の画面の数式を早く出す (組は描き終わるまで返らない)。
 inline constexpr size_t kInlineMathFirstChunk = 16;
 
 struct InlineMathChunk {
@@ -86,7 +85,8 @@ public:
 private:
     std::vector<InlineMathChunk> chunks_;
     uint64_t generation_ = 0;
-    // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない (数式 12000 個で 1598 → 1076µs)。
+    // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない
+    // (BM_InlineMathPlanBuild/math_12000 が 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
 };
 

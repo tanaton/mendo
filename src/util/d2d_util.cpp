@@ -180,7 +180,7 @@ bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASU
     if (DrawColorLayers(rt, origin, mode, run, desc, brush)) {
         return true;
     }
-    // COLR のフォントで層の無い字形 (国旗の地域指示子など) は、D2D に任せても単色になるうえ 1 回 0.5ms ほどかかる。
+    // COLR のフォントで層の無い字形 (国旗の地域指示子など) は、D2D に任せても単色になるうえ遅い。
     if (ComPtr<IDWriteFontFace4> face; FAILED(run.fontFace->QueryInterface(IID_PPV_ARGS(&face))) ||
                                        (face->GetGlyphImageFormats() & DWRITE_GLYPH_IMAGE_FORMATS_COLR)) {
         return false;

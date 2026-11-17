@@ -199,7 +199,7 @@ add_executable(mendo WIN32
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
 add_dependencies(mendo mendo_js_bytecode)
 set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR}")
-# ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
+# ファイルダイアログでしか使わないので、起動時にロードしない。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。
 target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll /DELAYLOAD:comctl32.dll /DELAYLOAD:shell32.dll)

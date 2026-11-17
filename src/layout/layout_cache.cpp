@@ -215,7 +215,7 @@ bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_i
         any = true;
     };
     // 印が立つのは組んだノードで、組んだ範囲 (live_nodes_) の外へ出たノードは evict で印を下ろす。表だけは evict が行を
-    // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると 30 万ノードで 1 回 130µs かかり、数式の組の結果や
+    // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると大きな文書で重いうえ、数式の組の結果や
     // 画像が届くたびに呼ばれる。
     for (size_t i = live_nodes_.begin; i < live_nodes_.end; ++i) {
         invalidate(entries_[i]);
@@ -253,7 +253,7 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
 {
     const size_t n = entries_.size();
     // layout を作る経路 (MeasureIndicesParallel・表の行の復元・TakeEntries) はどれも NoteMaterialized を通るので、
-    // 記録した範囲の keep 外だけ走査すればよい (30 万ノードの文書を開いた直後の 1 回目が 1.2ms → 0)。
+    // 記録した範囲の keep 外だけ走査すればよい (BM_FirstEvictAfterOpen の 30 万ノードで 1.2ms → 0)。
     live_nodes_.ShrinkTo(std::min(first_keep_inclusive, n), std::min(last_keep_exclusive, n), [&](size_t i) noexcept {
         EvictEntryLayout(entries_[i], released_layouts_);
     });
@@ -284,7 +284,7 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
     }
     // 次の evict で keep 範囲外に移った分も拾わせる。layout を持ちうるのは src の生存範囲だけなので、移した範囲と
     // 重なる分だけ記録する。丸ごと記録すると保存のたびに次の evict が全エントリをなめる
-    // (30 万ノードの文書で 1.2ms、BM Reload/FirstEvictAfterCarryOver)。
+    // (Reload/FirstEvictAfterCarryOver で 1.2ms)。
     const size_t lo = std::max(src.live_nodes_.begin, from);
     const size_t hi = std::min(src.live_nodes_.end, from + count);
     if (lo < hi) {

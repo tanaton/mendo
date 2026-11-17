@@ -90,7 +90,7 @@ std::string_view TocHeadingText(const Node& heading, std::string& scratch);
 // そのまま指せる (arena へコピーしない)。複数行の paragraph は SOFTBR を空白に置き換えるので常に arena へコピーする。
 // NUL は CommonMark (§2.3) と GitHub と同じく入力の段で置き換える。md4c は NUL を行内・コードブロック・コードスパン・
 // 数式で別々の形で渡す (コードスパンと数式では置き換えない) ので、パーサで受けると経路ごとの継ぎ当てになる。
-// CR も NUL も無いファイルは find_first_of 1 回で素通し (memchr 1 回と比べて 64MB で +0.6ms、2 回だと +3.7ms)。
+// CR も NUL も無いファイルは find_first_of 1 回で素通しする。
 void NormalizeSource(std::string& s);
 
 // リロードで新旧のノード列の先頭 head 個と末尾 tail 個が、表示に効く中身で一致した範囲 (両者は重ならない)。

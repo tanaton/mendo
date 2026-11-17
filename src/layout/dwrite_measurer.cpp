@@ -132,7 +132,7 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
     std::vector<uint32_t> reps(tbl.CellCount());
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
-            // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (20 万行 20 列で 47 → 39ms)。
+            // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (BM_TableFewValues の 20 万行で 47 → 39ms)。
             FlatHashMap<uint32_t> first_rows;
             for (size_t r = 0; r < tbl.row_count; ++r) {
                 const size_t ci = tbl.CellIndex(r, c);

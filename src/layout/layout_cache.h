@@ -473,7 +473,7 @@ struct DiagramDrawing;
 
 struct DiagramResult {
     // 図はビットマップを持たず、commands を描く (スクロールの間だけ DiagramBitmapCache が見えている分を持つ)。どの倍率でも
-    // くっきり描け、1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
+    // くっきり描け、1 図 0.5〜17MB のビットマップが要らない。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;

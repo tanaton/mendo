@@ -70,7 +70,7 @@ public:
               std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
-    // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
+    // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     // d3d と device は render_target を作った描画デバイス (拡大表示の窓のスワップチェーンを作って描く)。無ければ拡大表示を開けない。

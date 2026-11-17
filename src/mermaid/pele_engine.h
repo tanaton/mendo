@@ -36,7 +36,7 @@ struct PeleOutcome {
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で
 // 描画命令にする。どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイム (pele で約 2.9MB、KaTeX で
-// 約 2.6MB) を作って使い回す。各ランタイムは使うときにバイトコードを読む (約 5ms と約 3ms)。
+// 約 2.6MB) を作って使い回す。各ランタイムは使うときにバイトコードを読む。
 class PeleEngine {
 public:
     // pele と katex は pele.mjs と katex.min.js をビルドの時にコンパイルしたバイトコード (js_compile)、katex_fonts は KaTeX の
@@ -50,7 +50,7 @@ public:
 
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
     // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG とラベルの数式) はテーマに依らないので覚え、テーマの切り替えでは
-    // JS を走らせずに解き直すだけにする (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
+    // JS を走らせずに解き直すだけにする。
     PeleOutcome Render(std::string_view code, bool dark, float max_width);
 
     struct MathSource {
@@ -71,7 +71,7 @@ public:
         cancel_.store(true, std::memory_order_relaxed);
     }
     // 使っていないランタイムを keep 個まで捨てる。残すのは読んだモジュールの多いもので、捨てたものは次にバイトコードから
-    // 作り直す。捨てる処理は全オブジェクトをたどり、pele と KaTeX を読んだランタイム 1 個で約 3.5ms かかるので、
+    // 作り直す。捨てる処理は全オブジェクトをたどって重いので、
     // scheduler があればその worker で行う。
     void Trim(TaskScheduler* scheduler = nullptr, size_t keep = 0);
     // 使っていないランタイムの数 (テスト用)。

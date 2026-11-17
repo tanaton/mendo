@@ -57,7 +57,7 @@ constexpr int8_t SaturateToInt8(int value) noexcept
 struct ParseContext : NodeStorage {
     std::stop_token stop_token;
     // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるので、stop_requested() (atomic load) は 1024 回に 1 度見る。
-    // 検知が最大 1024 回分遅れても、600ms の parse に対し μs オーダーなので許容する。
+    // 検知が最大 1024 回分遅れても、parse 全体に比べて無視できるので許容する。
     uint32_t cancel_check_counter = 0;
     bool cancel_requested = false;
     // コールバックで投げた例外。md_parse の後で投げ直す (NoThrowCallback)。
@@ -283,7 +283,7 @@ struct ParseContext : NodeStorage {
     }
 
     // window の中で最後の和文の句読点 (、。，．！？) の直後。無ければ npos。
-    // 1 バイトずつ調べると、句読点の無い 16MB の 1 行で毎回窓を調べ切り、パースが約 3ms (3 割) 遅くなる。
+    // 1 バイトずつ調べると、句読点の無い長い 1 行で毎回窓を調べ切って遅い。
     // 2 バイト目 (0x80 / 0xBC) は和文でもまれなので、ベクトル化される find_last_of でまとめて探してから前後を確かめる。
     static size_t FindLastCjkPunctuationEnd(std::string_view window) noexcept
     {
@@ -342,7 +342,7 @@ struct ParseContext : NodeStorage {
             RecordSourceOffset(chunk);
         }
         // 区切る処理は 1 か所にまとめる。コードの区切りを別の関数にして区切りの補助関数を呼ぶと、段落の長い 1 行の
-        // 区切りが 16MB で 1ms (8%) 遅くなる (呼ばない関数として置くだけなら変わらないので、展開のされ方による)。
+        // 区切りが遅くなる (呼ばない関数として置くだけなら変わらないので、展開のされ方による)。
         std::string indent;
         while (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow && CanSplitCurrentNode()) {
             const size_t line_begin = CodeLineBeginToMove(chunk);
@@ -595,7 +595,7 @@ struct ParseContext : NodeStorage {
     }
 
     // DirectWrite は書式を付けるたびに範囲の並びを作り直すので、1 レイアウトに数万の装飾があると計測と描画が二乗で
-    // 遅くなる (1 段落に `a` を 8 万個で 20 秒超)。普通の文書が届かない数で打ち切り、残りは装飾なしのテキストにする。
+    // 遅くなる。普通の文書が届かない数で打ち切り、残りは装飾なしのテキストにする。
     static constexpr size_t kMaxRunsPerText = 4096;
 
     // 未確定 TextRun を確定して runs に push する。装飾もリンクも無い run は出さない。runs の隙間は既定スタイル。

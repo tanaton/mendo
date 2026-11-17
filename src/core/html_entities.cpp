@@ -23,7 +23,7 @@ std::string_view ResolveHtmlEntity(std::string_view entity, char (&buffer)[4])
 
     if (entity[1] != '#') {
         const std::string_view name = entity.substr(1, entity.size() - 2);
-        // よく使う参照は表を引かない (表は 2000 個余りで、二分探索は 1 回 約 44ns)。
+        // よく使う参照は表を引かない (表は 2000 個余りの二分探索になる)。
         static constexpr std::pair<std::string_view, std::string_view> kCommon[]{
             { "amp", "&" }, { "lt", "<" }, { "gt", ">" }, { "quot", "\"" }, { "apos", "'" }, { "nbsp", "\xC2\xA0" },
         };
