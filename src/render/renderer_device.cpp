@@ -5,7 +5,6 @@
 #include "win32_util.h"
 #include <d2d1_1.h>
 #include <d3d11.h>
-// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。dxgi1_2.h も読む。
 #include <dxgi1_3.h>
 #include <wincodec.h>
 #include <algorithm>
@@ -61,8 +60,7 @@ HANDLE D3DPrefetchDoneEvent() noexcept
 void Renderer::ConfigureFrameLatency() noexcept
 {
     frame_latency_waitable_.reset();
-    // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になるので 1 まで詰める。失敗すると 3 のままで、
-    // waitable を取っても 3 フレーム遅れに同期するだけで意図しない wait を招くので、成功したときだけ取る。
+    // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になるので 1 まで詰める
     if (FAILED(swap_chain_->SetMaximumFrameLatency(1))) {
         return;
     }
@@ -275,11 +273,7 @@ bool Renderer::SetScrollingDiagrams(bool scrolling) noexcept
 
 void Renderer::TrimForInactive() noexcept
 {
-    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限を下げると目次を戻るたびに作り直す (目次の全行が
-    // 入れ替わるフレームで 0.38ms) ので、上限は保ち、使わない間だけ手放すほうをユーザーが選んだ (2026-11-13)。
-    // 見出し 2000 個の目次をホイールで 300 回送ってから切り替えると、commit 40.0〜40.4 → 39.2〜39.7MB。
-    // 1 秒後の trim の直前に捨てると、解放の後で触ったページが private WS に 0.5MB 残るので、切り替わった時点で捨てる。
-    // 描画コマンドが指すレイアウトも消えるので、描くコマンドも捨てる (次のフレームは作り直してから描く)。
+    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる
     frame_cmds_.clear();
     text_layouts_.Clear();
 }
@@ -323,8 +317,6 @@ bool Renderer::CreateDevice()
     // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
     device_.MarkLost();
     frame_latency_waitable_.reset();
-    // flip モデルのスワップチェーンは、前のものが解放されるまで同じ HWND に作れない。ブラシや図のコマンドリストが
-    // 古いデバイスを生かしていても手放せるよう描画先を外し、D3D の遅延解放をフラッシュで済ませる。
     if (device_context_) {
         device_context_->SetTarget(nullptr);
     }

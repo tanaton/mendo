@@ -29,11 +29,6 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 using ImageSlots = std::bitset<kMaxImageSlots>;
 
 // ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする。
-// 表全体にすると、1 行が範囲にかかるだけで表の全画像を持つ (1705x1056 のスクリーンショットを 1 行 1 枚置いた 40 行の表を
-// 1200x900 の窓で最後までめくって戻ると private 98MB・GPU 55MB、行ごとだと 57MB・42MB。2026-11-08)。
-// 表の行の位置が決まらない間 (組む前・keep が無い・数式か画像の寸法を待って仮に組んだ間) は nullopt。仮に組んだ表は
-// 画像を幅 0 で組んで行が詰まっているので、範囲の行が実際よりずっと多い。
-// col_widths があれば、表の画像ごとに、範囲の行で置かれる列の幅 (DIP) の最大を入れる。範囲に無い画像は 0。
 std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep,
                                        std::array<float, kMaxImageSlots>* col_widths = nullptr)
 {
@@ -121,9 +116,7 @@ void ResourceManager::LoadImages()
     };
     const InlineImageUpdate update = request(image_loader_.TakeDelivered());
     NotifyInlineImages(update);
-    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む。RESOURCE_MANAGE を待つと、初めて開いた
-    // 写真の表の最初の画像が 275ms、すぐ頼むと 123ms (行ごとに読む前は 96ms。2026-11-08)。受け取ったものは無いので、
-    // 表は変わらない。
+    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む
     if (update.pending_resolved && update.unsettled_tables) {
         request({});
     }
@@ -156,13 +149,10 @@ void ResourceManager::EvictOffscreenResources()
     const auto layout_keep = ComputeBufferedRange(LAYOUT_EVICT_BUFFER_SCREENS);
     const auto& lr = layout_keep->range;
     state_.document.layout_cache.EvictTextLayouts(lr.begin, lr.end);
-    // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。表はセル 1 つごとに text_layout を持つので、
-    // ノード単位の evict では拾えない不可視行のセルも捨てる。
+    // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す (図が 27 個だった頃の test.md で commit 1〜2MB、1 個 40〜70KB)。寸法と描画命令は
-    // 残すので組み直さず、戻ってきたら先読み範囲に入ったときに UI で記録し直す (文字を組むので 1 個約 0.9ms)。
-    // メモリを返すほうをユーザーが選んだ (2026-11-13)。
+    // 図のコマンドリストも保持範囲の図の分だけ残す
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
@@ -223,8 +213,7 @@ void ResourceManager::OnResourceManageTimer()
     host_.KillTimer(app_timer::Id::RESOURCE_MANAGE);
 
     EvictOffscreenResources();
-    // evict 直後は可視範囲のリソースを読み直す。
-    // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (RecomputeLayout) だけでよい。
+    // evict 直後は可視範囲のリソースを読み直す
     FlushPendingResources();
 }
 
@@ -244,11 +233,9 @@ void ResourceManager::ForgetInlineImages()
 
 void ResourceManager::OnRenderDeviceRecreated()
 {
-    // 旧デバイスの画像のビットマップと図のコマンドリストは新 RT で描けない。寸法は残し、FlushPendingResources が
-    // 新しい RT で読み直したビットマップに差し替える。
     state_.document.layout_cache.InvalidateAllDiagramCommands();
     inline_drawings_.images = {};
-    // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む。図は描画の要求からしか頼み直さないので、ここで頼む。
+    // 受け箱に残したデコードの結果を入れてから、足りない画像と図を頼む
     FlushPendingResources();
 }
 
@@ -270,9 +257,7 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        // 表のセルの画像は列幅に縮めて出すので、置かれる列の幅でデコードする (ビットマップを頼むのは行の位置が決まった表だけ
-        // なので、列幅は決まっている)。本文の幅でデコードしていた頃は、3 列 40 行の写真の表を 1200x900 の窓で最後までめくると
-        // commit 121MB・GPU 97MB、列の幅だと 66MB・51MB (2026-11-13)。列が広がったら NeedsSharperDecode が読み直させる。
+        // 表のセルの画像は列幅に縮めて出すので、置かれる列の幅でデコードする。列が広がったら NeedsSharperDecode が読み直させる。
         const bool table = node.has_table();
         const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr, &col_widths);
         update.unsettled_tables |= !slots;
@@ -293,8 +278,7 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
     const auto* info = abs_path ? image_loader_.FindImageInfo(*abs_path) : nullptr;
     if (!info && (!abs_path || image_loader_.HasGivenUp(*abs_path))) {
-        // 読めないもの (解決できない src・読むのをあきらめたファイル) は alt を出す。読み直しで失敗の記録が消えても、
-        // 読めるまで alt のまま読み直す (読み込み中の幅 0 との行き来でちらつかせない)。
+        // 読めないもの (解決できない src・読むのをあきらめたファイル) は alt を出す
         SetInlineImage(key, { .state = InlineImageState::Unavailable }, update);
         return;
     }
@@ -333,11 +317,7 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!may_request) {
         return;
     }
-    // 描くビットマップが無ければ読む (保持範囲の外や別の文書から戻ったときは寸法が残っているので組み直さない)。
-    // 持っている間は読み直さない。件数に上限のあるキャッシュに置いていた頃は、表の画像が 128 種類を超えると読み込みが
-    // 互いを追い出し、約 1ms ごとに読み直しと描き直しが続いた (4db8079b)。
-    // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。ファイルが更新された画像も、前の絵を描きながら
-    // 読み直す (読めるまで寸法もビットマップも前のままなので、ちらつかない)。
+    // 描くビットマップが無ければ読む。持っている間は読み直さない。
     if (!inline_drawings_.FindImage(key) || stale || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }
@@ -411,8 +391,7 @@ void ResourceManager::OnImageFolderEvent()
 {
     const bool waiting = !changed_image_paths_.empty();
     const bool opened = image_watcher_.CheckForChanges(changed_image_paths_);
-    // 書き込みの途中で読まないよう、最初の通知から間を置く (文書の読み直しと同じ)。待つ間の通知ではタイマーを延ばさない。
-    // 延ばすと、短い間隔で書き出され続ける画像がいつまでも出ない。
+    // 書き込みの途中で読まないよう、最初の通知から間を置く。待つ間の通知ではタイマーを延ばさない。
     if (!waiting && !changed_image_paths_.empty()) {
         host_.SetTimer(app_timer::Id::IMAGE_RELOAD, app_timer::FILE_RELOAD_DEBOUNCE_MS);
     }
@@ -468,16 +447,14 @@ std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::s
 
 void ResourceManager::InvalidateDiagramsForRequestChange(float content_width, bool dark_mode)
 {
-    // 初回は比べる相手が無い。
     const bool requested_before = last_mermaid_content_width_ > 0.0f;
-    // 図はテーマの色を焼き込むので、テーマが変われば全部描き直す。
+    // 図はテーマの色を焼き込むので、テーマが変われば全部描き直す
     const bool dark_changed = requested_before && dark_mode != last_mermaid_dark_mode_;
     const bool width_changed =
         requested_before && mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_);
     if (dark_changed || width_changed) {
         const float min_width = std::min(content_width, last_mermaid_content_width_);
-        // 不可視の図も旧幅・旧テーマの結果を持ちうるので、全部の図を見る。
-        // メモリキャッシュはキーに量子化幅とテーマを含むので消さず、戻したときに再利用する。
+        // 不可視の図も旧幅・旧テーマの結果を持ちうるので、全部の図を見る
         for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
             auto* diagram = state_.document.layout_cache.FindDiagram(i);
             if (!diagram) {
@@ -488,7 +465,7 @@ void ResourceManager::InvalidateDiagramsForRequestChange(float content_width, bo
                 diagram->MarkStale();
             }
         }
-        // 旧幅・旧テーマの描画待ちを捨て、新しい要求を先に処理させる。描画中のものは旧幅・旧テーマのキャッシュに入るだけ。
+        // 旧幅・旧テーマの描画待ちを捨て、新しい要求を先に処理させる
         mermaid_.DropQueued();
     }
     last_mermaid_content_width_ = content_width;

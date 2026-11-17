@@ -481,7 +481,6 @@ constexpr bool IsListItem(const Node& node) noexcept
 }
 
 // loose list の LI (md4c が中身を MD_BLOCK_P に外出しするのでテキストを持たない枠)。
-// 高さ / spacing / cull / bullet 描画で判定を共有する (issue#237)。子ブロックも無い本当に空の LI は含めない。
 // 高さ 0 にすると空の "1." の繰り返しが全部同じ Y に重なり、可視判定で間引けず毎フレーム全件描く。
 constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
 {

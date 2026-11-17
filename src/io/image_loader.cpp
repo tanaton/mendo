@@ -13,12 +13,10 @@ uint64_t PathKey(const std::wstring& path) noexcept
     return RapidHash(path);
 }
 
-// 寸法を読むときに先に読むファイルの先頭の長さ。JPEG・PNG・GIF・ICO の寸法はヘッダにあり、手元の写真と
-// スクリーンショットは 16KB 以内で読めた。大きなメタデータ (ICC プロファイル・テキスト) が前にあるものと BMP は足りない。
+// 寸法を読むときに先に読むファイルの先頭の長さ
 constexpr size_t kImageHeadBytes = 64 * 1024;
 
-// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む。4MB の写真 40 枚の表を開くと、寸法のために読む量が
-// 161MB → 2.5MB、ワーカーの時間が 78 → 19ms (2026-11-08、ファイルは OS のキャッシュにある状態)。
+// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む
 std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const std::wstring& path, LONGLONG max_size)
 {
     const auto file = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, max_size);
@@ -222,8 +220,7 @@ ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UIN
 
 bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
-    // 描画先が無い間 (起動でデバイスを待つ間・デバイスの作り直しの再試行中) は結果を受け箱に残す。受け取ると GPU に載せられず、
-    // 要求中の印も外れるので、見えている画像を同じ間に何度もデコードし直す。描画先が戻ったら呼び出し側が受け取る。
+    // 描画先が無い間 (起動でデバイスを待つ間・デバイスの作り直しの再試行中) は結果を受け箱に残す
     if (!render_target_) {
         return false;
     }
@@ -241,8 +238,7 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         const bool cancelled = bitmap_request && bitmap_request->cancelled->load(std::memory_order_relaxed);
         const bool stale = pending && pending.mapped().invalidated;
         if ((!decoded || cancelled) && info.pixel_width > 0) {
-            // 寸法だけの要求と、デコードの後で取り消した要求。ビットマップは載せず、前に読んだ解像度 (sharp_width_px) も消さない。
-            // 更新されたファイルの寸法は入れ替える (前のビットマップは古いので、解像度も読んでいない扱いにする)。
+            // 寸法だけの要求と、デコードの後で取り消した要求
             if (const auto* known = FindImageInfo(r.path); !known || known->stale) {
                 StoreResult(r.path, { info.pixel_width, info.pixel_height, 0, stale }, nullptr);
             }
@@ -256,7 +252,6 @@ bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
             return;
         }
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
-        // 待つ間に更新されたファイルの失敗は、更新の前の中身のものかもしれないので数えない。
         if (!stale) {
             ++failed_paths_[r.path];
         }

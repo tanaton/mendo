@@ -1270,14 +1270,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする (ReservedArray)。ノードは
-// 少なくとも 2 byte の入力から作られる (空のリスト項目 "-\n" や見出し "#\n")。超えたら倍を予約し直して写す。
-// 以前は入力 128 byte に 1 個を std::vector に予約し (256 と 2 往復した。8b22f224・cc98b79b と 8eee1cc6・29e67089)、
-// 足りなければ読み終えた割合から見積もって全ノードを写して広げ、パース後に容量が要素数の 1.25 倍を超えたら写して詰めていた
-// (詰める処理は 100MB の文書で commit 約 -30MB・約 3.6ms。「アプリ全体のメモリの 10% 以上効くものだけ置く」基準で置いた)。
-// 2026-11-13 に、予約したアドレス空間に置く形をユーザーが選んだ。パース中に実際の約 2 倍をコミットすることも、写すことも無い。
-// current_text と表の本文の置き場も入力の長さまで予約する (AppendDoc が置き場を分岐せずに足せるよう同じ型にする)。
-// arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
+// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする
 constexpr size_t kInputBytesPerNode = 2;
 
 void ReserveForInput(ParseContext& ctx)
@@ -1288,9 +1281,7 @@ void ReserveForInput(ParseContext& ctx)
     ctx.list_counter.reserve(8);
 }
 
-// コールバックの例外 (ノードやテキストの置き場の確保の失敗など) を md4c の C のフレームに通さない。通すと md4c が
-// 確保したものが残り、/EHsc は extern "C" の md_parse を例外を投げないものとして扱うので ParseContext の後片付けも
-// 保証されない。捕まえたら 0 以外を返して md4c に後片付けさせ、md_parse の後で投げ直す。
+// コールバックの例外 (ノードやテキストの置き場の確保の失敗など) を md4c の C のフレームに通さない
 template <auto Callback>
 struct NoThrowCallback;
 
@@ -1339,9 +1330,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         if (ctx.cancel_requested) {
             return {};
         }
-        // ほかの失敗は md4c の確保の失敗。ブロックと行の並びの大きさを int で持つので、短い行が続くと溢れる (空のリスト項目は
-        // 200MB、1 文字の行は 400MB で失敗し、test.md の繰り返しは 4000MB でも通る。2026-11-14)。途中までのノードでは
-        // 文書が黙って欠けるので投げる。
+        // ほかの失敗は md4c の確保の失敗
         if (ret != 0) {
             throw std::bad_alloc();
         }
@@ -1355,8 +1344,6 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
     }
 
-    // コミットを足したときの余り (最大 1/4) を、写さずに外す。
-    // 表・構文トークン・ヒットテストのバッファ・表の行の背景は 0.5MB 未満しか効かないので詰めない (e48be6cc)。
     ctx.nodes.shrink_to_fit();
 
     return std::move(static_cast<NodeStorage&>(ctx));

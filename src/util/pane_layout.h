@@ -156,7 +156,7 @@ constexpr int HitTestUniformList(float local_y, float item_height, size_t count)
     return index;
 }
 
-// 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする (issue#259)。
+// 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする。
 constexpr float CenterPaneScrollOnItem(size_t index, float item_height, const PaneScrollInfo& info) noexcept
 {
     const float item_y = SidePaneContentHeight(index, item_height);

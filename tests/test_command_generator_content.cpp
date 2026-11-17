@@ -48,9 +48,9 @@ TEST_F(CmdGenContentTest, HeadingUnderlineOnlyForH1AndH2)
         float thickness;
     };
     const Case kCases[] = {
-        { "# Title", true, theme_.hr_thickness },
-        { "## Subtitle", true, theme_.h2_underline_thickness },
-        { "### Sub", false, 0.0f },
+        { "# Title",     true,  theme_.hr_thickness           },
+        { "## Subtitle", true,  theme_.h2_underline_thickness },
+        { "### Sub",     false, 0.0f                          },
     };
     EXPECT_LT(theme_.h2_underline_thickness, theme_.hr_thickness);
     for (const auto& c : kCases) {
@@ -182,7 +182,6 @@ TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, kDisc) + CountCmd<DrawRoundedRectCmd>(cmds, kCircle), 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
-// ● ○ ■ □ を段ごとに繰り返す (issue#365, #407)。
 TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
 {
     const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4\n        - 5");

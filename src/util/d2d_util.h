@@ -93,8 +93,7 @@ inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origi
     return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
 }
 
-// 失敗したら Magenta で作り直し、nullptr のブラシを DrawXXX に渡さない。重い失敗 (D2DERR_RECREATE_TARGET 等) は
-// EndDraw の経路で検知され、次のフレームの前にデバイスごと作り直される想定。
+// 失敗したら Magenta で作り直し、nullptr のブラシを DrawXXX に渡さない
 inline void CreateSolidColorBrushOrFallback(
     ID2D1RenderTarget* rt,
     D2D1_COLOR_F color,
@@ -125,17 +124,10 @@ constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept
 bool IsColorFont(IDWriteFontFace* face) noexcept;
 
 // 色のフォント (IsColorFont) の run を、rt の今の変換と DPI でフォントの色で描く。層の色の無い部分は brush で塗る。
-// 描けなければ false で、呼び出し側が brush の単色で描く。本文・図のラベル (RenderTargetTextRenderer) と数式 (DrawMath) で共有する。
-// COLR の層 (単色の字形の重ね) があれば自分で塗る。Windows 11 の D2D (DrawGlyphRunWithColorSupport) に任せると
-// グラデーションの陰影 (COLRv1) まで描けるが、毎フレーム描き直すので絵文字 1 個に 3〜4ms かかる (絵文字の一覧
-// example/emoji.md の 1 フレームが 139〜167ms、層を塗ると約 0.93ms。BM_EmojiFrameDraw)。層を塗ると陰影の無い
-// 平らな色になり、GitHub (ブラウザ) の見た目とは変わるが、mendo の簡素な見た目に合うのでユーザーが選んだ (2026-11-15)。
-// COLR の層が無いフォント (ビットマップや SVG だけのもの) は D2D に任せ、それも無ければ (Windows 10) false を返す。
 bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
                        const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept;
 
-// IDWriteTextLayout::Draw で rt へ描くレンダラの土台。字形は作ったときの rt の変換と DPI で置く。
-// スタック上でのみ使うので参照カウントは持たない。
+// IDWriteTextLayout::Draw で rt へ描くレンダラの土台
 class RenderTargetTextRenderer : public UncountedCom<IDWriteTextRenderer> {
 public:
     explicit RenderTargetTextRenderer(ID2D1RenderTarget* rt) noexcept;
@@ -167,7 +159,6 @@ struct ID2D1DeviceContext;
 HRESULT BindSwapChainTarget(ID2D1DeviceContext* dc, IDXGISwapChain1* swap_chain, float dpi) noexcept;
 
 // 本体の描画デバイスで、ほかの窓 (ポップアップ・図の拡大表示) を描くスワップチェーンと DeviceContext。
-// dxgi を読む TU を増やさないため (このヘッダはポップアップを通じて広く読まれる)、定義は d2d_util.cpp に置く。
 class WindowSwapTarget {
 public:
     enum class Mode : uint8_t {
@@ -182,14 +173,10 @@ public:
     WindowSwapTarget(const WindowSwapTarget&) = delete;
     WindowSwapTarget& operator=(const WindowSwapTarget&) = delete;
 
-    // width x height 画素のスワップチェーンを hwnd に作り、今のバッファを dpi の描画先にする。失敗すれば何も持たない。
     bool Create(ID3D11Device* d3d, ID2D1Device* device, HWND hwnd, UINT width, UINT height, float dpi, Mode mode);
-    // バッファを放して大きさを変え、描画先にし直す。失敗すれば何も持たない。
     bool Resize(UINT width, UINT height, float dpi);
-    // EndDraw して Present する (垂直同期を待つ)。デバイスを失っていれば false (Reset して作り直す)。
     bool EndDrawAndPresent();
     void Reset() noexcept;
-    // 描画先。Create の前と失敗の後は null。
     ID2D1DeviceContext* dc() const noexcept
     {
         return dc_.Get();

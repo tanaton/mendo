@@ -76,8 +76,6 @@ std::basic_string_view<Char> Unquote(std::basic_string_view<Char> s) noexcept
     return s;
 }
 
-// font-family の並びごとの、先頭の書体とフォールバック。書式ごとに組み直すと、DirectWrite がフォールバック先を
-// 引いた結果も書式ごとに冷えるので、プロセスで共有する。
 struct FamilyChain {
     std::wstring primary;
     ComPtr<IDWriteFontFallback> fallback; // 2 番目以降の候補 → システム。候補が 1 つなら null
@@ -113,8 +111,6 @@ FamilyChain ChainFor(IDWriteFactory* dw, std::wstring_view css_family)
     return chains->emplace(std::move(key), std::move(chain)).first->second;
 }
 
-// 候補の最初の書体で組み、2 番目以降をシステムのフォールバックより先に使わせる。ブラウザが font-family の並びを
-// 文字ごとに試すのと同じにする (Segoe UI だけにすると、日本語のフォールバック先がブラウザと分かれて最大 86px ずれた)。
 ComPtr<IDWriteTextFormat> CreateDiagramFormat(IDWriteFactory* dw, const DiagramFont& font, const wchar_t* locale)
 {
     const FamilyChain chain = ChainFor(dw, font.family);
@@ -185,9 +181,6 @@ void AppendFontKey(std::wstring& key, const DiagramFont& font)
 
 // ---------------------------------------------------------------------------------------------------------------
 // pele の SVG の解決。ブラウザなら getComputedStyle などで求まる値を自分で求める。
-// pele の出力は語彙が狭い (g・図形・text・tspan・入れ子の svg・linearGradient) ので、その範囲の CSS だけを解く。
-// 利用者の style (classDef など) は pele を素通りするので、色名・hsl・単位・font-size のキーワードは読む。
-// 知らない要素があれば描かずに nullopt を返し、描けない図として扱わせる。
 
 constexpr std::string_view kSpaces = " \t\r\n"sv;
 
@@ -398,9 +391,7 @@ constexpr LengthUnit kLengthUnits[]{
     { "mm", 96.0 / 25.4 },
 };
 
-// calc()・min()・max()・color-mix() の入れ子と、var() の参照をたどる深さの上限。図の style や classDef に書いた値は SVG にそのまま届くので、
-// 上限が無いと数万段の入れ子でワーカーのスタックを使い切る (JS 側のスタックの上限は C++ の再帰に効かない)。
-// 超えた値は読めない宣言として捨てる。
+// calc()・min()・max()・color-mix() の入れ子と、var() の参照をたどる深さの上限
 constexpr int kMaxFunctionNesting = 16;
 
 // 長さ。単位なしと px は CSS px。% は相手が要るので読めない扱い。pele は小さな箱の角丸に min() を使い、
@@ -632,9 +623,7 @@ void AddArcBounds(Bounds& out, double x1, double y1, double rx, double ry, doubl
     out.Add(cx + hx, cy + hy);
 }
 
-// path の d を、絶対座標の区間にして visitor に順に渡す。S・T の 1 つ目の制御点は鏡映で求めて渡す。visitor は
-// Move(x, y)・Line(x, y)・Cubic(x1, y1, x2, y2, x, y)・Quad(x1, y1, x, y)・Arc(x1, y1, rx, ry, rotation, large, sweep, x2, y2)・
-// Close() を持つ。読めないところで止めて false を返す (ブラウザも誤りの手前まで描く)。
+// path の d を、絶対座標の区間にして visitor に順に渡す
 template <class Visitor>
 bool WalkPath(std::string_view d, Visitor& visitor)
 {
@@ -2595,8 +2584,6 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
     if (!CollectText(index, s, opacity, s.own.decoration, 0.0f, pieces, pending_x, pending_y)) {
         return false;
     }
-    // 空白。xml:space="preserve" は改行とタブを空白にするだけ。それ以外は CSS の white-space: normal と同じく
-    // 続く空白を 1 つに畳み、要素の先頭と末尾の空白を除く。
     bool after_space = true;
     std::string folded;
     for (Piece& piece : pieces) {
@@ -2817,10 +2804,7 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
     if (!(attr_w.value_or(0.0f) > 0.0f && attr_h.value_or(0.0f) > 0.0f)) {
         return std::nullopt;
     }
-    // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る。縮めるのは描くとき
-    // (DiagramRect・FittedDiagramSize) で、拡大表示・クリップボードの SVG・本文が同じ描画命令を使える。拡大率を図形の
-    // transform に書くと小数 3 桁に丸まり、文字 (丸めない) と最大 0.0005 x 座標 px ずれていた。
-    // ブラウザのレイアウトは 1/64 px に切り捨てる。大きさの切り上げをブラウザとそろえる。
+    // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る
     const float w = std::floor(*attr_w * 64.0f) / 64.0f;
     const float h = std::floor(*attr_h * 64.0f) / 64.0f;
     Mat root_ctm;
@@ -3085,9 +3069,7 @@ void AppendInline(KBox& row, KBox&& box, float gap = 0.0f)
     AppendItems(row, std::move(box), x, 0.0f);
 }
 
-// 隣り合う字形の並びのうち、同じ書体・大きさ・ベースラインで左から右へ続くものを 1 本にする。KaTeX は記号を 1 つずつ
-// span に入れるので、そのままだと x^2+y^2 で 9 本になり、毎フレームの DrawGlyphRun の数とメモリが増える。
-// 間の空き (mspace など) は前の字の送り幅に足す。色の違う並びはつながず、つなぐのは直前に残した並びとだけなので、描く順は変わらない。
+// 隣り合う字形の並びのうち、同じ書体・大きさ・ベースラインで左から右へ続くものを 1 本にする
 void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
 {
     size_t kept = 0;
@@ -3109,8 +3091,6 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
         }
         ++kept;
     }
-    // 詰め直し (shrink_to_fit) はしない。返るのは 1 式約 0.4KB で、927 式の文書でも約 0.4MB とアプリ全体の 1% に届かない
-    // (test.md と代表的な式 104 本で 42.5KB、2026-11-06)。
     items.erase(items.begin() + static_cast<std::ptrdiff_t>(kept), items.end());
 }
 
@@ -3201,8 +3181,7 @@ public:
     KatexLayout(const XmlDoc& doc, KatexAssets& assets) : doc_(doc), assets_(assets)
     {
         eqn_number_.assign(doc.nodes.size(), 0);
-        // 自動の式番号 (.eqn-num::before の CSS カウンタ)。数式ごとに 1 から、文書の順に振る。vlist は列の幅を決めてから
-        // 置き直すことがあるので、配置の途中で数えずに先に決めておく。
+        // 自動の式番号 (.eqn-num::before の CSS カウンタ)。数式ごとに 1 から、文書の順に振る
         uint32_t eqn = 0;
         for (uint32_t i = 0; i < doc.nodes.size(); ++i) {
             if (HasClass(Classes(i), "eqn-num")) {
@@ -3539,9 +3518,6 @@ KStyle KatexLayout::Compute(uint32_t i, const KInherit& parent)
                                                                                            : KPosition::Static;
         }
         else if (name == "color" || name == "background-color" || name == "border-color") {
-            // 2026-11-04 に本文の色だけで描く (\color を読み捨て、\colorbox の背景も描かない) と決めたが、#412 で指定の色を
-            // 優先して描くことにした。\colorbox の背景も、ダークモードで中の文字が読みにくくなっても指定どおり描く。
-            // 読めない色はブラウザと同じく無視する (数式ごと描けなくはしない)。
             if (Rgba rgba; ParseColor(value, Rgba{}, rgba)) {
                 const uint32_t packed = ToRgb(rgba) << 8 | ColorByte(rgba.a);
                 (name == "color" ? inh.color : name == "background-color" ? own.background
@@ -4103,10 +4079,7 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
         return face.Get();
     }
     if (!m.files[file]) {
-        // 展開したストリームを持ち主として渡し、DirectWrite に写させない。最初の数式で 20 個を展開して写していた頃は、
-        // 新しいエンジンの最初の数式 (x^2) が 9.4ms、使う書体だけにして 4.7ms。
-        // ReleaseFileFragment の後も data を使うのは、UnpackFontFile のストリームが展開した中身を自分で持ち、
-        // ReleaseFileFragment が何もしないことに頼っている (IDWriteFontFileStream の決まりでは、手放した後の data は保証されない)。
+        // 展開したストリームを持ち主として渡し、DirectWrite に写させない
         ComPtr<IDWriteFontFileStream> stream;
         UINT64 size = 0;
         const void* data = nullptr;
@@ -4168,8 +4141,6 @@ std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_siz
 
 namespace {
 
-// 形を塗る。box_to_target は SVG の箱の座標から描く先への変換 (拡大と平行移動だけ) で、clip は箱の座標。
-// マスクも本体もこれで塗り、画素をそろえる。
 void PaintPath(ID2D1RenderTarget* rt, ID2D1PathGeometry* geometry, const std::array<float, 6>& transform, const D2D1_RECT_F& clip, float stroke,
                const D2D1::Matrix3x2F& box_to_target, ID2D1Brush* brush)
 {
@@ -4204,13 +4175,11 @@ struct MathMaskCache::Impl {
     };
     struct Entry {
         Key key;
-        // 作れなかった形は null のまま残し、毎フレーム作り直さない (呼び出し側が形を塗る)。
         ComPtr<ID2D1Bitmap1> bitmap;
         UINT width = 0;
         UINT height = 0;
         uint64_t last_frame = 0;
 
-        // 小さな A8 の描画先でも、1 枚で private が約 14KB 増えた (2000 枚で計測)。
         size_t Bytes() const noexcept
         {
             return bitmap ? std::max<size_t>(static_cast<size_t>(width) * height, 14 * 1024) : 0;
@@ -4218,7 +4187,6 @@ struct MathMaskCache::Impl {
     };
 
     ComPtr<ID2D1Device> device;
-    // マスクを描く。本体の context は描いている最中で、BeginDraw は入れ子にできないので別に持つ。
     ComPtr<ID2D1DeviceContext> dc;
     ComPtr<ID2D1SolidColorBrush> opaque;
     std::unordered_map<uint64_t, Entry> entries;
@@ -4364,9 +4332,7 @@ size_t MathMaskCache::Bytes() const noexcept
 
 namespace {
 
-// 色の指定の無い単色のグリフ (絵文字でないもの) を、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける。DrawGlyphRun は
-// 1 回ごとの手間が大きく、形の多い数式 (1 式 7.5 run) の画面で 1 割ほど縮む。画素は 1 つずつ描くのと同じ。
-// 同じブラシで塗る分どうしは描く順で画素が変わらないので、まとめた run は色を指定した部分の手前か数式の最後に描く。
+// 色の指定の無い単色のグリフ (絵文字でないもの) を、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける
 class GlyphRunMerger {
 public:
     void Add(const MathDrawing::Glyphs& g, float x, float baseline)
@@ -4534,8 +4500,7 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         else if (const auto* p = std::get_if<MathDrawing::Path>(&item)) {
             const auto& shape = *p->shape;
             ComPtr<ID2D1PathGeometry> geometry = shape.geometry;
-            // 形は作ったファクトリの描画先でしか描けない。本番は本体のファクトリ 1 つで描くので作り直さないが、形は数式を
-            // またいで共有するので、別のファクトリで描かれたら付け替える (最初のファクトリに固定すると、後のファクトリが毎フレーム作り直す)。
+            // 形は作ったファクトリの描画先でしか描けない
             if (shape.factory != factory) {
                 geometry = BuildPathGeometry(factory.Get(), shape.d);
                 if (geometry) {
@@ -4738,8 +4703,7 @@ ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
 
 namespace {
 
-// dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。wic は図形の SVG を
-// 読むストリームに使う。texts は drawing の文字の並びを組んだもので、無ければここで組む。描けなければ false (描きかけのまま)。
+// dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ
 bool DrawDiagram(
     ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
     const wchar_t* locale, const DiagramTextLayouts* texts)

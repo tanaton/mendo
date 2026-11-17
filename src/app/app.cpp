@@ -151,8 +151,7 @@ void App::AwaitImageFoldersBeforeDevice()
 {
     // 文書の画像は、画像のフォルダの監視を worker で開き終えてから頼む (ResourceManager)。開き終えるのを D3D の作成の裏で
     // 待って頼めば、デコードも作成の裏で進んで最初のフレームに入る。待たないと頼むのが最初のフレームの後になり、画像が
-    // 幅 0 で出てから寸法が届いて本文が動く。画像 3 枚の README で、画像が出るまで 87.7 → 73.2ms (8 回の中央値。最初の
-    // フレームは画像を入れる分 70.9 → 73.2ms)。cfc8ac2f でフォルダを worker で開くようにしてから、待っていなかった。
+    // 幅 0 で出てから寸法が届いて本文が動く
     const HANDLE device_ready = D3DPrefetchDoneEvent();
     while (device_ready && resource_manager_.IsOpeningImageFolders()) {
         HANDLE handles[kMaxFileWatchEvents + 1]{ device_ready };
@@ -377,8 +376,7 @@ void App::OnActivateApp(bool active)
         KillTimer(app_timer::Id::TRIM_WORKING_SET);
     }
     else {
-        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する。空にした後に PELE_TRIM で
-        // 捨てると約 1000 ページを触り直して 1MB 残る (図 28 個の文書) ので、空にするまでの待ちの間に済ませる。
+        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する
         mermaid_renderer_.TrimIdleRuntimes();
         renderer_.TrimForInactive();
         SetTimer(app_timer::Id::TRIM_WORKING_SET, app_timer::TRIM_WORKING_SET_DELAY_MS);
@@ -451,8 +449,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         }
         *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
-    // 1 件あたり 1ms 以下、全部で約 4ms (12 件が続けて届く場合)。
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す
     RelayoutPendingInline(/*force_tables=*/false);
 }
 
@@ -461,10 +458,6 @@ bool App::InvalidatePendingInline(bool force_tables)
     // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
-    // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
-    // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
-    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。数式を待っている間は画像の結果でも表を組み直さない。
-    // 画像だけなら組み直しの間に残りのデコードが終わり、結果は 1〜2 回にまとまる (アイコン 120 種類の 5000 行の表で 2 回・計 63ms)。
     const auto now = std::chrono::steady_clock::now();
     const auto since = now - last_inline_table_relayout_;
     const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
@@ -535,9 +528,7 @@ bool App::DispatchKeyAction(const std::optional<AppAction>& action)
 
 void App::Dispatch(const AppAction& action)
 {
-    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む。一覧の確保と解放は Reduce の 3〜4 割を
-    // 占めていた (BM_ReduceEvents) ので、呼び出しごとのスタックの領域から取る。入れ子の Dispatch も自分の領域を持つ。
-    // 副作用が持つ文字列はヒープから取る (variant は allocator を受け継がない) ので、領域より長生きしない。
+    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
     auto effects = Reduce(state_, action, *this, &arena);
@@ -623,9 +614,6 @@ void App::HandleTimer(UINT_PTR timer_id)
             return;
         }
         KillTimer(id);
-        // 空の文書の private WS 20MB のうち約 15MB は、D3D11CreateDevice でドライバが一度触ったきりのページ (AMD)。
-        // 20MB の文書でも 81 → 0.2MB、戻ってスクロールして 4MB。commit は変わらない。使うページは soft fault で戻り、
-        // 外した後の最初の再読み込みだけ 1 割遅い。
         EmptyWorkingSet(GetCurrentProcess());
         return;
     case FILE_RELOAD:
@@ -775,9 +763,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
         ShowEmbeddedResource(path);
         return;
     }
-    // 旧文書の画像・図の待ちはもう要らないので捨て、読み込みの間は新たに頼まない (IsLoadingOtherDocument)。
-    // 文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す (ReloadCommand::resume_resources)。
-    // 開いている文書を開き直すとリロードとして扱われ、図と画像はコードやパスがキーなので待ちをそのまま使える。
+    // 旧文書の画像・図の待ちはもう要らないので捨て、読み込みの間は新たに頼まない
     const bool same_file = path_util::iequal(path, state_.document.doc.GetFilePath());
     if (!same_file) {
         resource_manager_.DropQueues();
@@ -884,11 +870,10 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     NavEntry left = CurrentNavEntry(state_);
     ReplaceDocument(std::move(next), std::move(estimated));
-    // 監視は新しい文書で始め直すので、前の文書の読み直しはやめる。読み込みの結果を経ずに来る経路 (読み込み中に開いたヘルプ) でも、
-    // 以降の要求が開いた文書の画像と図を頼めるよう、要求より先に読み込み中の扱い (IsLoadingOtherDocument) を終える。
+    // 監視は新しい文書で始め直すので、前の文書の読み直しはやめる
     RunReloadCommand(reload_.OnDocumentReplaced());
     resource_manager_.DropQueues();
-    // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では閉じずに図を追う。
+    // 拡大表示は開いた文書の図なので一緒に閉じる
     mermaid_renderer_.CloseViewer();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
@@ -929,9 +914,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
 
-    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。image_loader が
-    // 覚えている画像の寸法も入れる。引き継いだノードは実測の高さを持っているので、当てるのは変わった範囲だけでよい。
-    // 引き継いだ高さと合わせて Y を 1 回で組み直す。
+    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする
     const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
@@ -1066,9 +1049,6 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Layout ----
         [this](const effect::ResourceManage&) {
-            // 先読み (上下 2 画面) は可視範囲で何かを組んだときにしか起きないので、先読み済みの範囲を読み進めると境目で
-            // 描画の中の同期の計測になる (test.md x4 で PageDown 30 回のうち 7 回、計 7ms、最大 2.5ms)。スクロールのたびに
-            // 空き時間で先読みの範囲を確かめさせる (組むものが無ければ OnDeferredLayout は走査だけで描き直さない)。
             state_.document.layout_cache.SetHasDirtyNodes(true);
             resource_manager_.ScheduleResourceManage();
             // スクロールの間は、見えている図をビットマップで描く。止まったらベクタに戻す。
@@ -1177,8 +1157,7 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    // 色のみの変更なのでテキストレイアウトは残す。付けた描画効果は色の印 (BrushEffect) で、描くときに作り直した固定ブラシへ
-    // 置き換わるので付け直さない。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
+    // 色のみの変更なのでテキストレイアウトは残す
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
@@ -1193,8 +1172,6 @@ App::HitResult App::HitTest(int px, int py)
     return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, ComputePaneLayout(state_), PixelToDip(px, py)));
 }
 
-// CS_DBLCLKS により連続クリックの 2 回目は WM_LBUTTONDBLCLK で届く。ボタン・スクロールバー・スプリッタは
-// 1 回目と同じ判定で連打として扱い、2 回目の扱いが違うもの (本文の単語選択・一覧の項目) は各ゾーンで決める。
 void App::OnLButtonDown(int px, int py, bool is_double_click)
 {
     const auto dip = PixelToDip(px, py);
@@ -1727,8 +1704,6 @@ bool App::HasIdleWork()
            image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverJobResults();
 }
 
-// 1 回に 1 種類だけ進めてメッセージループへ戻り、入力と描画を先に配らせる。
-// 画面に出る転送、待たれている検索、先読みの計測の順。捨てたレイアウトの解放は渡すだけなので先に済ませる。
 void App::RunIdleWork()
 {
     DisposeReleasedLayouts();
@@ -1766,9 +1741,6 @@ void App::FinishLayout(LayoutChange change, LayoutCaller caller)
         resource_manager_.FlushPendingResources();
         [[fallthrough]];
     case LayoutCaller::Paint:
-        // ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、本文幅が広がると画像の
-        // 解像度が足りなくなる。スクロールを待たずに ScheduleResourceManage で整理させる。遅延レイアウトが残っていれば、空き時間の
-        // 遅延レイアウト (HasIdleWork) が組み終えたとき (OnDeferredLayout) に出す。
         if (state_.document.layout_cache.HasDirtyNodes()) {
             deferred_layout_.settle = true;
         }
@@ -1777,10 +1749,6 @@ void App::FinishLayout(LayoutChange change, LayoutCaller caller)
         }
         break;
     case LayoutCaller::Import:
-        // 取り込み (FlushPendingResources) に入り直すと、届いたデコード結果の転送が kImportSliceBudget の区切りを超え、
-        // 走査と図の要求も二重になる。測り直して範囲に入った画像と図は、残った dirty を組み終えたとき (OnDeferredLayout) か
-        // RESOURCE_MANAGE で取り込む。寸法を待っていた表の行の画像は LoadImages がすぐ頼む。図の高さで Y を組み直しただけなら
-        // 頼み直さない。
         if (change == LayoutChange::Remeasure) {
             SetTimer(app_timer::Id::RESOURCE_MANAGE, app_timer::RESOURCE_MANAGE_DELAY_MS);
         }
@@ -1795,9 +1763,7 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る。
-    // 件数で細かく区切ると、区切るたびに走査・Y の組み直し・ワーカーの待ち合わせが挟まる
-    // (test.md x4 の全計測で、32 件ずつだと一度に測る 165ms が 290ms になった)。
+    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
@@ -1830,8 +1796,6 @@ void App::OnDeferredLayout()
         md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
     run.measured |= batch.updated;
 
-    // 中間バッチでは後始末をしない (FinishLayout の注記)。スクロールバーのドラッグは
-    // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
     if (batch.remaining) {
         return;
     }
@@ -1840,9 +1804,7 @@ void App::OnDeferredLayout()
     if (!done.measured && !done.settle) {
         return;
     }
-    // 画面の外だけを組んだなら描き直さない。スクロールのたびに先読みすると、PageDown なら 1 回ごとに次の 1 画面を組み、
-    // 毎回同じ絵を描き直すことになる (30 回で 49 → 32 フレーム)。0.5 DIP 未満のつまみの変化は見分けられない。
-    // スクロールを上限に収めて位置が変われば、後始末が描き直させる。
+    // 画面の外だけを組んだなら描き直さない
     const auto before = *done.scrollbar;
     const auto after = scrollbar();
     const bool bar_changed = before.shown != after.shown || std::abs(before.thumb_y - after.thumb_y) >= 0.5f ||

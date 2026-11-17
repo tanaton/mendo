@@ -108,22 +108,10 @@ public:
         return in_flight_;
     }
 
-    // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの ThemeService
-    // (ApplyZoom・ToggleDarkMode) がメンバ (ApplyZoom ではフォント名の std::wstring も) を非アトミックに書き換えるため、
-    // 参照キャプチャだと EstimateNodeHeights と race。
-    // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
-    // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
-    // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
-    // content_width は推定に使う本文幅 (0 は幅を知らない)。
     void Start(std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
-
-    // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
     bool Attach(HWND hwnd, UINT msg_id);
-
-    // ロード結果の取り出し。通知から Take までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
-    // request_stop で走行中の parse/Estimate を協調的に打ち切り、worker の以後の publish を弾く。outcome_ も即時クリア。
     void Cancel() noexcept
     {
         stop_source_.request_stop();
@@ -232,11 +220,8 @@ struct ReloadCommand {
     // 0 でなければ FILE_RELOAD タイマーをこの間隔で掛け直す。
     UINT set_timer_ms = 0;
     bool kill_timer = false;
-    // 表示中のファイルを読み直す。
     bool start_reload = false;
-    // 読み直した結果で文書を差し替える。
     bool apply_result = false;
-    // 開けない状態が長引いていることを一度だけ知らせる。
     bool notify_locked = false;
     // 別の文書の読み込みを、文書を差し替えずに抜けた。読み始めに捨てて止めていた、表示を続ける文書の画像と図を頼み直す。
     bool resume_resources = false;

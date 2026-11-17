@@ -38,9 +38,7 @@ inline Microsoft::WRL::ComPtr<IWICStream> CreateStreamOnMemory(IWICImagingFactor
     return stream;
 }
 
-// IWICBitmapSource を pixel_format (既定は 32bppPBGRA) に変換する。HICON 由来の IWICBitmap など、デコーダを経由しない
-// ソースにも使う。戻り値は呼び出し側が使い終えるまで持つので、使い回さずに毎回作る (Initialize し直すと前の戻り値の
-// 入力も替わる)。CreateFormatConverter は CoCreateInstance に比べて軽い。
+// IWICBitmapSource を pixel_format (既定は 32bppPBGRA) に変換する
 inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
     IWICImagingFactory* wic, IWICBitmapSource* source,
     const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
@@ -55,15 +53,12 @@ inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
 
 struct DecodeResult {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    // アルファを持たないフレーム (JPEG 等)。変換前に縮小すると JPEG はデコーダ側の縮小デコード
-    // (IWICBitmapSourceTransform) が効く。アルファ付きは straight alpha のまま補間すると縁がにじむため持たない。
     Microsoft::WRL::ComPtr<IWICBitmapSource> opaque_frame;
     UINT pixel_width = 0;
     UINT pixel_height = 0;
 };
 
-// 文書から指定された画像のコンテナ形式。WIC の内容判定に任せると HEIF・RAW や他社製コーデックなどインストール済みの
-// どのデコーダもプロセス内で動かせてしまうので、ブラウザが表示する形式だけを先頭バイトで選ぶ。該当しなければ nullptr。
+// 文書から指定された画像のコンテナ形式
 inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
 {
     const auto starts_with = [bytes](std::initializer_list<uint8_t> sig, size_t at = 0) {
@@ -91,7 +86,6 @@ inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
 }
 
 // bytes をコピーせずに参照して container 形式の画像の最初のフレームを開く。ピクセルはまだデコードしない。
-// bytes はフレームを使い終えるまで生かすこと。
 inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
 {
     const auto stream = CreateStreamOnMemory(wic, bytes);
@@ -110,9 +104,7 @@ inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagin
     return frame;
 }
 
-// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す。
-// bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は ConvertBitmapSource を参照)。
-// 形式の判定を WIC に任せるとインストール済みのどのデコーダも動きうるので、container の形式に限る。
+// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す
 inline std::optional<DecodeResult> DecodeFromMemory(
     IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
 {
@@ -154,8 +146,6 @@ struct PixelSize {
     constexpr bool operator==(const PixelSize&) const = default;
 };
 
-// 文書から指定された画像ファイルの寸法。ピクセルはデコードしない。bytes はファイルの先頭だけでもよく、寸法までの
-// ヘッダが足りなければ nullopt (足りないときに違う寸法を返すことはない。2026-11-08 に JPEG・PNG・GIF・ICO で確認)。
 inline std::optional<PixelSize> ReadImageFileSizeFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
     const GUID* container = SniffImageContainer(bytes);
@@ -171,7 +161,6 @@ inline std::optional<PixelSize> ReadImageFileSizeFromMemory(IWICImagingFactory* 
 }
 
 // 表示に要る解像度までアスペクト比を保って縮小したサイズ。拡大はしない。
-// max_width: 表示で使われうる最大幅 (px)、max_dim: GPU ビットマップの最大辺 (px)。0 は無制限。
 constexpr PixelSize ComputeDecodeSize(UINT width, UINT height, UINT max_width, UINT max_dim) noexcept
 {
     if (width == 0 || height == 0) {
@@ -194,8 +183,7 @@ constexpr PixelSize ComputeDecodeSize(UINT width, UINT height, UINT max_width, U
     return { scaled(width), scaled(height) };
 }
 
-// PBGRA へのデコードをこのスレッドで確定させた IWICBitmap を作る。IWICFormatConverter のまま
-// 渡すと実デコードは CreateBitmapFromWicBitmap (UI スレッド) の CopyPixels まで遅延される。
+// PBGRA へのデコードをこのスレッドで確定させた IWICBitmap を作る
 inline Microsoft::WRL::ComPtr<IWICBitmap> DecodeToWicBitmap(IWICImagingFactory* wic, const DecodeResult& decoded, PixelSize target)
 {
     Microsoft::WRL::ComPtr<IWICBitmapSource> src = decoded.converter;

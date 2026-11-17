@@ -68,7 +68,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic
 void MermaidRenderer::TrimIdleRuntimes()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
-    // 描いている途中のものは捨てない。図 4 個の文書で mendo の private bytes が 63 → 52MB、1 個で 51 → 48MB になる。
+    // 描いている途中のものは捨てない
     if (pele_) {
         pele_->Trim(bg_scheduler_);
     }
@@ -141,8 +141,7 @@ bool MermaidRenderer::RequestRender(
     if (!result) {
         return false;
     }
-    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録したときに捨てているので、
-    // ここで組む (図 1 個約 0.9ms)。デバイスを作り直している間は記録できないので、次の要求まで待たせる。
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す
     if (result->drawing && !result->commands) {
         result->commands = RecordDrawing(*result->drawing, nullptr);
         if (!result->commands) {
@@ -337,8 +336,7 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
 
 void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point deadline)
 {
-    // デバイスの再作成を待つ間に受け取ると、記録できないだけの結果が失敗として確定する。
-    // 数式の組は描き直しても同じと見なされ、計画を作り直すまで頼み直されない。描画先が戻ってから受け取る。
+    // デバイスの再作成を待つ間に受け取ると、記録できないだけの結果が失敗として確定する
     if (!render_target_) {
         return;
     }
@@ -357,9 +355,6 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         PumpRenders();
     }
     if (used_pele) {
-        // 描き終えて待ちが空になったら、同時に描いた分のランタイム (1 個あたり pele 約 2.9MB・KaTeX 約 2.6MB) を 1 個まで返す。
-        // 10 秒以内に次の図や数式が来ると、増やした分は読み直し (pele 5ms・KaTeX 3.4ms) になるが、メモリを早く返すほうを
-        // ユーザーが選んだ (2026-11-13)。残りの 1 個は PELE_TRIM で捨てる。
         if (renders_running_ == 0 && render_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }
@@ -394,8 +389,6 @@ void MermaidRenderer::StartRender(RenderRequest req)
 
 void MermaidRenderer::PumpRenders()
 {
-    // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせない。
-    // ランタイムも同時に描く数だけ作るので、メモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {
         ++renders_running_;
@@ -428,7 +421,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
     case Status::Drawn:
         break;
     }
-    // ディスクキャッシュには UTF-8 で置く (図 1 個 平均 9KB)。
+    // ディスクキャッシュには UTF-8 で置く
     JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
     drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());

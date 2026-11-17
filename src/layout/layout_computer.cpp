@@ -90,7 +90,6 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        // 空 LI に sb を入れると直下 P の text_top が下ズレし bullet と分離する (issue#237)。
         return IsEmptyListItemContainer(node) ? 0.0f : theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;

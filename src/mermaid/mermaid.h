@@ -65,11 +65,6 @@ public:
                                                               IWICImagingFactory* wic, bool dark, std::move_only_function<void()> on_close);
 
     // d2d・wic・dw は Renderer と共有し、保存・コピーの画像の描画先 (d2d) と画像 (wic)、図の文字 (dw) を作るのに使う。
-    // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
-    // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
-    // on_update は結果が出たときと、拡大表示に出す図が変わったときに呼ぶ。受けた側は本文の図と拡大表示の図
-    // (RequestViewerDrawing) を要求し直す。
-    // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
               PeleFactory make_pele, ViewerFactory open_viewer, std::move_only_function<void()> on_update,
               std::move_only_function<void()> on_viewer_failed);
@@ -202,16 +197,8 @@ private:
         bool used_pele = false;
     };
 
-    // 描き終えて待ちが空になった時点で 1 個まで減らし (ProcessJobResults)、最後の 1 個をこの時間で捨てる。
-    // ランタイムは 5ms ほどで作り直せる。読み進める間の描画の切れ目では捨てない長さにする。
-    // 別のアプリへ切り替わったときは待たずに捨てる (App::OnActivateApp)。
     static constexpr UINT PELE_TRIM_MS = 10000;
-    // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで ID2D1CommandList (その約 5 倍) は数えないので、普通の図では件数の上限が先に効く。表示中の結果は
-    // DiagramEntry と CommandList を共有し、余分に持つのは画面外の結果だけ。図 27 個の文書で、幅を 10 段変えるたびに全体を
-    // 読み進めても 128 件で commit 約 10MB (15%)。CommandList を数えて 8MB にしても -6% で、テーマの切り替え (58 件、5%) には
-    // 効かない。結果はここからしか DiagramEntry に届かないので、1 回に届く結果より小さな上限にすると描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
@@ -229,8 +216,7 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
-    // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す。投入後に drop_gen_ が進んだ
-    // 表示用の要求は work せずに JobDropped で返す。
+    // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す
     template <typename Work>
     void PostJob(RenderRequest req, JobWork kind, Work work);
     // worker で呼ぶ。
@@ -242,7 +228,6 @@ private:
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
-    // 表示用の要求のエラーを確定させ、再要求させない (issue #271)。error.message は pele の文言で、空なら汎用の文言を出す。
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
@@ -267,31 +252,22 @@ private:
 
     std::move_only_function<void()> on_update_;
 
-    // 待機中・読み込み中・描画中の表示用リクエストのキー (request_hash。コード・量子化した幅・テーマ)。未完了の図はスクロールのたびに
-    // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::unordered_set<uint64_t> inflight_;
 
-    // キャッシュキー -> 描画結果 (挙動は src/util/transposition_cache.h 参照)。同じコードは同じ結果になるので、失敗も成功と
-    // 同じく覚えて描き直さない。
     TranspositionCache<uint64_t, DiagramResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
     PostedInbox<Job> job_results_;
-    // DropQueued / Shutdown で進め、投入済みの表示用の図の描画とディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> drop_gen_{ 0 };
 
-    // 最初に図か数式を描くときに作る (EnsurePele)。終了時は描き終わりを待ってから捨てる。
     PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
-    // PeleEngine で描く要求のうち、上限を超えて待っているものと、bg で走っている数。
     std::deque<RenderRequest> render_waiting_;
     int renders_running_ = 0;
 
-    // 描画命令を記録する DeviceContext。描画先と同じデバイスから作り、描画先が変わったら作り直す。
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_factory_;
 
-    // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;
 };

@@ -88,9 +88,9 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
         size_t diff_pos;
     };
     const Case kCases[] = {
-        { L"aload_reload_same", "# Title\n\nbody\n", ReloadOp::NoChange, 0 },
-        { L"aload_reload_crlf", "# Title\r\n\r\nbody\r\n", ReloadOp::NoChange, 0 },
-        { L"aload_reload_change", "# Title\n\nchanged\n", ReloadOp::Replace, 9 },
+        { L"aload_reload_same",   "# Title\n\nbody\n",       ReloadOp::NoChange, 0 },
+        { L"aload_reload_crlf",   "# Title\r\n\r\nbody\r\n", ReloadOp::NoChange, 0 },
+        { L"aload_reload_change", "# Title\n\nchanged\n",    ReloadOp::Replace,  9 },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.file }));
@@ -438,7 +438,13 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
     const std::wstring missing(L"C:\\__mendo_no_such_file_rand__.md");
     const std::shared_ptr<const DocumentData> ok1_base = Document::FromMarkdown(std::string("# one\n"), L"old.md").ShareData();
 
-    enum class Expect : uint8_t { None, Ok1, Ok2, Missing, Ok1NoChange };
+    enum class Expect : uint8_t {
+        None,
+        Ok1,
+        Ok2,
+        Missing,
+        Ok1NoChange
+    };
     constexpr std::string_view kOpNames[] = { "Start(ok1)", "Start(ok2)", "Start(missing)", "Start(ok1,reload)", "Cancel" };
 
     MessageOnlyWindow w;
@@ -655,13 +661,15 @@ TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
         std::string_view text;
     };
     constexpr Case kCases[] = {
-        { "Ascii", "Hello, World!", "Hello, World!" },
-        { "Multiline", "line1\nline2\nline3", "line1\nline2\nline3" },
+        { "Ascii",     "Hello, World!",             "Hello, World!"         },
+        { "Multiline", "line1\nline2\nline3",       "line1\nline2\nline3"   },
         { "CrlfAndCr", "line1\r\nline2\rline3\r\n", "line1\nline2\nline3\n" },
-        { "Bom", "\xEF\xBB\xBF" "Hello", "Hello" },
-        { "BomOnly", "\xEF\xBB\xBF", "" },
-        { "Empty", "", "" },
-        { "Japanese", "日本語テスト", "日本語テスト" },
+        { "Bom",       "\xEF\xBB\xBF"
+                 "Hello",
+         "Hello"                                                            },
+        { "BomOnly",   "\xEF\xBB\xBF",              ""                      },
+        { "Empty",     "",                          ""                      },
+        { "Japanese",  "日本語テスト",              "日本語テスト"          },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.label);
@@ -679,4 +687,3 @@ TEST_F(LoadFileTest, NonExistentFileReturnsError)
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
-

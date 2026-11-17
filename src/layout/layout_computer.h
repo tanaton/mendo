@@ -75,7 +75,6 @@ inline float EmptyListItemHeight(const Theme& theme) noexcept
 }
 
 // テキストが空のノードの高さ。中身を子ブロックに持つ LI は 0 にする
-// (paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する issue#237)。
 inline float EmptyTextNodeHeight(const Node& node, const Theme& theme) noexcept
 {
     return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme)

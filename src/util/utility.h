@@ -54,8 +54,7 @@ private:
 };
 
 
-// worker の結果 (画像の GPU への転送・図の描画命令の記録) を UI スレッドで取り込む 1 回の持ち時間。1 件で数 ms かかるので、
-// まとめて届くと 1 フレームを押し出す。
+// worker の結果 (画像の GPU への転送・図の描画命令の記録) を UI スレッドで取り込む 1 回の持ち時間
 inline constexpr std::chrono::microseconds kImportSliceBudget{ 4000 };
 
 template <class... Ts>

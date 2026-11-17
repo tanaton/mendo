@@ -1167,7 +1167,6 @@ struct MdPaneEmitter : CmdWriter {
         }
     }
 
-    // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
     void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error)
     {
         GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
