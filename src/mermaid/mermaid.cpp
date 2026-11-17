@@ -68,7 +68,7 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic
 void MermaidRenderer::TrimIdleRuntimes()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
-    // 描いている途中のものは捨てない
+    // 描いている途中のものは捨てない。図 4 個の文書で private bytes が 63 → 52MB になる。
     if (pele_) {
         pele_->Trim(bg_scheduler_);
     }
@@ -141,7 +141,8 @@ bool MermaidRenderer::RequestRender(
     if (!result) {
         return false;
     }
-    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録したときに捨てているので、
+    // ここで組む (図 1 個約 0.9ms)。デバイスを作り直している間は記録できないので、次の要求まで待たせる。
     if (result->drawing && !result->commands) {
         result->commands = RecordDrawing(*result->drawing, nullptr);
         if (!result->commands) {
@@ -355,6 +356,8 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         PumpRenders();
     }
     if (used_pele) {
+        // 描き終えて待ちが空になったら、同時に描いた分のランタイム (1 個 pele 約 2.9MB・KaTeX 約 2.6MB) を 1 個まで返す。
+        // 10 秒以内に次の図や数式が来ると読み直し (pele 5ms・KaTeX 3.4ms) になるが、メモリを早く返すほうをユーザーが選んだ。
         if (renders_running_ == 0 && render_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }
@@ -389,6 +392,8 @@ void MermaidRenderer::StartRender(RenderRequest req)
 
 void MermaidRenderer::PumpRenders()
 {
+    // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせない
+    // ようにする。ランタイムも同時に描く数だけ作るので、メモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {
         ++renders_running_;

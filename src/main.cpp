@@ -69,14 +69,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     {
         MENDO_PROFILE("wWinMain - init");
+        // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
         SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+        // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+        // DPI 認識 (PerMonitorV2) はマニフェストで宣言しているので、ここでは設定しない。
+        // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と重ねて待たないよう、
+        // そのスレッドを始める前に読んでおく。
         LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     }
 
     PrefetchD3DDevice();
 
+    // CoUninitialize は Win32Window の破棄 (COM オブジェクトの解放) より後に走らせるので、window より先にこのガードを宣言する。
     bool com_initialized = false;
     ScopeGuard com_guard([&com_initialized] {
         if (com_initialized) {
@@ -92,16 +98,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     }
 
     const StartupArgs args = (__wargv && __argc > 1) ? ParseStartupArgs({ __wargv + 1, static_cast<size_t>(__argc - 1) }) : StartupArgs{};
+    // LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
     const std::wstring last_file = session::LoadLastFilePath(config);
     StartupPlan plan = PlanStartup(args, last_file);
 
     Win32Window window(config);
 
+    // 窓の作成と App::Init (D2D/DWrite/WIC のファクトリ) と並列に、読み込みとパースを進める。
+    // 結果は最初のフレームより前に取り込む。
     if (!plan.document_path.empty()) {
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }
 
     // preload の結果は Create の中で取り込むので、復元情報を先に渡す。
+    // equivalent は前回のファイルを開くので、ネットワークドライブ上なら確かめずに復元しない (LoadLastFilePath と同じ理由)。
     // clang-format off
     std::visit(overloaded{
         [](const startup_scroll::None&) static {},

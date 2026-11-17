@@ -151,7 +151,7 @@ void App::AwaitImageFoldersBeforeDevice()
 {
     // 文書の画像は、画像のフォルダの監視を worker で開き終えてから頼む (ResourceManager)。開き終えるのを D3D の作成の裏で
     // 待って頼めば、デコードも作成の裏で進んで最初のフレームに入る。待たないと頼むのが最初のフレームの後になり、画像が
-    // 幅 0 で出てから寸法が届いて本文が動く
+    // 幅 0 で出てから寸法が届いて本文が動く (画像 3 枚の README で、画像が出るまで 87.7 → 73.2ms)。
     const HANDLE device_ready = D3DPrefetchDoneEvent();
     while (device_ready && resource_manager_.IsOpeningImageFolders()) {
         HANDLE handles[kMaxFileWatchEvents + 1]{ device_ready };
@@ -376,7 +376,8 @@ void App::OnActivateApp(bool active)
         KillTimer(app_timer::Id::TRIM_WORKING_SET);
     }
     else {
-        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する
+        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する。空にした後に捨てると
+        // 約 1000 ページを触り直して 1MB 残るので、空にするまでの待ちの間に済ませる。
         mermaid_renderer_.TrimIdleRuntimes();
         renderer_.TrimForInactive();
         SetTimer(app_timer::Id::TRIM_WORKING_SET, app_timer::TRIM_WORKING_SET_DELAY_MS);
@@ -449,7 +450,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         }
         *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (数式 2940 個の文書でも 1 件 1ms 以下)。
     RelayoutPendingInline(/*force_tables=*/false);
 }
 
@@ -458,6 +459,8 @@ bool App::InvalidatePendingInline(bool force_tables)
     // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
+    // 5000 行の表 (数式 1 万個) で、結果ごとに組み直すと計 5.5 秒、間引くと計 0.31 秒。間引いた表は、次の結果が届かなくても
+    // 間隔の後で組み直す。数式を待っている間は画像の結果でも組み直さない (画像だけなら結果は 1〜2 回にまとまる)。
     const auto now = std::chrono::steady_clock::now();
     const auto since = now - last_inline_table_relayout_;
     const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
@@ -528,7 +531,8 @@ bool App::DispatchKeyAction(const std::optional<AppAction>& action)
 
 void App::Dispatch(const AppAction& action)
 {
-    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む
+    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む。一覧の確保と解放が Reduce の 3〜4 割を占めていた
+    // (BM_ReduceEvents) ので、呼び出しごとのスタックの領域から取る。
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
     auto effects = Reduce(state_, action, *this, &arena);
@@ -614,6 +618,8 @@ void App::HandleTimer(UINT_PTR timer_id)
             return;
         }
         KillTimer(id);
+        // 空の文書の private WS 20MB のうち約 15MB は、D3D の作成でドライバが一度触ったきりのページ。20MB の文書でも
+        // 81 → 0.2MB になり、commit は変わらない。使うページは soft fault で戻り、外した後の最初の再読み込みだけ 1 割遅い。
         EmptyWorkingSet(GetCurrentProcess());
         return;
     case FILE_RELOAD:
@@ -1049,6 +1055,9 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Layout ----
         [this](const effect::ResourceManage&) {
+            // 先読みは可視範囲で何かを組んだときにしか起きないので、先読み済みの範囲を読み進めると境目で描画の中の同期の
+            // 計測になる (test.md x4 で PageDown 30 回のうち 7 回、最大 2.5ms)。スクロールのたびに空き時間で先読みの範囲を
+            // 確かめさせる。
             state_.document.layout_cache.SetHasDirtyNodes(true);
             resource_manager_.ScheduleResourceManage();
             // スクロールの間は、見えている図をビットマップで描く。止まったらベクタに戻す。
@@ -1763,7 +1772,8 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る
+    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る。件数で細かく区切ると、
+    // 区切るたびに走査・Y の組み直し・ワーカーの待ち合わせが挟まる (test.md x4 を 32 件ずつ測ると 165 → 290ms)。
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
@@ -1796,6 +1806,7 @@ void App::OnDeferredLayout()
         md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
     run.measured |= batch.updated;
 
+    // 中間バッチでは後始末をしない (FinishLayout の注記)
     if (batch.remaining) {
         return;
     }
@@ -1804,7 +1815,8 @@ void App::OnDeferredLayout()
     if (!done.measured && !done.settle) {
         return;
     }
-    // 画面の外だけを組んだなら描き直さない
+    // 画面の外だけを組んだなら描き直さない。PageDown のたびに次の 1 画面を先読みするので、描き直すと毎回同じ絵を描く
+    // (30 回で 49 → 32 フレーム)。0.5 DIP 未満のつまみの変化は見分けられない。位置が変われば後始末が描き直させる。
     const auto before = *done.scrollbar;
     const auto after = scrollbar();
     const bool bar_changed = before.shown != after.shown || std::abs(before.thumb_y - after.thumb_y) >= 0.5f ||

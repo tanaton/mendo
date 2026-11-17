@@ -48,6 +48,7 @@ struct DrawTextLayoutCmd {
     float cull_top = -std::numeric_limits<float>::infinity();
     float cull_bottom = std::numeric_limits<float>::infinity();
     // 折り返さない長い行は、横スクロールの clip に映らないグリフを [cull_left, cull_right] で飛ばす
+    // (1 行 12KB の JSON を 60 行描く 1 フレームが 127 → 4.5ms)。
     float cull_left = -std::numeric_limits<float>::infinity();
     float cull_right = std::numeric_limits<float>::infinity();
     float opacity = 1.0f;
@@ -127,7 +128,10 @@ struct InlineDrawings {
     }
 };
 
-// スクロールの間、見えている図を装置の画素のビットマップに描いておき、次のフレームからはそれを写す
+// スクロールの間、見えている図を装置の画素のビットマップに描いておき、次のフレームからはそれを写す。ベクタで描くと 1 個 0.25ms
+// (重い図は 1ms 超)、写すのは数十 µs。見えている部分の上下に 1/4 画面ずつ足した帯だけを持ち、帯から出たら描き直す。合計は画面の
+// 約 1.5 倍まで。止まったら捨ててベクタに戻す。全部の図をビットマップで持つ案 (GPU +161MB・private +125MB) ではなく、この形を
+// ユーザーが選んだ。帯の最大で確保して使い回す案も、1 フレーム 7〜10% 速いが同時に持つ最大が +19% になるのでユーザーが見送った。
 class DiagramBitmapCache {
 public:
     DiagramBitmapCache();

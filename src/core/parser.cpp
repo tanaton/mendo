@@ -1270,7 +1270,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする
+// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする (ReservedArray)。ノードは
+// 少なくとも 2 byte の入力から作られる (空のリスト項目 "-\n" や見出し "#\n")。超えたら倍を予約し直して写す。
+// 以前は std::vector に入力 128 byte に 1 個を予約し (256 と 2 往復した)、足りなければ全ノードを写して広げ、パース後に
+// 写して詰めていた。予約したアドレス空間に置く形はユーザーが選んだ。パース中に実際の約 2 倍をコミットすることも、写すことも無い。
+// current_text と表の本文の置き場も入力の長さまで予約する (AppendDoc が置き場を分岐せずに足せるよう同じ型にする)。
+// arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
 constexpr size_t kInputBytesPerNode = 2;
 
 void ReserveForInput(ParseContext& ctx)
@@ -1330,7 +1335,8 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         if (ctx.cancel_requested) {
             return {};
         }
-        // ほかの失敗は md4c の確保の失敗
+        // ほかの失敗は md4c の確保の失敗。ブロックと行の並びの大きさを int で持つので、短い行が続くと溢れる (空のリスト項目は
+        // 200MB、1 文字の行は 400MB で失敗する)。途中までのノードでは文書が黙って欠けるので投げる。
         if (ret != 0) {
             throw std::bad_alloc();
         }
@@ -1344,6 +1350,8 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
     }
 
+    // コミットを足したときの余り (最大 1/4) を、写さずに外す。表・構文トークン・ヒットテストのバッファ・表の行の背景は
+    // 0.5MB 未満しか効かないので詰めない。
     ctx.nodes.shrink_to_fit();
 
     return std::move(static_cast<NodeStorage&>(ctx));

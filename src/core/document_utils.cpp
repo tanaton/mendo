@@ -338,6 +338,8 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     if (lead == 0 && state == 0) {
         return Tokenize(text, node.code_language);
     }
+    // 前のノードをつないで字句解析し直す形は、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降で崩れる)、
+    // 解析も 2 倍かかる (47 → 97µs)。続くトークンの後ろは、トークンの外からその状態で解析を始めたのと同じになる。
     std::vector<SyntaxToken> tokens;
     tokens.reserve((text.size() - lead) / 32 + 1);
     if (lead > 0) {
@@ -354,7 +356,8 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     if (n < 2) {
         return;
     }
-    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い
+    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い (16MB の INI のパースが 79 → 56ms)。
+    // 長い 1 行を途中で区切った並びは解析する。
     if (IsLineLocalLanguage(run.front().code_language) && std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk)) {
         return;
     }
@@ -382,8 +385,13 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         }
     };
 
-    // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す
+    // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す。巨大なコードを開くときだけなので worker に
+    // 配らない (16MB で C++ 51〜72ms・JS 96ms)。継ぎ目をまたぐトークンだけを作る言語ごとの経路は、C++ で約 2 倍遅くなるが
+    // 巨大なコードは稀なので外した (ユーザーの判断)。
     constexpr size_t kWindowNodes = 8;
+    // 改行が無いまま窓の端に届いた行は、頭からこれだけ読めば行の頭の読み方 (キー・命令・ルールか代入か) が決まったものとして、
+    // 行の途中から次の窓を読む。行の頭から読み直すと、窓より長い 1 行を何度も読む (4MB の 1 行で YAML 30ms、Vim script 45ms)。
+    // これより後ろにだけ区切りのある行は、頭の色付けが 1 度に読んだときと変わる。
     constexpr size_t kLineHeadBytes = 64 * 1024;
     std::string seg;
     // 状態を知りたい位置 (seg の中の継ぎ目と最後の行の頭)
@@ -495,9 +503,11 @@ void ReplaceNulls(std::string& s, size_t nuls)
 }
 
 // CRLF と CR を LF 1 つにし、NUL の数を返す。CR と NUL を 16 バイトずつ一緒に探して 1 回の走査で済ませる
+// (行ごとの memchr と memmove に NUL を数える走査を足していた頃は、100MB の CRLF の文書で 20.2ms、今は 13.7ms)。
+// CR と NUL は ASCII 1 byte なので、UTF-8 の複数バイトの途中のバイトとは衝突しない。
 size_t NormalizeNewlines(std::string& s)
 {
-    // 最初の CR か NUL までは find_first_of で飛ばす
+    // 最初の CR か NUL までは find_first_of で飛ばす (LF だけの文書は下の走査より速い。100MB で 6.8ms と 7.8ms)
     const size_t first = std::string_view{ s }.find_first_of(std::string_view{ "\r\0", 2 });
     if (first == std::string_view::npos) {
         return 0;

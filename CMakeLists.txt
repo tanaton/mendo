@@ -84,9 +84,13 @@ target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
-# quickjs は LTCG の下で組むと遅いため /GL (LTCG) から外す
+# quickjs は LTCG の下で組むと解釈実行が遅いため /GL (LTCG) から外す (図 27 個 942 → 708ms、数式 978 個 1187 → 991ms)。
+# 外すのは先頭の add_compile_options の条件で行う (ここで /GL- を足すと、ファイルごとに警告 D9025 が出る)。
+# clang-cl で組むとさらに速い (図 27 個 734 → 581ms) が、手元と CI で clang の版が揃わず、無い環境では MSVC に落ちて速さが
+# 変わる。体感できる差は大きな図だけなので、MSVC で組む (ユーザーの判断)。
 
-# pele と KaTeX はビルドの時にバイトコードにして埋め込む
+# pele と KaTeX はビルドの時にバイトコードにして埋め込む (実行時のコンパイル約 60ms と約 20ms を省く)。
+# 同じ quickjs ターゲットで組むので、バイトコードの版は実行時のものと必ず合う。
 add_executable(mendo_js_compile src/mermaid/js_compile.cpp)
 target_link_libraries(mendo_js_compile PRIVATE quickjs)
 target_compile_options(mendo_js_compile PRIVATE /W4 /utf-8)
