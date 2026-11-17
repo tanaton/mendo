@@ -443,18 +443,25 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
 {
     inline_math_plan_.FinishChunk(chunk, generation);
     table_jobs_.NoteInlineChanged();
+    std::vector<uint64_t> arrived;
+    arrived.reserve(result.items.size());
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
-        if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
+        if (!inline_math_.Resolve(item.key, item.metrics)) {
             continue;
         }
-        *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
+        arrived.push_back(item.key);
+        if (item.drawing) {
+            *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
+        }
     }
-    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (表と違い 1 件が軽い)
-    RelayoutPendingInline(/*force_tables=*/false);
+    std::ranges::sort(arrived);
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (表と違い 1 件が軽い)。組み直すのは、届いた組の数式を
+    // 待つ段落だけ (ほかの組を待つ段落は組み直しても仮のまま)。
+    RelayoutPendingInline(/*force_tables=*/false, &arrived);
 }
 
-bool App::InvalidatePendingInline(bool force_tables)
+bool App::InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived)
 {
     // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
@@ -471,12 +478,18 @@ bool App::InvalidatePendingInline(bool force_tables)
         SetTimer(app_timer::Id::INLINE_TABLES,
                  static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kInlineTableRelayoutInterval - since).count()));
     }
-    return state_.document.layout_cache.InvalidatePendingInlineLayouts(state_.document.doc.GetTableNodeIndices(), tables);
+    std::function<bool(size_t)> affected;
+    if (arrived) {
+        affected = [nodes = state_.document.doc.GetNodes(), &theme = theme_service_.GetTheme(), arrived](size_t i) {
+            return HasInlineMathKey(nodes[i], theme, *arrived);
+        };
+    }
+    return state_.document.layout_cache.InvalidatePendingInlineLayouts(state_.document.doc.GetTableNodeIndices(), tables, affected);
 }
 
-void App::RelayoutPendingInline(bool force_tables)
+void App::RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived)
 {
-    if (InvalidatePendingInline(force_tables)) {
+    if (InvalidatePendingInline(force_tables, arrived)) {
         FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     }
     else {

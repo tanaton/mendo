@@ -9,8 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <memory_resource>
@@ -605,6 +607,71 @@ void BM_InlineMathLayout(benchmark::State& state)
     l.measurer.SetInlineMath(nullptr);
 }
 BENCHMARK(BM_InlineMathLayout)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+
+// 数式の多い文書を開いてから全部の数式が揃うまでに、組が届くたびに待つ段落を戻して、見ている範囲と先読み (5 画面) を
+// 組み直す手間の合計。組は App と同じく、計測が頼んだ数式を含む組を頼んだ順に 1 つずつ届ける。affected が true なら、
+// 届いた組の数式を待つ段落だけを戻す。remeasured は組み直した段落の延べ数。
+void BM_InlineMathArrival(benchmark::State& state, bool affected)
+{
+    const auto opened = OpenDoc(state, InlineMathMd(2000), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    const auto nodes = doc.GetNodes();
+    InlineMathPlan plan;
+    plan.Build(nodes, doc.GetMathNodeIndices(), l.theme);
+    constexpr float kWidth = 1100.0f;
+    constexpr float kRange = 950.0f * 5.0f;
+    size_t remeasured = 0;
+    for (auto _ : state) {
+        InlineMathTable table;
+        l.measurer.SetInlineMath(&table);
+        LayoutCache cache(nodes.size());
+        ComputeLayout(l.engine, nodes, cache, kWidth, 0.0f, kRange);
+        std::deque<size_t> queue;
+        std::vector<bool> asked(plan.Chunks().size());
+        const auto ask = [&] {
+            for (const uint64_t key : table.TakeRequests()) {
+                if (const auto c = plan.ChunkOf(key); c && !asked[*c]) {
+                    asked[*c] = true;
+                    table.MarkRequested(plan.Chunks()[*c].items);
+                    queue.push_back(*c);
+                }
+            }
+        };
+        const auto dirty_count = [&] { return std::ranges::count_if(std::views::iota(size_t{ 0 }, nodes.size()), [&](size_t i) { return cache[i].layout_dirty; }); };
+        ask();
+        double seconds = 0.0;
+        remeasured = 0;
+        while (!queue.empty()) {
+            std::vector<uint64_t> keys;
+            for (const auto& item : plan.Chunks()[queue.front()].items) {
+                table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
+                keys.push_back(item.key);
+            }
+            queue.pop_front();
+            std::ranges::sort(keys);
+            const auto before = dirty_count();
+            std::function<bool(size_t)> pred;
+            if (affected) {
+                pred = [&](size_t i) { return HasInlineMathKey(nodes[i], l.theme, keys); };
+            }
+            bool invalidated = false;
+            seconds += SecondsOf([&] { invalidated = cache.InvalidatePendingInlineLayouts(doc.GetTableNodeIndices(), true, pred); });
+            remeasured += static_cast<size_t>(dirty_count() - before);
+            if (invalidated) {
+                seconds += SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kWidth, 0.0f, kRange); });
+            }
+            ask();
+        }
+        state.SetIterationTime(seconds);
+        l.measurer.SetInlineMath(nullptr);
+    }
+    state.counters["remeasured"] = static_cast<double>(remeasured);
+}
+BENCHMARK_CAPTURE(BM_InlineMathArrival, all_pending, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_InlineMathArrival, affected, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
 // 文書を開く・読み直す・ズームのたびに UI スレッドで作る、インライン数式の組。
 void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)

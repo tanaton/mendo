@@ -33,6 +33,19 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
     return table.IsHeaderRow(row) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
 }
 
+bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys)
+{
+    const float font_size = MathFontSize(theme, node);
+    const std::string_view text = node.GetText();
+    return std::ranges::any_of(node.runs(), [&](const TextRun& r) {
+        if (!r.math()) {
+            return false;
+        }
+        const auto tex = InlineMathTex(text, r);
+        return tex && std::ranges::binary_search(sorted_keys, InlineMathKey(*tex, font_size));
+    });
+}
+
 void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
 {
     ++generation_;

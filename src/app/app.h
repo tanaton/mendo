@@ -292,9 +292,10 @@ private:
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk は頼んだ組、generation は頼んだときの計画の世代。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation);
     // 数式か画像の寸法を待って組んだレイアウトを、見ている位置を保って捨てる。表は force_tables でなければ間引く。捨てたら true。
-    bool InvalidatePendingInline(bool force_tables);
+    // arrived (昇順) があれば、表でないノードはそのキーの数式を待つものだけを捨てる (届いた数式の組)。
+    bool InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
     // InvalidatePendingInline で捨てた分を組み直す。
-    void RelayoutPendingInline(bool force_tables);
+    void RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
     // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
     // 文書か文字の大きさが変わったら作り直す。

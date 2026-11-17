@@ -202,11 +202,16 @@ void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept
+bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables, const std::function<bool(size_t)>& affected) noexcept
 {
     bool any = false;
-    const auto invalidate = [&](NodeLayoutEntry& e) {
+    const auto invalidate = [&](size_t i) {
+        auto& e = entries_[i];
         if (!e.pending_inline || (!tables && e.table_layout())) {
+            return;
+        }
+        // 届いた組の数式を待たないノードは、組み直しても仮のままになる。
+        if (affected && !e.table_layout() && !affected(i)) {
             return;
         }
         // 数式や画像の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
@@ -218,12 +223,12 @@ bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_i
     // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると大きな文書で重いうえ、数式の組の結果や
     // 画像が届くたびに呼ばれる。
     for (size_t i = live_nodes_.begin; i < live_nodes_.end; ++i) {
-        invalidate(entries_[i]);
+        invalidate(i);
     }
     if (tables) {
         for (const size_t i : table_indices) {
             if (i < live_nodes_.begin || i >= live_nodes_.end) {
-                invalidate(entries_[i]);
+                invalidate(i);
             }
         }
     }

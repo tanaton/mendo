@@ -10,6 +10,7 @@
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <algorithm>
+#include <functional>
 #include <ranges>
 #include <span>
 #include <unordered_map>
@@ -624,8 +625,9 @@ public:
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
     // table_indices は文書の表のノード (Document::GetTableNodeIndices)。tables が false なら表は待たせたままにする
-    // (表は全セルを組み直すので重い)。
-    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept;
+    // (表は全セルを組み直すので重い)。affected があれば、表でないノードは affected(番号) が true のものだけを戻す
+    // (届いた数式の組を待つノード)。表は組み直しを間引くので絞らない (間引いた間に届いた組の数式が残る)。
+    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables, const std::function<bool(size_t)>& affected = {}) noexcept;
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 

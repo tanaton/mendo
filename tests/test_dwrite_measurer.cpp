@@ -174,6 +174,31 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 5), 123.0f);
 }
 
+// 数式の組が届いたら、その組の数式を待つ段落だけを組み直させる。ほかの数式を待つ段落は印を残し、次の組で組み直す。
+TEST_F(DWriteInlineMathTest, InvalidatesOnlyParagraphsWaitingForArrivedKeys)
+{
+    auto [nodes, cache] = ParseAndLayout("a $x^2$ b\n\nc $y^3$ d");
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_TRUE(cache[0].pending_inline);
+    ASSERT_TRUE(cache[1].pending_inline);
+    table_.TakeRequests();
+    const uint64_t x = InlineMathKey("x^2", theme_.font_size_body);
+    const uint64_t y = InlineMathKey("y^3", theme_.font_size_body);
+    table_.Resolve(x, { 40.0f, 18.0f, 13.0f });
+    const std::vector<uint64_t> arrived{ x };
+    const auto affected = [&](size_t i) { return HasInlineMathKey(nodes[i], theme_, arrived); };
+
+    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts({}, true, affected));
+    EXPECT_TRUE(cache[0].layout_dirty);
+    EXPECT_FALSE(cache[1].layout_dirty) << "届いていない数式を待つ段落は組み直さない";
+    EXPECT_TRUE(cache[1].pending_inline);
+
+    table_.Resolve(y, { 40.0f, 18.0f, 13.0f });
+    const std::vector<uint64_t> next{ y };
+    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts({}, true, [&](size_t i) { return HasInlineMathKey(nodes[i], theme_, next); }));
+    EXPECT_TRUE(cache[1].layout_dirty);
+}
+
 // 画面外の evict で layout を捨てたら、組み直しを待つ印も外す。寸法が届いても組み直す相手が無い。
 TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
 {

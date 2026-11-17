@@ -47,6 +47,8 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
 // コードの大きさは当たらない (数式はインラインコードと重ならず、コードブロックに数式は無い)。
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
+// node (表でないもの) のインライン数式に、sorted_keys (昇順) のキーがあるか。届いた数式の組を待つノードを選ぶのに使う。
+bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys);
 
 // 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。
 // 1 つの仕事が短く終わる数にして、ほかの図や画像のデコードを長く待たせない。
