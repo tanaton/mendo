@@ -31,7 +31,7 @@
 
 namespace {
 
-// IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
+// 各メソッドの呼び出し回数と最後の引数を記録する。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
     std::vector<const Node*> requested;

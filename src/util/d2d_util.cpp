@@ -134,7 +134,6 @@ bool DrawColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURI
     return true;
 }
 
-// 1 つの brush で描くテキストレイアウトのレンダラ。
 class SingleBrushTextRenderer final : public RenderTargetTextRenderer {
 public:
     SingleBrushTextRenderer(ID2D1RenderTarget* rt, ID2D1Brush* brush) noexcept : RenderTargetTextRenderer(rt), brush_(brush)

@@ -63,7 +63,6 @@ constexpr bool IsAsciiWordChar(Char c) noexcept
     return IsAsciiAlnum(c) || c == static_cast<Char>('_');
 }
 
-// ASCII の英字だけを小文字にした写し。
 inline std::string ToLowerAsciiCopy(std::string_view text)
 {
     std::string result(text);

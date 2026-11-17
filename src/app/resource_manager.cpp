@@ -209,7 +209,6 @@ void ResourceManager::FlushPendingResources()
 
 void ResourceManager::ScheduleResourceManage()
 {
-    // 直近の flush から間がなければ再実行を抑止する。
     // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
     // タイマー側で集約的に処理する。
     constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
@@ -261,8 +260,6 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     if (doc_dir.empty()) {
         return;
     }
-    // 解決結果は src と文書フォルダだけで決まるので、同じ文書のリロードでは使い回す。別の文書を開いたときは
-    // ForgetInlineImages が捨てる。
     const float content_width = MdContentWidth(state_);
     if (content_width <= 0.0f) {
         return;

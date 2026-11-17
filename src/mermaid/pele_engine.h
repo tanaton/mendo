@@ -92,7 +92,6 @@ private:
     bool EnsurePele(PeleContext& context);
     bool EnsureKatex(PeleContext& context);
     KatexAssets* Assets();
-    // pele で SVG を描く。描けなければ理由を返す。
     std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
     std::shared_ptr<const PeleSvg> FindSvg(uint64_t key);
     void StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg);

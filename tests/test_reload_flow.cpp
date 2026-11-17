@@ -175,8 +175,6 @@ TEST(ReloadBaseFor, OnlyForTheShownFile)
     EXPECT_EQ(ReloadBaseFor(Document{}, kPath, false).data, nullptr) << "文書が無い (起動直後)";
 }
 
-// ---- ReloadScheduler ----
-
 namespace {
 
 using Step = ParseCompleteStep;

@@ -16,8 +16,6 @@ using utf8_codec::SnapToCpStart;
 using utf8_codec::kReplacement;
 using namespace std::literals;
 
-// ---- DecodeAt ----
-
 template <class SV>
 struct DecodeCase {
     const char* name;

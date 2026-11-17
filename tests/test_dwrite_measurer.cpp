@@ -545,7 +545,6 @@ TEST(InlineMathTable, ForgetRequestDropsOnlyWaitingEntry)
     EXPECT_FALSE(table.FindOrRequest(1));
     EXPECT_EQ(table.TakeRequests(), (std::vector<uint64_t>{ 1 }));
 }
-// ---- 本文中の画像 ----
 
 class DWriteInlineImageTest : public DWriteMeasurerTest {
 protected:
@@ -817,7 +816,6 @@ TEST_F(MeasurerParityTest, TextlessNodesArePositive)
     }
 }
 
-// 見出しと段落の順序性: 同じテキストに対し、両計測とも見出し > 段落 となること。
 TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 {
     Node para = MakeTextNode("Sample text");

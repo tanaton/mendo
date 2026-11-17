@@ -123,7 +123,6 @@ constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept
     return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
 }
 
-// 色のフォント (絵文字) か。
 bool IsColorFont(IDWriteFontFace* face) noexcept;
 
 // 色のフォント (IsColorFont) の run を、rt の今の変換と DPI でフォントの色で描く。層の色の無い部分は brush で塗る。

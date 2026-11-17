@@ -87,7 +87,6 @@ struct AsyncLoadResult {
     FileWatchTarget watch;
 };
 
-// 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。
 using AsyncLoadOutcome = std::expected<AsyncLoadResult, FileLoadError>;
 
 // stop_token による cancellation、mutex 保護の結果 sink、in_flight フラグを 1 クラスに閉じる。
@@ -178,7 +177,6 @@ enum class ParseCompleteStep : uint8_t {
     // 結果もエラーも無い = Start の ResetSinks か Cancel で捨てた読み込みの古い通知。後始末は捨てた側
     // (Start は次の読み込み、Cancel の呼び出し元) が済ませているので、アニメーションや FileWatcher に触らない。
     IgnoreStale,
-    // 読み込みに失敗した。
     Fail,
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。

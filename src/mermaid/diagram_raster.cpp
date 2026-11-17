@@ -2926,7 +2926,6 @@ enum class KAlign : uint8_t {
     Right
 };
 
-// 継承する値。
 struct KInherit {
     float font_size = 16.0f;
     KFont font;

@@ -21,8 +21,6 @@ protected:
     MouseGesture gesture_;
 };
 
-// ─── Idle では移動も離すのも無視する ───
-
 TEST_F(MouseGestureTest, IdleIgnoresMoveAndRelease)
 {
     ExpectIdle(gesture_);
@@ -30,8 +28,6 @@ TEST_F(MouseGestureTest, IdleIgnoresMoveAndRelease)
     ExpectIdle(gesture_);
     EXPECT_EQ(gesture_.OnRButtonUp(), NavDirection::None);
 }
-
-// ─── 押して動かして離す ───
 
 // 閾値未満の移動は右クリック扱いでメニューを出す。閾値を超えると追跡に入り、
 // 横向きが勝てば戻る/進む、縦向きが勝てば方向なしでメニューを出す (イベントを握り潰してメニューを失わない)。
@@ -72,8 +68,6 @@ TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
     }
 }
 
-// ─── トラッキング中の方向変化に合わせてオーバーレイを切り替える ───
-
 TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
 {
     gesture_.OnRButtonDown(100.0f, 100.0f);
@@ -87,8 +81,6 @@ TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
     EXPECT_TRUE(gesture_.IsOverlayVisible());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
 }
-
-// ─── 軌跡ポイントの蓄積 ───
 
 TEST_F(MouseGestureTest, TrailPointsAccumulate)
 {
@@ -118,8 +110,6 @@ TEST_F(MouseGestureTest, TrailSubsamplingSkipsTinyMoves)
 
     EXPECT_EQ(gesture_.GetTrailPoints().size(), count_after_threshold);
 }
-
-// ─── リセットですべての状態をクリア ───
 
 TEST_F(MouseGestureTest, ResetClearsEverything)
 {
@@ -157,7 +147,7 @@ TEST(GestureOverlay, TrackingLeft)
     MouseGesture gesture;
     SwipeDetector swipe;
     gesture.OnRButtonDown(100.0f, 100.0f);
-    gesture.OnMouseMove(20.0f, 100.0f); // 左に80px移動
+    gesture.OnMouseMove(20.0f, 100.0f);
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
     ASSERT_NE(gs.trail, nullptr);
@@ -189,15 +179,11 @@ TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
     EXPECT_EQ(gs.direction, NavDirection::Forward);
 }
 
-// ---- SwipeDetector ----
-
 class SwipeDetectorTest : public ::testing::Test {
 protected:
     SwipeDetector detector_;
     uint64_t now_ = 1000;  // 任意の開始時刻
 };
-
-// ─── 初期状態 ───
 
 TEST_F(SwipeDetectorTest, InitiallyNoSwipe)
 {
@@ -205,8 +191,6 @@ TEST_F(SwipeDetectorTest, InitiallyNoSwipe)
     EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
-
-// ─── 閾値未満は None ───
 
 TEST_F(SwipeDetectorTest, BelowThresholdReturnsNone)
 {
@@ -246,19 +230,14 @@ TEST_F(SwipeDetectorTest, SwipeShowsOverlayAndCommitsOnce)
     }
 }
 
-// ─── 複数回の小さいイベントで蓄積 ───
-
 TEST_F(SwipeDetectorTest, SmallDeltasAccumulate)
 {
-    // TRIGGER_THRESHOLD / 50 = 8 ずつ、50回
     int small = SwipeDetector::TRIGGER_THRESHOLD / 50;
     for (int i = 0; i < 50; ++i) {
         detector_.OnHWheel(small, now_ + i * 10);
     }
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);
 }
-
-// ─── 軸ロック: 縦スクロール直後は水平入力を無視 ───
 
 TEST_F(SwipeDetectorTest, AxisLockIgnoresHWheelAfterVScroll)
 {
@@ -273,13 +252,10 @@ TEST_F(SwipeDetectorTest, AxisLockExpiresAfterTimeout)
 {
     detector_.NotifyVScroll(now_);
 
-    // 軸ロック期間を過ぎた後は通常通り動作
     uint64_t after_lock = now_ + SwipeDetector::AXIS_LOCK_MS;
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, after_lock);
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);
 }
-
-// ─── タイムアウト: 長時間の無活動で蓄積リセット ───
 
 TEST_F(SwipeDetectorTest, ResetAfterInactivity)
 {
@@ -296,12 +272,9 @@ TEST_F(SwipeDetectorTest, NoResetWithinTimeout)
 {
     detector_.OnHWheel(300, now_);
 
-    // タイムアウト内なら蓄積は継続
     detector_.OnHWheel(100, now_ + SwipeDetector::RESET_TIMEOUT_MS);
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);  // 300 + 100 = 400 >= threshold
 }
-
-// ─── 方向の打ち消し ───
 
 TEST_F(SwipeDetectorTest, OppositeDirectionsCancelOut)
 {
@@ -321,8 +294,6 @@ TEST_F(SwipeDetectorTest, ConsecutiveSwipes)
     EXPECT_EQ(detector_.Commit(), NavDirection::Forward);
 }
 
-// ─── NotifyVScrollが蓄積をリセットする ───
-
 TEST_F(SwipeDetectorTest, VScrollResetsDelta)
 {
     detector_.OnHWheel(300, now_);
@@ -331,8 +302,6 @@ TEST_F(SwipeDetectorTest, VScrollResetsDelta)
     detector_.OnHWheel(50, now_ + 50 + SwipeDetector::AXIS_LOCK_MS);
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
-
-// ─── 縦スクロールでオーバーレイが消える ───
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll)
 {

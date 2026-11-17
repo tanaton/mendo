@@ -27,8 +27,6 @@ protected:
     }
 };
 
-// ---- GetConfigPath ----
-
 TEST_F(ConfigServiceTest, GetConfigPathDefaultsToMendoFolder)
 {
     const ConfigService config;
@@ -42,8 +40,6 @@ TEST_F(ConfigServiceTest, GetConfigPathCombinesCorrectly)
     auto path = config_.GetConfigPath(L"test.txt");
     EXPECT_EQ(path, temp_dir_ / L"test.txt");
 }
-
-// ---- 値の保存と読み出し ----
 
 // 無いキーは既定値。空のディレクトリや壊れたファイルを読んだ後も同じ。
 TEST_F(ConfigServiceTest, MissingKeysReturnDefaults)
@@ -113,8 +109,6 @@ TEST_F(ConfigServiceTest, SaveWStringOverwrites)
         EXPECT_EQ(config_.LoadWString("Session", "LastFile"), value);
     }
 }
-
-// ---- Load / Flush ラウンドトリップ ----
 
 TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
 {
@@ -256,8 +250,6 @@ TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
     EXPECT_EQ(config_.LoadInt("Test", "Suffix", 7, 0, 100), 7);
 }
 
-// ---- Parse テスト ----
-
 // 空行・コメント (; と #)・'=' の無い行は飛ばす。セクションより前のキーは名前の無いセクションに入る。
 TEST(IniParserTest, ParseSections)
 {
@@ -345,8 +337,6 @@ protected:
     }
 };
 
-// ---- SavePanes / LoadPanes ----
-
 // 表示・幅・倍率はペインごとに往復する。幅はズームを含まない DIP 値で、読み側は倍率を掛けない。
 TEST_F(SessionTest, PanesRoundTrip)
 {
@@ -415,8 +405,6 @@ TEST_F(SessionTest, LoadsDefaultsWhenNothingSaved)
     EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
 }
 
-// ---- SaveScrollPosition / LoadScrollPosition ----
-
 // offset は丸めて保存する。ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
 TEST_F(SessionTest, SaveAndLoadScrollPosition)
 {
@@ -449,8 +437,6 @@ TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
     EXPECT_EQ(pos.node, -1);
     EXPECT_EQ(pos.offset, 0);
 }
-
-// ---- SaveLastFilePath / LoadLastFilePath ----
 
 // 保存したパスを読み戻し、空のパスでは上書きしない。LoadLastFilePath は実在しないパスを弾くので実ファイルを作る。
 TEST_F(SessionTest, SaveLastFilePathSkipsEmpty)

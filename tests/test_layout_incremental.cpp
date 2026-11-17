@@ -395,7 +395,6 @@ protected:
     ViewportManager viewport_;
     LayoutService service_{ engine_, viewport_ };
 
-    // 計測したノードを記録する計測器で組む。
     void UseRecordingMeasurer()
     {
         ASSERT_TRUE(engine_.Init(&recording_, theme_));

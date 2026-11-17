@@ -149,7 +149,8 @@ private:
     void NotifyInlineImages(const InlineImageUpdate& update);
     void RequestVisibleDiagrams(IndexRange& changed);
     void RequestDiagramRender(size_t i, float content_width, bool dark_mode, IndexRange& changed);
-    // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
+    // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。解決結果は src と
+    // 文書フォルダだけで決まるので、同じ文書のリロードでは使い回す。別の文書を開いたときは ForgetInlineImages が捨てる。
     const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。

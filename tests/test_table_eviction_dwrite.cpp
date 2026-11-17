@@ -100,7 +100,6 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
         << "範囲外行のセルが Reset されているはず";
 }
 
-// 全行が viewport 内なら evict は発生しない。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 {
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(5)));

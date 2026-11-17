@@ -22,18 +22,15 @@ struct Strings {
     // タイトルバーとペインの閉じるボタン。
     std::wstring_view tooltip_close;
 
-    // ペインボタン tooltip
     std::wstring_view tooltip_pane_refresh;
     std::wstring_view tooltip_pane_reveal;
 
-    // 検索バー tooltip
     std::wstring_view tooltip_search_prev;
     std::wstring_view tooltip_search_next;
     std::wstring_view tooltip_search_case;
     std::wstring_view tooltip_search_highlight;
     std::wstring_view tooltip_search_close;
 
-    // ナビゲーション tooltip
     std::wstring_view tooltip_nav_back;
     std::wstring_view tooltip_nav_forward;
 
@@ -66,14 +63,12 @@ struct Strings {
     // 右クリックメニューのウィンドウ名 (読み上げ用)。Windows の表記に合わせる。
     std::wstring_view menu_title;
 
-    // ペインヘッダー
     std::wstring_view pane_header_files;
     std::wstring_view pane_header_toc;
 
     // システムメニュー
     std::wstring_view menu_reset_window;
 
-    // トースト
     std::wstring_view toast_file_not_found;
     std::wstring_view toast_file_locked;
     std::wstring_view toast_file_too_large;
@@ -97,7 +92,6 @@ struct Strings {
     std::wstring_view settings_diagram_cache;
     std::wstring_view settings_clear_cache;
 
-    // ヘルプリソースID
     UINT help_resource_id;
 
     // 設定ファイルの General/Language に保存する値。

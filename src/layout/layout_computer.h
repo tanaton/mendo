@@ -88,7 +88,7 @@ inline float HorizontalRuleHeight(const Theme& theme) noexcept
     return theme.paragraph_spacing + theme.hr_thickness;
 }
 
-// 行高さが未計測の表の行に使う高さ。
+// 表の行の高さの下限 (MeasureRowHeight)。
 inline float TableBaseRowHeight(const Theme& theme) noexcept
 {
     return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;

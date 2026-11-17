@@ -54,10 +54,6 @@ SearchState Searched(std::span<const Node> nodes, std::string_view query, bool c
 
 } // namespace
 
-// ═══════════════════════════════════════════════
-// 非表示
-// ═══════════════════════════════════════════════
-
 TEST(SearchStateTest, HideClearsMatches)
 {
     auto s = Searched(TextNodes({ "hello world" }), "hello");
@@ -68,10 +64,6 @@ TEST(SearchStateTest, HideClearsMatches)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
     EXPECT_EQ(s.GetMatches().capacity(), 0u) << "使わない間は結果の確保を返す";
 }
-
-// ═══════════════════════════════════════════════
-// 基本検索
-// ═══════════════════════════════════════════════
 
 // 既定は大文字小文字を無視し、区別するときは完全一致だけ。テキストを持たないノードは飛ばす。
 // 位置は UTF-16 で、表のセルではセル内の位置。
@@ -133,10 +125,6 @@ TEST(SearchStateTest, FindsAllMatches)
     }
 }
 
-// ═══════════════════════════════════════════════
-// マッチナビゲーション
-// ═══════════════════════════════════════════════
-
 TEST(SearchStateTest, NextMatchCycles)
 {
     auto s = Searched(TextNodes({ "aaa" }), "a");
@@ -178,10 +166,6 @@ TEST(SearchStateTest, NextAndPrevMatchNoOpWhenEmpty)
     EXPECT_FALSE(s.PrevMatch());
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
-
-// ═══════════════════════════════════════════════
-// SetCurrentMatchNear
-// ═══════════════════════════════════════════════
 
 TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
 {

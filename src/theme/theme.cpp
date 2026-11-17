@@ -164,14 +164,12 @@ constexpr ThemeColor kThemeColors[]{
     { BrushId::AlertWarningBg, Rgb(0xfff8c5, 0.4f), Rgb(0x2a1e02, 0.5f) },
     { BrushId::AlertCautionBg, Rgb(0xffebe9, 0.4f), Rgb(0x2e0b0d, 0.5f) },
 
-    // タイトルバー
     { BrushId::TitleBarBg, Rgb(0xf0f0f0), Rgb(0x272727) },
     { BrushId::TitleBarText, Rgb(0x333333), Rgb(0xcccccc) },
     { BrushId::TitleBarButtonHover, Rgb(0xe0e0e0), Rgb(0x383838) },
     { BrushId::TitleBarButtonActive, Rgb(0xd0d0d0), Rgb(0x444444) },
     Same(BrushId::TitleBarCloseRed, Rgb(0xE81123)),
 
-    // ペインレイアウト
     { BrushId::PaneBg, Rgb(0xf5f5f5), Rgb(0x252526) },
     { BrushId::Splitter, Rgb(0xe0e0e0), Rgb(0x3c3c3c) },
     { BrushId::PaneItemHover, Rgb(0xe8e8e8), Rgb(0x2a2d2e) },

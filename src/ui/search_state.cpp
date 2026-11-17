@@ -190,7 +190,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
         const uint32_t cell_len = tbl.CellLength(cell);
         const auto local = static_cast<uint32_t>(pos) - cell_start;
         if (local + query_len > cell_len) {
-            // セル区切り ('\t' / '\n') をまたぐヒット。1 byte 進めて探し直す。
+            // セル区切り ('\t' / '\n') をまたぐヒット。
             pos += 1;
             continue;
         }

@@ -254,7 +254,6 @@ struct StressFixture {
     }
 };
 
-// レイアウト系テスト共通の Theme。
 inline Theme MakeLayoutTestTheme()
 {
     Theme theme;

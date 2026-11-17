@@ -124,7 +124,6 @@ target_include_directories(rapidhash SYSTEM INTERFACE third_party/rapidhash)
 
 # ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
-    # core - ドキュメントモデル・パース
     src/core/document.cpp
     src/core/document_utils.cpp
     src/core/anchor.cpp
@@ -132,39 +131,31 @@ add_library(mendo_core STATIC
     src/core/html_entities.cpp
     src/core/selection_html.cpp
     src/core/syntax.cpp
-    # layout - レイアウト計算
     src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dwrite_measurer.cpp
     src/layout/inline_math.cpp
     src/layout/doc_dwrite_bridge.cpp
-    # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
-    # ui - UIコンポーネント
     src/ui/context_menu.cpp
     src/ui/search_state.cpp
     src/ui/settings_dialog.cpp
     src/ui/titlebar.cpp
     src/ui/tooltip.cpp
-    # input - 入力処理
     src/input/hit_test_service.cpp
-    # io - ファイルI/O・永続化
     src/io/file_explorer.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
     src/io/file_watcher.cpp
-    # mermaid - Mermaid図表サポート
     src/mermaid/mermaid.cpp
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
     src/mermaid/diagram_view.cpp
-    # theme - テーマ管理
     src/theme/theme.cpp
-    # app - アプリケーション制御
     src/app/async_load_coordinator.cpp
     src/app/app_controller.cpp
     src/app/clipboard_manager.cpp
@@ -173,7 +164,6 @@ add_library(mendo_core STATIC
     src/app/resource_manager.cpp
     src/app/startup_plan.cpp
     src/app/theme_service.cpp
-    # util - ユーティリティ
     src/util/d2d_util.cpp
     src/util/file_io.cpp
     src/util/pane_layout.cpp

@@ -113,7 +113,6 @@ struct NodeTableData {
         return static_cast<size_t>(std::ranges::upper_bound(cell_text_starts, offset) - cell_text_starts.begin()) - 1;
     }
 
-    // セルの concat_text 内開始 offset。
     constexpr uint32_t CellTextStart(size_t r, size_t c) const noexcept
     {
         return cell_text_starts[CellIndex(r, c)];

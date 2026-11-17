@@ -69,7 +69,6 @@ protected:
 
 } // namespace
 
-// 文字列が無いとき・書式が無いときは測らない。
 TEST_F(SearchInputTest, MeasuresNothingWithoutTextOrFormat)
 {
     EXPECT_EQ(Measure({}, kWidth).layout, nullptr);
@@ -134,7 +133,6 @@ TEST_F(SearchInputTest, ReusesLayoutWhileTextAndWidthUnchanged)
     EXPECT_EQ(Measure({ .query = L"a", .ime_composition = L"b", .caret_pos = 1 }, kWidth).layout, composing);
 }
 
-// クリック位置にいちばん近い文字の境界を返す。
 TEST_F(SearchInputTest, HitTestFindsNearestBoundary)
 {
     const auto m = Measure({ .query = L"abc" }, kWidth);
@@ -157,7 +155,6 @@ TEST_F(SearchInputTest, MatchCountShowsCurrentOfTotal)
     EXPECT_EQ(BarTexts({ .total_matches = 5, .visible = true }), (Texts{ L"Aa" }));
 }
 
-// 目次の項目には見出しの文字列を描く。
 TEST_F(SearchInputTest, TocRowsDrawHeadingText)
 {
     const Theme theme = GetLightTheme();

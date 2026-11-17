@@ -93,7 +93,7 @@ TEST_F(TableMeasureJobsTest, DefersGiantTableAndPlacesSameGeometry)
     Open(TableMd(2000));
     ASSERT_TRUE(cache_[table_].layout_dirty);
     ASSERT_EQ(cache_[table_].table_layout(), nullptr);
-    // 前の段落は測ってある。
+    // 表より前の見出しは測ってある。
     EXPECT_FALSE(cache_[0].layout_dirty);
 
     auto results = WaitResults();

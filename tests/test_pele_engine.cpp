@@ -109,7 +109,6 @@ TEST_F(PeleEngineTest, RendersDiagramToDrawing)
     EXPECT_NE(all.find(L"終了"), std::wstring::npos);
 }
 
-// コードの誤りは pele の文言で返す。
 TEST_F(PeleEngineTest, ReturnsPeleErrorForInvalidCode)
 {
     const auto out = engine_->Render("flowchart LR\n  A[ --> ", false, 800.0f);

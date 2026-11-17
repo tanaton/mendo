@@ -248,7 +248,6 @@ struct SidePaneFormats {
     IDWriteTextFormat* header_icon = nullptr;
     IDWriteTextFormat* file_item = nullptr;
     IDWriteTextFormat* toc_item = nullptr;
-    // ファイル一覧のアイコン。
     IDWriteTextFormat* file_icon = nullptr;
     // file_item と toc_item だけに掛ける。header は UI のロケールなので、掛けると字形が変わる。
     const FallbackFontMap* item_fonts = nullptr;

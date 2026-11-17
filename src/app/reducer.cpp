@@ -752,7 +752,6 @@ void On(ReduceContext& c, const CloseSearchBarAction&)
     Invalidate(c);
 }
 
-// 開いていれば閉じる。
 void On(ReduceContext& c, const OpenSearchBarAction&)
 {
     auto& sg = c.state.search;

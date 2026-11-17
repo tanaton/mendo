@@ -72,8 +72,6 @@ TEST(Theme, EveryBrushHasColor)
     }
 }
 
-// ---- ApplyZoom ----
-
 TEST(Theme, ApplyZoomScalesLayoutValues)
 {
     const Theme& base = GetLightTheme();
@@ -107,8 +105,6 @@ TEST(Theme, ApplyZoomKeepsSidePaneMetrics)
         EXPECT_NEAR(t.font_size_body, base.font_size_body * zoom, 0.01f);
     }
 }
-
-// ---- ThemeService ----
 
 class ThemeServiceTest : public ::testing::Test {
 protected:

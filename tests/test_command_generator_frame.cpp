@@ -17,10 +17,6 @@ class CmdGenFrameTest : public CmdGenMockTestBase {};
 
 } // namespace
 
-// ═══════════════════════════════════════════════
-// クリップ矩形とペイン原点
-// ═══════════════════════════════════════════════
-
 TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 {
     const auto cmds = Generate("Hello", { 100.0f, 50.0f, 600.0f, 400.0f });
@@ -93,10 +89,6 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
     EXPECT_TRUE(std::holds_alternative<SetTransformCmd>(cmds[2]));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds[3]));
 }
-
-// ═══════════════════════════════════════════════
-// 表の縞
-// ═══════════════════════════════════════════════
 
 TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
 {
@@ -201,10 +193,6 @@ TEST(OverlayCommandsTest, ToastSitsAboveNavButtons)
     EXPECT_FLOAT_EQ(panels[0].rect.bottom - panels[0].rect.top, TOAST_OVERLAY_HEIGHT);
 }
 
-// ═══════════════════════════════════════════════
-// スクロールバーのつまみ
-// ═══════════════════════════════════════════════
-
 // 出すかどうかは ShowsVScrollbar に任せる (計測待ちの may_grow もそのまま渡す)。
 TEST(ScrollThumbTest, VisibilityFollowsShowsVScrollbar)
 {
@@ -288,7 +276,6 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
     EXPECT_FALSE(FindFirst<FillRectCmd>(cmds, [](const FillRectCmd& c) { return c.brush_id == BrushId::Selection; }));
 }
 
-// 1 件も見つからなければ入力欄の背景を変える。
 TEST(OverlayCommandsTest, SearchBarInputTurnsRedOnNoMatch)
 {
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);

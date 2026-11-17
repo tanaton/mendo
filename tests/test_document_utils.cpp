@@ -44,10 +44,6 @@ std::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
 
 } // namespace
 
-// ============================================================
-// ExtractSelectedText
-// ============================================================
-
 // 全選択で倍々成長の再確保をしないよう、正確な長さで 1 回だけ確保する。
 TEST(ExtractSelectedText, ReservesExactLength)
 {
@@ -154,10 +150,6 @@ TEST(ExtractSelectedText, SplitDisplayMathKeepsDelimiters)
     EXPECT_TRUE(text.ends_with("y$$"));
 }
 
-// ============================================================
-// ExtractSelectedTextAsHtml
-// ============================================================
-
 TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseNodes("Hello");
@@ -165,7 +157,7 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel, false).empty());
 }
 
-// 全選択の HTML。ブロックは区切りなしでつなぐ。
+// ブロックは区切りなしでつなぐ。
 TEST(ExtractSelectedTextAsHtml, CopyAllProducesHtml)
 {
     struct Case {
@@ -236,7 +228,6 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
     const auto html = CopyAllAsHtml("```cpp\n\"a<b\"\n```");
-    // span 内のテキストも HTML エスケープされる
     EXPECT_TRUE(html.contains("<span style=\"color:#a31515\">"));
     EXPECT_TRUE(html.contains("&lt;"));
     EXPECT_FALSE(html.contains("a<b"));
@@ -421,7 +412,6 @@ TEST(ExtractSelectedText, InlineImagesCopyAlt)
 
 TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
 {
-    // alt と src の両方で & " がエスケープされること。
     const auto html = CopyAllAsHtml("![Q&A \"x\"](path?a=1&b=2)");
     EXPECT_TRUE(html.starts_with("<p><img ")) << html;
     EXPECT_TRUE(html.contains("src=\"path?a=1&amp;b=2\""));
@@ -605,10 +595,6 @@ TEST(ExtractSelectedTextAsHtml, LinkKeepsOnlySafeSchemes)
     }
 }
 
-// ============================================================
-// FindLinkAtPosition
-// ============================================================
-
 TEST(FindLinkAtPosition, ParsedParagraph)
 {
     struct Case {
@@ -639,10 +625,6 @@ TEST(FindLinkAtPosition, EmptyNode)
     auto result = FindLinkAtPosition(node, 0);
     EXPECT_FALSE(result.has_value());
 }
-
-// ============================================================
-// FindWordBoundaries
-// ============================================================
 
 namespace {
 
@@ -865,10 +847,6 @@ TEST(FindWordBoundariesW, CategoryRangeEdges)
     }
 }
 
-// ============================================================
-// FilenameView
-// ============================================================
-
 TEST(FilenameView, ReturnsLastPathComponent)
 {
     struct Case {
@@ -890,12 +868,6 @@ TEST(FilenameView, ReturnsLastPathComponent)
         EXPECT_EQ(path_util::FilenameView(c.path), c.expected);
     }
 }
-
-// ============================================================
-// 追加のエッジケース
-// ============================================================
-
-// ---- ExtractSelectedText 追加テスト ----
 
 // 表の選択位置は concat_text の offset。セルはタブ、行は CRLF で区切る (#200: セル内の語の選択で文字化けしていた)。
 TEST(ExtractSelectedText, TableSelection)
@@ -921,8 +893,6 @@ TEST(ExtractSelectedText, NodeIndexOutOfRange)
     EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5 }).starts_with("hello"));
     EXPECT_TRUE(ExtractSelectedText({}, TextSelection::MakeOrdered(0, 0, 0, 5)).empty());
 }
-
-// ---- FindLinkAtPosition 追加テスト ----
 
 // 当たった run のリンクの URL と番号を返す。run の終端は含まず、直後の run が始まる位置はその run に当たる。
 // リンク以外の装飾 run を挟んでも、隣接するリンク run を取り違えない。
@@ -958,8 +928,6 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     EXPECT_EQ(index_at(100), std::nullopt);
 }
 
-// ---- FindLinkAtPosition: テーブルセル内のリンク ----
-
 // pos は linearized 形式の offset。リンクのセルの文字だけが当たり、区切り文字や他のセルは外れる。
 TEST(FindLinkAtPosition, TableCells)
 {
@@ -985,10 +953,6 @@ TEST(FindLinkAtPosition, TableCells)
         EXPECT_EQ(FindLinkAtPosition(nodes[0], c.pos), c.expected);
     }
 }
-
-// ============================================================
-// FindFirstDifference (UTF-8 byte の差分検出)
-// ============================================================
 
 TEST(FindFirstDifference, ReturnsFirstDifferingByte)
 {
@@ -1026,10 +990,6 @@ TEST(AnalyzeReloadDiff, AcceptPrefixShrinkReplaces)
     EXPECT_EQ(AnalyzeReloadDiff("abc", "abcdef", true).op, ReloadOp::Replace);
 }
 
-// ============================================================
-// AnalyzeReloadDiff
-// ============================================================
-
 // diff_pos は UTF-8 byte。NoChange のときのみ npos。
 TEST(AnalyzeReloadDiff, ClassifiesEdit)
 {
@@ -1060,10 +1020,6 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
         EXPECT_EQ(d.diff_pos, c.diff_pos);
     }
 }
-
-// ============================================================
-// FindNodeBySourceOffset
-// ============================================================
 
 namespace {
 

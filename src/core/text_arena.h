@@ -136,7 +136,6 @@ public:
         std::memcpy(data_ + size_, items.data(), items.size_bytes());
         size_ += items.size();
     }
-    // pos の前に items を入れる。
     void insert_range(size_t pos, std::span<const T> items)
     {
         assert(pos <= size_);

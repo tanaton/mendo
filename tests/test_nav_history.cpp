@@ -14,8 +14,6 @@ protected:
     NavHistory hist_;
 };
 
-// ─── 基本状態 ───
-
 TEST_F(NavHistoryTest, InitiallyEmpty)
 {
     EXPECT_FALSE(hist_.CanGoBack());
@@ -26,8 +24,6 @@ TEST_F(NavHistoryTest, InitiallyEmpty)
     EXPECT_FALSE(hist_.GoBack({ L"a.md", 0, 0.0f }, out));
     EXPECT_FALSE(hist_.GoForward({ L"a.md", 0, 0.0f }, out));
 }
-
-// ─── 新規ナビゲーションで進むスタックをクリア ───
 
 TEST_F(NavHistoryTest, PushClearsForwardStack)
 {
@@ -42,8 +38,6 @@ TEST_F(NavHistoryTest, PushClearsForwardStack)
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
-// ─── 戻る / 進む ───
-
 TEST_F(NavHistoryTest, MultipleBackForward)
 {
     // シミュレーション: A を開く -> B を開く -> C を開く
@@ -54,7 +48,6 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_FALSE(hist_.CanGoForward());
 
     NavEntry out;
-    // CからBへ戻る
     EXPECT_TRUE(hist_.GoBack({ L"c.md", 5, 6.0f }, out));
     EXPECT_EQ(out.file_path, L"b.md");
     EXPECT_EQ(out.node, 3);
@@ -62,7 +55,6 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_TRUE(hist_.CanGoForward());
     hist_.CommitOpened({ L"c.md", 5, 6.0f });
 
-    // BからAへ戻る
     EXPECT_TRUE(hist_.GoBack({ L"b.md", 3, 4.0f }, out));
     EXPECT_EQ(out.file_path, L"a.md");
     EXPECT_EQ(out.node, 1);
@@ -72,12 +64,10 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_FALSE(hist_.CanGoBack());
     EXPECT_EQ(hist_.ForwardSize(), 2u);
 
-    // AからBへ進む
     EXPECT_TRUE(hist_.GoForward({ L"a.md", 1, 2.0f }, out));
     EXPECT_EQ(out.file_path, L"b.md");
     hist_.CommitOpened({ L"a.md", 1, 2.0f });
 
-    // BからCへ進む
     EXPECT_TRUE(hist_.GoForward({ L"b.md", 3, 4.0f }, out));
     EXPECT_EQ(out.file_path, L"c.md");
     EXPECT_EQ(out.node, 5);
@@ -290,8 +280,6 @@ TEST_F(NavHistoryTest, ReturningToShownDocumentSettlesAtCurrentPosition)
     EXPECT_EQ(hist_.BackSize(), 1u);
     EXPECT_FALSE(hist_.CanGoForward());
 }
-
-// ─── 履歴の最大数制限 ───
 
 TEST_F(NavHistoryTest, MaxHistoryCapsBackStack)
 {

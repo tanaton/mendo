@@ -184,7 +184,6 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
 }
 
-// start == end の選択範囲は描画ハイライトを発行しない。
 TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
     auto pl = ParseAndLayout("Hello World");

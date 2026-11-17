@@ -1347,7 +1347,6 @@ struct ComScope {
     }
 };
 
-// test.md の図のコード。
 std::vector<std::string> TestMdDiagramCodes(benchmark::State& state)
 {
     const auto doc = Document::FromMarkdown(ReadOrSkip(state, "example/test.md"), L"bench.md");
@@ -1408,7 +1407,7 @@ struct DiagramBench {
         wic = wic_util::CreateWicFactory("bench");
         return true;
     }
-    // 図をすべて記録する。記録できなかった図は入れない。
+    // 記録できなかった図は入れない。
     std::vector<Recorded> RecordAll() const
     {
         std::vector<Recorded> lists;

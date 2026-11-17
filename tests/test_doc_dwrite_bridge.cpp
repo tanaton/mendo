@@ -44,10 +44,6 @@ std::wstring Decode(std::string_view text)
 
 } // namespace
 
-// ─────────────────────────────────────────────
-// Utf16OffsetCursor: WideAt (byte → wide) / ByteAt (wide → byte)
-// ─────────────────────────────────────────────
-
 // 文字列ごとの WideAt (byte → wide) と ByteAt (wide → byte) の対応。範囲外は末尾に丸める。
 TEST(Utf16OffsetCursor, MapsOffsetsBothWays)
 {
@@ -128,10 +124,6 @@ TEST(Utf16OffsetCursor, SkipsForwardWithoutVisitingEveryOffset)
     EXPECT_EQ(back.ByteAt(141), static_cast<uint32_t>(text.size()));
 }
 
-// ─────────────────────────────────────────────
-// DecodeForDWrite
-// ─────────────────────────────────────────────
-
 TEST(DecodeForDWrite, DecodesText)
 {
     EXPECT_TRUE(Decode("").empty());
@@ -140,13 +132,11 @@ TEST(DecodeForDWrite, DecodesText)
     EXPECT_EQ(Decode("A\xF0\x9F\x98\x80""B"), L"A\xD83D\xDE00""B");
 }
 
-// 不正バイトは U+FFFD 1 単位。
 TEST(DecodeForDWrite, InvalidBytesBecomeReplacementChar)
 {
     EXPECT_EQ(Decode("a\xFF""b"), L"a\xFFFD""b");
 }
 
-// 使い回すバッファに前回の内容は残らない。
 TEST(DecodeForDWrite, ReplacesPreviousContent)
 {
     std::wstring out;
@@ -433,7 +423,6 @@ TEST_F(FallbackFontMapTest, UnknownScriptsAreLeftToTheSystem)
     EXPECT_EQ(map->FamilyFor(L'\xD83D'), nullptr);
 }
 
-// フォントを尋ねられなければ、どの文字も今までどおりフォールバックに任せる。
 TEST_F(FallbackFontMapTest, NoFactoryLeavesEverythingToTheSystem)
 {
     FallbackFontMap map;

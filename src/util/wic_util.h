@@ -55,7 +55,6 @@ inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
     return converter;
 }
 
-// WIC デコード結果。ピクセルサイズと FormatConverter を保持する。
 struct DecodeResult {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     // アルファを持たないフレーム (JPEG 等)。変換前に縮小すると JPEG はデコーダ側の縮小デコード

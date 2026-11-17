@@ -18,7 +18,6 @@ struct Theme {
         return colors[std::to_underlying(id)];
     }
 
-    // フォント
     std::wstring font_family;
     // 本文の書式に渡すロケール (i18n::TextLocale)。
     const wchar_t* text_locale = L"ja-jp";
@@ -52,7 +51,6 @@ struct Theme {
     float hr_thickness = 0.0f;
     float h2_underline_thickness = 0.0f;
 
-    // ペインレイアウト
     float pane_item_height = 0.0f;
     float pane_header_height = 0.0f;
     float splitter_width = 0.0f;

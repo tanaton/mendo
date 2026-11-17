@@ -117,7 +117,8 @@ public:
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
     };
-    // params.loading_angle があれば、本文ペイン・検索バー・スクロールバー・ナビボタンの代わりにスピナーを描く。
+    // params.loading_angle があれば、本文ペイン・ナビボタン・ジェスチャーの軌跡・検索バー・スクロールバー・リンクの行き先の
+    // 代わりにスピナーを描く。
     FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
@@ -203,7 +204,7 @@ public:
     }
 
 private:
-    // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー、読み込み中はスピナー) を
+    // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー・リンクの行き先、読み込み中はスピナー) を
     // frame_cmds_ に積む。
     void GenOverlays(const RenderParams& p);
 

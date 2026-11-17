@@ -43,7 +43,6 @@ inline constexpr float SEARCH_MATCH_COUNT_WIDTH = 80.0f;
 // 文字も固定値にして枠からのはみ出しを防ぐ。
 inline constexpr float SEARCH_INPUT_FONT_SIZE = 13.0f;
 
-// 検索バーの各要素の矩形を保持する構造体。
 // 描画・ヒットテスト・ホバー判定の3箇所で共有し、レイアウト計算の重複を防ぐ。
 struct SearchBarLayout {
     D2D1_RECT_F input_rect{};
@@ -108,7 +107,7 @@ inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_
     return l;
 }
 
-// 検索バーのヒット判定結果。クリック／ホバー／Controller で共有する。
+// クリック／ホバー／Controller で共有する。
 enum class SearchBarHitZone : uint8_t {
     None,
     Up,

@@ -179,7 +179,6 @@ private:
     std::atomic<uint32_t> drop_gen_{ 0 };
     // 寸法だけを読んでいる。取り消さない。
     struct ReadingSize {};
-    // ビットマップを読んでいる。
     struct ReadingBitmap {
         // worker が始める前に見る取り消し。
         std::shared_ptr<std::atomic<bool>> cancelled = std::make_shared<std::atomic<bool>>(false);

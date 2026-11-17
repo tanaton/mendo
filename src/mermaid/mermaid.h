@@ -29,7 +29,6 @@
 class MermaidFileCache;
 class TaskScheduler;
 
-// インライン数式をまとめて描いた結果。
 struct InlineMathBatchResult {
     struct Item {
         uint64_t key = 0;

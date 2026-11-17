@@ -13,10 +13,6 @@
 #include <windows.h>
 #include <objbase.h>
 
-// ═══════════════════════════════════════════════
-// 基本的な Post → 実行
-// ═══════════════════════════════════════════════
-
 TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
 {
     TaskScheduler sch{ 2 };
@@ -32,7 +28,6 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     sch.Shutdown();
 }
 
-// PostFront は待っているタスクより先に実行される。
 TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 {
     TaskScheduler sch{ 1 };
@@ -73,10 +68,6 @@ TEST(TaskScheduler, PostNeverDropsTasksWhileBacklogged)
     EXPECT_EQ(count.load(), N);
 }
 
-// ═══════════════════════════════════════════════
-// 並行性
-// ═══════════════════════════════════════════════
-
 TEST(TaskScheduler, TasksDistributedAcrossWorkers)
 {
     // 各タスクがワーカーをブロックしている間に他のワーカーが別タスクを拾うはず。
@@ -106,10 +97,6 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
     std::lock_guard lock(m);
     EXPECT_GE(observed_threads.size(), 2u);
 }
-
-// ═══════════════════════════════════════════════
-// Shutdown の挙動
-// ═══════════════════════════════════════════════
 
 // タスクが無くても終わり、2 回目の Shutdown は何もしない。
 TEST(TaskScheduler, ShutdownIsIdempotent)
@@ -241,10 +228,6 @@ TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
     }));
 }
 
-// ═══════════════════════════════════════════════
-// タスクの型（move-only）
-// ═══════════════════════════════════════════════
-
 TEST(TaskScheduler, AcceptsMoveOnlyCallable)
 {
     TaskScheduler sch{ 1 };
@@ -308,10 +291,6 @@ TEST(TaskScheduler, EnsureWorkerComIgnoresNonWorkerThread)
     }).join();
     EXPECT_FALSE(entered);
 }
-
-// ============================================================
-// SharedWorkerCount / LayoutWorkerCount
-// ============================================================
 
 TEST(SharedWorkerCount, HalfOfProcessorsClampedToTwoThroughFour)
 {

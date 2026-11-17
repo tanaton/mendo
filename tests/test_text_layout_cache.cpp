@@ -1,4 +1,5 @@
-// TextLayoutCache の上限超過時の整理。実 DirectWrite でレイアウトを作るため DWriteTestBase を使う。
+// TextLayoutCache の捨て方 (上限超過・書式ごと・全部) とフォールバックの区別、それを使うタイトルバーのタイトルの収まり。
+// 実 DirectWrite でレイアウトを作るため DWriteTestBase を使う。
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
 #include "command_generator.h"

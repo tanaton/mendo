@@ -4,8 +4,6 @@
 #include <string_view>
 #include <utility>
 
-// ── Find ──────────────────────────────────────────────────────
-
 // 1 バイトのクエリも 2 点一致の経路を通る。16 バイトのブロックと端数のどちらの位置でも見つかる。
 TEST(SimdAsciiFindTest, SingleByteAtEveryPosition)
 {
@@ -21,8 +19,6 @@ TEST(SimdAsciiFindTest, SingleByteAtEveryPosition)
         }
     }
 }
-
-// ── iequal / istarts_with ─────────────────────────────────────
 
 TEST(AsciiUtilIequal, CharAndWideLiterals)
 {

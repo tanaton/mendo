@@ -5,10 +5,6 @@
 #include "block_h_scroll.h"
 #include "theme.h"
 
-// ─────────────────────────────────────────────
-// BlockHScrollGeometry::can_scroll / scroll_max（純粋な境界ロジック）
-// ─────────────────────────────────────────────
-
 TEST(BlockHScrollGeometry, ScrollsOnlyWhenBlockExceedsVisible)
 {
     struct Case {
@@ -32,7 +28,6 @@ TEST(BlockHScrollGeometry, ScrollsOnlyWhenBlockExceedsVisible)
     }
 }
 
-// BLOCK_H_SCROLL_SLACK 以下のはみ出しではスクロールさせない。
 TEST(BlockHScrollGeometry, OverflowWithinSlackIsNotScrollable)
 {
     constexpr BlockHScrollGeometry g{ .block_width = 100.0f + BLOCK_H_SCROLL_SLACK, .visible_width = 100.0f };
@@ -54,7 +49,6 @@ TEST(BlockHScrollGeometry, DefaultIsNotScrollable)
 
 namespace {
 
-// ノード 1 つの文書と、その計測結果。
 struct OneNodeDoc {
     std::vector<Node> nodes;
     LayoutCache cache;
@@ -133,10 +127,6 @@ TEST(GetBlockHScrollGeometry, IndentReducesVisibleWidth)
     const auto g = doc.Geometry(theme, kPaneWidth);
     EXPECT_FLOAT_EQ(g.visible_width, theme.ContentWidth(kPaneWidth) - 2 * theme.indent_width);
 }
-
-// ─────────────────────────────────────────────
-// BlockHScrollGeometry::ClampScrollX
-// ─────────────────────────────────────────────
 
 // スクロール量は [0, block - visible] に収める。幅が広がって収まるようになったブロックは、以前の位置を残さない。
 TEST(BlockHScrollGeometry, ClampScrollXClampsToScrollableRange)

@@ -283,8 +283,6 @@ TEST_F(HitTestTest, SaveButton_UnrenderedDiagramReturnsNegative)
 using layout::NodeBoxPadTop;
 using layout::NodeIndent;
 
-// OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
-
 class CopyButtonTest : public HitTestTest {
 protected:
 

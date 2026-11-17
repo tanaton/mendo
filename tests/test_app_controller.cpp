@@ -395,8 +395,6 @@ TEST_F(PointerHitTest, LoadingMdPaneHitsNothing)
     EXPECT_FALSE(app_controller::IsOverMdScrollbar(h_.state, layout_, right_edge, layout_.md_rect.y + 10.0f));
 }
 
-// ---- TooltipTarget ----
-
 // 空かどうかは zone だけで決まり、key は見ない。既定は空。
 TEST(TooltipTarget, IsEmptyFollowsZoneOnly)
 {

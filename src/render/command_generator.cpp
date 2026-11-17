@@ -250,7 +250,6 @@ std::wstring_view FormatListNumber(std::span<wchar_t, kListNumberMaxLen> buf, in
     return { buf.data(), len };
 }
 
-// つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow) noexcept
 {
     return VScrollThumb(pane, ComputeScrollInfo(pane, header_height, total_content_height), scroll_y, may_grow);
@@ -540,7 +539,6 @@ void EmitTitleBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* t
         w.Button(icon_fmt, rect, { &icon, 1 }, { bg_id }, text_id, alpha);
     };
 
-    // active > hover の優先度
     const auto gen_zone = [&](TitleBarHitZone zone, wchar_t icon, bool active = false) {
         gen_button(
             bar.GetButton(zone),

@@ -34,8 +34,6 @@ std::vector<std::string> CollectHeadingAnchors(const ReducerHarness& h)
 
 } // namespace
 
-// ---- Home キー ----
-
 // ロード直後 (scroll_y=0) と同じ位置に戻ること。ノード 0 の Top は上余白分だけ正なので、
 // ノード 0 を target にした実装だと上余白が隠れた位置で止まる。
 TEST(ReducerHomeKey, ReturnsToAbsoluteTopIncludingTopMargin)

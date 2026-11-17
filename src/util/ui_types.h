@@ -61,7 +61,6 @@ constexpr bool PointInRect(float x, float y, const DipRect& r) noexcept
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
 }
 
-// 右辺・下辺を含む inclusive 版。
 constexpr bool PointInRectInclusive(float x, float y, const DipRect& r) noexcept
 {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;

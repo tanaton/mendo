@@ -100,10 +100,6 @@ struct TokenTextCase {
 
 } // namespace
 
-// ============================================================
-// 言語判定
-// ============================================================
-
 TEST(Syntax, DetectLanguage)
 {
     using enum SyntaxLanguage;
@@ -1799,7 +1795,6 @@ TEST(EndsAtLineHead, MidLineStateSkipsLineHeadTokens)
         { Cmd, ":: note" },
         { Ruby, "=begin\nnote\n=end" },
     };
-    // 先頭の文字から始まるコメントかプリプロセッサのトークンがあるか。
     const auto starts_with_line_head_token = [](std::span<const SyntaxToken> tokens) {
         return !tokens.empty() && tokens.front().start == 0 &&
                (tokens.front().type == SyntaxTokenType::Comment || tokens.front().type == SyntaxTokenType::Preprocessor);

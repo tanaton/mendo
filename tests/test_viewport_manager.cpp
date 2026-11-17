@@ -6,8 +6,6 @@
 #include <tuple>
 #include <vector>
 
-// ---- スクロールテスト ----
-
 // ScrollTo は絶対位置、DirectScrollBy は相対量で動かし、どちらも [0, max] に収める。
 TEST(ViewportManagerTest, ScrollClampsToRange)
 {
@@ -58,8 +56,6 @@ TEST(ViewportManagerTest, ClampScrollClampsExistingScroll)
     EXPECT_TRUE(vm.GetScrollTarget().IsValid());
 }
 
-// ---- FindFirstVisibleNode テスト ----
-
 // 位置からの探索は FindFirstVisibleNodeIndex のテストが見る。ここは scroll_y を渡すことと、無いときの -1。
 TEST(ViewportManagerTest, FindFirstVisibleNodeUsesScrollAndReportsNone)
 {
@@ -69,8 +65,6 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeUsesScrollAndReportsNone)
     EXPECT_EQ(vm.FindFirstVisibleNode(cache), 2);
     EXPECT_EQ(vm.FindFirstVisibleNode(LayoutCache{}), -1);
 }
-
-// ---- ScrollTarget テスト ----
 
 TEST(ViewportManagerTest, ApplyScrollTargetIsNoOpWhenInvalid)
 {
@@ -124,8 +118,6 @@ TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
     EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 25.0f);
 }
 
-// ---- 選択テスト ----
-
 // 全選択は先頭ノードの 0 から最終ノードの末尾まで。最終ノードが Table のときも concat_text (= GetText) の末尾を終端にする。
 TEST(ViewportManagerTest, SelectAllAndClear)
 {
@@ -156,8 +148,6 @@ TEST(ViewportManagerTest, SelectAllAndClear)
     empty.SelectAll({});
     EXPECT_FALSE(empty.GetSelection().active());
 }
-
-// ---- ズームテスト ----
 
 // 段は既定 (1.0) から始まり、端では動かず false を返す。
 TEST(ViewportManagerTest, ZoomStep)

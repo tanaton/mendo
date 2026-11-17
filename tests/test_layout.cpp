@@ -154,8 +154,6 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
     EXPECT_GE(cache[1].height, cache[2].height);
 }
 
-// ---- コードブロックの折り返し無効 ----
-
 TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 {
     std::string long_line = "```\n";
@@ -172,12 +170,6 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
     // （おおよそコードフォントの高さ）
     EXPECT_LT(cache[0].height, 100.0f);
 }
-
-// ========================================================
-// フリー関数のテスト
-// ========================================================
-
-// ---- ComputeColumnWidths テスト ----
 
 namespace {
 std::vector<float> ColumnWidths(std::span<const float> natural, std::span<const float> min, float available)
@@ -379,8 +371,6 @@ TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
     EXPECT_GT(needs_padding_only, 0);
 }
 
-// ---- RecomputeYPositions テスト ----
-
 // 空の文書は推定も位置の計算も何もしない。
 TEST(RecomputeYPositionsTest, EmptyNodes)
 {
@@ -391,8 +381,6 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
     RecomputeYPositions(nodes, cache, theme);
     EXPECT_EQ(cache.size(), 0u);
 }
-
-// ---- ComputeTotalContentHeight テスト ----
 
 TEST(ComputeTotalContentHeightTest, SingleNode)
 {
@@ -431,8 +419,6 @@ TEST(RecomputeYPositionsTest, FirstNodeTop)
         EXPECT_FLOAT_EQ(cache.Top(0), expected_top);
     }
 }
-
-// ---- EnsureVisibleLayout テスト ----
 
 TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 {
@@ -482,8 +468,6 @@ TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
     EXPECT_LT(cache.Top(node_count - 1), baseline_total * 2.0f)
         << "stale height (=" << STALE_HEIGHT << ") を Y 位置に取り込んでいる";
 }
-
-// ---- RecomputeYPositions 追加テスト ----
 
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 {
@@ -730,7 +714,6 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
 
 TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 {
-    // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
     auto nodes = ParseNodes("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---");
     LayoutCache est_cache(nodes.size());
 

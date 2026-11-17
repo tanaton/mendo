@@ -41,7 +41,6 @@ TEST(ReservedArray, RelocatesBeyondReservation)
     EXPECT_EQ(text.view(), expected);
 }
 
-// 文字の並びとして、前に入れる・縮める・比べる。移した後の元は空。
 TEST(ReservedArray, EditsTextAndMoves)
 {
     ReservedArray<char> text;
@@ -200,8 +199,6 @@ TEST(DocumentTest, GetDirectory)
     }
 }
 
-// ---- GetRawText ----
-
 TEST(DocumentTest, GetRawTextKeepsInput)
 {
     for (const std::string_view md : { std::string_view{ "# Hello\nworld" }, std::string_view{ "" }, std::string_view{ "# 日本語テスト\n\nこんにちは" } }) {
@@ -225,8 +222,6 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
         EXPECT_LT(n.SourceOffset(), md.size()) << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
     }
 }
-
-// ---- Document の move ----
 
 // 原文を直接指すノード (view) と、加工が入って arena に持つノード (owned) が同じ文書に並ぶ。
 // runs・リンク URL・画像 src も arena か原文を指すので、move 後も同じ値を読め、見出しの索引も引ける。
@@ -300,8 +295,6 @@ TEST(DocumentTest, ImageAndDiagramNodeIndices)
     EXPECT_TRUE(plain.GetImageNodeIndices().empty());
     EXPECT_TRUE(plain.GetDiagramNodeIndices().empty());
 }
-
-// ---- FindAnchorIndex 回帰テスト ----
 
 // アンカーは小文字で作るが、大文字の混じったクエリでも引ける。GitHub は非 ASCII も小文字にしたスラグを付けるので、
 // そのスラグや大文字のままのリンクでも見出しに飛べる。見出し以外と空のクエリは引けない。

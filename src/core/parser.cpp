@@ -690,7 +690,6 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
     const size_t col = tbl->cell_text_starts.size() - static_cast<size_t>(tbl->row_count - 1) * tbl->col_count;
     assert(col < tbl->col_count);
     const bool first_row = (tbl->row_count == 1);
-    // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
     if (col > 0) {
         ctx->table_text.push_back('\t');
     }

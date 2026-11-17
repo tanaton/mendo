@@ -33,7 +33,6 @@ std::optional<AsyncLoadOutcome> WaitForOutcome(TaskScheduler& scheduler, AsyncLo
 
 } // namespace
 
-// 始めていなければ結果は無く、取り消しても何も起きない。
 TEST_F(AsyncLoadCoordinatorTest, IdleHasNoOutcomeAndCancelIsSafe)
 {
     AsyncLoadCoordinator c{ scheduler_ };
@@ -607,7 +606,6 @@ TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeNotifiesAtOnce)
     EXPECT_FALSE(c.IsActive());
 }
 
-// 結果より先に Attach したら、結果を出したときに渡した通知先へ送る。
 TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
 {
     static std::shared_future<void> released;
@@ -647,8 +645,6 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
     };
     EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
 }
-
-// ---- LoadFile ----
 
 class LoadFileTest : public TempDirTestBase {};
 

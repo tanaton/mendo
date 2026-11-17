@@ -146,7 +146,6 @@ public:
 
     // 持っているビットマップを捨て、以後は device の描画先に描く。null なら描かない。
     void Reset(ID2D1Device* device) noexcept;
-    // 持っているビットマップを捨てる。
     void Clear() noexcept;
     // 1 フレームを描き終えたら呼ぶ。このフレームで描かなかった図のビットマップを捨てる。
     void EndFrame() noexcept;

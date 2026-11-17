@@ -150,10 +150,6 @@ TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
     }
 }
 
-// ═══════════════════════════════════════════════
-// WriteAllBytes + ReadAllBytes ラウンドトリップ
-// ═══════════════════════════════════════════════
-
 TEST_F(FileIoTest, RoundTripBinary)
 {
     const auto path = temp_dir_ / L"binary.bin";
@@ -174,10 +170,6 @@ TEST_F(FileIoTest, WriteOverwritesExistingFile)
     ASSERT_TRUE(Write(path, "short"));
     EXPECT_EQ(ReadAsString(path), "short");
 }
-
-// ═══════════════════════════════════════════════
-// エラーケース
-// ═══════════════════════════════════════════════
 
 TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
@@ -205,7 +197,6 @@ TEST_F(FileIoTest, ErrorPointerResetOnSuccess)
 
 TEST_F(FileIoTest, WriteToInvalidPathFails)
 {
-    // 存在しないディレクトリ配下のパス（親ディレクトリがない）
     EXPECT_FALSE(Write(temp_dir_ / L"no_such_dir" / L"file.bin", "data"));
 }
 

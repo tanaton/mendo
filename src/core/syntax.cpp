@@ -103,14 +103,13 @@ constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
     return p == npos ? text.size() : p;
 }
 
-// pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
 constexpr size_t SkipChars(std::string_view text, size_t pos, CharSet chars) noexcept
 {
     return SkipWhile(text, pos, [chars](char c) { return chars.contains(c); });
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
-// 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
+// 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾。allow_multiline が false なら改行の位置）。
 constexpr size_t ScanString(std::string_view text, size_t pos, char quote, bool allow_multiline, bool handle_escape = true) noexcept
 {
     size_t i = pos + 1;
@@ -472,7 +471,6 @@ void TokenizeRange(
             continue;
         }
 
-        // 行コメント: //
         if constexpr (Cfg.line_comment_slash) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
@@ -514,7 +512,6 @@ void TokenizeRange(
             }
         }
 
-        // ブロックコメント: /* */
         if constexpr (Cfg.block_comment) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
                 emit_until(ScanBlockComment(text, i, '*', '/'), SyntaxTokenType::Comment);
@@ -522,7 +519,7 @@ void TokenizeRange(
             }
         }
 
-        // プリプロセッサ: 行頭の#（C/C++）
+        // プリプロセッサ: 行頭の#（C 系・C#・Swift）
         if constexpr (Cfg.preprocessor) {
             if (c == '#' && at_line_start) {
                 emit_until(SkipToLogicalEol(text, i), SyntaxTokenType::Preprocessor);
@@ -583,7 +580,6 @@ void TokenizeRange(
             }
         }
 
-        // トリプルクォート文字列
         if constexpr (Cfg.triple_quote != TripleQuote::None) {
             if ((c == '"' || c == '\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
                 const size_t e = Cfg.triple_quote == TripleQuote::CountedRaw && c == '"'
@@ -594,7 +590,6 @@ void TokenizeRange(
             }
         }
 
-        // 文字列リテラル
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
             // 生文字列 R"(...)" の R は識別子として後の分岐で消費されるため、ここでは通常の文字列として扱う。
             emit_until(ScanString(text, i, c, false), SyntaxTokenType::String);
@@ -609,13 +604,11 @@ void TokenizeRange(
             }
         }
 
-        // 数値
         if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
             emit_until(ScanNumber(text, i), SyntaxTokenType::Number);
             continue;
         }
 
-        // 識別子とキーワード
         if (IsIdentStart(c)) {
             const size_t start = i;
             i = SkipWhile(text, i, IsIdentChar);
@@ -2120,7 +2113,6 @@ constexpr size_t ScanNestedComment(std::string_view text, size_t pos, std::strin
     const char firsts[]{ open[0], close[0] };
     int depth = 0;
     size_t i = pos;
-    // 開き・閉じの先頭文字の候補まで find で飛ぶ
     while ((i = text.find_first_of(std::string_view{ firsts, 2 }, i)) != npos) {
         const auto rest = text.substr(i);
         if (rest.starts_with(open)) {
