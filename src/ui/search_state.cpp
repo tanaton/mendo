@@ -59,14 +59,14 @@ bool SearchState::ContinueSearch(std::span<const Node> nodes, std::chrono::stead
         const int i = narrowing_ ? candidate_nodes_[next_node_++] : static_cast<int>(next_node_++);
         const auto& node = nodes[i];
         if (node.has_table()) {
-            FindTableMatches(*node.table_data(), query, active_.fold, i);
+            FindTableMatches(node, query, active_.fold, i);
             scanned_bytes += node.table_data()->concat_text.size();
         }
         else if (const auto& text = node.GetText(); !text.empty() && node.type != NodeType::Diagram) {
             // 検索欄は 1 行なので、改行を挟む継ぎ目はまたがない。
             const bool joined = JoinsNextInline(nodes, static_cast<size_t>(i));
             const size_t from = i == skip_node_ ? skip_bytes_ : 0;
-            skip_bytes_ = FindTextMatches(text, joined ? nodes[i + 1].GetText() : std::string_view{}, from, query, active_.fold, i);
+            skip_bytes_ = FindTextMatches(node, joined ? nodes[i + 1].GetText() : std::string_view{}, from, query, active_.fold, i);
             skip_node_ = i + 1;
             scanned_bytes += text.size();
         }
@@ -122,21 +122,59 @@ void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcep
     completed_ = false;
 }
 
-size_t SearchState::FindTextMatches(std::string_view text, std::string_view next, size_t from, std::string_view query, bool fold, int node_index)
+namespace {
+
+constexpr bool IsAsciiByte(char c) noexcept
 {
+    return static_cast<unsigned char>(c) < 0x80;
+}
+
+// ASCII だけのクエリのマッチが、text の end バイト目で終わるときに両端がクラスタの境目にあるか (SearchMatch::on_cluster_bounds)。
+// plain はノードに数式も画像も無いことで、最初のマッチで 1 回だけ調べる。
+class ClusterBoundsCheck {
+public:
+    ClusterBoundsCheck(const Node& node, std::span<const TextRun> runs, std::string_view query) noexcept
+        : node_(node), runs_(runs), ascii_query_(std::ranges::all_of(query, IsAsciiByte))
+    {
+    }
+    bool operator()(std::string_view text, size_t end) noexcept
+    {
+        if (!ascii_query_ || (end < text.size() && !IsAsciiByte(text[end]))) {
+            return false;
+        }
+        if (!plain_) {
+            plain_ = !node_.has_images() && std::ranges::none_of(runs_, &TextRun::math);
+        }
+        return *plain_;
+    }
+
+private:
+    const Node& node_;
+    std::span<const TextRun> runs_;
+    bool ascii_query_;
+    std::optional<bool> plain_;
+};
+
+} // namespace
+
+size_t SearchState::FindTextMatches(const Node& node, std::string_view next, size_t from, std::string_view query, bool fold, int node_index)
+{
+    const std::string_view text = node.GetText();
     const uint32_t query_len = static_cast<uint32_t>(query.size());
     // UTF-16 位置は最初のヒットから前方へ数えるだけにし、ノード全文の UTF-16 化を避ける。
     Utf16OffsetCursor cursor{ text };
+    ClusterBoundsCheck on_bounds{ node, node.runs(), query };
     size_t pos = from;
     size_t found;
     while (pending_.size() < MAX_MATCHES && (found = ascii_util::Find(text, query, pos, fold)) != ascii_util::npos) {
         const auto w = cursor.WideRange(static_cast<uint32_t>(found), query_len);
+        pos = found + query_len;
         pending_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start_w = w.startPosition,
             .length_w = w.length,
+            .on_cluster_bounds = on_bounds(text, pos),
         });
-        pos = found + query_len;
     }
     // 継ぎ目をまたぐのは text の末尾 query_len - 1 バイトから始まるマッチだけなので、その前後だけをつないで探す。
     // どれも継ぎ目を含んで重なるので、拾うのは最初の 1 つだけ。
@@ -166,8 +204,9 @@ size_t SearchState::FindTextMatches(std::string_view text, std::string_view next
     return next_bytes;
 }
 
-void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index)
+void SearchState::FindTableMatches(const Node& node, std::string_view query, bool fold, int node_index)
 {
+    const NodeTableData& tbl = *node.table_data();
     const std::string_view concat = tbl.concat_text;
     const auto& starts = tbl.cell_text_starts;
     const size_t col_count = tbl.col_count;
@@ -179,6 +218,8 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
 
     size_t cursor_cell = std::numeric_limits<size_t>::max();
     std::optional<Utf16OffsetCursor> cursor;
+    // セルの区切り ('\t' / '\n') も ASCII なので、直後のバイトは concat_text で見てよい。
+    ClusterBoundsCheck on_bounds{ node, tbl.all_runs, query };
     size_t pos = 0;
     while (pending_.size() < MAX_MATCHES && (pos = ascii_util::Find(concat, query, pos, fold)) != ascii_util::npos) {
         const size_t cell = tbl.CellIndexAt(static_cast<uint32_t>(pos));
@@ -204,6 +245,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
             .table_col = static_cast<int>(cell % col_count),
             .start_w = w.startPosition,
             .length_w = w.length,
+            .on_cluster_bounds = on_bounds(concat, pos + query_len),
         });
         pos += query_len;
     }

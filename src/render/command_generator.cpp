@@ -1322,17 +1322,19 @@ struct MdPaneEmitter : CmdWriter {
     {
         for (size_t i = begin; i < end; ++i) {
             const auto& m = nm.matches[i];
-            EmitSearchSpan(layout, m.start_w, m.length_w, nm.first_global + i, origin_x, origin_y);
+            EmitSearchSpan(layout, m.start_w, m.length_w, m.on_cluster_bounds, nm.first_global + i, origin_x, origin_y);
         }
     }
 
-    void EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index, float origin_x, float origin_y)
+    void EmitSearchSpan(IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, bool on_cluster_bounds, size_t global_index, float origin_x,
+                        float origin_y)
     {
         const bool is_current = (static_cast<int>(global_index) == p.current_match_index);
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
-        // 結果は持たない。英文の e が画面に 1000 個見えるスクロールで 1 フレーム 13 → 310µs (BM_SearchFrame)。
-        // 結合文字の基底だけの検索でもクラスタ全体を塗るので、数式の無いノードでも広げる。
-        EmitRangeRects(layout, ExpandToClusters(layout, start_w, length_w), origin_x, origin_y, hl_brush);
+        // 結果は持たない。英文の e が画面に 1000 個見えるスクロールで 1 フレーム 13 → 136µs (BM_SearchFrame)。
+        // 結合文字の基底だけの検索でもクラスタ全体を塗るので、数式の無いノードでも広げる。境目にあると分かるマッチは広げない。
+        const DWRITE_TEXT_RANGE range = on_cluster_bounds ? DWRITE_TEXT_RANGE{ start_w, length_w } : ExpandToClusters(layout, start_w, length_w);
+        EmitRangeRects(layout, range, origin_x, origin_y, hl_brush);
     }
 
     // 本文ノードのマッチのうち lines (可視範囲の前後の行) にかかるものを描く。
@@ -1341,7 +1343,7 @@ struct MdPaneEmitter : CmdWriter {
         // マッチは start_w 昇順で重ならないので、終端も昇順に並ぶ。
         const auto [line_begin, line_end] = lines;
         if (nm.spill_length_w > line_begin) {
-            EmitSearchSpan(entry.text_layout(), 0, nm.spill_length_w, nm.first_global - 1, origin_x, origin_y);
+            EmitSearchSpan(entry.text_layout(), 0, nm.spill_length_w, false, nm.first_global - 1, origin_x, origin_y);
         }
         const auto first = std::ranges::partition_point(nm.matches, [b = line_begin](const SearchMatch& m) noexcept {
             return m.start_w + m.length_w <= b;

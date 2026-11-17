@@ -580,3 +580,48 @@ TEST_F(SearchMatchYTest, MatchYRangeAgreesWithDrawnHighlight)
         EXPECT_NEAR(d.match_ys[static_cast<size_t>(i)], *drawn_top, 0.01f);
     }
 }
+
+// ASCII だけのマッチは、直後も ASCII か末尾で、ノードに数式も画像も無ければ、描くときにクラスタへ広げない印を付ける。
+TEST(SearchStateTest, MarksAsciiMatchesOnClusterBounds)
+{
+    const auto flags = [](std::string_view md, std::string_view query) {
+        const auto nodes = ParseNodes(md);
+        const auto s = Searched(nodes, query);
+        std::vector<bool> out;
+        for (const auto& m : s.GetMatches()) {
+            out.push_back(m.on_cluster_bounds);
+        }
+        return out;
+    };
+    EXPECT_EQ(flags("ab ab", "ab"), (std::vector<bool>{ true, true }));
+    EXPECT_EQ(flags("| ab | x |\n|---|---|\n| ab | y |\n", "ab"), (std::vector<bool>{ true, true })) << "表のセル";
+    EXPECT_EQ(flags("e\xCC\x81 e", "e"), (std::vector<bool>{ false, true })) << "直後の結合文字は前の文字のクラスタに付く";
+    EXPECT_EQ(flags("\xC3\xA9t\xC3\xA9", "\xC3\xA9"), (std::vector<bool>{ false, false })) << "ASCII でないクエリ";
+    EXPECT_EQ(flags("a $x$ a", "a"), (std::vector<bool>{ false, false })) << "数式のあるノード";
+    EXPECT_EQ(flags("a ![i](i.png) a", "a"), (std::vector<bool>{ false, false })) << "画像のあるノード";
+}
+
+// 印を付けたマッチを広げずに塗れる前提: 本文とコードのフォントで、ASCII はどの並びでも 1 文字 1 クラスタ (合字が無い)。
+TEST_F(SearchMatchYTest, AsciiIsOneClusterPerCharInBodyAndCodeFonts)
+{
+    std::wstring text = L"ffi ffl fi fl ";
+    for (wchar_t a = 0x20; a < 0x7F; ++a) {
+        for (wchar_t b = 0x20; b < 0x7F; ++b) {
+            text += a;
+            text += b;
+        }
+    }
+    for (const wchar_t* family : { theme_.font_family.c_str(), theme_.monospace_font.c_str() }) {
+        SCOPED_TRACE(family);
+        const auto format = CreateTextFormat(dwrite_factory_.Get(), { .family = family, .size = 16.0f, .locale = L"ja-jp" });
+        ASSERT_TRUE(format);
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        ASSERT_HRESULT_SUCCEEDED(dwrite_factory_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format.Get(), 1.0e7f, 1.0e7f, &layout));
+        UINT32 count = 0;
+        layout->GetClusterMetrics(nullptr, 0, &count);
+        std::vector<DWRITE_CLUSTER_METRICS> clusters(count);
+        ASSERT_HRESULT_SUCCEEDED(layout->GetClusterMetrics(clusters.data(), count, &count));
+        EXPECT_EQ(count, text.size());
+        EXPECT_TRUE(std::ranges::all_of(clusters, [](const DWRITE_CLUSTER_METRICS& c) { return c.length == 1; }));
+    }
+}
