@@ -268,10 +268,10 @@ void App::OnPaint()
     MENDO_PROFILE("OnPaint");
 
     PAINTSTRUCT ps;
-    BeginPaint(hwnd_, &ps);
     // 最小化中は見えないので描かない。描くと TrimForMinimize で手放したキャッシュを作り直してしまう。
     // 復元時は Win32Window::OnSize が描き直させる。
     if (IsIconic(hwnd_)) {
+        BeginPaint(hwnd_, &ps);
         EndPaint(hwnd_, &ps);
         return;
     }
@@ -282,7 +282,13 @@ void App::OnPaint()
         EnsureFrameLayout(layout);
         // 計測で見出しの Y が決まった後、目次ペインを組む前に決め直す。
         SyncActiveTocIndex(state_);
+        // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。経路ごとに引き直しを要求させず、
+        // 描く前に毎回引き直す。変化で出た再描画の要求は下の BeginPaint が消し、このフレームに描く (描いた後に引くと、
+        // もう 1 枚描き直すうえにホバーの表示が 1 フレーム遅れる)。変化が無ければ reducer が何もしない。
+        // ロード中の本文ペインは何にも当たらず、スピナーのフレームごとに引き直しても変わらないので省く。
+        RefreshHoverAtCursor();
     }
+    BeginPaint(hwnd_, &ps);
 
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
@@ -340,12 +346,6 @@ void App::OnPaint()
         ShareRenderTarget();
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
         break;
-    }
-    // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
-    // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
-    // ロード中の本文ペインは何にも当たらず、スピナーのフレームごとに引き直しても変わらないので省く。
-    if (!show_loading) {
-        RefreshHoverAtCursor();
     }
     MENDO_FRAME_MARK();
 }

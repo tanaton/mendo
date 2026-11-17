@@ -1073,7 +1073,7 @@ void On(ReduceContext& c, const SwipeOverlayTimeoutAction&)
 
 // ノード/見出し index に結び付く一時状態 (選択・横スクロール・ホバー・目次の現在位置・ツールチップの対象・
 // 文書を対象にするドラッグ) を消す。文書を差し替えると別の要素を指すので、
-// ロードとリロードの両方で消す。ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
+// ロードとリロードの両方で消す。ホバーは描く前に引き直される (App::RefreshHoverAtCursor)。
 void ResetPerNodeTransientState(ReduceContext& c)
 {
     auto& view = c.state.view;
