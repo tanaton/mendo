@@ -105,7 +105,7 @@ public:
         ++log_.loading;
         has_drawing_ = false;
     }
-    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) override
+    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList>) override
     {
         has_drawing_ = true;
         log_.drawings.push_back(std::move(drawing));

@@ -38,7 +38,8 @@ public:
     // 別の図を開いた。
     virtual void ShowLoading() = 0;
     // 図が出ていれば位置とボタンで変えた倍率を保つ (保存とテーマの切り替え)。全体表示のままなら新しい大きさに合わせ直す。
-    virtual void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) = 0;
+    // commands は本文が同じデバイスで記録した drawing のコマンドリストで、あれば記録し直さずに使う (文字の組みが重い)。
+    virtual void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands) = 0;
     // 本体の描画デバイスを作り直した。次の描画から新しいデバイスで描く。
     virtual void SetDevice(ID3D11Device* d3d, ID2D1Device* device) = 0;
 };
@@ -71,7 +72,7 @@ public:
     void ApplyLanguage() override;
     void SetDarkMode(bool dark) override;
     void ShowLoading() override;
-    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) override;
+    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands) override;
     void SetDevice(ID3D11Device* d3d, ID2D1Device* device) override;
 
 private:

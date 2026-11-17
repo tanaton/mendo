@@ -244,11 +244,12 @@ void DiagramView::ShowLoading()
     Layout();
 }
 
-void DiagramView::SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)
+void DiagramView::SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands)
 {
     const bool keep = drawing_ != nullptr;
     drawing_ = std::move(drawing);
-    commands_.Reset();
+    // 本文と同じく DPI 96 の新しい DC に恒等変換で記録したものなので、そのまま描ける。
+    commands_ = std::move(commands);
     if (keep) {
         Layout();
     }

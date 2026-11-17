@@ -514,7 +514,9 @@ void MermaidRenderer::RequestViewerDrawing(float max_width, bool dark_mode)
     }
     viewer_.pending = false;
     if (result->drawing) {
-        viewer_.view->SetDrawing(result->drawing);
+        // 画面外へ出て捨てたコマンドリストは、窓が自分で記録する (ここで記録して cache_ に入れると、どの図も持たない
+        // コマンドリストが cache_ に残る)。
+        viewer_.view->SetDrawing(result->drawing, result->commands);
     }
     // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
     else if (!viewer_.view->HasDrawing()) {
