@@ -16,8 +16,8 @@ bool AnyUpdatedName(std::span<const std::byte> buf, F&& on_name)
     constexpr size_t kHeaderBytes = offsetof(FILE_NOTIFY_INFORMATION, FileName);
     size_t offset = 0;
     for (;;) {
-        // カーネルが切り詰めた通知に備え、現在エントリの固定部と名前が buf に収まることを
-        // 参照前に検証する (NextEntryOffset の検証だけでは先頭エントリを守れない)。
+        // カーネルが切り詰めた通知に備え、固定部と名前が buf に収まるかを参照前に検証する (NextEntryOffset の検証では
+        // 先頭エントリを守れない)。
         const size_t remaining = buf.size() - offset;
         if (remaining < kHeaderBytes) {
             return false;
@@ -88,9 +88,8 @@ bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_vi
 DirectoryChangeRead::~DirectoryChangeRead()
 {
     if (pending) {
-        // CancelIo はキャンセル要求のみで IO の終了を保証しない。CancelIoEx + GetOverlappedResult(..., TRUE)
-        // でカーネルの completion routine が buf / overlapped への書き込みを終えるまで待つ。
-        // 待たずに解放すると、解放した領域にカーネルが書き込みヒープ破壊を招く。
+        // CancelIo は取り消しの要求だけで IO の終了を保証しないので、CancelIoEx + GetOverlappedResult(..., TRUE) で
+        // カーネルの completion routine が buf / overlapped に書き終えるまで待つ。待たずに解放するとヒープが壊れる。
         CancelIoEx(dir.get(), &overlapped);
         DWORD bytes_returned = 0;
         GetOverlappedResult(dir.get(), &overlapped, &bytes_returned, TRUE);
@@ -227,8 +226,7 @@ void ImageFolderWatcher::Watch(const std::wstring& abs_path, TaskScheduler* sche
     auto it = std::ranges::find_if(folders_, [&](const Folder& f) { return path_util::iequal(f.dir, dir); });
     if (it == folders_.end()) {
         if (folders_.size() >= kMaxFolders) {
-            // 枠が埋まっていたら、今の文書の画像が無いフォルダのうち、いちばん前に使ったものをやめる。今の文書の画像で
-            // 埋まっていれば、超えた分は監視しない。
+            // 今の文書の画像が無いフォルダのうち、いちばん前に使ったものをやめる。無ければ超えた分は監視しない。
             const auto unused = std::ranges::find_if(folders_, [](const Folder& f) { return f.paths.empty(); });
             if (unused == folders_.end()) {
                 return;
@@ -353,7 +351,7 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         else if (!f.paths.empty()) {
             AnyUpdatedName(notified, [&](std::wstring_view name) {
                 // 通知は 8.3 短縮名で来ることがある (未規定)。短縮名を画像ごとに前もって問い合わせると枚数ぶんの往復に
-                // なるので、当たらなかった短縮名の形 (12 文字以内で ~ と数字を含む) の名前だけ長い名前に直して照らす。
+                // なるので、当たらなかった短縮名の形 (12 文字以内で ~ の直後が数字) の名前だけ長い名前に直して照らす。
                 // ~ だけで問い合わせると、エディタの一時ファイル (~$x.docx・x.md~) の通知のたびに走る。
                 // 問い合わせはファイルに触れるので worker でし、結果は次の CheckForChanges で照らす。
                 const size_t tilde = name.find(L'~');

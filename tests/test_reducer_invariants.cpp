@@ -9,10 +9,9 @@
 #include <variant>
 #include <vector>
 
-// reducer の状態遷移列に対する不変条件テスト。
-// 1 遷移の例示テスト (test_reducer.cpp) では、遷移の組み合わせでのみ起きる破れ
-// (スクロール範囲外・マウスキャプチャ漏れ・スワイプ誤爆) を検出できないため、
-// App 相当の前提を ReducerHarness で揃え、固定シードのランダム列で検査する。
+// reducer の状態遷移列に対する不変条件テスト。1 遷移の例示テスト (test_reducer.cpp) では、遷移の組み合わせでのみ起きる
+// 破れ (スクロール範囲外・マウスキャプチャ漏れ・スワイプ誤爆) を検出できないので、App 相当の前提を ReducerHarness で
+// 揃え、固定シードのランダム列で検査する。
 
 namespace {
 
@@ -214,9 +213,8 @@ INSTANTIATE_TEST_SUITE_P(
 // タイトルバーのドラッグやウィンドウ外への MouseLeave 検出が効かなくなる。
 // 逆に、ドラッグ状態が残ったままキャプチャを失うと、ボタンを離しても終了処理が走らない。
 //
-// effects から OS 側のキャプチャ保持を追跡する。ReleaseCapture / 外部からの奪取では
-// OS が同期的に WM_CAPTURECHANGED を送るため、CaptureChangedAction を入れ子で投入する。
-// マウスイベントは App と同じ振り分けでアクションに変換する。
+// effects から OS 側のキャプチャ保持を追跡する。ReleaseCapture / 外部からの奪取では OS が同期的に WM_CAPTURECHANGED を
+// 送るので、CaptureChangedAction を入れ子で投入する。マウスイベントは App と同じ振り分けでアクションに変換する。
 
 namespace {
 
@@ -535,9 +533,8 @@ TEST(ReducerCaptureInvariant, GestureEndDuringLeftDragKeepsCapture)
 }
 
 // ---- 横ホイールとスワイプナビゲーション ----
-// ブロック (テーブル/コードブロック) 上の横ホイールはブロックが吸収し、横スクロール
-// できない場合でもスワイプ (戻る/進む) に流さない。過去 3 回 (b5e28d0 / 77d6cbd / 8e7c0db)
-// 別経路で漏れて修正されたため、経路ごとに固定する。
+// ブロック (テーブル/コードブロック) 上の横ホイールはブロックが吸収し、横スクロールできなくてもスワイプ (戻る/進む) に
+// 流さない。過去 3 回 (b5e28d0 / 77d6cbd / 8e7c0db) 別経路で漏れて修正されたので、経路ごとに固定する。
 
 namespace {
 

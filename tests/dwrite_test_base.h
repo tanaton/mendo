@@ -1,10 +1,7 @@
 #pragma once
-// DirectWrite を使うテスト用の共通フィクスチャ。
-// MockTextMeasurer 経路では到達できない `text_layout != nullptr` の経路
-// （ハイライト矩形、本文 hit test 等）を踏むテストで使用する。
-//
-// test_helpers.h に計測器やレイアウトを含めると、それらが不要なテストにも include コストが
-// 載るため、本ヘッダは独立させて使うテストだけが include する設計とする。
+// DirectWrite を使うテスト用の共通フィクスチャ。MockTextMeasurer 経路では到達できない `text_layout != nullptr` の
+// 経路 (ハイライト矩形、本文 hit test 等) を踏むテストで使う。test_helpers.h に計測器やレイアウトを含めると
+// 要らないテストにも include コストが載るので、このヘッダに分けて使うテストだけが include する。
 #include "test_helpers.h"
 #include "d2d_util.h"
 #include "dwrite_measurer.h"

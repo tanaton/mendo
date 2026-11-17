@@ -394,7 +394,7 @@ void MermaidRenderer::StartRender(RenderRequest req)
 
 void MermaidRenderer::PumpRenders()
 {
-    // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
+    // bg のワーカーを 1 本残し、配置の重い図 (1 図 0.8 秒ほど) が画像のデコードとディスクキャッシュの読み込みを待たせない。
     // ランタイムも同時に描く数だけ作るので、メモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {

@@ -103,8 +103,7 @@ TEST(Utf8Codec, EncodeBoundaries)
 
 // ---- EncodeCp: 不正系 (戻り値 0、buf 不変) ----
 
-// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させないため、
-// sentinel で全 byte 不変を確認する保険。
+// 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させないため、sentinel で全 byte 不変を確認する保険。
 TEST(Utf8Codec, EncodeRejectsAndPreservesBuf)
 {
     constexpr char kSentinel[4] = { '\x5A', '\x5A', '\x5A', '\x5A' };

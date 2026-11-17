@@ -89,8 +89,7 @@ TEST(Theme, ApplyZoomScalesLayoutValues)
     }
 }
 
-// ズームは本文だけに掛ける。サイドペインの寸法を一緒に拡大すると、
-// ファイル一覧や目次で同時に見える項目数が変わってしまう。
+// ズームは本文だけに掛ける。サイドペインの寸法を一緒に拡大すると、ファイル一覧や目次で同時に見える項目数が変わる。
 TEST(Theme, ApplyZoomKeepsSidePaneMetrics)
 {
     const Theme& base = GetLightTheme();

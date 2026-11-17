@@ -43,10 +43,9 @@ struct InlineMathBatchResult {
 // 描けたときと失敗したときに 1 回だけ呼ぶ。取り消した (終了・DropQueuedMath) 要求では呼ばない。
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
 
-// Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き
-// (PeleEngine)、拡大表示 (DiagramView) と保存・コピーの画像もその描画命令から作る。図のラベルの数式とインライン数式は
-// 同じランタイムで KaTeX を動かして描く。描画命令にできない図は描かず、描けないことを知らせる。
-// すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
+// Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き (PeleEngine)、
+// 拡大表示 (DiagramView) と保存・コピーの画像もその描画命令から作る。図のラベルの数式とインライン数式は同じランタイムの
+// KaTeX で描く。描画命令にできない図は描かず、描けないことを知らせる。パブリックメソッドはすべて UI スレッドから呼ぶ。
 class MermaidRenderer : public IMermaidRenderer {
 public:
     // D3D の型をこのヘッダに持ち込まないよう、作る・壊すは mermaid.cpp で行う。
@@ -65,8 +64,7 @@ public:
     using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw,
                                                               IWICImagingFactory* wic, bool dark, std::move_only_function<void()> on_close);
 
-    // d2d・wic・dw は Renderer と共有する。d2d は図を描いた画像 (保存・コピー) の描画先を、wic は図を描いた画像を、
-    // dw は図の文字を作るのに使う。
+    // d2d・wic・dw は Renderer と共有し、保存・コピーの画像の描画先 (d2d) と画像 (wic)、図の文字 (dw) を作るのに使う。
     // bg_scheduler は描画とディスクキャッシュの読み込みを UI スレッド外で行う先で、
     // 完了は app_msg::MERMAID_JOB_DONE で hwnd に通知され、受信側が ProcessJobResults を呼ぶ。
     // on_update は結果が出たときと、拡大表示に出す図が変わったときに呼ぶ。受けた側は本文の図と拡大表示の図
@@ -210,11 +208,10 @@ private:
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで、ID2D1CommandList (その約 5 倍) は数えないので、普通の図では件数の上限が先に効く。
-    // 表示中の結果は DiagramEntry と CommandList を共有し、余分に持つのは画面外の結果だけ。図 27 個の文書で、幅を 10 段
-    // 変えるたびに全体を読み進めても 128 件で commit 約 10MB (15%)。CommandList を数えて 8MB にしても -6% で、
-    // テーマの切り替え (58 件、5%) には効かない。結果はここを経由してしか DiagramEntry に届かないので、
-    // 1 回に届く結果より小さな上限にすると描き直しが回り続ける。
+    // 数えるのは描画命令だけで ID2D1CommandList (その約 5 倍) は数えないので、普通の図では件数の上限が先に効く。表示中の結果は
+    // DiagramEntry と CommandList を共有し、余分に持つのは画面外の結果だけ。図 27 個の文書で、幅を 10 段変えるたびに全体を
+    // 読み進めても 128 件で commit 約 10MB (15%)。CommandList を数えて 8MB にしても -6% で、テーマの切り替え (58 件、5%) には
+    // 効かない。結果はここからしか DiagramEntry に届かないので、1 回に届く結果より小さな上限にすると描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);

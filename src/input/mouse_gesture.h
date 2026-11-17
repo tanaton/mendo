@@ -115,11 +115,8 @@ private:
     std::vector<DipPoint> trail_points_;
 };
 
-// タッチパッド水平スクロール（WM_MOUSEHWHEEL）を蓄積し、
-// 閾値を超えたら戻る/進むナビゲーションを発火するジェスチャー検出器。
-//
-// 軸ロック: 直近の縦スクロールから一定時間内は水平入力を無視する。
-// タイムアウト: 一定時間水平入力がなければ蓄積をリセットする。
+// タッチパッドの水平スクロール (WM_MOUSEHWHEEL) を蓄積し、閾値を超えたら戻る/進むを発火する。
+// 縦スクロール直後の水平入力は無視し (軸ロック)、水平入力が途切れたら蓄積をリセットする。
 class SwipeDetector {
 public:
     constexpr void OnHWheel(int delta, uint64_t now_ms) noexcept

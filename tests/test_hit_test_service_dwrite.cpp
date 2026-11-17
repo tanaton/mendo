@@ -1,6 +1,5 @@
-// hit_test の DirectWrite 経路テスト。
-// MockTextMeasurer では text_layout() も表のセルのレイアウトも作られず、それらで文字位置を引く経路に
-// 届かないため、実 IDWriteFactory を使う DWriteTestBase の上で踏む。
+// hit_test の DirectWrite 経路テスト。MockTextMeasurer では text_layout() も表のセルのレイアウトも作られず、それらで
+// 文字位置を引く経路に届かないため、実 IDWriteFactory を使う DWriteTestBase の上で踏む。
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
@@ -155,9 +154,8 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     EXPECT_EQ(FindLinkAtPosition(node, r.char_pos), "https://l.example");
 }
 
-// テーブル row_cum_y / col_cum_x 経由の hit test。
-// LayoutEngine + DWriteTextMeasurer を通した cache の table_layout には
-// row_cum_y / col_cum_x が積まれる。HitTestTable はそれを upper_bound で参照する。
+// テーブルの hit test。LayoutEngine + DWriteTextMeasurer を通した cache の table_layout には
+// row_cum_y / col_cum_x が積まれ、HitTestTable はそれを upper_bound で参照する。
 TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 {
     auto pl = ParseAndLayout("| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |");

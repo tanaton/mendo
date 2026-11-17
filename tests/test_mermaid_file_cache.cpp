@@ -449,9 +449,8 @@ TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
 // Pending-write integrity (Medium-5 回帰)
 // ═══════════════════════════════════════════════
 
-// StoreAsync 直後でファイルが未着地のまま Lookup された時、index が
-// stale 扱いで消されないこと。修正前は orphan ファイル（書き込み完了後に
-// インデックスが指していないファイル）を生み出す原因になっていた。
+// StoreAsync の直後、ファイルが未着地のまま Lookup しても index を stale として消さない。修正前は orphan ファイル
+// (書き込み完了後にインデックスが指していないファイル) を生んでいた。
 TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 {
     InitCache();

@@ -98,8 +98,7 @@ struct ViewState {
     // 読み込みのスピナーを本文ペインの代わりに出している。その間は本文・ナビボタン・検索バー・スクロールバーを描かないので、
     // ポインタもそれらに当てない。
     bool loading_shown = false;
-    // 目次クリック直後の同期 1 回だけ、目次ペインを追従スクロールさせない (issue#259)。
-    // クリックした項目がペイン内で動いて見失うのを防ぐ。
+    // 目次クリック直後の同期 1 回だけ目次ペインを追従スクロールさせず、クリックした項目が動いて見失うのを防ぐ (issue#259)。
     bool keep_toc_pane_once = false;
     LeftDragState drag;
 
@@ -203,9 +202,8 @@ struct AppState {
     SearchGroup search;
     WindowState window;
 
-    // ThemeService が所有する Theme への非所有参照。App の構築時に設定し、null にはならない。
-    // ダークモードとズームの切り替えは内部値を in-place で書き換えるためポインタは
-    // 安定。reducer 系が Y 位置計算に必要な spacing_above 等を参照するために使う。
+    // ThemeService が所有する Theme への非所有参照。App の構築時に設定し、null にはならない。ダークモードとズームの
+    // 切り替えは内部値を in-place で書き換えるのでポインタは安定。reducer 系が Y 位置の計算で spacing_above 等を読む。
     const Theme* theme = nullptr;
 
     FileExplorer file_explorer;
@@ -228,8 +226,7 @@ inline NavEntry CurrentNavEntry(const AppState& state)
     return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
 }
 
-// reducer と App (Win32 層) の双方が AppState から導出するペイン/ブロック情報。
-// 非 inline 関数の定義は reducer.cpp。
+// reducer と App (Win32 層) の双方が AppState から導出するペイン/ブロック情報。非 inline 関数の定義は reducer.cpp。
 
 // 目次のアクティブ見出しを今の scroll_y と見出しの Y から決め直し、変わったら目次ペインを追従させる。
 // 描画のたびに呼ぶので、スクロール・計測・画像や図の高さの確定など Y が動くどの経路でも同期が漏れない。

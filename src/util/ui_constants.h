@@ -76,9 +76,8 @@ inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 // 無効状態の UI (ペインヘッダーボタン・メニュー項目) の不透明度
 inline constexpr float DISABLED_UI_ALPHA = 0.35f;
 
-// DIP 値を物理ピクセル境界にスナップする。
-// スクロール位置に適用すれば ClearType ヒンティングのフレーム間変動による
-// テキストのガタつきを防止できる。bullet 等の小半径図形にも有効。
+// DIP 値を物理ピクセル境界にスナップする。スクロール位置に使えば ClearType ヒンティングのフレーム間の変動による
+// テキストのガタつきを防げる。bullet 等の小半径図形にも効く。
 // dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）
 inline float SnapToPhysicalPixel(float v, float dpi_scale) noexcept
 {
@@ -108,9 +107,8 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
     return { PixelToDip(static_cast<float>(px), dpi_scale), PixelToDip(static_cast<float>(py), dpi_scale) };
 }
 
-// 要素の右上を基準にオーバーレイボタン（コピー/保存/拡大表示）の矩形を返す。
+// 要素の右上 (anchor_right, anchor_top) を基準にオーバーレイボタン (コピー/保存/拡大表示) の矩形を返す。
 // 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 OVERLAY_BTN_GAP で並ぶ。
-// anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
     const float slot = kind == OverlayButton::DiagramView ? 2.0f : kind == OverlayButton::DiagramCopy ? 1.0f
@@ -120,8 +118,7 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, Overl
     return D2D1::RectF(bx, by, bx + OVERLAY_BTN_SIZE, by + OVERLAY_BTN_SIZE);
 }
 
-// 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。
-// レイアウトの高さと描画矩形の両方がこの規則を使う。
+// 画像・図は max_width を超えるときだけアスペクト比を保って縮める (拡大しない)。レイアウトの高さと描画矩形の両方で使う。
 constexpr D2D1_SIZE_F FitBitmapSize(float width, float height, float max_width) noexcept
 {
     if (width > max_width && width > 0.0f) {

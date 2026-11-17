@@ -632,10 +632,9 @@ void AddArcBounds(Bounds& out, double x1, double y1, double rx, double ry, doubl
     out.Add(cx + hx, cy + hy);
 }
 
-// path の d を、絶対座標の区間にして visitor に順に渡す。S・T の 1 つ目の制御点は鏡映で求めて渡す。
-// visitor は Move(x, y)・Line(x, y)・Cubic(x1, y1, x2, y2, x, y)・Quad(x1, y1, x, y)・
-// Arc(x1, y1, rx, ry, rotation, large, sweep, x2, y2)・Close() を持つ。
-// 読めないところで止めて false を返す (ブラウザも誤りの手前まで描く)。
+// path の d を、絶対座標の区間にして visitor に順に渡す。S・T の 1 つ目の制御点は鏡映で求めて渡す。visitor は
+// Move(x, y)・Line(x, y)・Cubic(x1, y1, x2, y2, x, y)・Quad(x1, y1, x, y)・Arc(x1, y1, rx, ry, rotation, large, sweep, x2, y2)・
+// Close() を持つ。読めないところで止めて false を返す (ブラウザも誤りの手前まで描く)。
 template <class Visitor>
 bool WalkPath(std::string_view d, Visitor& visitor)
 {
@@ -4739,9 +4738,8 @@ ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
 
 namespace {
 
-// dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。
-// wic は図形の SVG を読むストリームに使う。texts は drawing の文字の並びを組んだもので、無ければここで組む。
-// 描けなければ false (描きかけのまま)。
+// dc の今の変換に重ねて、図の左上を原点とする CSS px で、背景から描く。BeginDraw と EndDraw の間で呼ぶ。wic は図形の SVG を
+// 読むストリームに使う。texts は drawing の文字の並びを組んだもので、無ければここで組む。描けなければ false (描きかけのまま)。
 bool DrawDiagram(
     ID2D1DeviceContext5* dc, IDWriteFactory* dw, IWICImagingFactory* wic, const mermaid_util::DiagramDrawing& drawing,
     const wchar_t* locale, const DiagramTextLayouts* texts)

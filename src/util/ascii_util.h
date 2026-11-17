@@ -74,8 +74,7 @@ namespace detail {
 
 inline constexpr size_t kSimdStep = 16;
 
-// kFold なら 'A'-'Z' のレーンにだけ 0x20 を足して小文字にする。
-// epi8 は符号付き比較だが ASCII 範囲は正値で問題なし。非 ASCII (signed の負値) は ge_a で必ず弾かれる。
+// kFold なら 'A'-'Z' のレーンに 0x20 を足して小文字にする。epi8 は符号付き比較で、非 ASCII (負値) は ge_a で弾かれる。
 template <bool kFold>
 inline __m128i LoadBytes(const char* p) noexcept
 {
@@ -117,11 +116,9 @@ inline bool EqualBytes(const char* t, const char* q, size_t n) noexcept
     }
 }
 
-// kFold=true のとき query は ASCII 小文字化済みで、text 側をその場で ASCII 小文字化して比較する
-// (文書全体の小文字コピーを持たずに済む)。
-// 候補は先頭バイトと末尾バイトの 2 点一致で絞る。UTF-8 の日本語は先頭バイトが 0xE3〜0xE9 に
-// 集中するため、先頭 1 点だけだと約 3 バイトに 1 回候補が立ち memcmp が支配的になる。
-// multi-byte シーケンスの中間バイトとの偶然一致は後続の比較で正確に弾ける。
+// kFold なら query は ASCII 小文字化済みで、text 側をその場で小文字化して比べる (文書全体の小文字コピーを持たない)。
+// 候補は先頭と末尾のバイトの 2 点一致で絞る。UTF-8 の日本語は先頭バイトが 0xE3〜0xE9 に集中し、先頭 1 点だけだと
+// 約 3 バイトに 1 回候補が立って memcmp が支配的になる。マルチバイトの中間バイトとの偶然一致は後続の比較で弾ける。
 // 1 バイトのクエリもここを通る。専用のループより 64MB で約 2ms 遅いが、検索は MAX_MATCHES で止まる。
 template <bool kFold>
 inline size_t FindImpl(std::string_view text, std::string_view query, size_t start) noexcept
@@ -184,10 +181,7 @@ inline bool HasAsciiLetter(std::string_view s) noexcept
     return std::ranges::any_of(s, IsAsciiAlpha<char>);
 }
 
-// コンパイル時に契約違反を検出する (定数評価中に throw へ到達するとコンパイルエラーになる)。
-//  - NUL 終端 (literal[N-1] == '\0')。
-//  - 全文字が ASCII 範囲 (<= 0x7F)。
-//  - 大文字 'A'-'Z' を含まない (RHS は小文字確定でなければならない)。
+// NUL 終端・ASCII (<= 0x7F) のみ・大文字なし (RHS は小文字確定) を、定数評価中の throw でコンパイル時に検査する。
 template <typename CharT>
 struct BasicLowercaseAsciiLiteral {
     std::basic_string_view<CharT> value;

@@ -59,9 +59,8 @@ TEST(ReservedArray, EditsTextAndMoves)
     EXPECT_EQ(text, std::string_view{ "again" }) << "移した後も使える";
 }
 
-// リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである
-// 前提 (issue #273)。その正規化自体を担保する。
-// NUL は CommonMark と GitHub と同じく U+FFFD (3 byte) にする。
+// リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである前提 (issue #273)
+// なので、その正規化自体を担保する。NUL は CommonMark と GitHub と同じく U+FFFD (3 byte) にする。
 TEST(NormalizeSource, NewlinesBecomeLfAndNulsBecomeReplacement)
 {
     struct Case {
@@ -324,8 +323,7 @@ TEST(DocumentTest, FindAnchorIndexMatchesHeadingSlug)
     }
 }
 
-// 索引は引いた見出しまでしか作らないので、先に後ろの見出しや存在しないアンカーを引いても
-// 前の見出しが索引から引けること。
+// 索引は引いた見出しまでしか作らないので、先に後ろの見出しや存在しないアンカーを引いても前の見出しが索引から引ける。
 TEST(DocumentTest, FindAnchorIndexExtendsIndexFromPreviousLookup)
 {
     auto doc = Document::FromMarkdown("# A\n\n# B\n\n# A\n\n# C", L"test.md");

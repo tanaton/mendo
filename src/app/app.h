@@ -67,18 +67,15 @@ public:
     }
 
     // ウィンドウを保存済みの配置で表示した後、初回描画の前に呼ぶ。
-    // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
-    // preload が無ければヘルプを開く。
+    // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。preload が無ければヘルプを開く。
     void LoadInitialDocument();
-    // Init は描画デバイスを作らない。D3D デバイスの作成を待つ間に文書の取り込みまで進めるため、
-    // LoadInitialDocument の後、初回描画の前に呼ぶ。
+    // Init は描画デバイスを作らず、D3D の作成を待つ間に文書の取り込みまで進める。LoadInitialDocument の後、初回描画の前に呼ぶ。
     bool CreateRenderDevice();
     // Init 前に呼ぶ。初回描画に含まれるため無効化はしない。
     void SetInitialDirectory(std::wstring_view dir_path);
 
-    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で
-    // hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE) を発行し、
-    // 通常の async load 経路に合流する。
+    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で hwnd が解禁されると、worker は
+    // ::PostMessageW(PARSE_COMPLETE) を発行し、通常の async load 経路に合流する。
     void StartPreloadAsync(std::wstring path);
 
     // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
@@ -112,9 +109,8 @@ public:
 
     void OnMouseHover(int px, int py);
     // ポップアップ (PopupWindow) やシステムメニュー (アイコンのクリック・Alt+Space・キャプションの右クリック) の
-    // モーダルループに入った・出た (WM_ENTERMENULOOP / WM_EXITMENULOOP)。
-    // 開いている間は本体に入力が来ないので、先にホバーとツールチップを消し、裏で本体を描き直しても出さない
-    // (RefreshHoverAtCursor)。
+    // モーダルループに入った・出た (WM_ENTERMENULOOP / WM_EXITMENULOOP)。開いている間は本体に入力が来ないので、
+    // 先にホバーとツールチップを消し、裏で本体を描き直しても出さない (RefreshHoverAtCursor)。
     void OnModalLoop(bool entered)
     {
         in_modal_loop_ = entered;
@@ -162,8 +158,7 @@ public:
     {
         return load_coordinator_.IsActive();
     }
-    // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に計測し、
-    // 計測時間を vblank 待ちに隠す。
+    // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に測り、計測を vblank 待ちに隠す。
     void PrepareFrame();
     void OnAppImageLoaded();
     void OnParseComplete();
@@ -317,8 +312,8 @@ private:
     void ShowEmbeddedResource(std::wstring_view path);
     void LoadMarkdownFile(std::wstring_view path);
     void CancelOtherFileLoad();
-    // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (読み込みの worker か ShowEmbeddedResource が MakeEstimatedLayoutCache で作ったもの)。
-    // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
+    // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (読み込みの worker か ShowEmbeddedResource が
+    // MakeEstimatedLayoutCache で作ったもの)。ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
     // watch は next の変更の監視 (worker が OpenWatchTarget で作ったもの)。ヘルプは空で、監視をやめる。
     void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch);
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。

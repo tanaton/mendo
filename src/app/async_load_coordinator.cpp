@@ -56,8 +56,7 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
         return result;
     }
 
-    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ先頭へ戻す。
-    // 一括読み + erase(0,3) と違い BOM ありファイルでも全体スケールの memmove を発生させない。
+    // UTF-8 BOM (EF BB BF) は先頭を覗いて読み飛ばす。一括読み + erase(0,3) と違い、BOM ありでも全体の memmove が起きない。
     char prefix[3];
     const size_t prefix_read = std::min<size_t>(r.size, sizeof(prefix));
     if (!ReadExact(r.handle.get(), prefix, prefix_read)) {
@@ -168,9 +167,8 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
 
     std::optional<ReloadCheck> reload;
     if (reload_base.data) {
-        // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
-        // 新旧 Document の二重保持が起きないよう、パース前に判定する。
-        // 書き込み途中なら差分も取らずに返し、読み直させる。
+        // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と新旧 Document の二重保持が起きないよう、
+        // パース前に判定する。書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
             publish_retry(ReloadOp::StillGrowing);
             return;

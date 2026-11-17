@@ -227,12 +227,11 @@ std::optional<MathDrawing> LayoutKatexHtml(std::string_view html, float font_siz
 
 struct ID2D1Device;
 
-// 数式の SVG の形 (\sqrt・矢印・大きな括弧) を A8 のマスクに一度描いて覚え、以後は FillOpacityMask で塗る。
-// 形の箱は左上を装置の画素に合わせて描くので、拡大率が同じなら画素は置く位置に依らず、同じ形の数式の間で共有する。毎フレーム形を塗ると、右下が
-// 画素に合わない clip と塗りの作り直しで、形の多い数式の画面の 1 フレームが 1.3ms かかった (マスクで 0.44ms、グリフの run も
-// まとめて 0.34ms。BM_MathFrameDraw/shapes)。画素の差は最大 14 階調で、ほぼ 1 階調。ID2D1GeometryRealization は
-// 細い矢印の軸が濃くなる (DPI 96 で 113 階調) ので使わない。
-// 描く先のデバイスのビットマップを持つ。UI スレッドだけで使う。
+// 数式の SVG の形 (\sqrt・矢印・大きな括弧) を A8 のマスクに一度描いて覚え、以後は FillOpacityMask で塗る。形の箱は左上を
+// 装置の画素に合わせて描くので、拡大率が同じなら画素は置く位置に依らず、同じ形の数式の間で共有する。毎フレーム形を塗ると、
+// 右下が画素に合わない clip と塗りの作り直しで、形の多い数式の画面の 1 フレームが 1.3ms かかった (マスクで 0.44ms、グリフの
+// run もまとめて 0.34ms。BM_MathFrameDraw/shapes)。画素の差は最大 14 階調で、ほぼ 1 階調。ID2D1GeometryRealization は細い
+// 矢印の軸が濃くなる (DPI 96 で 113 階調) ので使わない。描く先のデバイスのビットマップを持つ。UI スレッドだけで使う。
 class MathMaskCache {
 public:
     // 1 画面ぶんは形の多い文書でも数枚から数十枚 (BM_MathFrameDraw/shapes で 5 枚)。予算はスクロールで戻ったときに作り直さない分で、
@@ -263,7 +262,6 @@ private:
 
 // (x, y) を数式のベースラインの左端として、色の指定の無い部分を brush で描く。指定した色には brush の不透明度を掛ける。
 // 絵文字 (Glyphs::color_font) は本文と同じくフォントの色で描く。
-// 罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から
-// 装置の画素に合わせる (変換は拡大と平行移動だけとみなす)。
+// 罫線・SVG の箱・ベースラインは、rt の今の変換と DPI から装置の画素に合わせる (変換は拡大と平行移動だけとみなす)。
 // masks があれば SVG の形をマスクで塗る。図のラベルは記録した後で拡大・縮小して描くので渡さない。
 void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush, MathMaskCache* masks = nullptr);

@@ -17,9 +17,8 @@ inline std::string ReadFileBytes(const std::filesystem::path& full)
     return bytes;
 }
 
-// "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。
-// MENDO_EXAMPLE_DIR (CMake が u8 リテラルで渡す絶対パス) を基準に解決し、日本語を含む
-// UTF-8 パスも std::filesystem::path 経由で正しく扱う。
+// "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。基準は MENDO_EXAMPLE_DIR
+// (CMake が u8 リテラルで渡す絶対パス) で、日本語を含む UTF-8 パスも std::filesystem::path 経由で正しく扱う。
 inline std::string ReadExampleFileBytes(std::string_view path)
 {
     std::string_view rel = path;

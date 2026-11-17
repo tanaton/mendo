@@ -160,8 +160,7 @@ private:
     Decoded DecodeForDisplay(const std::wstring& path, UINT max_width_px) const;
 
     static constexpr uint32_t kMaxImageRetries = 3;
-    // 圧縮済み画像のファイルサイズ上限。デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB だと
-    // 同時に数 GB を読み込ませられる。
+    // デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB だと同時に数 GB を読み込ませられる。
     static constexpr LONGLONG MAX_IMAGE_FILE_SIZE = 256LL * 1024 * 1024;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
@@ -193,8 +192,7 @@ private:
         // 待つ間に要求し直された。読まずに返ったら要求し直させる。文書を切り替えて捨てた要求の結果で旧文書の画像を
         // 読み直さないよう、要求し直されたものだけ読み直させる。取り消したら、寸法だけを頼まれていたときだけ残す。
         bool requested_again = false;
-        // 待つ間にファイルが更新された (Invalidate)。更新の前の中身を読んだかもしれないので、結果は stale で入れて
-        // もう一度読ませる。
+        // 待つ間にファイルが更新された (Invalidate)。結果は更新前の中身かもしれないので、stale で入れて読み直させる。
         bool invalidated = false;
     };
     // 結果を待っているパス。要求は必ず結果を 1 回返すので、届いたら外す。

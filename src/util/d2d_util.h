@@ -93,9 +93,8 @@ inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origi
     return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
 }
 
-// CreateSolidColorBrush のフェイルセーフラッパ。失敗時は Magenta で再試行し、
-// nullptr ブラシが DrawXXX に渡るのを防ぐ。重い失敗 (D2DERR_RECREATE_TARGET 等) は
-// EndDraw 経路で検知されて次フレームの前にデバイスごと作り直される想定。
+// 失敗したら Magenta で作り直し、nullptr のブラシを DrawXXX に渡さない。重い失敗 (D2DERR_RECREATE_TARGET 等) は
+// EndDraw の経路で検知され、次のフレームの前にデバイスごと作り直される想定。
 inline void CreateSolidColorBrushOrFallback(
     ID2D1RenderTarget* rt,
     D2D1_COLOR_F color,
@@ -147,8 +146,7 @@ public:
     HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override;
 
 protected:
-    // 色のフォント (絵文字) のランを ::DrawColorGlyphRun で描く。色のフォントでないか描けなければ false で、呼び出し側が
-    // brush の単色で描く。
+    // 色のフォント (絵文字) のランを ::DrawColorGlyphRun で描く。色のフォントでないか描けなければ false。
     bool DrawColorGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc,
                            ID2D1Brush* brush) const noexcept;
 

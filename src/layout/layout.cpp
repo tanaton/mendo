@@ -213,8 +213,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     }
 
     if (!dirty_indices.empty()) {
-        // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
-        // 毎フレーム計測するため、scheduler があれば並列化する。
+        // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を毎フレーム測るので、並列化する。
         const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, deadline);
         // 期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;

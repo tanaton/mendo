@@ -29,9 +29,8 @@ TEST_F(MouseGestureTest, IdleIgnoresMoveAndRelease)
     EXPECT_EQ(gesture_.OnRButtonUp(), NavDirection::None);
 }
 
-// 閾値未満の移動は右クリック扱いでメニューを出す。閾値を超えると追跡に入り、
-// 横向きが勝てば戻る/進む、縦向きが勝てば方向なしでメニューを出す (イベントを握り潰してメニューを失わない)。
-// 離したら Idle に戻り、オーバーレイも消える。
+// 閾値未満の移動は右クリック扱いでメニューを出す。閾値を超えると追跡に入り、横向きが勝てば戻る/進む、縦向きが勝てば
+// 方向なしでメニューを出す (イベントを握り潰してメニューを失わない)。離したら Idle に戻り、オーバーレイも消える。
 TEST_F(MouseGestureTest, ReleaseResultFollowsMove)
 {
     struct Case {

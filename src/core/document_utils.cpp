@@ -517,8 +517,7 @@ void ReplaceNulls(std::string& s, size_t nuls)
 // CR と NUL は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは衝突しない。
 size_t NormalizeNewlines(std::string& s)
 {
-    // 最初の CR か NUL までは STL の find_first_of で飛ばす (LF だけの文書は下の 16 バイトずつの走査より速い。100MB で
-    // 6.8ms と 7.8ms)。
+    // 最初の CR か NUL までは find_first_of で飛ばす (100MB の LF だけの文書で 6.8ms。16 バイトずつの走査は 7.8ms)。
     const size_t first = std::string_view{ s }.find_first_of(std::string_view{ "\r\0", 2 });
     if (first == std::string_view::npos) {
         return 0;
@@ -780,8 +779,7 @@ std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
         }
         local_path = std::filesystem::path(std::move(*base)) / local_path;
     }
-    // canonical() は symlink 解決のためにファイルシステムを叩くので、
-    // UI 同期パスから外すため absolute() + lexically_normal() を使う。
+    // canonical() は symlink の解決でファイルシステムを叩くので、UI 同期パスでは absolute() + lexically_normal() を使う。
     // symlink を跨ぐ参照はレアケースとして許容する。
     std::error_code ec;
     const auto abs_path = std::filesystem::absolute(local_path, ec);

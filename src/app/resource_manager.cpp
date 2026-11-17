@@ -199,8 +199,7 @@ void ResourceManager::EvictOffscreenResources()
 void ResourceManager::FlushPendingResources()
 {
     image_loader_.ProcessCompletedDecodes();
-    // ScheduleResourceManage 以外（OnResourceManageTimer 等）からのフラッシュでも
-    // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
+    // ScheduleResourceManage 以外 (OnResourceManageTimer 等) からのフラッシュでも更新し、両経路でスロットリングを効かせる。
     last_flush_time_ = std::chrono::steady_clock::now();
 
     LoadImages();
@@ -209,8 +208,7 @@ void ResourceManager::FlushPendingResources()
 
 void ResourceManager::ScheduleResourceManage()
 {
-    // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
-    // タイマー側で集約的に処理する。
+    // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、タイマー側で集約的に処理する。
     constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
     if (std::chrono::steady_clock::now() - last_flush_time_ >= kFlushThrottle) {
         // 連続スクロール中も通過した範囲のレイアウトを溜め込まないよう、停止を待たずに捨てる。

@@ -28,8 +28,7 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 
 int QuantizeWidth(float max_width) noexcept;
 
-// エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
-// 切り詰める。切り詰め時は末尾に U+2026 を付ける。
+// エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
 // 図の文字と数式のラベルの大きさ (CSS px) の上限 (IsStorable)。文字の大きさは CSS の計算値をここへ丸める。
@@ -89,8 +88,7 @@ struct DrawingLayer {
 
     bool operator==(const DrawingLayer&) const = default;
 };
-// pele の SVG から作った描画命令。
-// 層は SVG の文書の順の重なりを保つためのもの。図形がその層の文字と重なるときだけ、次の層を始める。
+// pele の SVG から作った描画命令。層で SVG の文書の順の重なりを保ち、図形がその層の文字と重なるときだけ次の層を始める。
 struct DiagramDrawing {
     float width = 0.0f; // 図の縮めない大きさ (CSS px、切り上げ済み)。幅の上限より広いことがある
     float height = 0.0f;
@@ -106,8 +104,7 @@ struct DiagramDrawing {
 // 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
 // 並びは "<置き方>,<太さ>,<斜体 0/1>,<線のビット 0〜3 (kTextUnderline | kTextLineThrough)>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-16 の単位。ファイルは壊れていることがあるので、欠け・余り・ありえない値 (IsStorable を満たさない置き方など)
-// があれば nullopt。
+// 長さは UTF-16 の単位。ファイルが壊れていて欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
 // ParseDrawing が読む形の UTF-8。描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);

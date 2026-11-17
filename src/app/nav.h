@@ -19,9 +19,8 @@ public:
     void Push(NavEntry current);
     // PushPending と GoBack/GoForward は、ロード結果で確定 (CommitOpened / CommitPending) か取り消し (RollbackPending) をする。
     // 確定するまで履歴は変えないので、開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりしない。
-    // ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、
-    // PushPending は前の仮の操作を置き換え、戻る/進むの連続はロード中の移動先を起点に続ける。
-    // 続けた操作は RollbackPending でまとめて取り消す。
+    // ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので PushPending は前の仮の操作を置き換え、
+    // 戻る/進むの連続はロード中の移動先を起点に続ける。続けた操作は RollbackPending でまとめて取り消す。
     void PushPending(NavEntry current);
     // 別の文書を開き終えた。表示していた文書は、差し替えた時点の位置 left で履歴に入る。
     void CommitOpened(NavEntry left);

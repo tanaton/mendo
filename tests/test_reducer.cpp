@@ -897,9 +897,8 @@ TEST_F(ReducerTest, CaptureChanged_ResetsGesture)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// キャプチャ喪失 (Alt+Tab 等) では WM_LBUTTONUP が来ないため、ここで解除しないと
-// テキスト選択ドラッグが残ってファイル自動リロードが永久延期される。
-// 右ボタンジェスチャの開始可否は左ドラッグの有無で決まるので、検索入力ドラッグも解除すること。
+// キャプチャ喪失 (Alt+Tab 等) では WM_LBUTTONUP が来ないので、ここで解除しないとテキスト選択ドラッグが残ってファイル
+// 自動リロードが永久延期される。右ボタンジェスチャの開始可否は左ドラッグの有無で決まるので、検索入力ドラッグも解除する。
 TEST_F(ReducerTest, CaptureChanged_ResetsLeftDrag)
 {
     const LeftDragState drags[] = {
@@ -1066,8 +1065,7 @@ void SetupScrollableToc(AppState& state)
 
 TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
 {
-    // エントリが少なく total_content <= content_height → スクロール不要で no-op
-    // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
+    // 既定の Toc はエントリ 0 で total_content <= content_height → スクロール不要で no-op
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
     EXPECT_FALSE(state.view.IsDragging());
     EXPECT_TRUE(effects.empty());
@@ -1172,8 +1170,7 @@ TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
 
 TEST_F(ReducerTest, TextSelectionStarted_NoHit_DoesNotStartDrag)
 {
-    // ヒットなし（空白領域のクリック）: SetCapture もドラッグも始めない。
-    // SetCapture をスキップすることで、対応する ReleaseCapture を省略できる。
+    // ヒットなし（空白領域のクリック）では SetCapture もドラッグも始めず、対応する ReleaseCapture も省ける。
     auto effects = Reduce(state, TextSelectionStartedAction{ -1, 0u, 5, 7 });
 
     EXPECT_FALSE(state.view.IsSelectingText());
@@ -1509,9 +1506,8 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
 
-// issue#224: 末尾セクションへのジャンプで scroll_y が max_scroll を超えると、
-// その後のホイールスクロールで位置が一気に補正されて「飛ぶ」体感になる。
-// ApplyScrollTarget が事前クランプする契約を担保する。
+// issue#224: 末尾セクションへのジャンプで scroll_y が max_scroll を超えると、その後のホイールスクロールで位置が
+// 一気に補正されて「飛ぶ」体感になる。ApplyScrollTarget が事前クランプする契約を担保する。
 TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 {
     // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
@@ -1659,8 +1655,7 @@ TEST_F(ReducerTest, DocumentOpened_HasPendingRestore_SetsScrollTarget)
 
     Reduce(state, DocumentOpenedAction{});
 
-    // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
-    // ScrollY 側で検証する (cache.Top(1) + offset)。
+    // ApplyScrollTarget 後は scroll_target が消費され得るので ScrollY 側で検証する (cache.Top(1) + offset)。
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
     EXPECT_FALSE(state.view.HasPendingScroll());
 }
@@ -1674,9 +1669,8 @@ TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
-// 戻る先のファイルが削除済み等でロードに失敗した場合、その復元情報が次に開く別ファイルへ
-// 持ち越されると、無関係なノード位置へスクロールする。
-// 履歴も戻る前に戻し (残すと、進むで今いるファイルへ「移動」するだけになる)、開けなかった戻り先だけを外す。
+// 戻る先のファイルが削除済み等でロードに失敗したとき、その復元情報を次に開く別ファイルへ持ち越すと、無関係なノード位置へ
+// スクロールする。履歴も戻る前に戻し (残すと、進むで今いるファイルへ「移動」するだけ)、開けなかった戻り先だけを外す。
 TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"C:\\current.md");
@@ -1873,8 +1867,7 @@ TEST_F(ReducerTest, OpenWhileStartupLoading_DoesNotCarryRestoreOver)
     EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
-// リンクの # 以降は、開き終えた文書で見出しを探して飛ぶ。ScrollToHeading と同じく見出しの上の余白ごと見せる。
-// 見出しが無ければ先頭を開く。
+// リンクの # 以降は、開き終えた文書で見出しを探して飛ぶ (無ければ先頭)。ScrollToHeading と同じく見出しの上の余白ごと見せる。
 TEST_F(ReducerTest, OpenWithAnchor_ScrollsToHeadingAfterLoad)
 {
     ResetToDocument(state, L"C:\\current.md");

@@ -80,9 +80,8 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
     }
 }
 
-// 配布する zip には exe だけを入れるので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
-// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開けるようにする。GitHub で見たヘルプからも開けるよう、
-// リンクはリポジトリでの相対パスにする。
+// 配布する zip は exe だけなので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
+// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開ける。GitHub で見たヘルプからも開けるよう、リンクはリポジトリでの相対パス。
 TEST(HelpDocumentTest, EveryHelpLinksToLicenses)
 {
     const auto res_dir = std::filesystem::path(MENDO_RES_DIR);

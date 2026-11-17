@@ -55,11 +55,10 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。
-// D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
-// 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
-// 構文トークンがあれば、グリフランをトークン境界で分けて種別の色で描く。SetDrawingEffect は
-// 1 回ごとに既存の範囲数に比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
+// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。D2D の
+// DrawTextLayout は描画面外を含む全グリフランを処理するので、巨大なコードブロック等では 1 フレームに数十 ms かかる
+// (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。構文トークンがあれば、グリフランをトークン境界で分けて種別の
+// 色で描く。SetDrawingEffect は 1 回ごとに既存の範囲数に比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
 class VisibleRunRenderer final : public RenderTargetTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
@@ -164,9 +163,8 @@ private:
         rt_->DrawEllipse(D2D1::Ellipse(at(10.5f, 5.5f), 1.2f * k, 1.2f * k), b, stroke);
     }
 
-    // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばして描く。
-    // 境界がクラスタ (合字等) の途中にあれば、そのクラスタは後ろのトークンの色になる。
-    // グリフは右から左のランでも文字順に並び、原点が右端になってペンが左へ進むだけ。
+    // ランをトークンの境界で分け、[cull_left, cull_right] に映らないグリフを飛ばす。境界がクラスタ (合字等) の途中なら、
+    // そのクラスタは後ろのトークンの色になる。グリフは右から左のランでも文字順に並び、原点が右端でペンが左へ進むだけ。
     void DrawGlyphRunParts(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION& desc) const noexcept
     {
         const float direction = (run.bidiLevel & 1) != 0 ? -1.0f : 1.0f;

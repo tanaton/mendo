@@ -427,8 +427,7 @@ inline constexpr Strings kKo = {
     .lang_locale = L"ko-kr",
 };
 
-// 書き換えは UI スレッドだけだが、読む側のスレッドを縛らないよう std::atomic<const Strings*> にする。
-// 各言語の表は static const なので load 値は常に有効ポインタで、参照剥がしも安全。
+// 書き換えは UI スレッドだけだが、読む側を縛らないよう atomic にする。各言語の表は static const で load 値は常に有効。
 inline std::atomic<const Strings*> g_strings{ &kJa };
 
 // 台湾・香港・マカオと、地域なしの zh-Hant を繁体字とみなす。残りの中国語 (中国本土・シンガポール・zh-Hans) は簡体字。
@@ -507,8 +506,7 @@ inline std::wstring_view ConfigLangKey() noexcept
 // 文書の言語は UI の言語設定 (英語 UI で日本語を読む人もいる) ではなく OS の表示言語から推す。
 // これを使うのは文書から来る文字 (本文・ファイル名・目次・タイトル・検索語) だけ。メニュー・ペインの見出し・
 // トースト・設定ダイアログなど UI の決まった文言は、選んだ言語の Strings::lang_locale で組む。OS と違う言語を選んでも
-// UI の漢字をその言語の字形で出し、UI のどこでも字形を揃えるため。
-// 漢字を使わない英語 (と文言を持たない言語) は日本語の字形にする。
+// UI のどこでも漢字をその言語の字形で揃えるため。漢字を使わない英語 (と文言を持たない言語) は日本語の字形にする。
 inline const wchar_t* TextLocaleForUiLanguage(LANGID langid) noexcept
 {
     const Strings* strings = StringsForUiLanguage(langid);

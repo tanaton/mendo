@@ -96,12 +96,10 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
     std::filesystem::path tmp_path = path;
     tmp_path += L".tmp";
 
-    // tmp のデータブロックを flush してから write-through rename する。
-    // rename のメタデータだけが先にディスクへコミットされると、電源断時に
-    // 対象ファイルが 0 バイト化し旧内容が復元不能になるため。
+    // tmp のデータブロックを flush してから write-through で rename する。rename のメタデータだけが先にディスクへ
+    // コミットされると、電源断で対象ファイルが 0 バイトになり旧内容を戻せない。
     if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ durable)) {
-        // 書き込み途中失敗でも CREATE_ALWAYS で tmp は生成済み。部分書き込みの
-        // 孤児 tmp を残さないよう掃除する。
+        // 書き込みの途中で失敗しても CREATE_ALWAYS で tmp はできているので、部分書き込みの孤児 tmp を残さないよう消す。
         DeleteFileW(tmp_path.c_str());
         return false;
     }

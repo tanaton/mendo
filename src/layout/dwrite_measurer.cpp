@@ -237,8 +237,7 @@ float RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float la
     return FinishTextMeasure(node, entry, metrics, theme);
 }
 
-// 1 属性ぶんのレンジビルダ。隣接ランで属性が連続する間はマージし、切れたら emit する。
-// 範囲は UTF-16 textPosition 単位。
+// 1 属性ぶんのレンジビルダ。隣接ランで属性が連続する間はマージし、切れたら emit する。範囲は UTF-16 textPosition 単位。
 template <typename Emit>
 class AttrRangeBuilder {
 public:
@@ -380,8 +379,7 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
     AttrRangeBuilder italic{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r);
     } };
-    // 背景の左右パディングとして、コード範囲の両端に字間を足す。
-    // 末尾の字間は最後の文字の位置に置くので、サロゲートペアなら 2 単位ぶん指定する。
+    // 末尾の字間 (INLINE_CODE_SPACING) は最後の文字の位置に置くので、サロゲートペアなら 2 単位ぶん指定する。
     ComPtr<IDWriteTextLayout1> layout1;
     layout->QueryInterface(IID_PPV_ARGS(&layout1));
     UINT32 code_tail_units = 1;
@@ -878,9 +876,8 @@ BuiltTable DWriteTextMeasurer::BuildTable(const Node& node, float max_width, std
             }
         }
     }
-    // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。行の復元は次の計測パスに任せる。
-    // 止めたら測りかけの表を捨てる。全行の高さを測る FinalizeTableLayout は区切れないので、その前に見る (止めるのを待つ UI を
-    // 延ばさない)。
+    // 列幅判定に全行の自然幅が要るので初回は全セルを測る。行の復元は次の計測パスに任せる。止めたら測りかけの表を捨てる。
+    // 全行の高さを測る FinalizeTableLayout は区切れないので、その前に見る (止めるのを待つ UI を延ばさない)。
     MeasureTableCells(node, tl, built.pending_inline, stop);
     if (stop.stop_requested()) {
         return {};

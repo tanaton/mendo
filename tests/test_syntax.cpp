@@ -758,9 +758,8 @@ constexpr std::string_view kSyntaxFuzzPieces[] = {
     "function! ", "vim9script\n",
 };
 
-// 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を
-// 文字先頭に丸めるため、区切り以外に境界があると色付け範囲が 1 文字ずれる。
-// bounds は text の ForwardDecodeBoundaries (言語ごとに作り直さない)。
+// 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を文字先頭に丸めるので、区切り以外に
+// 境界があると色付け範囲が 1 文字ずれる。bounds は text の ForwardDecodeBoundaries (言語ごとに作り直さない)。
 testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, std::span<const uint32_t> bounds, const std::vector<SyntaxToken>& tokens)
 {
     if (auto r = TokensWellFormed(tokens, text.size()); !r) {

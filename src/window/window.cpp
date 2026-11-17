@@ -33,8 +33,7 @@ constexpr UINT SC_RESET_WINDOW = 0x0010;
 constexpr int DEFAULT_WINDOW_WIDTH = 1600;
 constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 
-// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
-// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
+// EM_POSFROMCHAR はキャレットの左端を返すので、フォント幅の半分強を足して検索欄の IME の窓をキャレット直下に出す (px)。
 constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // 自前の枠の太さ (px)。WM_DPICHANGED の中でも新しい DPI の値が要るので、持たずに毎回求める。
@@ -235,8 +234,7 @@ void Win32Window::TakeStartupMessages()
 void Win32Window::UpdateDwmFrame()
 {
     MENDO_PROFILE("Win32Window::UpdateDwmFrame");
-    // 1ピクセルだけ拡張してDWMのウィンドウシャドウ・アニメーションを有効化。
-    // キャプションボタンは自前描画のため大きな拡張は不要。
+    // DWM の影とアニメーションを出すため 1px だけ広げる。キャプションボタンは自前で描くので大きく広げなくてよい。
     const MARGINS margins = { 0, 0, 1, 0 };
     DwmExtendFrameIntoClientArea(hwnd_, &margins);
     SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -337,8 +335,7 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
     if (wParam != TRUE) {
         return DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
     }
-    // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
-    // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
+    // NC 領域を除き、クライアント領域 = ウィンドウ全体。最大化時は枠の厚さだけ内側へ縮める (タスクバー隠れ防止)。
     if (IsZoomed(hwnd_)) {
         const auto [border, frame_y, right_border] = GetFrameMetrics(hwnd_);
         auto& rc = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0];
@@ -705,8 +702,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (app_->IsInitialized()) {
             SaveWindowPlacement();
         }
-        // dwRefData=this を渡しているので、Win32Window 破棄前に subclass を外さないと
-        // 破棄後の SearchEditProc 呼び出しで dangling pointer を踏む。
+        // dwRefData に this を渡しているので、破棄後の SearchEditProc が dangling pointer を踏まないよう先に外す。
         if (search_edit_) {
             RemoveWindowSubclass(search_edit_, SearchEditProc, 0);
         }
@@ -729,9 +725,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
 void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
 {
-    // Windows 11 は SIZE_MINIMIZED 時に (0,0) ではなくタスクバーサムネイル寸法
-    // （例: 237×39）を通知してくる。そのままResizeBuffersを呼ぶとスワップチェーンが
-    // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
+    // Windows 11 は SIZE_MINIMIZED で (0,0) ではなくタスクバーのサムネイルの寸法 (例: 237×39) を通知する。そのまま
+    // ResizeBuffers するとスワップチェーンがその大きさになり、DWM の合成でアプリの大きさへ引き伸ばされてフラッシュする。
     if (wParam == SIZE_MINIMIZED) {
         was_minimized_ = true;
         app_->OnMinimize();
@@ -739,10 +734,8 @@ void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
     }
     app_->Dispatch(ResizeAction{ LOWORD(lParam), HIWORD(lParam) });
     RepositionSearchEdit();
-    // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
-    // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
-    // 新フレームをPresentしておく。対話的リサイズでは不要なので、
-    // 最小化からの復元時に限定する。
+    // ResizeBuffers 直後のバックバッファは未定義なので、DWM が復元アニメーションでそれを合成する前に同期的に
+    // WM_PAINT を走らせて新しいフレームを Present する。対話的なリサイズでは要らないので、最小化からの復元に限る。
     // 最小化中の WM_PAINT は描かずに捨てているので、無効化してから描かせる。
     if (was_minimized_ && (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)) {
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -889,8 +882,7 @@ void Win32Window::OnSearchEditChanged()
     SyncSearchCaretFromEdit();
 }
 
-// IME 対応のため、検索入力は非表示の EDIT コントロールで受ける。EDIT は comctl32 を読み込ませるので、
-// 起動時には作らず初めて検索するときに作る。
+// IME のため検索の入力は非表示の EDIT で受ける。EDIT は comctl32 を読み込ませるので、初めて検索するときに作る。
 bool Win32Window::EnsureSearchEdit()
 {
     if (!search_edit_) {

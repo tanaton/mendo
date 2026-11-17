@@ -155,8 +155,7 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
     return n;
 }
 
-// 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
-// spacing_above = spacing_below = 0 を仮定する。
+// 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。spacing_above = spacing_below = 0 を仮定する。
 inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
 {
     LayoutCache cache(count);
@@ -275,9 +274,8 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
-// temp ディレクトリを RAII で用意・破棄する。テスト名とプロセスIDで一意な名前を生成するため、
-// 並列実行や異常終了時も衝突しない。gtest はフィクスチャ生成前に current_test_info を
-// 設定するので、フィクスチャのメンバとして保持できる。
+// temp ディレクトリを RAII で用意・破棄する。名前はテスト名とプロセスIDで一意なので、並列実行や異常終了時も衝突しない。
+// gtest はフィクスチャ生成前に current_test_info を設定するので、フィクスチャのメンバとして持てる。
 class ScopedTempDir {
 public:
     ScopedTempDir()
@@ -437,7 +435,6 @@ private:
 }
 
 // 読み込んだ画像を装う最小 ID2D1Bitmap スタブ。描画はしない。
-// AddRef/Release は no-op (static instance で寿命管理は不要)。
 class StubD2D1Bitmap : public ID2D1Bitmap {
 public:
     STDMETHODIMP QueryInterface(REFIID, void**) override
@@ -597,10 +594,8 @@ private:
     HWND hwnd_ = nullptr;
 };
 
-// COM apartment 初期化を管理する基底フィクスチャ。
-// 既に他スイートで別モードで初期化済みのケース (RPC_E_CHANGED_MODE) では
-// CoUninitialize を呼ばずに既存 apartment のカウントを保つ — そうしないと
-// 初期化していないスイートが他スイートの COM 状態を破壊する。
+// COM apartment 初期化を管理する基底フィクスチャ。他スイートが別モードで初期化済み (RPC_E_CHANGED_MODE) なら
+// CoUninitialize を呼ばずに既存 apartment のカウントを保つ。呼ぶと、初期化していないスイートが他スイートの COM 状態を壊す。
 class ComApartmentTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite()

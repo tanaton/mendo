@@ -175,8 +175,7 @@ TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-// issue #97: 縦長テーブル内で下方にスクロール中にマッチを確定する際、
-// ブロック先頭 Y ではなく該当行の Y を評価してマッチを選択する。
+// issue #97: 縦長テーブル内で下方にスクロール中にマッチを確定する際、ブロック先頭 Y ではなく該当行の Y でマッチを選ぶ。
 TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 {
     auto s = Searched(Nodes(MakeTableNode({ { "hit" }, { "hit" }, { "hit" } })), "hit");
@@ -478,9 +477,8 @@ TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsMatchSpillingIntoChangedRa
     EXPECT_EQ(s.GetMatches()[0].node_index, 2);
 }
 
-// 実セルレイアウト (DWriteTestBase) を使う検索マッチ Y のテスト。
-// 表の複数行セルでは (row, col, start) 順に並ぶマッチの Y が単調にならないため、
-// モックの固定行高では再現できない。
+// 実セルレイアウト (DWriteTestBase) を使う検索マッチ Y のテスト。表の複数行セルでは (row, col, start) 順に並ぶ
+// マッチの Y が単調にならないので、モックの固定行高では再現できない。
 namespace {
 
 // 1 列目の長文が折り返して "hit" が 3 行目以降に来る一方、同じ行の 2 列目の "hit" は 1 行目にある。

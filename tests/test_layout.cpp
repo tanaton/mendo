@@ -166,8 +166,7 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    // コードブロックは折り返さないため、高さは1行分になるはず
-    // （おおよそコードフォントの高さ）
+    // コードブロックは折り返さないので、高さは 1 行分 (おおよそコードフォントの高さ)。
     EXPECT_LT(cache[0].height, 100.0f);
 }
 
@@ -447,7 +446,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 }
 
 // ズームアウトの直後 (App::ApplyZoom の InvalidateAllLayouts の後) の部分レイアウトで、画面外の Y に旧倍率の大きな
-// height を引きずらない (InvalidateAllLayouts が高さを捨てる理由は test_layout_cache.cpp の InvalidateAllLayoutsDropsMeasurement)。
+// height を引きずらない (高さを捨てる理由は test_layout_cache.cpp の InvalidateAllLayoutsDropsMeasurement)。
 TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
@@ -888,8 +887,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     EXPECT_EQ(checked, 1);
 }
 
-// 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。
-// 結果の Y 位置は全件レイアウトと一致しなければならない。
+// 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。Y 位置は全件レイアウトと一致する。
 TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(200, " with some words"));

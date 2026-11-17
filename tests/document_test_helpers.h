@@ -40,8 +40,7 @@ inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint
     return FindLinkHitAtPosition(node, text_pos).transform([](const LinkHit& h) static noexcept { return h.url; });
 }
 
-// 指定 NodeType の最初のノードのインデックス。無ければ -1。
-// production は Document の索引 (GetImageNodeIndices 等) を使う。
+// 指定 NodeType の最初のノードの添字 (無ければ -1)。production は Document の索引 (GetImageNodeIndices 等) を使う。
 inline int FindFirstNodeIndexByType(std::span<const Node> nodes, NodeType type) noexcept
 {
     const auto it = std::ranges::find(nodes, type, &Node::type);

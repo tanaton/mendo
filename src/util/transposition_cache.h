@@ -5,11 +5,9 @@
 #include <utility>
 #include <vector>
 
-// 固定長キャッシュ。LRU ではなく Self-organizing list (transposition rule) で
-// アクセス順を整列させる。Find / Insert (既存キー) はヒットしたエントリを
-// 1 つ前と swap して promote。新規 Insert は先頭に入れ、溢れた末尾を捨てる。
-// 挿入は図の描画の後にしか起きないので、詰め直しの手間は問題にならない。
-// 非スレッド安全 (Find / Insert は内部順序を変更する)。
+// 固定長キャッシュ。LRU でなく Self-organizing list (transposition rule) でアクセス順に並べ、Find / Insert (既存キー) は
+// ヒットしたエントリを 1 つ前と swap して promote する。新規 Insert は先頭に入れて溢れた末尾を捨てる。挿入は図の描画の
+// 後にしか起きないので、詰め直しの手間は問題にならない。非スレッド安全 (Find / Insert は内部順序を変更する)。
 template <typename Key, typename Value, size_t MaxEntries>
 class TranspositionCache {
     static_assert(MaxEntries > 0, "TranspositionCache: MaxEntries must be greater than 0");

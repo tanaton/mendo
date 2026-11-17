@@ -190,9 +190,8 @@ inline bool IsSubrangeOf(std::string_view inner, std::string_view outer) noexcep
     return p >= base && p + inner.size() <= base + outer.size();
 }
 
-// スコープ離脱時にクリーンアップ関数を一度だけ実行する汎用 RAII ガード。
-// デストラクタのためだけの構造体をその場で定義する代わりに使う。
-// prvalue 初期化 (保証付きコピー省略) 専用のためコピー/ムーブは持たない。
+// スコープを抜けるときに関数を一度だけ実行する RAII ガード (デストラクタのためだけの構造体をその場で定義する代わり)。
+// prvalue 初期化 (保証付きコピー省略) 専用なので、コピー/ムーブは持たない。
 template <typename F>
 class ScopeGuard {
 public:

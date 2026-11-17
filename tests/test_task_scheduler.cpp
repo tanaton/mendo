@@ -157,10 +157,9 @@ constexpr auto kPostRaceLoopTime = std::chrono::milliseconds(30);
 
 } // namespace
 
-// 868f19d: shutdown_ を lock 外で store すると、worker が述語を評価してから wait に入るまでの
-// 隙間に store と notify_all が割り込み、通知を取りこぼして join が永久に戻らなかった。
-// 初回 Post の直後 (worker が初回の述語評価に向かう最中) に Shutdown を繰り返して隙間を突く。
-// 隙間は数命令幅なので検出は確率的 (修正前実装で数千回に 1 回程度ハング)。
+// 868f19d: shutdown_ を lock 外で store すると、worker が述語を評価してから wait に入るまでの隙間に store と
+// notify_all が割り込み、通知を取りこぼして join が永久に戻らなかった。初回 Post の直後 (worker が初回の述語評価に向かう
+// 最中) に Shutdown を繰り返して隙間を突く。隙間は数命令幅なので検出は確率的 (修正前実装で数千回に 1 回程度ハング)。
 TEST(TaskScheduler, ShutdownRightAfterStartNeverHangs)
 {
     EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {
@@ -174,9 +173,8 @@ TEST(TaskScheduler, ShutdownRightAfterStartNeverHangs)
     }));
 }
 
-// Post の契約: true を返したタスクは必ず実行され、false のタスクは実行されない。
-// shutdown 判定を lock 外で行うと、Shutdown の join 完了後に push されて true を返し、
-// 誰も実行しないタスクが残る。
+// Post の契約: true を返したタスクは必ず実行され、false のタスクは実行されない。shutdown 判定を lock 外で行うと、
+// Shutdown の join 完了後に push されて true を返し、誰も実行しないタスクが残る。
 TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
 {
     EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {

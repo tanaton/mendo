@@ -32,10 +32,9 @@ struct BuiltTable {
     bool pending_inline = false;
 };
 
-// 計測は const で、IDWriteTextLayout は per-call 生成、ファクトリと書式はワーカーごとに分ける (DWriteTextMeasurer) ため、
-// 同一インスタンスを複数ワーカーから const 経由で叩いて良い。
-// lifecycle 系 (RecreateFormats / SetTheme / SetScheduler) は non-const で UI スレッドからのみ呼ぶ。
-// 並列計測には const 参照で渡すので、計測中に lifecycle 系は呼べない。
+// 計測は const で、IDWriteTextLayout は per-call 生成、ファクトリと書式はワーカーごとに分ける (DWriteTextMeasurer) ので、
+// 同一インスタンスを複数ワーカーから const 経由で叩いて良い。lifecycle 系 (RecreateFormats / SetTheme / SetScheduler) は
+// non-const で UI スレッドからのみ呼ぶ。並列計測には const 参照で渡すので、計測中に lifecycle 系は呼べない。
 class ITextMeasurer {
 public:
     virtual ~ITextMeasurer() = default;
@@ -87,9 +86,8 @@ protected:
     TaskScheduler* scheduler_ = nullptr;
 };
 
-// 測れたら組んだ幅 (NodeLayoutWidth) を cached_width に残し、同じ幅へ戻った際に
-// EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
-// 測れなければ何も確定せず、推定の高さを実測値として残さない。
+// 測れたら組んだ幅 (NodeLayoutWidth) を cached_width に残し、同じ幅へ戻ったときに EstimateInvisibleNodeHeight が
+// 推定値で上書きしないようにする。測れなければ何も確定せず、推定の高さを実測値として残さない。
 // diagram は図のノードの DiagramEntry (無ければ nullptr)。
 inline void MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, const DiagramEntry* diagram)
@@ -218,9 +216,8 @@ public:
     // 本文幅かズームがキャッシュの推定時 (EstimateBasis) から変わったら、全ノードを dirty にして推定値で Y を組み直す
     // (DirectWrite は呼ばない)。戻り値は全ノードを dirty にしたか。
     bool Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width);
-    // [viewport_top, viewport_bottom] に入る dirty を計測し、退避したテーブル行を戻す。
-    // 計測で高さが変わると範囲に入るノードも変わるため、パスが何も変えなくなるまで繰り返す (TableMeasureJobs に回した表は
-    // dirty のまま残る)。
+    // [viewport_top, viewport_bottom] に入る dirty を計測し、退避したテーブル行を戻す。計測で高さが変わると範囲に入る
+    // ノードも変わるので、パスが何も変えなくなるまで繰り返す (TableMeasureJobs に回した表は dirty のまま残る)。
     // 戻り値は高さ・位置・テーブル行のいずれかが変わったか。
     bool EnsureVisibleLayout(
         std::span<const Node> nodes, LayoutCache& cache, float viewport_width,
@@ -246,14 +243,12 @@ private:
         std::span<const Node> nodes, LayoutCache& cache, float viewport_width,
         YRange range, LayoutDeadline deadline);
 
-    // Init は UI スレッドからのみ呼び、
-    // MeasureNode は const 経由で measurer の scheduler の worker から並列呼び出しされる。
+    // Init は UI スレッドからだけ呼ぶ。MeasureNode は measurer の scheduler の worker から const で並列に呼ばれる。
     ITextMeasurer* measurer_ = nullptr;
     TableMeasureJobs* table_jobs_ = nullptr;
 };
 
-// LayoutEngine + ViewportManager の組み合わせを薄くラップし、
-// スクロール target 管理付きのレイアウト操作を提供する。
+// LayoutEngine と ViewportManager を薄く包み、スクロール target を管理しながらレイアウトする。
 class LayoutService {
 public:
     LayoutService(LayoutEngine& engine, ViewportManager& viewport) noexcept

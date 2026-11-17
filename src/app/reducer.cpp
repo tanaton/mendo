@@ -20,8 +20,7 @@ namespace {
 // キーボードスクロール量（DIP）
 constexpr float SCROLL_LINE_AMOUNT = 40.0f;
 constexpr float SCROLL_PAGE_FACTOR = 0.9f;
-// 横ホイール 1 ノッチあたりの DIP スクロール量。
-// Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
+// 横ホイール (Shift+Wheel / WM_MOUSEHWHEEL) の 1 ノッチ (delta の WHEEL_DELTA = 120) あたりの DIP スクロール量。
 constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
 // ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用のスクロール先を捨てる。
@@ -214,8 +213,7 @@ void On(ReduceContext& c, const KeyScrollAction& a)
     std::unreachable();
 }
 
-// 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
-// スワイプとして誤検出されないようにする。
+// 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールがスワイプとして誤検出されないようにする。
 void NotifyVWheel(ReduceContext& c, uint64_t tick)
 {
     auto& swipe = c.state.interaction.swipe_detector;
@@ -296,8 +294,7 @@ void MoveBlockHScrollDrag(ReduceContext& c, const left_drag::BlockHScroll& drag,
     if (!geom.can_scroll()) {
         return;
     }
-    // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
-    // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
+    // dip_delta はサムが動いた DIP。サムが drag_range 動くとコンテンツが scroll_max 動くので、その比で換算する。
     // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
     const float dip_delta = dip_x - drag.start_x;
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
@@ -390,8 +387,7 @@ void On(ReduceContext& c, const TocItemClickedAction& a)
     PushCurrentNavEntry(c.state);
     ScrollToHeading(c.state, a.node_index);
     c.state.view.keep_toc_pane_once = true;
-    // スクロールが動かなくても描き直し、印をこのクリックの描画で消費させる。残すと、後のキー操作のスクロールで目次が
-    // 追従しない。
+    // スクロールしなくても描き直し、印をこのクリックの描画で消費させる。残すと後のキー操作のスクロールで目次が追従しない。
     Invalidate(c);
 }
 
@@ -507,8 +503,7 @@ void On(ReduceContext& c, const LoadingShownAction& a)
     ClearTooltip(c);
 }
 
-// キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
-// 届かないため、進行中のジェスチャーとドラッグをここで終える。
+// キャプチャを失うと (Alt+Tab・他アプリの SetCapture 等) WM_LBUTTONUP が届かないので、ジェスチャーとドラッグをここで終える。
 void On(ReduceContext& c, const CaptureChangedAction&)
 {
     if (!CaptureRequired(c.state)) {
@@ -1198,8 +1193,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     if (c.emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
         EmitScrollChangedSideEffects(c);
     }
-    // 戻る・進むのボタンは履歴から決まる。スクロールせずに履歴だけが変わる操作 (表示中の見出しへのアンカー・同じ位置への戻る)
-    // でも描き直す。
+    // スクロールせずに履歴だけが変わる操作 (表示中の見出しへのアンカー・同じ位置への戻る) でも戻る・進むのボタンを描き直す。
     if (nav_buttons() != old_nav_buttons) {
         Invalidate(c);
     }

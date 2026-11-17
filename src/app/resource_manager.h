@@ -105,9 +105,8 @@ public:
     void OnRenderDeviceRecreated();
 
     // 本文中の画像のファイルが更新されたら読み直す。監視するのは src を解決した画像 (先読み範囲に入ったか、開くとき・
-    // リロードで寸法を入れたもの) で、
-    // 別の文書を開くまで続ける。フォルダは worker で開き、開き終えるまでそのフォルダの画像は読まない
-    // (読んでから監視を始めるまでの更新を取りこぼさない)。
+    // リロードで寸法を入れたもの) で、別の文書を開くまで続ける。フォルダは worker で開き、開き終えるまでそのフォルダの
+    // 画像は読まない (読んでから監視を始めるまでの更新を取りこぼさない)。
     // メッセージループが待つ、画像のフォルダの監視のイベント。out は kMaxImageWatchEvents 以上。数を返す。
     static constexpr size_t kMaxImageWatchEvents = ImageFolderWatcher::kMaxEvents;
     size_t ImageWatchEvents(std::span<HANDLE> out) const noexcept

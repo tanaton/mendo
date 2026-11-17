@@ -48,8 +48,7 @@ public:
     // ノードのテキストとテーブルは data_ の中を直接指す。共有で持つため、move しても relocate せず付け替えは不要。
     constexpr Document() noexcept = default;
 
-    // text は NormalizeSource 済み (LoadFile の出力) であること。
-    // 既定の stop_token ではキャンセルしない。
+    // text は NormalizeSource 済み (LoadFile の出力) であること。既定の stop_token ではキャンセルしない。
     static Document FromNormalizedMarkdown(
         std::string text, std::wstring_view path, std::stop_token stop_token = {});
     // NormalizeSource を通してから読む (埋め込みの文書とテスト用。入力は BOM 無し前提)。

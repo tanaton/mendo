@@ -32,9 +32,8 @@ struct BlockHScrollGeometry {
     }
 };
 
-// 呼び出し側が可視幅 (ContentWidth − indent) を計算済みの場合のオーバーロード。
-// 区切ったコードブロックは並び全体を 1 つのブロックとして横スクロールする。スクロール量は並びの先頭を鍵に持ち、
-// 幅は並びのうち計測済みの部分の最大にする (部分ごとに幅が違うと、継ぎ目で行がずれる)。
+// 可視幅 (ContentWidth − indent) を計算済みの呼び出し側向け。区切ったコードブロックは並び全体を 1 つのブロックとして
+// 横スクロールし、幅は並びのうち計測済みの部分の最大にする (部分ごとに幅が違うと、継ぎ目で行がずれる)。
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
     std::span<const Node> nodes, const LayoutCache& cache, size_t node_index, float visible_width) noexcept
 {

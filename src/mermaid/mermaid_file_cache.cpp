@@ -239,8 +239,7 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
     if (it == index.entries.end()) {
         return;
     }
-    // StoreAsync 直後でバックグラウンド書き込みが in-flight なら「未着地＝stale」と
-    // 早合点せず entry を保持する（次回 Find で着地する）。
+    // StoreAsync 直後で書き込みが in-flight なら、未着地を stale と早合点せず entry を残す (次回 Find で着地する)。
     {
         const std::lock_guard lock(pending_mutex_);
         if (pending_writes_.contains(key)) {
@@ -279,8 +278,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     const uint32_t file_size = static_cast<uint32_t>(data.size());
 
-    // 既存キーの上書きは新規スロットを要さない。先に旧エントリを除去してから EvictIfNeeded を
-    // 呼び、満杯時に無関係なエントリを巻き込んで削除しないようにする。
+    // 既存キーの上書きは枠を増やさないので、旧エントリを除いてから EvictIfNeeded し、満杯時に無関係なエントリを巻き込まない。
     if (const auto it = index.entries.find(key); it != index.entries.end()) {
         index.Remove(it);
     }
@@ -293,8 +291,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         return;
     }
 
-    // 書き込み開始前に in-flight セットへ登録しておく。
-    // 読み込みがファイル未着地で失敗しても OnReadFailed が index から消さないようにする。
+    // 書き込む前に pending_writes_ に登録し、ファイルが未着地で読み込みに失敗しても OnReadFailed に index から消させない。
     // 同じキーは同じ中身なので、書き込み中なら 2 本目は出さない (同じ図が文書に複数ある場合)。
     // 2 本目を出すと、先に着地した方が追い出し済みとして消した後に書かれ、索引に無いファイルが残る。
     {
@@ -366,9 +363,8 @@ void MermaidFileCache::Clear()
         const InterProcessFileLock lock(kIndexLockKind, index_path);
         DeleteFileW(index_path.c_str());
     }
-    // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まるので worker で消す。
-    // 索引に載っていないファイル (索引を書き戻す前に落ちたときなど) も残らないよう、フォルダを列挙して控える。
-    // .png は版 5 までのファイル。
+    // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まるので worker で消す。索引に載っていないファイル (索引を書き戻す
+    // 前に落ちたときなど) も残らないよう、フォルダを列挙して控える。.png は版 5 までのファイル。
     std::unordered_set<std::wstring> names;
     for (const auto& path : ListEntries(cache_dir_)) {
         auto name = path.filename().native();

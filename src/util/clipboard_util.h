@@ -8,8 +8,7 @@
 #include <string>
 #include <string_view>
 
-// GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で直接書き込ませる。
-// 確保・ロック・fill のいずれかが失敗したら空を返す (確保済みメモリは解放される)。
+// GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で直接書かせる。失敗したら空 (確保分は解放)。
 template <class Fill>
 UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill)
 {
@@ -146,8 +145,7 @@ inline UniqueGlobalMem BuildGlobalCfHtml(std::string_view fragment_utf8) noexcep
     });
 }
 
-// CF_DIB (32bpp トップダウン BGRA) のバイト数: BITMAPINFOHEADER + ピクセル列。
-// 桁あふれ時は 0 を返す。色テーブルは 32bpp では不要。
+// CF_DIB (32bpp トップダウン BGRA) のバイト数。色テーブルは 32bpp では要らない。桁あふれなら 0。
 inline size_t DibTotalBytes(UINT width, UINT height) noexcept
 {
     if (width == 0 || height == 0) {
@@ -160,9 +158,8 @@ inline size_t DibTotalBytes(UINT width, UINT height) noexcept
     return sizeof(BITMAPINFOHEADER) + stride * height;
 }
 
-// dst 先頭に CF_DIB 用 BITMAPINFOHEADER を書き込む。続くピクセル領域 (dst + sizeof(header))
-// に呼び出し側がトップダウン 32bpp BGRA を width*4*height バイト書く。
-// CF_DIB を載せれば Windows が CF_BITMAP / CF_DIBV5 を自動合成するため広く貼り付け可能。
+// ヘッダに続くピクセル領域 (dst + sizeof(header)) には呼び出し側がトップダウン 32bpp BGRA を width*4*height バイト書く。
+// CF_DIB を載せれば Windows が CF_BITMAP / CF_DIBV5 を自動合成するので、広く貼り付けられる。
 inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
 {
     auto* bih = static_cast<BITMAPINFOHEADER*>(dst);

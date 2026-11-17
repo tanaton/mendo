@@ -64,8 +64,7 @@ StartupPlan PlanStartup(const StartupArgs& args, std::wstring_view last_file)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
-    // 起動の計測を取りこぼさないよう、Tracy の GUI が接続するのを待つ (ms)。Tracy を組み込まないビルドでは
-    // MENDO_IF_TRACY が空に展開される。
+    // 起動の計測を取りこぼさないよう、Tracy の GUI の接続を待つ (ms)。Tracy 無しのビルドでは MENDO_IF_TRACY が空になる。
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
     MENDO_FRAME_MARK();
@@ -85,8 +84,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     PrefetchD3DDevice();
 
-    // CoUninitialize は Win32Window 破棄（COM オブジェクト解放）より後に走らせる必要がある。
-    // window より先にこのガードを宣言することで、全 return 経路でこの順序を保証する。
+    // window より先に宣言し、全 return 経路で CoUninitialize を Win32Window の破棄 (COM オブジェクト解放) より後にする。
     bool com_initialized = false;
     ScopeGuard com_guard([&com_initialized] {
         if (com_initialized) {
@@ -110,10 +108,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     Win32Window window(config);
 
-    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D2D/DWrite/WIC のファクトリ) と並列に
-    // I/O + Markdown パースを進める。通知先の hwnd は Create の中の LoadInitialDocument で渡し、
-    // 結果 (PARSE_COMPLETE) は最初のフレームより前に OnParseComplete で取り込む。
-    // preload が無ければ LoadInitialDocument がヘルプを開く。
+    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D2D/DWrite/WIC のファクトリ) と並列に I/O + Markdown
+    // パースを進める。通知先の hwnd は Create の中の LoadInitialDocument で渡し、結果 (PARSE_COMPLETE) は最初の
+    // フレームより前に OnParseComplete で取り込む。preload が無ければ LoadInitialDocument がヘルプを開く。
     if (!plan.document_path.empty()) {
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }

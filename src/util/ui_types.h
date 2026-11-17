@@ -51,8 +51,7 @@ struct DipPoint {
     float y = 0.0f;
 };
 
-// DIP の矩形。<d2d1.h> は PCH (pch.h) で全 TU に入るので、別の型にせずそのまま使う。
-// メンバに既定値が無いので、宣言では {} で 0 にすること。
+// DIP の矩形。<d2d1.h> は PCH (pch.h) で全 TU に入るので別の型にしない。メンバに既定値が無く、宣言では {} で 0 にする。
 using DipRect = D2D1_RECT_F;
 
 // D2D 規約に合わせ右辺・下辺は排他的。
@@ -137,9 +136,8 @@ enum class ZoomDirection : uint8_t {
     Reset
 };
 
-// ZOOM_STEPS の段。本文とサイドペイン (ファイル一覧・目次) がそれぞれ持つ。
-// 段を動かす操作は変化したかを返す。float の戻り値で「0.0 == 変化なし」を表すと
-// ZOOM_STEPS に 0.0 が入った瞬間に破綻するし、SSOT を段に寄せる方針と相性が悪い。
+// ZOOM_STEPS の段。本文とサイドペイン (ファイル一覧・目次) がそれぞれ持つ。段を動かす操作は変化したかを返す
+// (float の戻り値で「0.0 == 変化なし」を表すと ZOOM_STEPS に 0.0 が入ると破綻し、SSOT を段に寄せる方針とも合わない)。
 class ZoomLevel {
 public:
     constexpr int Index() const noexcept

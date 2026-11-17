@@ -12,9 +12,8 @@
 #include <variant>
 #include <vector>
 
-// App::OnParseComplete の分岐 (PlanParseComplete) を表形式で網羅する。
-// 7bf29e2 / b5e28d0 / 8e7c0db で修正が繰り返された箇所: stale 通知、判定後の文書差し替え、
-// 書き込み途中の延期、差分判定の各結果。
+// App::OnParseComplete の分岐 (PlanParseComplete) を表形式で網羅する。7bf29e2 / b5e28d0 / 8e7c0db で修正が
+// 繰り返された箇所: stale 通知、判定後の文書差し替え、書き込み途中の延期、差分判定の各結果。
 
 namespace {
 

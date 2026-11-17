@@ -73,9 +73,8 @@ private:
 //   ...
 //   ~Owner() { latch_.Wait(); }            // 既に Post 済みの worker 完了を待つ
 //
-// Wait は worker が cv/mutex へのアクセスを完了するまで待機する。lock-free fast-path を
-// 持つと「Wait が抜けた直後に latch 破棄 → worker が破棄済み cv/mutex を触る」破棄レースに
-// なるため、判定は常に mutex 下で行う。
+// Wait は worker が cv/mutex に触り終えるまで待つ。lock-free fast-path を持つと「Wait が抜けた直後に latch 破棄 →
+// worker が破棄済み cv/mutex を触る」破棄レースになるので、判定は常に mutex 下で行う。
 class WorkerLatch {
     struct Release {
         void operator()(WorkerLatch* latch) const noexcept

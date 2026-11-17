@@ -1,7 +1,6 @@
-// MockTextMeasurer 経路の CommandGenerator テスト (COM / DirectWrite 不要)。
-// entry.text_layout は null なので、構造的なコマンド出力を確かめる。ハイライトや button 配置は
-// IDWriteTextFormat / IDWriteTextLayout が必要なため別ファイル
-// (test_command_generator_highlight.cpp) で扱う。
+// MockTextMeasurer 経路の CommandGenerator テスト (COM / DirectWrite 不要)。entry.text_layout は null なので、
+// 構造的なコマンド出力を確かめる。ハイライトや button 配置は IDWriteTextFormat / IDWriteTextLayout が要るので
+// test_command_generator_highlight.cpp で扱う。
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "cmd_gen_mock_test_base.h"
@@ -109,8 +108,7 @@ TEST_F(CmdGenContentTest, TransformsArePaired)
 }
 
 // コードブロック・Alert と、描き終えていない Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
-// 本文中の画像は読み込み中は何も描かない (ブラウザと同じ)。
-// プレースホルダーの背景はコードブロックと同じ色。
+// 本文中の画像は読み込み中は何も描かない (ブラウザと同じ)。プレースホルダーの背景はコードブロックと同じ色。
 TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 {
     struct Case {

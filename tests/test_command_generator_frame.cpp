@@ -49,8 +49,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
 
 TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
 {
-    // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップ。
-    // スナップは Transform でなく描画コマンドの Y 計算に反映される。
+    // DPI=2.0 → round(scroll_y * 2) / 2 で 0.5px 境界にスナップし、Transform でなく描画コマンドの Y 計算に反映される。
     const auto cmds = Generate("---", { 0.0f, 0.0f, 800.0f, 400.0f }, 0.3f, 2.0f);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);

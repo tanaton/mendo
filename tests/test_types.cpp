@@ -199,8 +199,7 @@ TEST(NodeTest, TextStoredRegardlessOfType)
     }
 }
 
-// alert_type は伝播ロジック (parser.cpp の DetectAlert) で後続ノードにも付く。
-// ラベル長は先頭のノードだけが持ち、伝播先ノードは 0 のはず。
+// alert_type は伝播ロジック (parser.cpp の DetectAlert) で後続ノードにも付くが、ラベル長は先頭のノードだけが持つ。
 TEST(NodeTest, AlertLabelLengthOnlyOnHead)
 {
     Node body;

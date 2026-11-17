@@ -125,8 +125,7 @@ TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
 
 TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
 {
-    // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも
-    // 先頭セクションが無言で失われないこと
+    // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも先頭セクションが無言で失われないこと
     WriteTempFile(L"settings.ini", "\xEF\xBB\xBF[Window]\r\nX=42\r\n");
     config_.Load();
     EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
@@ -377,9 +376,8 @@ TEST_F(SessionTest, LoadPanesOverwritesCurrentState)
 
 TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
 {
-    // 過剰幅は PaneController::ComputeLayout が表示幅だけを縮めて扱うので、LoadPanes はウィンドウ幅で
-    // clamp せず保存値をそのまま使う。clamp すると狭いウィンドウで起動したときに保存値が min へ潰れ、
-    // 終了時の再保存で失われる。
+    // 過剰幅は PaneController::ComputeLayout が表示幅だけを縮めるので、LoadPanes はウィンドウ幅で clamp せず保存値を
+    // そのまま使う。clamp すると狭いウィンドウで起動したときに保存値が min へ潰れ、終了時の再保存で失われる。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 

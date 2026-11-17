@@ -102,8 +102,7 @@ std::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
             break;
         }
         if (!FindNextFileW(hFind.get(), &fd)) {
-            // 列挙の途中失敗を正常終了 (ERROR_NO_MORE_FILES) と区別する。
-            // 中断時は部分結果を完全な一覧と誤認させないよう破棄する。
+            // 列挙の途中の失敗 (ERROR_NO_MORE_FILES 以外) では、部分結果を完全な一覧と誤認させないよう破棄する。
             if (GetLastError() != ERROR_NO_MORE_FILES) {
                 entries.resize(sort_begin);
             }

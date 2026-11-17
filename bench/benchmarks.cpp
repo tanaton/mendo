@@ -764,8 +764,7 @@ void BM_TokenizeCodeChunk(benchmark::State& state, bool continuation)
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, continuation, true)->Unit(benchmark::kMicrosecond);
 
-// 文書を開いた直後 (layout を作ったのは見えている範囲だけ) の 1 回目の EvictTextLayouts。
-// 30 万ノードは 100MB 程度の文書。
+// 文書を開いた直後 (layout があるのは見えている範囲だけ) の 1 回目の EvictTextLayouts。30 万ノードは 100MB 程度の文書。
 void BM_FirstEvictAfterOpen(benchmark::State& state)
 {
     const auto n = static_cast<size_t>(state.range(0));

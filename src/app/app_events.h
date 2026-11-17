@@ -126,8 +126,7 @@ struct LinkHover {
     bool operator==(const LinkHover&) const = default;
 };
 
-// マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
-// 既定値はどこにもホバーしていない状態。
+// マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。既定値はどこにもホバーしていない状態。
 struct HoverHighlights {
     TitleBarHitZone titlebar = TitleBarHitZone::None;
     // Input はホバー強調が無いので None と同じに扱う。

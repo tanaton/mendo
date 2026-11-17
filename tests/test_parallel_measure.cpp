@@ -251,8 +251,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     }
 }
 
-// 並列計測で例外を投げるノードがあっても、計測できたノードの高さを Y に反映し、
-// 投げたノードは再試行に回さず dirty を外す。
+// 並列計測で例外を投げるノードがあっても、計測できたノードの高さを Y に反映し、投げたノードは再試行に回さず dirty を外す。
 TEST_F(ParallelMeasureTest, ProcessDirtyBatchGivesUpOnThrowingNode)
 {
     struct Case {

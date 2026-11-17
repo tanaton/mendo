@@ -12,8 +12,7 @@
 
 namespace wic_util {
 
-// CLSID_WICImagingFactory の CoCreateInstance を共通化する。
-// 失敗時は context 文字列付きで LogHrFailure を流し nullptr を返す。
+// CLSID_WICImagingFactory の CoCreateInstance。失敗したら context 付きで LogHrFailure を流し nullptr を返す。
 inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const char* context) noexcept
 {
     Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
@@ -25,8 +24,7 @@ inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const char* c
     return factory;
 }
 
-// bytes をコピーせずに参照するストリーム。bytes はストリームから作ったデコード結果を使い終えるまで生かすこと。
-// 空や DWORD を超える大きさなら nullptr。
+// bytes をコピーせずに参照するストリーム (空や DWORD 超えなら nullptr)。bytes はデコード結果を使い終えるまで生かすこと。
 inline Microsoft::WRL::ComPtr<IWICStream> CreateStreamOnMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
     if (!wic || bytes.empty() || bytes.size() > std::numeric_limits<DWORD>::max()) {
@@ -64,9 +62,8 @@ struct DecodeResult {
     UINT pixel_height = 0;
 };
 
-// 文書から指定された画像のコンテナ形式。WIC の内容判定に任せると HEIF・RAW や他社製コーデックなど
-// インストール済みのどのデコーダもプロセス内で動かせてしまうので、ブラウザが表示する形式だけを
-// 先頭バイトで選ぶ。該当しなければ nullptr。
+// 文書から指定された画像のコンテナ形式。WIC の内容判定に任せると HEIF・RAW や他社製コーデックなどインストール済みの
+// どのデコーダもプロセス内で動かせてしまうので、ブラウザが表示する形式だけを先頭バイトで選ぶ。該当しなければ nullptr。
 inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
 {
     const auto starts_with = [bytes](std::initializer_list<uint8_t> sig, size_t at = 0) {
@@ -113,10 +110,9 @@ inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagin
     return frame;
 }
 
-// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter と
-// ピクセルサイズを返す。bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は
-// ConvertBitmapSource を参照)。形式の判定を WIC に任せるとインストール済みのどのデコーダも
-// 動きうるので、container の形式に限る。
+// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す。
+// bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は ConvertBitmapSource を参照)。
+// 形式の判定を WIC に任せるとインストール済みのどのデコーダも動きうるので、container の形式に限る。
 inline std::optional<DecodeResult> DecodeFromMemory(
     IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
 {

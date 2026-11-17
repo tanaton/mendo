@@ -1100,8 +1100,7 @@ void App::SaveSession()
 
     session::SavePanes(config_, state_.view.panes);
     session::SaveLanguage(config_, i18n::ConfigLangKey());
-    // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
-    // すべての設定値を 1 度のディスク書き込みにまとめる。
+    // 個別の Save は write を遅らせるので、終了前に明示の flush ですべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
 }
 
@@ -1178,8 +1177,8 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    // 色のみの変更なのでテキストレイアウトは維持する。レイアウトに付けた描画効果は色の印 (BrushEffect) で、描くときに
-    // 作り直した固定ブラシへ置き換わるので付け直さない。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
+    // 色のみの変更なのでテキストレイアウトは残す。付けた描画効果は色の印 (BrushEffect) で、描くときに作り直した固定ブラシへ
+    // 置き換わるので付け直さない。テーマ色を焼き込んだ図は、後始末 (FinishLayout) の図の要求がテーマの変化を見て描き直させる。
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
@@ -1837,8 +1836,7 @@ void App::OnDeferredLayout()
         return;
     }
     const DeferredLayoutRun done = std::exchange(run, {});
-    // スクロールのたびに先読みの範囲を確かめさせるので、多くは組むものが無い。何も組まず、画像と図の整理も
-    // 待たせていなければ何もしない。
+    // スクロールごとに先読みの範囲を確かめさせるので、多くは組むものが無い。画像と図の整理も待たせていなければ何もしない。
     if (!done.measured && !done.settle) {
         return;
     }

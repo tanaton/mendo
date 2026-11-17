@@ -38,8 +38,7 @@ hit_test::HitResult ClampToNearestTextNode(std::span<const Node> nodes, int cand
             return { i, static_cast<uint32_t>(text.size()) };
         }
     }
-    // candidate より前に非空ノードが無い場合 (文頭が HR/図 等) も含め、
-    // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
+    // candidate 以前に非空ノードが無ければ (文頭が HR/図 等)、先頭の非空ノードの先頭へ倒す。
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (!node.GetText().empty()) {
             return { static_cast<int>(i), 0 };
@@ -48,8 +47,7 @@ hit_test::HitResult ClampToNearestTextNode(std::span<const Node> nodes, int cand
     return {};
 }
 
-// dip_y を含むノード。表とテキストレイアウトを持つノードだけ返し、
-// 余白や水平線の上などでは -1 を返して ClampToNearestTextNode に委ねる。
+// dip_y を含む表か text_layout を持つノード。余白や水平線の上などは -1 にして ClampToNearestTextNode に委ねる。
 struct DirectHit {
     int node_index = -1;
     // ClampToNearestTextNode に渡す候補 (dip_y 以下に上端がある最後のノード)。
@@ -67,8 +65,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     // 探索と同じ text_top を局所座標 (local_y) の基準にする。
     const auto c = static_cast<size_t>(hit.candidate);
     hit.text_top = ctx.cache.Top(c);
-    // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
-    // ホバーが切れないようにする。
+    // 背景の下側のはみ出し (横スクロールバーを置く領域) もそのノードに含め、ホバーを切らさない。
     const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
     const NodeType type = ctx.nodes[c].type;
     if (inside && (type == NodeType::Table || ctx.cache[c].text_layout())) {
@@ -133,8 +130,7 @@ hit_test::HitResult hit_test::HitTestTable(
     }
     const auto& tl = *tl_ptr;
 
-    // テーブルが scroll_x 分左にスライドして見えるため、列の自然座標と一致させるには
-    // base_x を scroll_x 分左にずらして与える。
+    // 表は scroll_x 分左にずれて見えるので、base_x も同じだけ左にずらして列の自然座標に合わせる。
     const float base_x = NodeBlockX(node, theme) - h_scroll_x;
 
     const auto* tbl = node.table_data();

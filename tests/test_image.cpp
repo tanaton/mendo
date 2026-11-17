@@ -435,9 +435,8 @@ protected:
     }
 };
 
-// 拡張子ではなく先頭バイトで形式を決め、ブラウザで表示できる形式以外のデコーダは動かさない。
-// 内容から自動判定する CreateDecoderFromStream に戻すと、インストール済みの任意のコーデックが
-// 文書を開いただけでプロセス内で動く。
+// 拡張子ではなく先頭バイトで形式を決め、ブラウザで表示できる形式以外のデコーダは動かさない。内容から自動判定する
+// CreateDecoderFromStream に戻すと、インストール済みの任意のコーデックが文書を開いただけでプロセス内で動く。
 TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
 {
     ASSERT_TRUE(CreateTestImage(L"tiff_as.png", GUID_ContainerFormatTiff, 40, 30));
@@ -1410,8 +1409,7 @@ TEST_F(ImageLoaderAsyncTest, InvalidateAllowsRetryAfterGivingUp)
     EXPECT_TRUE(LoadAndGet(path, entry));
 }
 
-// 読んでいる間に更新されたファイルの結果は、更新の前の中身かもしれないので stale で入れ、次の読み込みで stale を外す。
-// 失敗は数えない。
+// 読んでいる間に更新されたファイルの結果は更新前の中身かもしれないので stale で入れ、次の読み込みで外す。失敗は数えない。
 TEST_F(ImageLoaderAsyncTest, InvalidateWhilePendingKeepsResultStale)
 {
     ASSERT_TRUE(CreateTestImage(L"inv_pending.png", GUID_ContainerFormatPng, 40, 30));

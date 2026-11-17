@@ -128,8 +128,7 @@ void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, 
     }
 }
 
-// row_bgs は列の昇順なので、col 以下の分を先頭から消費し col のセルの背景だけを描く。
-// 列を昇順に渡す限り、行全体で O(背景数) で済む。
+// row_bgs は列の昇順なので、col 以下を先頭から消費し col のセルの背景だけを描く。列を昇順に渡せば行全体で O(背景数)。
 void GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg>& row_bgs, size_t col, float origin_x, float origin_y)
 {
     while (!row_bgs.empty() && row_bgs.front().col <= col) {
@@ -158,9 +157,8 @@ constexpr float ALERT_BG_PAD = 4.0f;
 static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(BrushId::AlertNote) + 1 == ALERT_TYPE_COUNT,
               "AlertBrushIdFromIndex must cover every AlertType");
 
-// MeasureNode 時に確定済みの first_line_height を優先利用する。
+// MeasureNode 時に確定済みの first_line_height を優先利用し、描画ホットパスから COM 越境呼び出しを排除する。
 // 0 (text_layout の無いゆるいリストと空の項目) は、続く段落の 1 行目と同じ本文の行送りにする。
-// 描画ホットパスから COM 越境呼び出しを排除する。
 float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
 {
     return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * BODY_LINE_HEIGHT_FACTOR;
@@ -307,8 +305,7 @@ SearchInputMetrics MeasureSearchInput(TextLayoutCache& text_layouts, IDWriteText
         }
     }
 
-    // コンポジション中はその末尾に置く。
-    // 失敗しても未初期化の値を読まない (キャレットは左端になる)。
+    // コンポジション中はその末尾に置く。失敗しても未初期化の値を読まない (キャレットは左端になる)。
     FLOAT px = 0.0f;
     FLOAT py = 0.0f;
     DWRITE_HIT_TEST_METRICS htm{};
@@ -374,8 +371,7 @@ void EmitNavButtons(CmdWriter w, IDWriteTextFormat* fmt, const PaneRect& md_pane
 }
 
 namespace {
-// ジェスチャー/トーストの背景パネルと文言。
-// box は rect の大きさ。矩形の差から求めると丸めで値が揺れ、文字レイアウトのキャッシュが外れる。
+// ジェスチャー/トーストの背景パネルと文言。box は rect の大きさ (矩形の差から求めると丸めでキャッシュが外れる)。
 void EmitPanel(CmdWriter w, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, D2D1_SIZE_F box, float corner, float alpha, std::wstring_view text)
 {
     w.out.push_back(FillRoundedRectCmd{ .rect = rect, .radius = corner, .brush_id = BrushId::OverlayGestureBg, .opacity = alpha });
@@ -774,9 +770,8 @@ BrushId GetNodeBaseBrush(const Node& node) noexcept
     std::unreachable();
 }
 
-// ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
-// (見出し下線・空 LI の bullet・コード背景・引用装飾等)。ノード単位のカリングはこの余裕幅で
-// 判定し、実際の切り抜きは md ペインのクリップに任せる。
+// ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限 (見出し下線・空 LI の bullet・
+// コード背景・引用装飾等)。ノード単位のカリングはこの余裕幅で判定し、実際の切り抜きは md ペインのクリップに任せる。
 struct NodeOverhang {
     float above;
     float below;
@@ -811,9 +806,8 @@ struct MdPaneEmitter : CmdWriter {
     float content_width;
     float dpi_scale;
     float snapped_scroll_y;
-    // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、
-    // ドキュメント Y が 10^7 オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・
-    // ハイライト矩形・グリフランのカリングに共通で使う。
+    // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、ドキュメント Y が 10^7
+    // オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・ハイライト矩形・グリフランのカリングに使う。
     YRange visible;
     // ブロック横スクロールの clip 内で平行移動を合成し、抜けたあと復元するための基底 Translation。
     D2D1::Matrix3x2F pane_transform;
@@ -943,8 +937,7 @@ struct MdPaneEmitter : CmdWriter {
         out.emplace_back(cmd);
     }
 
-    // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
-    // early return を経由せず描画したいため独立メソッド化。
+    // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の early return を経ずに描く。
     void GenTaskListCheckbox(const Node& node, float x, float entry_text_top)
     {
         const std::wstring_view icon = node.task_checked() ? L"\u2611" : L"\u2610"; // ☑ / ☐
@@ -962,8 +955,7 @@ struct MdPaneEmitter : CmdWriter {
             theme.hr_thickness, BrushId::Hr });
     }
 
-    // box は padding 込みのコードブロック矩形 (ペインローカル)。
-    // 区切ったコードブロックの継ぎ目の側は角を丸めず、隣の背景とつなげる。
+    // box は padding 込みの矩形 (ペインローカル)。区切ったコードブロックの継ぎ目の側は角を丸めず、隣の背景とつなげる。
     void GenCodeBlockBg(const D2D1_RECT_F& box, bool round_top, bool round_bottom)
     {
         if (!round_top && !round_bottom) {
@@ -980,8 +972,7 @@ struct MdPaneEmitter : CmdWriter {
         }
     }
 
-    // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
-    // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
+    // ブロックローカルの水平スクロールバー。block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
     void EmitBlockHScrollbarIfActive(int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x)
     {
         if (!geom.can_scroll()) {
@@ -1076,9 +1067,8 @@ struct MdPaneEmitter : CmdWriter {
         const float snap = snapped_scroll_y;
         const int node_count = static_cast<int>(nodes.size());
 
-        // バーと背景はクリップされるので、グループの可視範囲外の部分は走査しない (巨大な引用でも
-        // 可視ノード数ぶんで済む)。first_visible がグループ途中なら、可視範囲より上にある直前の
-        // 1 ノードから始めれば、上から続くバーと背景が可視範囲の上端より外から描かれる。
+        // バーと背景はクリップされるので、グループの可視範囲外は走査しない (巨大な引用でも可視ノード数ぶんで済む)。
+        // first_visible がグループ途中なら直前の 1 ノードから始め、上から続くバーと背景を可視範囲の上端より外から描く。
         int i = first_visible;
         if (i > 0 && i < node_count && nodes[i].blockquote_group >= 0 && nodes[i - 1].blockquote_group == nodes[i].blockquote_group) {
             --i;
@@ -1140,8 +1130,7 @@ struct MdPaneEmitter : CmdWriter {
             out.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, AlertBgBrushIdFromIndex(idx) });
         }
 
-        // GitHub と同様に、外側のバーはネストした範囲を貫通して連続描画する。
-        // 各 level ごとに quote_depth >= level の連続区間を求めてバーを発行。
+        // GitHub と同様に、外側のバーはネストした範囲を貫通して連続描画する (level ごとに quote_depth >= level の区間)。
         for (int level = 1; level <= max_depth; ++level) {
             const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme.indent_width;
             const float bar_x = theme.margin_left + bar_indent_x - theme.indent_width * 0.5f;
@@ -1229,8 +1218,7 @@ struct MdPaneEmitter : CmdWriter {
         const BrushId cell_brush = GetNodeBaseBrush(node);
         const BrushId header_brush = UsesBlockquoteText(node) ? cell_brush : BrushId::Heading;
 
-        // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
-        // (FindTableRow と同じパターン)。巨大テーブルで
+        // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする (FindTableRow と同じパターン)。巨大テーブルで
         // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
         const YRange local_visible = visible.ToLocal(entry_text_top);
         const auto [r_begin, r_end] = tl.VisibleRowRange(local_visible.top, local_visible.bottom);
@@ -1394,17 +1382,14 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
     const auto& cache = p.cache;
 
     out.emplace_back(PushClipCmd{ ToD2DRect(md_pane_rect) });
-    // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
-    // フレーム間変動によるテキストのガタつきを防止する。スナップは描画 Y のみに
-    // 適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。
+    // スクロール位置を物理ピクセルにスナップし、ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防ぐ。
+    // スナップは描画 Y のみに適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。
     const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
 
-    // スクロールの Y 平行移動は Transform に乗せず CPU 側で entry ごとに加算する。
-    // 大規模ファイルで text_top/scroll_y が 10^7 DIP オーダーになると、D2D 内部の
-    // float32 行列演算で catastrophic cancellation が起きるため。
-    // ペイン原点は小さい定数なので Transform に乗せ、ローカル Y を [0, ペイン高さ] に揃えて
-    // 可視範囲の判定と一致させる。原点を物理ピクセルに揃えておくと、ローカル座標の snap だけで
-    // bullet やスクロールバーがピクセル境界に乗る。
+    // スクロールの Y 平行移動は Transform に乗せず CPU 側で entry ごとに加算する。大規模ファイルで text_top/scroll_y が
+    // 10^7 DIP オーダーになると、D2D 内部の float32 行列演算で catastrophic cancellation が起きるため。ペイン原点は
+    // 小さい定数なので Transform に乗せ、ローカル Y を [0, ペイン高さ] に揃えて可視範囲の判定と一致させる。原点を
+    // 物理ピクセルに揃えておくと、ローカル座標の snap だけで bullet やスクロールバーがピクセル境界に乗る。
     const auto pane_transform = D2D1::Matrix3x2F::Translation(
         SnapToPhysicalPixel(md_pane_rect.x, dpi_scale), SnapToPhysicalPixel(md_pane_rect.y, dpi_scale));
     out.emplace_back(SetTransformCmd{ pane_transform });
@@ -1424,13 +1409,11 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
     };
 
     const int node_count = static_cast<int>(nodes.size());
-    // 二分探索キーは未スナップのドキュメント Y (cache.Top(i) と同じ系)。
-    // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
-    // はみ出しの上限だけ手前から始める。
+    // 二分探索キーは未スナップのドキュメント Y (cache.Top(i) と同じ系)。下端より下にはみ出す描画
+    // (見出し下線・空 LI の bullet 等) を上端で落とさないよう、はみ出しの上限だけ手前から始める。
     const int first_visible = FindFirstVisibleNodeIndex(cache, scroll_y - e.overhang.below);
 
-    // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
-    // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
+    // 同一 blockquote_group のノードをまとめてバー/背景を描画し、複数行の引用ブロックを連続した見た目にする。
     e.GenBlockQuoteGroupDecorations(first_visible);
 
     int visible_count = 0;

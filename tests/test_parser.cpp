@@ -186,9 +186,8 @@ TEST(Parser, LinkRunPointsToUrl)
 
 TEST(Parser, LinkUrlCountCappedAtInt16Max)
 {
-    // link_url_index は int16_t。上限を超えた URL はリンクなしとして扱われ、
-    // wrap して別 URL へ誤マッピングしないこと。テーブルは全体が 1 ノードで
-    // link_urls を共有するため上限へ到達しうる。
+    // link_url_index は int16_t。上限を超えた URL はリンクなしとして扱われ、wrap して別 URL へ誤マッピングしない。
+    // テーブルは全体が 1 ノードで link_urls を共有するため上限へ到達しうる。
     constexpr int kUrls = 32769;
     std::string md = "| col |\n|---|\n";
     md.reserve(md.size() + static_cast<size_t>(kUrls) * 20);
@@ -890,9 +889,8 @@ TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
 
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
 {
-    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
-    // md4c は `$` の直後に空白・数字・記号が続く場合などインライン数式として解釈しないため、
-    // フラグ有効化で既存のドル記号テキストが壊れないことを確認する。
+    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキスト。md4c は `$` の直後に空白・数字・記号が続く
+    // ときなどはインライン数式にしないので、フラグを有効にしても既存のドル記号のテキストは壊れない。
     auto nodes = ParseNodes("The price is $5 or $10.");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
@@ -1771,9 +1769,8 @@ TEST(ParserChunks, LongJapaneseLineSplitsAfterPunctuation)
     }
 }
 
-// 装飾の無い段落やコードは原文を指す (コピーしない)。
-// 字下げは md4c から静的な空白で届くが、原文も空白なら 1 行目が字下げされたコードも原文を指す。
-// タブの字下げは空白に置き換わるのでコピーになる。
+// 装飾の無い段落やコードは原文を指す (コピーしない)。字下げは md4c から静的な空白で届くが、原文も空白なら
+// 1 行目が字下げされたコードも原文を指す。タブの字下げは空白に置き換わるのでコピーになる。
 TEST(ParserRawView, PlainTextPointsIntoRaw)
 {
     struct Case {

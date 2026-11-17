@@ -56,8 +56,7 @@ IniData Parse(std::string_view text)
                 current_section = std::string(line.substr(1, close - 1));
             }
             else {
-                // 未終端ブラケットは壊れたセクション開始。後続キーが直前セクションへ
-                // 誤混入するのを防ぐため無名セクションへ退避する。
+                // 未終端の [ は壊れたセクション開始。後続キーを直前セクションに混ぜないよう無名セクションへ退避する。
                 current_section.clear();
             }
             continue;
@@ -111,8 +110,7 @@ std::string Serialize(const IniData& data)
 
 } // namespace ini
 
-// ini 永続化キー。生文字列を散らさず一覧化し、タイポを静的に検出可能にする。
-// 既存の ini ファイル下位互換が要求されるため値の変更は禁止。
+// ini のキー。生文字列を散らさず一覧化し、タイポを静的に検出する。既存の ini ファイルと互換を保つため値は変えない。
 namespace {
 using namespace std::literals;
 constexpr auto kSettingsFile = L"settings.ini"sv;
@@ -398,10 +396,9 @@ void session::LoadPanes(const ConfigService& config, PaneController& panes)
 {
     constexpr int default_int = static_cast<int>(SIDE_PANE_DEFAULT_WIDTH);
     constexpr int min_int = static_cast<int>(SIDE_PANE_MIN_WIDTH);
-    // 過剰幅の表示制限は PaneController::ComputeLayout 側 (side 幅を表示時に clamp して MD ペインと
-    // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
-    // ウィンドウ幅で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
-    // 終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
+    // 過剰幅の表示制限は PaneController::ComputeLayout 側 (side 幅を表示時に clamp して MD ペインとスプリッタを
+    // 画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。ウィンドウ幅で上限 clamp すると
+    // 狭いウィンドウ起動時に保存値が min へ潰れ、終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
     constexpr int kPaneWidthLoadMax = 10000;
     for (const auto& k : kPaneKeys) {
         panes.SetSidePaneVisible(k.target, config.LoadBool(kSectionPane, k.show, true));

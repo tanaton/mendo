@@ -10,8 +10,7 @@
 
 namespace {
 
-// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると
-// ワーカー thread の生成・join を毎回招きトータル数百ms に達するため。
+// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると worker の生成・join で合計数百 ms かかる。
 class AsyncLoadCoordinatorTest : public TempDirTestBase {
 protected:
     static TaskScheduler scheduler_;
@@ -111,8 +110,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
     }
 }
 
-// 別のファイルを開くときは監視の準備 (短縮名・親フォルダ・最初の読み取り) も worker で済ませる。リロードは今の監視を続けるので
-// 作らない。
+// 別のファイルなら監視の準備 (短縮名・親フォルダ・最初の読み取り) も worker で済ませる。リロードは今の監視を続けるので作らない。
 TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
 {
     const auto tmp = WriteTempFile(L"aload_watch", "# Title\n\nbody\n");
@@ -648,8 +646,7 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
 
 class LoadFileTest : public TempDirTestBase {};
 
-// BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま
-// (部分書き込みの検出に使うため)。
+// BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま (部分書き込みの検出に使うため)。
 TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
 {
     struct Case {

@@ -79,7 +79,6 @@ struct Theme {
     void ApplyZoom(float new_zoom) noexcept;
 };
 
-// プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
-// 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。
+// プロセス内で 1 度だけ作る定数テーマ。変えるならコピーしてから ApplyZoom 等を行う。
 const Theme& GetLightTheme();
 const Theme& GetDarkTheme();

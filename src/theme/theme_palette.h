@@ -1,12 +1,10 @@
 #pragma once
 #include <cstdint>
 
-// theme.h から分離してあるのは core 層 (selection_html.cpp) が D2D1 / Theme 構造体に
-// 引きずられず、色とフォントだけを参照できるようにするため。
+// theme.h と分けたのは、core 層 (selection_html.cpp) が D2D1 / Theme に依存せず色とフォントだけを見るため。
 namespace theme_palette {
 
-// 全テーマ共通。先頭から実在するものを選び、どれも無ければ末尾を使う。
-// HTML コピーの CSS にも埋め込むので ASCII のみ。
+// 全テーマ共通。先頭から実在するものを選び、無ければ末尾を使う。HTML コピーの CSS にも埋め込むので ASCII のみ。
 inline constexpr const wchar_t* kMonospaceFontCandidates[]{ L"Cascadia Mono", L"Consolas", L"Courier New" };
 // Segoe Fluent Icons は Windows 11 から。Windows 10 は Segoe MDL2 Assets にある同じコードポイントで代用する。
 inline constexpr const wchar_t* kIconFontCandidates[]{ L"Segoe Fluent Icons", L"Segoe MDL2 Assets" };

@@ -22,7 +22,8 @@ int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect,
     return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }
 
-// 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
+// 入力欄が編集に使うキー: キャレット移動・削除・Insert (Shift+Insert の貼り付け、Ctrl+Insert のコピー) と、
+// Ctrl を付けたコピー・貼り付け・切り取り・元に戻す・やり直し。
 // 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
 constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
 {

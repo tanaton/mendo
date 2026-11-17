@@ -1,7 +1,6 @@
 #pragma once
 
-// <windows.h> 取り込みの前提:
-// UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN は target_compile_definitions で定義済み
+// <windows.h> の前提の UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN は target_compile_definitions で定義済み。
 
 #include <algorithm>
 #include <array>
@@ -35,10 +34,8 @@
 #include <d2d1.h>
 #include <dwrite.h>
 
-// <rpcndr.h> (windows.h 経由で間接 include される MIDL ランタイム) は
-// `#define small char` を放出するため、`small` を識別子として使う標準ライブラリや
-// 自前コードがコンパイルエラーを起こす。pch を介して全 TU に伝播するのを防ぐため、
-// pch のここで明示的に解除する。識別子 small を使用しない場合でも保険として残す。
+// windows.h 経由の <rpcndr.h> (MIDL ランタイム) は `#define small char` を出し、`small` を識別子に使う標準ライブラリや
+// 自前コードをコンパイルエラーにする。pch から全 TU に広がらないようここで解除する (small を使わなくても保険として残す)。
 #ifdef small
 #undef small
 #endif

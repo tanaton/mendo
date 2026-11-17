@@ -329,8 +329,7 @@ constexpr size_t ScanRubyBlockComment(std::string_view text, size_t pos) noexcep
     return p == npos ? text.size() : SkipToEol(text, p + 1);
 }
 
-// posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
-// 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
+// pos (開始ペアの最初の文字) からのブロックコメントをスキャンし、閉じペアの次の位置を返す。未終端なら text.size()。
 constexpr size_t ScanBlockComment(std::string_view text, size_t pos, char close1, char close2) noexcept
 {
     // close1 はソース中で比較的レアな文字（'*' や '#'）なので、find で間引いてから close2 を確認する。
@@ -417,8 +416,7 @@ constexpr bool IsShellWordBoundary(char c) noexcept
     return kBoundaries.contains(c);
 }
 
-// LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
-// 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
+// LexerConfig を NTTP にして `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、各言語の lexer を最小のコードにする。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
 // line_head は begin が行の頭か (区切ったコードの続きを行の途中から読むときは偽)。
 template <LexerConfig Cfg>
@@ -434,8 +432,7 @@ void TokenizeRange(
     constexpr bool kNeedAtLineStart = kHasLineHeadTokens<Cfg>;
 
     size_t i = begin;
-    // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
-    // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
+    // 位置 i が行の頭 (行の開始から i までが空白だけ) か。反復の開始時点の i の状態で、i を進めた後に更新する。
     [[maybe_unused]] bool at_line_start = line_head;
 
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
@@ -2024,8 +2021,7 @@ constexpr size_t FindMakeOperator(std::string_view text, size_t pos, size_t end)
 bool TokenizeMakeLine(std::string_view text, size_t pos, size_t end, bool& in_rule, std::vector<SyntaxToken>& tokens)
 {
     size_t i = SkipBlanks(text, pos, end);
-    // md4c はコードブロック行頭のタブをスペースに展開して渡すので、タブではなく
-    // 「ルール行に続くインデント行」をレシピとみなす。
+    // md4c はコードブロック行頭のタブをスペースに展開するので、タブでなく「ルール行に続くインデント行」をレシピとみなす。
     if (in_rule && i > pos) {
         TokenizeMakeRecipe(text, i, end, tokens);
         return true;
@@ -2604,9 +2600,8 @@ constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
     return i;
 }
 
-// <<[ trim][ eval] MARKER の解析。<< が無ければ Kind::None。
-// pos はコマンドの直後 (let は =<< の <)。行の途中のシフト演算子や文字列中の "<<" で始めると
-// 文書の残りが本文になるので、空白の後にすぐ << が来るときだけ受け付ける。
+// <<[ trim][ eval] MARKER の解析。<< が無ければ Kind::None。pos はコマンドの直後 (let は =<< の <)。
+// 行の途中のシフト演算子や文字列の "<<" で始めると文書の残りが本文になるので、空白の直後に << が来るときだけ受け付ける。
 constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHeredoc::Kind kind) noexcept
 {
     const size_t lt = SkipBlanks(text, pos, text.size());
@@ -2626,8 +2621,7 @@ constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHered
     return heredoc;
 }
 
-// 行頭 (と | の後) をコマンド位置として読み、コマンド名を Keyword、引数を式として色付けする。
-// text は行末で切ってある。
+// 行頭 (と | の後) をコマンド位置として読み、コマンド名を Keyword、引数を式として色付けする。text は行末で切ってある。
 VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bool vim9, std::vector<SyntaxToken>& tokens)
 {
     const size_t eol = text.size();

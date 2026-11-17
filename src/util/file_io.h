@@ -15,16 +15,13 @@
 
 namespace path_util {
 
-// 外部エディタとの同時アクセスを許容する共有モード。
-// 編集中のファイルを mendo で開いたまま再読込できるようにするため、
-// Markdown / 画像ファイルを扱う経路ではこれを指定する。
+// 外部エディタとの同時アクセスを許す共有モード。編集中のファイルを開いたまま読み直せるよう、Markdown / 画像の経路で使う。
 inline constexpr DWORD kFileShareRWDelete = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
 // ReadAllBytes の既定の上限。
 inline constexpr size_t MAX_READABLE_FILE_SIZE = std::numeric_limits<uint32_t>::max();
 
-// `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
-// Unicode 込みの ordinal case-insensitive 比較。
+// NTFS と挙動が一致する、Unicode 込みの ordinal case-insensitive 比較。
 inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
 {
     return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
@@ -178,8 +175,7 @@ struct OpenedFile {
     size_t size = 0;
 };
 
-// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。共有モードと最大サイズは呼び出し側で指定する。
-// out_error は CreateFileW 失敗時のみ GetLastError() を格納する。
+// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。out_error は CreateFileW の失敗時だけ GetLastError()。
 // 読み取り系は wstring から filesystem::path を作るヒープ確保を避けるため、NUL 終端文字列で受ける。
 [[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size,
                                                                              DWORD* out_error = nullptr) noexcept;
@@ -195,8 +191,7 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
                                       DWORD share_mode = FILE_SHARE_READ,
                                       LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 
-// 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
-// EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。
+// size バイトを ReadFile の DWORD 上限ごとに分けて読み切る。EOF・パイプ切断 (bytes_read == 0) は失敗として false。
 [[nodiscard]] inline bool ReadExact(HANDLE file, void* dst, size_t size) noexcept
 {
     auto* const out = static_cast<uint8_t*>(dst);
@@ -212,23 +207,19 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
     return true;
 }
 
-// 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
-// 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
-// 16 バイトの許容範囲を持たせる。
+// 読み込んだ後にファイルがさらに伸びていれば、エディタが書き込み途中の可能性が高い。
+// BOM の 3 バイトのずれ等を吸収するため 16 バイトの許容範囲を持たせる。
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 
 // flush_buffers: true の場合、close 前に FlushFileBuffers でデータブロックを
 // ディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
 [[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers = false);
 
-// tmp ファイルへ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換える。
-// rename が失敗 (クロスボリューム等) した場合は tmp を削除し false を返す。直書きフォールバックは
-// CREATE_ALWAYS が原本を切り詰めてから失敗しうるため行わない。
-// tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
-// 呼び出し側で排他制御すること (プロセスをまたぐなら InterProcessFileLock で守る)。
-// 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
-// durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
-// キャッシュ向け (同期書き込みで終了が遅れないようにする)。
+// tmp へ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換え、成功したかを返す。false なら原本は変わっていない。
+// rename が失敗 (クロスボリューム等) したら tmp を消す。CREATE_ALWAYS は原本を切り詰めてから失敗しうるので直書きしない。
+// tmp は `<path>.tmp` 固定なので、同じ path への並行呼び出しは呼び出し側で排他する (プロセス間は InterProcessFileLock)。
+// durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられるキャッシュ向け
+// (同期書き込みで終了を遅らせない)。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);
 
 // 利用者が選んだ保存先を AtomicWriteAllBytes と同じく置き換える。一時ファイルは固定の `<path>.tmp` でなく、

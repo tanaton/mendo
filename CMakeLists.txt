@@ -39,18 +39,14 @@ add_link_options(
 set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 
 # ---- Tracy プロファイラ（オプション） ----
-# 開発時のフレーム/ゾーン計測用。Release 配布では OFF が前提。
-# ON にすると <tracy/Tracy.hpp> が <windows.h> を引き込むため、
-# Tracy の zone/frame マクロは profiler.h 経由でラップして使う。
+# 開発時のフレーム/ゾーン計測用で、配布では OFF。<tracy/Tracy.hpp> は <windows.h> を引き込むので、
+# Tracy の zone/frame マクロは profiler.h 経由で使う。
 option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
 
 include(FetchContent)
 if(MENDO_USE_TRACY)
-    # Tracy v0.15.0 のソース取得（add_subdirectory 相当）。
-    # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
-    # 内で TracyClient のコンパイル定義として伝播する。
-    # TRACY_ON_DEMAND は Tracy GUI が接続するまで計測バッファを溜めない設定。
-    # アプリ起動だけでメモリを食わないので開発用に都合がよい。
+    # TRACY_ENABLE (クライアント側の計装) は、Tracy の CMakeLists が TracyClient のコンパイル定義として伝える。
+    # TRACY_ON_DEMAND は GUI が接続するまで計測を溜めないので、起動しただけではメモリを食わない。
     set(TRACY_ENABLE    ON CACHE BOOL "" FORCE)
     set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
     set(TRACY_STATIC    ON CACHE BOOL "" FORCE)
@@ -187,9 +183,8 @@ if(MENDO_USE_TRACY)
     target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
-# /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
-# profiler.h の MENDO_LOGF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
-# PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
+# /Zc:preprocessor (__VA_OPT__ 等) は、profiler.h の MENDO_LOGF/TRACEF が利用側の TU でも展開されるので
+# PUBLIC で伝える (依存先の Tracy/md4c には伝わらない)。
 target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 
 # ---- プリコンパイル済みヘッダー ----

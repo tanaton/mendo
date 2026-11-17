@@ -29,8 +29,7 @@ protected:
 };
 
 // ---- NavButtonHitTest: 純粋な座標計算のみ ----
-// 矩形は src 側の NavBackButtonRect / NavForwardButtonRect を使う。
-// 「式を二重実装するとリファクタ時にテストもズレる」問題を避けるため。
+// 矩形は src 側の NavBackButtonRect / NavForwardButtonRect を使う (式を二重に書くと、リファクタでテストもずれる)。
 
 TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
 {
@@ -104,8 +103,7 @@ TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
 
 TEST_F(HitTestTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
 {
-    // MockTextMeasurer は text_layout=nullptr を設定する。
-    // 先頭ノードより上 (margin_top 内) のクリックは先頭の非空ノードの先頭に返る。
+    // MockTextMeasurer の text_layout は null。先頭ノードより上 (margin_top 内) のクリックは先頭の非空ノードの先頭に返る。
     auto pr = ParseAndLayout("Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 2u);
 
@@ -117,8 +115,7 @@ TEST_F(HitTestTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
 
 TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
 {
-    // ノード間の余白クリックは直前の非空ノード末尾に返る。
-    // 文書全体の末尾へ飛ばすと、余白からのドラッグで巨大選択が作られてしまう。
+    // ノード間の余白クリックは直前の非空ノード末尾に返る。文書の末尾へ飛ばすと、余白からのドラッグで巨大な選択になる。
     auto pr = ParseAndLayout("Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 2u);
     const float node0_bottom = pr.cache.Top(0) + pr.cache[0].height;
@@ -131,8 +128,7 @@ TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
 }
 
-// 表の直下の余白は表のテキスト末尾へ寄せる。表を飛ばして直前の段落末尾に寄せると、
-// そこから始めたドラッグで表全体が選択に入る。
+// 表の直下の余白は表のテキスト末尾へ寄せる。表を飛ばして直前の段落末尾に寄せると、そこからのドラッグで表全体が選択に入る。
 TEST_F(HitTestTest, HitTest_GapBelowTableClampsToTableTextEnd)
 {
     auto pr = ParseAndLayout("Before\n\n| a |\n|---|\n| b |\n\nAfter");
@@ -151,8 +147,7 @@ TEST_F(HitTestTest, HitTest_GapBelowTableClampsToTableTextEnd)
 
 TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
 {
-    // candidate がテキストを持たないノード (水平線) の場合、
-    // 後方探索が外れても -1 ではなく先頭の非空ノードに倒れること
+    // candidate がテキストを持たないノード (水平線) なら、後方探索が外れても -1 ではなく先頭の非空ノードに倒れる。
     auto pr = ParseAndLayout("---\n\nHello");
     ASSERT_GE(pr.nodes.size(), 2u);
     ASSERT_EQ(pr.nodes[0].type, NodeType::HorizontalRule);
@@ -240,8 +235,7 @@ TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
 
 TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 {
-    // MockTextMeasurer はセル layout を生成しない (null のまま) ので text_pos は flat_offset。
-    // 先頭行・先頭列の flat_offset は 0。
+    // MockTextMeasurer はセル layout を生成しないので text_pos は flat_offset。先頭行・先頭列の flat_offset は 0。
     auto pr = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |");
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
