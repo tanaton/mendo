@@ -363,7 +363,7 @@ void MermaidFileCache::Clear()
         const InterProcessFileLock lock(kIndexLockKind, index_path);
         DeleteFileW(index_path.c_str());
     }
-    // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まるので worker で消す。索引に載っていないファイル (索引を書き戻す
+    // 満杯 (4096 件) を 1 件ずつ消すと UI が長く止まるので worker で消す。索引に載っていないファイル (索引を書き戻す
     // 前に落ちたときなど) も残らないよう、フォルダを列挙して控える。.png は版 5 までのファイル。
     std::unordered_set<std::wstring> names;
     for (const auto& path : ListEntries(cache_dir_)) {

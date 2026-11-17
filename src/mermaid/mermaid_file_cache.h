@@ -76,6 +76,7 @@ public:
 
 private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
+    // 普通の図の描画命令は小さく、満杯の 4096 件でも上限に届かない。大きさで追い出すのは巨大な図が溜まったときだけ。
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 64ULL * 1024 * 1024;
 
     struct IndexEntry {

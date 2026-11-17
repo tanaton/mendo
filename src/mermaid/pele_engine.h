@@ -35,8 +35,8 @@ struct PeleOutcome {
 };
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で
-// 描画命令にする。どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイム (pele で約 2.9MB、KaTeX で
-// 約 2.6MB) を作って使い回す。各ランタイムは使うときにバイトコードを読む (約 5ms と約 3ms)。
+// 描画命令にする。どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイムを作って使い回す。
+// 各ランタイムは使うときにバイトコードを読む。
 class PeleEngine {
 public:
     // pele と katex は pele.mjs と katex.min.js をビルドの時にコンパイルしたバイトコード (js_compile)、katex_fonts は KaTeX の
@@ -50,7 +50,7 @@ public:
 
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
     // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG とラベルの数式) はテーマに依らないので覚え、テーマの切り替えでは
-    // JS を走らせずに解き直すだけにする (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
+    // JS を走らせずに解き直すだけにする。
     PeleOutcome Render(std::string_view code, bool dark, float max_width);
 
     struct MathSource {
@@ -71,7 +71,7 @@ public:
         cancel_.store(true, std::memory_order_relaxed);
     }
     // 使っていないランタイムを keep 個まで捨てる。残すのは読んだモジュールの多いもので、捨てたものは次にバイトコードから
-    // 作り直す。捨てる処理は全オブジェクトをたどり、pele と KaTeX を読んだランタイム 1 個で約 3.5ms かかるので、
+    // 作り直す。捨てる処理は全オブジェクトをたどって重いので、
     // scheduler があればその worker で行う。
     void Trim(TaskScheduler* scheduler = nullptr, size_t keep = 0);
     // 使っていないランタイムの数 (テスト用)。
@@ -97,14 +97,11 @@ private:
     std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
     void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);
 
-    // 図の数は文書の図の数ほどで足りる。大きさは pele の SVG の合計で抑える (図 1 個は数 KB〜数十 KB)。
+    // 図の数は文書の図の数ほどで足りる。大きさは pele の SVG の合計で抑える。
     static constexpr size_t kMaxSvgEntries = 64;
     static constexpr size_t kMaxSvgBytes = 4u * 1024 * 1024;
-    // KaTeX の HTML は 1 式 0.5〜2.2KB (分数や添字だけの式〜根号・行列・積分の式)。数式 978 個 (HTML 0.54MB) の文書を
-    // 最後まで読むと commit +0.8MB (1.8%)・private WS +0.8MB (3.5%)、963 個 (2.16MB) で +2.6MB (5.3%)・+2.5MB (9.7%)。
-    // 実際の増分は数えた量の約 1.15〜1.2 倍で、上限いっぱいだと commit 約 9%・private WS 約 17% 増える。private WS の 1 割に
-    // 収まるのは 2MB だが、根号や行列の多い式は約 840 個で溢れ、溢れると全部捨てるのでズームに効かなくなる。4MB (同じ式で
-    // 約 1700 個、軽い式で約 6000 個) はユーザーが選んだ。
+    // KaTeX の HTML を覚える上限。溢れると全部捨てるのでズームに効かなくなる。2MB では根号や行列の多い式が約 840 個で
+    // 溢れるので、メモリは増えるが 4MB (同じ式で約 1700 個) をユーザーが選んだ。
     static constexpr size_t kMaxHtmlBytes = 4u * 1024 * 1024;
     // 表の節・文字列の本体・共有の管理ブロックの見込み。描けない TeX (HTML なし) だけでも表が膨らみ続けないように数える。
     static constexpr size_t kHtmlEntryBytes = 128;

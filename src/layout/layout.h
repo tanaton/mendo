@@ -129,10 +129,12 @@ int MeasureIndicesParallel(
 
 } // namespace layout
 
-// 巨大な表の最初の計測 (全セルの自然幅と行の高さ) を計測ワーカーで行い、UI スレッドを止めない
+// 巨大な表の最初の計測 (全セルの自然幅と行の高さ) を計測ワーカーで行い、UI スレッドを止めない (表は 1 ノードなので遅延
+// レイアウトの期限で区切れない)。組み終えるまで表は推定の高さで中身を描かない (極端に大きい表はほぼ無いので、ユーザーが
+// よしとした)。組む表のエントリは dirty のまま残し、MeasurePass が飛ばす。文書を差し替えても止めるだけで待たない。
 class TableMeasureJobs {
 public:
-    // セル数がこれを超える表をワーカーで組む
+    // セル数がこれを超える表をワーカーで組む。これ以下なら UI スレッドで測っても数十 ms まで (BM_GiantBlock/table5k_first)。
     static constexpr size_t kMinCells = 10000;
 
     struct Result {

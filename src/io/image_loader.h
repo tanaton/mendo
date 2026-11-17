@@ -44,7 +44,8 @@ public:
         return scheduler_;
     }
 
-    // 読み込んだ画像の寸法
+    // 読み込んだ画像の寸法。ビットマップはここに残さず、描く側 (InlineDrawings) が保持範囲の画像の分だけ持ち、外れた画像は
+    // 戻ったときに読み直す。ビットマップを残すキャッシュは、メモリが大きく増えるのでユーザーの判断で無くした。
     struct ImageInfo {
         float pixel_width = 0.0f;
         float pixel_height = 0.0f;
@@ -57,7 +58,7 @@ public:
     {
         return infos_.size();
     }
-    // 寸法の表の件数の上限
+    // 寸法の表の件数の上限。1 枠 32 バイト (4096 件で 260KB ほど) なので大きく取り、超えたら空にして数え直す。
     static constexpr size_t kMaxImageInfos = 4096;
     // 受け取ったビットマップを渡し、ImageLoader には残さない。
     DeliveredImages TakeDelivered() noexcept
@@ -79,7 +80,8 @@ public:
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
     bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kImportSliceBudget);
-    // 前に呼んでから RequestLoadAsync で頼み直されなかったビットマップの要求 (範囲を出た画像) を取り消す
+    // 前に呼んでから RequestLoadAsync で頼み直されなかったビットマップの要求 (範囲を出た画像) を取り消す。取り込みのたびに、
+    // まだ要るものを頼み直させてから呼ぶ。速いスクロールで溜まった要求を読み続けると、止まった位置の画像が後回しになるため。
     void CancelStaleBitmapRequests() noexcept;
     bool HasLeftoverUploads() const noexcept
     {
@@ -134,6 +136,7 @@ private:
     Decoded DecodeForDisplay(const std::wstring& path, UINT max_width_px) const;
 
     static constexpr uint32_t kMaxImageRetries = 3;
+    // 圧縮済み画像のファイルサイズ上限。デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB では大きすぎる。
     static constexpr LONGLONG MAX_IMAGE_FILE_SIZE = 256LL * 1024 * 1024;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;

@@ -3091,6 +3091,7 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
         }
         ++kept;
     }
+    // 詰め直し (shrink_to_fit) はしない (返るものは小さい)。
     items.erase(items.begin() + static_cast<std::ptrdiff_t>(kept), items.end());
 }
 
@@ -4079,7 +4080,8 @@ IDWriteFontFace* KatexAssets::Face(size_t file, uint32_t simulations)
         return face.Get();
     }
     if (!m.files[file]) {
-        // 展開したストリームを持ち主として渡し、DirectWrite に写させない
+        // 展開したストリームを持ち主として渡し、DirectWrite に写させない。ReleaseFileFragment の後も data を使うのは、
+        // UnpackFontFile のストリームが中身を自分で持ち、ReleaseFileFragment が何もしないことに頼る (決まりでは保証されない)。
         ComPtr<IDWriteFontFileStream> stream;
         UINT64 size = 0;
         const void* data = nullptr;
@@ -4175,11 +4177,13 @@ struct MathMaskCache::Impl {
     };
     struct Entry {
         Key key;
+        // 作れなかった形は null のまま残し、毎フレーム作り直さない (呼び出し側が形を塗る)。
         ComPtr<ID2D1Bitmap1> bitmap;
         UINT width = 0;
         UINT height = 0;
         uint64_t last_frame = 0;
 
+        // 小さな A8 の描画先でも 1 枚ごとに一定の private が増えるので、下限を付けて数える。
         size_t Bytes() const noexcept
         {
             return bitmap ? std::max<size_t>(static_cast<size_t>(width) * height, 14 * 1024) : 0;

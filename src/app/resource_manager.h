@@ -41,15 +41,16 @@ protected:
 // Appから画像読み込み、Mermaidの要求、画面外のレイアウト・図・画像を捨てる責務を分離する。
 class ResourceManager {
 public:
-    // 遅延レイアウトで計測する範囲
+    // 遅延レイアウトで計測する範囲。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
     static constexpr float DEFERRED_LAYOUT_BUFFER_SCREENS = 2.0f;
-    // 画像を読む範囲
+    // 画像を読む範囲。遅延レイアウトの範囲より広くしても、組んでいない表は行の位置が分からず寸法しか読めない。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= DEFERRED_LAYOUT_BUFFER_SCREENS);
-    // 画像のビットマップを残す範囲
+    // 画像のビットマップを残す範囲。読む範囲と同じだと、境目の画像を小刻みなスクロールのたびに捨てて読み直す。
     static constexpr float EVICT_BUFFER_SCREENS = 2.5f;
     static_assert(PREFETCH_BUFFER_SCREENS < EVICT_BUFFER_SCREENS);
-    // text_layout と表のセルを残す範囲
+    // text_layout と表のセルを残す範囲。文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。先読み範囲と同じだと
+    // 少し戻るだけで作り直し、1MB の文書では 2 画面とメモリが変わらない。1MB 以下を全部残すのはメモリが大きく増えてやめた。
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
@@ -69,10 +70,14 @@ public:
     void ScheduleResourceManage();
     void OnResourceManageTimer();
     void DropQueues();
+    // 開いた文書の画像は前の文書のフォルダで解決したものなので、寸法・ビットマップ・解決したパス・監視する画像を外す。
+    // フォルダの読み取りは同じフォルダの文書で開き直さないよう残し、枠が埋まったら今の文書で使っていないものから、
+    // 使ったのが古い順にやめる (ユーザーの判断)。
     void ForgetInlineImages();
     void OnRenderDeviceRecreated();
 
-    // 本文中の画像のファイルが更新されたら読み直す
+    // 本文中の画像のファイルが更新されたら読み直す。フォルダは worker で開き、開き終えるまでそのフォルダの画像は読まない
+    // (読んでから監視を始めるまでの更新を取りこぼさない)。
     static constexpr size_t kMaxImageWatchEvents = ImageFolderWatcher::kMaxEvents;
     size_t ImageWatchEvents(std::span<HANDLE> out) const noexcept
     {

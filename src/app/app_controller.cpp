@@ -286,6 +286,7 @@ constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
 }
 
 // リンクの付いた画像はリンク先を出す。リンクは下端の行き先の表示 (HoverLink) と別に、書いたままの URL をここにも出す
+// (両方出すのはユーザーが選んだ。issue #433)。
 TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::optional<LinkHit> link, std::optional<ImageHit> image)
 {
     if (hit_node < 0) {

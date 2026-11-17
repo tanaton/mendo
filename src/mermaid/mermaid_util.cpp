@@ -216,7 +216,7 @@ size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
         for (const auto& t : layer.texts) {
             bytes += sizeof(t) + (t.family.size() + t.text.size()) * sizeof(wchar_t);
         }
-        // 数式の描画命令はおおよそ 1 つ 1KB (字形の並び 10 本ほど)。
+        // 数式の描画命令は数えず、1 つ 1KB と見積もる。
         for (const auto& m : layer.maths) {
             bytes += sizeof(m) + m.tex.size() + (m.drawing ? 1024 : 0);
         }

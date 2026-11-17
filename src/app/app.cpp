@@ -376,7 +376,8 @@ void App::OnActivateApp(bool active)
         KillTimer(app_timer::Id::TRIM_WORKING_SET);
     }
     else {
-        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープはその後で遅れて decommit する
+        // JS のランタイムは捨てるときに全オブジェクトをたどり、ヒープは遅れて decommit するので、ワーキングセットを空にする前に
+        // 捨てる
         mermaid_renderer_.TrimIdleRuntimes();
         renderer_.TrimForInactive();
         SetTimer(app_timer::Id::TRIM_WORKING_SET, app_timer::TRIM_WORKING_SET_DELAY_MS);
@@ -449,7 +450,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
         }
         *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
     }
-    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (表と違い 1 件が軽い)
     RelayoutPendingInline(/*force_tables=*/false);
 }
 
@@ -457,7 +458,8 @@ bool App::InvalidatePendingInline(bool force_tables)
 {
     // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
-    // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
+    // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。間引いた表は、
+    // 次の結果が届かなくても間隔の後で組み直す。数式を待つ間は画像の結果でも組み直さない (画像だけなら結果は 1〜2 回にまとまる)。
     const auto now = std::chrono::steady_clock::now();
     const auto since = now - last_inline_table_relayout_;
     const bool tables = force_tables || !inline_math_.HasUnresolved() || since >= kInlineTableRelayoutInterval;
@@ -528,7 +530,8 @@ bool App::DispatchKeyAction(const std::optional<AppAction>& action)
 
 void App::Dispatch(const AppAction& action)
 {
-    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む
+    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む。一覧の確保と解放が Reduce の 3〜4 割を占めていた
+    // (BM_ReduceEvents) ので、スタックの領域から取る。
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
     auto effects = Reduce(state_, action, *this, &arena);
@@ -614,6 +617,7 @@ void App::HandleTimer(UINT_PTR timer_id)
             return;
         }
         KillTimer(id);
+        // 空の文書でも private WS の大半はドライバが一度触ったきりのページ。使うページは soft fault で戻り、commit は変わらない。
         EmptyWorkingSet(GetCurrentProcess());
         return;
     case FILE_RELOAD:
@@ -1049,6 +1053,8 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Layout ----
         [this](const effect::ResourceManage&) {
+            // 先読みは可視範囲で何かを組んだときにしか起きず、先読み済みの範囲を読み進めると境目で描画の中の同期の計測になる。
+            // スクロールのたびに空き時間で先読みの範囲を確かめさせる。
             state_.document.layout_cache.SetHasDirtyNodes(true);
             resource_manager_.ScheduleResourceManage();
             // スクロールの間は、見えている図をビットマップで描く。止まったらベクタに戻す。
@@ -1763,7 +1769,8 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る
+    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る。件数で細かく区切ると、
+    // 区切るたびに走査・Y の組み直し・ワーカーの待ち合わせが挟まる。
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
@@ -1796,6 +1803,7 @@ void App::OnDeferredLayout()
         md.height, ResourceManager::DEFERRED_LAYOUT_BUFFER_SCREENS);
     run.measured |= batch.updated;
 
+    // 中間バッチでは後始末をしない (FinishLayout の注記)
     if (batch.remaining) {
         return;
     }
@@ -1804,7 +1812,8 @@ void App::OnDeferredLayout()
     if (!done.measured && !done.settle) {
         return;
     }
-    // 画面の外だけを組んだなら描き直さない
+    // 画面の外だけを組んだなら描き直さない (PageDown のたびに次の画面を先読みするので、描き直すと同じ絵を描く)。
+    // 0.5 DIP 未満のつまみの変化は見分けられない。位置が変われば後始末が描き直させる。
     const auto before = *done.scrollbar;
     const auto after = scrollbar();
     const bool bar_changed = before.shown != after.shown || std::abs(before.thumb_y - after.thumb_y) >= 0.5f ||

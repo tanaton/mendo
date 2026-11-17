@@ -55,7 +55,9 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える
+// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。DrawTextLayout は描画面外の
+// グリフランも全部処理するので、可視範囲外のランを飛ばして描く。構文の色は、範囲数に比例して重くなる SetDrawingEffect を使わず、
+// グリフランをトークン境界で分けて描く。
 class VisibleRunRenderer final : public RenderTargetTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
@@ -202,6 +204,8 @@ private:
         };
         const auto tokens = cmd_.syntax_tokens;
 
+        // 同じ色のグリフを 1 つのランに集め (間の別の色のグリフの送り幅は直前のグリフに足す)、色ごとに 1 回で描く。トークンごとに
+        // 描くより速い (BM_CodeBlockDraw が 1.5 → 0.35ms)。
         struct BrushGlyphs {
             ID2D1Brush* brush = nullptr;
             float start_x = 0.0f;

@@ -123,11 +123,14 @@ constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept
 
 bool IsColorFont(IDWriteFontFace* face) noexcept;
 
-// 色のフォント (IsColorFont) の run を、rt の今の変換と DPI でフォントの色で描く。層の色の無い部分は brush で塗る。
+// 色のフォント (IsColorFont) の run を、rt の今の変換と DPI でフォントの色で描く。層の色の無い部分は brush で塗る。描けなければ
+// false (呼び出し側が単色で描く)。COLR の層は自分で塗る。D2D の DrawGlyphRunWithColorSupport は陰影まで描くが遅く
+// (BM_EmojiFrameDraw が約 150 倍)、平らな色が mendo の簡素な見た目に合うのでユーザーが選んだ。層が無ければ D2D に任せる。
 bool DrawColorGlyphRun(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run,
                        const DWRITE_GLYPH_RUN_DESCRIPTION* desc, ID2D1Brush* brush) noexcept;
 
-// IDWriteTextLayout::Draw で rt へ描くレンダラの土台
+// IDWriteTextLayout::Draw で rt へ描くレンダラの土台。字形は作ったときの rt の変換と DPI で置く。
+// スタック上でのみ使うので参照カウントは持たない。
 class RenderTargetTextRenderer : public UncountedCom<IDWriteTextRenderer> {
 public:
     explicit RenderTargetTextRenderer(ID2D1RenderTarget* rt) noexcept;

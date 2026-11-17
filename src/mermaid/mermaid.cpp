@@ -141,7 +141,8 @@ bool MermaidRenderer::RequestRender(
     if (!result) {
         return false;
     }
-    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す (worker で組んだ文字は記録時に捨てたので、ここで組む)。
+    // デバイスを作り直している間は記録できないので、次の要求まで待たせる。
     if (result->drawing && !result->commands) {
         result->commands = RecordDrawing(*result->drawing, nullptr);
         if (!result->commands) {
@@ -296,8 +297,7 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
         },
         [&](JobDrawing& d) {
             DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
-            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。IDWriteTextLayout の解放は 1 個 1.5µs ほどで、
-            // 図が 27 個だった頃の test.md の全図 (877 個) を UI で捨てると計 1.3ms、worker へ回すと UI は投函だけの計 0.02ms。
+            // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。数が多いので worker で捨てる。
             if (!d.texts.runs.empty()) {
                 DisposeOnWorker(*bg_scheduler_, std::move(d.texts));
             }
@@ -355,6 +355,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         PumpRenders();
     }
     if (used_pele) {
+        // 描き終えて待ちが空になったらランタイムを 1 個まで返す (すぐ次が来ると作り直すが、早く返すほうをユーザーが選んだ)。
         if (renders_running_ == 0 && render_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }
@@ -389,6 +390,8 @@ void MermaidRenderer::StartRender(RenderRequest req)
 
 void MermaidRenderer::PumpRenders()
 {
+    // bg のワーカーを 1 本残し、配置の重い図が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
+    // 同時に描く数はランタイムの数、つまりメモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !render_waiting_.empty()) {
         ++renders_running_;

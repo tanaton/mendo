@@ -150,7 +150,7 @@ private:
 // 単体テストできないため、どの処理を取るかの決定だけを純粋関数に切り出し、App は計画を実行するだけにする。
 
 // path を読むときに worker に渡す旧文書。表示中のファイルなら開き直しも含めてリロードとして扱い、
-// 差分判定を worker に任せる (UI スレッドで取ると 100MB で約 20ms 止まる)。
+// 差分判定を worker に任せる (UI スレッドで取ると止まる)。
 [[nodiscard]] inline ReloadBase ReloadBaseFor(const Document& current, std::wstring_view path, bool accept_prefix_shrink)
 {
     if (!path_util::iequal(path, current.GetFilePath())) {

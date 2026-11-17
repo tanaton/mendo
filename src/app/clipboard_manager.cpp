@@ -110,7 +110,7 @@ void ClipboardManager::CopyDiagramToClipboard(std::shared_ptr<const mermaid_util
     if (!drawing) {
         return;
     }
-    // SVG は描画命令を書き直すだけ (500 ノードの図で約 0.3MB) なので、画像と同じくその場で作る。
+    // SVG は描画命令を書き直すだけで軽いので、画像と同じくその場で作る。
     const auto bitmap = mermaid_renderer_->DiagramBitmap(*drawing, md_width);
     const bool ok = WriteClipboardDiagram(hwnd_, BuildDib(bitmap.Get()), DrawingToSvg(*drawing));
     show_toast_(ok ? i18n::S().toast_diagram_copied : i18n::S().toast_diagram_copy_failed);

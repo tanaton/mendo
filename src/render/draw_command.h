@@ -48,6 +48,7 @@ struct DrawTextLayoutCmd {
     float cull_top = -std::numeric_limits<float>::infinity();
     float cull_bottom = std::numeric_limits<float>::infinity();
     // 折り返さない長い行は、横スクロールの clip に映らないグリフを [cull_left, cull_right] で飛ばす
+    // (BM_CodeBlockDraw/json_12kb が 127 → 4.5ms)。
     float cull_left = -std::numeric_limits<float>::infinity();
     float cull_right = std::numeric_limits<float>::infinity();
     float opacity = 1.0f;
@@ -127,7 +128,9 @@ struct InlineDrawings {
     }
 };
 
-// スクロールの間、見えている図を装置の画素のビットマップに描いておき、次のフレームからはそれを写す
+// スクロールの間、見えている図を装置の画素のビットマップに描いておき、次のフレームからはそれを写す。持つのは見えている部分の
+// 上下に 1/4 画面ずつ足した帯だけで、止まったら捨てる。全部の図を持つ案と、帯の最大で確保して使い回す案は、メモリが増えるので
+// ユーザーが今の形を選んだ。
 class DiagramBitmapCache {
 public:
     DiagramBitmapCache();

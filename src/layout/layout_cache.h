@@ -228,7 +228,7 @@ private:
     void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
 
     // 行ごとのセル layout。layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の
-    // ComPtr が並び、20 万行 20 列の表を組むと commit 64.3MB (行ごとにして 34.9MB)。
+    // ComPtr が並び、メモリを大きく使った。
     std::vector<std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>> row_layouts_;
     std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
     size_t evicted_row_count_ = 0;
@@ -473,7 +473,7 @@ struct DiagramDrawing;
 
 struct DiagramResult {
     // 図はビットマップを持たず、commands を描く (スクロールの間だけ DiagramBitmapCache が見えている分を持つ)。どの倍率でも
-    // くっきり描け、1 図 0.5〜17MB のビットマップが要らない (描くのは 1 図 0.1〜1.7ms)。commands はデバイスごとに drawing から作る。
+    // くっきり描け、図ごとの大きなビットマップが要らない。commands はデバイスごとに drawing から作る。
     Microsoft::WRL::ComPtr<ID2D1CommandList> commands;
     float width = 0.0f;
     float height = 0.0f;
@@ -629,7 +629,7 @@ public:
     // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を破棄し、
     // layout_dirty=true で再生成させる。text_top と height は維持する。テーブルは幾何を残してセルのレイアウトだけ捨て、
     // dirty にはしない。レイアウトを持たないノードも dirty にはしない。IDWriteTextLayout は内部で glyph buffer /
-    // bidi 解析を保持し 1K 文字あたり 2-5KB で、可視外も保持し続けると巨大ドキュメントで数十 MB を COM 側に常駐させる。
+    // bidi 解析を保持するので、可視外も保持し続けると巨大ドキュメントで COM 側に大きく常駐させる。
     // LAYOUT_EVICT_BUFFER_SCREENS 分の安全マージンを取って範囲外を解放する。呼び出し側 (ResourceManager) は再描画時の
     // 再生成コストを踏まえてタイマー駆動で間引く。
     void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;

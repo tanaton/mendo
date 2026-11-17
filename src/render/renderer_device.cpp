@@ -273,7 +273,8 @@ bool Renderer::SetScrollingDiagrams(bool scrolling) noexcept
 
 void Renderer::TrimForInactive() noexcept
 {
-    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる
+    // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限は下げず (目次を戻るたびに作り直す)、使わない間だけ手放す
+    // ほうをユーザーが選んだ。trim の前に触ったページを残さないよう切り替わった時点で捨て、指す先の消えるコマンドも捨てる。
     frame_cmds_.clear();
     text_layouts_.Clear();
 }

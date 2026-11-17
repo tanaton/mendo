@@ -15,14 +15,14 @@ using namespace std::literals;
 
 namespace {
 
-// QuickJS に使わせる C スタックの上限。JS の 1 呼び出しが約 4.8KB を使い、KaTeX は入れ子 1 段で分数・上付き約 100KB、
-// 根号約 90KB、行列約 140KB を使う。512KB (スタックが 1MB だった頃の半分) では分数 3 段・行列 2 段までしか描けなかった。
-// 4MB で分数 38 段・行列 28 段。pele は 60 段の入れ子の subgraph や 1000 ノードの鎖でも 512KB で足りる。
+// QuickJS に使わせる C スタックの上限。KaTeX は入れ子が深いほど C スタックを使い、512KB (スタックが 1MB だった頃の半分) では
+// 分数 3 段・行列 2 段までしか描けなかった。4MB で分数 38 段・行列 28 段。pele は 60 段の入れ子の subgraph や
+// 1000 ノードの鎖でも 512KB で足りる。
 // スレッドのスタックは 8MB にしてある (CMakeLists.txt の /STACK)。使ったスタックはスレッドが終わるまでコミットされたまま
-// なので、上限まで使う式を描いたワーカーは 1 本あたり 4MB 残る (普通の式は 1MB に届かない)。
+// なので、上限まで使う式を描いたワーカーは 1 本あたり 4MB 残る。
 constexpr size_t kJsStackBytes = 4 * 1024 * 1024;
-// JS の中から呼ぶ測定器の DirectWrite に残す分。JS を出た後の配置 (LayoutKatexHtml の再帰) は JS が使った量の 1 割に
-// 満たない (4MB いっぱいの式で 0.35MB) ので、JS の上限が配置の深さも抑える。
+// JS の中から呼ぶ測定器の DirectWrite に残す分。JS を出た後の配置 (LayoutKatexHtml の再帰) は JS が使う量より
+// ずっと少ないので、JS の上限が配置の深さも抑える。
 constexpr size_t kNativeStackBytes = 512 * 1024;
 
 // このスレッドで JS に使わせるスタック。スタックの小さいスレッド (/STACK を付けずに組んだ exe など) でも本物の

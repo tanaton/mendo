@@ -13,10 +13,11 @@ uint64_t PathKey(const std::wstring& path) noexcept
     return RapidHash(path);
 }
 
-// 寸法を読むときに先に読むファイルの先頭の長さ
+// 寸法を読むときに先に読むファイルの先頭の長さ。JPEG・PNG・GIF・ICO の寸法はヘッダにある (手元の画像は 16KB 以内)。
+// 大きなメタデータが前にあるものと BMP は足りず、全体を読む。
 constexpr size_t kImageHeadBytes = 64 * 1024;
 
-// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む
+// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む。
 std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const std::wstring& path, LONGLONG max_size)
 {
     const auto file = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, max_size);

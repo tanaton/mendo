@@ -13,8 +13,7 @@ class InlineImageTable;
 // ITextMeasurer の DirectWrite 実装。重い書式 (IDWriteTextFormat) を作り置き、計測のたびに IDWriteTextLayout を作る。
 // 書式は RecreateFormats でだけ作り直し、並列計測中には呼ばない。
 // 書式を作ったスレッド (UI) 以外は、自分専用の ISOLATED ファクトリと書式で測る。共有ファクトリを全スレッドで使うと
-// ファクトリ内部の競合で 4 本を超えると遅くなる (test.md x8 の全計測で、共有は 8 本 705ms・16 本 1480ms、
-// 分けると 410ms・260ms)。書式もファクトリに結び付いているので、スレッドごとに作る。
+// ファクトリ内部の競合で 4 本を超えると遅くなる。書式もファクトリに結び付いているので、スレッドごとに作る。
 class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool RecreateFormats() override;
@@ -57,7 +56,7 @@ private:
     static bool CreateFormats(const Theme& theme, DWriteContext& ctx);
     // 呼び出しスレッドで使うファクトリと書式。書式を作ったスレッドは ctx_ (共有ファクトリ)、ワーカーは専用のものを最初の呼び出しで作る。
     // 起動時に全ワーカーへ先に作らせない。最初の計測は D3D デバイスの作成の裏で終わるので速くならず、
-    // 作成と競合して最初のフレームが 1〜5ms 遅れ、使わないワーカーの分だけ private も 1〜3MB 増える。
+    // 作成と競合して最初のフレームが遅れ、使わないワーカーの分だけ private も増える。
     const DWriteContext& Context() const;
     // 書式と、その書式の主フォントに合う FallbackFontMap。合わない組み合わせは字形を黙って変える。
     struct TextStyle {

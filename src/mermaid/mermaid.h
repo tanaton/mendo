@@ -70,7 +70,7 @@ public:
               std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
-    // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX。1 個 平均 0.2ms ほど)。図と同じ同時に描く数の枠を使う。
+    // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX)。図と同じ同時に描く数の枠を使う。
     // 速いのでディスクキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
     // d3d と device は render_target を作った描画デバイス (拡大表示の窓のスワップチェーンを作って描く)。無ければ拡大表示を開けない。
@@ -197,8 +197,14 @@ private:
         bool used_pele = false;
     };
 
+    // 待ちが空になって 1 個まで減らしたランタイムの最後の 1 個を、この時間使わなければ捨てる (読み進める間の切れ目では
+    // 捨てない長さ)。別のアプリへ切り替わったときは待たずに捨てる。
     static constexpr UINT PELE_TRIM_MS = 10000;
+    // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
+    // 数えるのは描画命令だけで、より大きい CommandList は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
+    // CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
+    // 描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);

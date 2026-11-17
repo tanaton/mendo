@@ -1,6 +1,6 @@
 // 各言語のキーワード・型名テーブル。syntax.cpp からのみ include される内部ヘッダ。
 // 語の多くはどの表にも無いので、文字列に触らず空き番地で外れと分かる開番地ハッシュにする。長さごとの二分探索
-// より、16KB のトークン化が C++ 35.8→22.0µs、SQL 47.8→27.5µs、Vim 55.6→41.6µs、Emacs Lisp 59.4→50.9µs。
+// より速い (BM_TokenizeLanguage/sql が 47.8 → 27.5µs)。
 #pragma once
 #include <algorithm>
 #include <array>
@@ -58,7 +58,7 @@ private:
     }
 };
 
-// 番地は語の数の 3〜6 倍。2〜4 倍にすると exe は 4KB 減るが Emacs Lisp が 50.9→55.6µs に戻る。
+// 番地は語の数の 3〜6 倍。2〜4 倍にすると exe は少し減るが BM_TokenizeLanguage/elisp が 50.9 → 55.6µs に戻る。
 template <size_t N>
 struct WordTable {
     std::array<std::string_view, N> entries{};

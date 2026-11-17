@@ -1,4 +1,4 @@
-// pele と KaTeX をビルドの時に QuickJS のバイトコードにする。実行時のコンパイル (約 60ms と約 20ms) を最初の図と数式から省き、
+// pele と KaTeX をビルドの時に QuickJS のバイトコードにする。実行時のコンパイルを最初の図と数式から省き、
 // バイトコードはヒープに写さず exe のリソースから読む。
 // js_compile <入力> <出力> module|global
 #include <quickjs.h>
@@ -41,7 +41,7 @@ int wmain(int argc, wchar_t** argv)
         JS_FreeValue(ctx, error);
     }
     else {
-        // 位置の情報を除く (pele で 2.0MB → 0.95MB)。pele も KaTeX も文言に位置を使わない。
+        // 位置の情報を除いてバイトコードを小さくする。pele も KaTeX も文言に位置を使わない。
         size_t size = 0;
         uint8_t* bytes = JS_WriteObject(ctx, &size, compiled, JS_WRITE_OBJ_BYTECODE | JS_WRITE_OBJ_STRIP_SOURCE | JS_WRITE_OBJ_STRIP_DEBUG);
         if (bytes) {

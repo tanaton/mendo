@@ -28,7 +28,8 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 
 using ImageSlots = std::bitset<kMaxImageSlots>;
 
-// ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする。
+// ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする (表全体だと
+// 1 行が範囲にかかるだけで全画像を持つ)。行の位置が決まらない表は nullopt (仮に組んだ表は行が詰まり、範囲の行が多すぎる)。
 std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep,
                                        std::array<float, kMaxImageSlots>* col_widths = nullptr)
 {
@@ -116,7 +117,7 @@ void ResourceManager::LoadImages()
     };
     const InlineImageUpdate update = request(image_loader_.TakeDelivered());
     NotifyInlineImages(update);
-    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む
+    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像を RESOURCE_MANAGE を待たずにすぐ頼む
     if (update.pending_resolved && update.unsettled_tables) {
         request({});
     }
@@ -149,10 +150,10 @@ void ResourceManager::EvictOffscreenResources()
     const auto layout_keep = ComputeBufferedRange(LAYOUT_EVICT_BUFFER_SCREENS);
     const auto& lr = layout_keep->range;
     state_.document.layout_cache.EvictTextLayouts(lr.begin, lr.end);
-    // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る
+    // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す
+    // 図のコマンドリストも保持範囲の図の分だけ残す。戻ったら描画命令から記録し直すが、メモリを返すほうをユーザーが選んだ。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
@@ -317,7 +318,8 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!may_request) {
         return;
     }
-    // 描くビットマップが無ければ読む。持っている間は読み直さない。
+    // 描くビットマップが無ければ読み、持っている間は読み直さない (件数に上限のあるキャッシュでは、表の画像が多いと読み込みが
+    // 互いを追い出し続けた)。幅が広がったときと更新されたときは、前の絵を描きながら読み直す (ちらつかない)。
     if (!inline_drawings_.FindImage(key) || stale || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }

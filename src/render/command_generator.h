@@ -76,8 +76,7 @@ public:
         entries_.clear();
     }
 
-    // fmt で作ったレイアウトを捨てる。書式を作り直すと古い書式のレイアウトは二度と引かれないが、上限までは残る
-    // (目次の項目ほどの短いレイアウトで 1 個 commit 約 20KB)。
+    // fmt で作ったレイアウトを捨てる。書式を作り直すと古い書式のレイアウトは二度と引かれないが、上限までは残る。
     void Forget(const IDWriteTextFormat* fmt) noexcept
     {
         std::erase_if(entries_, [fmt](const auto& kv) noexcept { return kv.first.fmt.Get() == fmt; });

@@ -19,8 +19,8 @@ constexpr int SharedWorkerCount(unsigned int cores) noexcept
 }
 
 // レイアウト計測用 scheduler のワーカー数。下限 2 は hardware_concurrency()==0 や 1 コアでも並列計測の枠組みを保つため。
-// 上限 8: ワーカーごとの ISOLATED ファクトリで本数なりに速くなるが (計測値は DWriteTextMeasurer)、ファクトリ 1 つで約 0.4MB 増える。
-// 16 本は test.md 表示時の commit を約 11% 増やし、ふだんの計測は可視範囲の数十ノードで 8 本でも余るので上げない。
+// 上限 8: ワーカーごとの ISOLATED ファクトリで本数なりに速くなるが、ファクトリ 1 つ分ずつメモリが増える。
+// 16 本はメモリが増え、ふだんの計測は可視範囲の数十ノードで 8 本でも余るので上げない。
 constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 {
     constexpr unsigned kMinLayoutWorkers = 2u;
@@ -55,7 +55,7 @@ public:
     void Shutdown();
 
     // ワーカー上ならそのスレッドを一度だけ MTA に入れる (ほかでは何もしない)。WIC など COM を使う処理の直前で呼ぶ。
-    // 起動時に全ワーカーで初期化すると、COM を使わない preload のパースまでプロセス初回の COM 初期化 (約 1.6ms) を待つ。
+    // 起動時に全ワーカーで初期化すると、COM を使わない preload のパースまでプロセス初回の COM 初期化を待つ。
     static void EnsureWorkerCom() noexcept;
 
     // 起動前でも指定した数を返す (ParallelFor の分割数に使うため)。Shutdown 後は 0。
@@ -83,7 +83,7 @@ private:
 // obj を worker で破棄する。投函できなければ (Shutdown 後・確保の失敗) ここで破棄する。
 // 渡すものは D2D の参照を持たないこと (確保元のヒープはスレッド安全)。
 // 小さいものも UI では捨てない。数で分けていた頃 (文書 4096 ノード・レイアウト 256 個未満は UI) も、UI に残す理由は無く、
-// 投函は 1 回 1µs ほどで、UI で捨てていた分は空き時間 1 回で最大 0.2ms あった (性能レビュー G5)。
+// 投函は軽い。
 template <class T>
 void DisposeOnWorker(TaskScheduler& scheduler, T&& obj) noexcept
 {

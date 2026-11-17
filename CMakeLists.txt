@@ -24,7 +24,7 @@ add_compile_options(
 # /LTCG: リンク時コード生成
 # /OPT:REF: 未参照の関数/データを除去
 # /OPT:ICF: 同一COMDATの統合
-# /STACK: スレッドのスタックの予約を既定の 1MB から 8MB にする。QuickJS は JS の 1 呼び出しで C スタックを約 4.8KB 使い、
+# /STACK: スレッドのスタックの予約を既定の 1MB から 8MB にする。QuickJS は JS の呼び出しごとに C スタックを使い、
 #   1MB (JS に 512KB) では KaTeX が分数 3 段・行列 2 段の入れ子までしか描けなかった (PeleEngine の kJsStackBytes)。
 #   JS はワーカーでも、テストとベンチの主スレッドでも走るので、スレッドごとではなく exe の既定を変える。
 #   予約だけなので、空の文書でも test.md でも commit・private WS は変わらない (使った分だけコミットされる)。
@@ -84,9 +84,10 @@ target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
-# quickjs は LTCG の下で組むと遅いため /GL (LTCG) から外す
+# quickjs は LTCG の下で組むと解釈実行が遅いため /GL (LTCG) から外す。外すのは先頭の add_compile_options の条件で行う
+# (ここで /GL- を足すと警告 D9025 が出る)。clang-cl はさらに速いが、手元と CI で版が揃わないので MSVC で組む (ユーザーの判断)。
 
-# pele と KaTeX はビルドの時にバイトコードにして埋め込む
+# pele と KaTeX はビルドの時にバイトコードにして埋め込み、実行時のコンパイルを省く。同じ quickjs で組むので版は必ず合う。
 add_executable(mendo_js_compile src/mermaid/js_compile.cpp)
 target_link_libraries(mendo_js_compile PRIVATE quickjs)
 target_compile_options(mendo_js_compile PRIVATE /W4 /utf-8)
@@ -198,7 +199,7 @@ add_executable(mendo WIN32
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
 add_dependencies(mendo mendo_js_bytecode)
 set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR}")
-# ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
+# ファイルダイアログでしか使わないので、起動時にロードしない。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。
 target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll /DELAYLOAD:comctl32.dll /DELAYLOAD:shell32.dll)

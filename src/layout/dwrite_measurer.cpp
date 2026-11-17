@@ -121,16 +121,18 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
     return height;
 }
 
-// 初回計測でセル layout を残す表の大きさの上限
+// 初回計測でセル layout を残す表の大きさの上限。layout は大きいので、大きい表は可視行だけ作り直す。小さい表は
+// 可視行を 2 回作らないよう残す (どの表も捨てると BM_ComputeLayoutCold が 8 本で 180 → 244ms)。
 constexpr size_t kMaxKeptTableCells = 1024;
 
-// 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す
+// 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。大きな表は同じ値が
+// 列に並びやすく、代表だけ測れば CreateTextLayout が減る。見出し行と空のセルは自分自身。uint32_t で一時メモリを半分にする。
 std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
 {
     std::vector<uint32_t> reps(tbl.CellCount());
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
-            // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (20 万行 20 列で 47 → 39ms)。
+            // 列の違う値の数までしか伸びないので、値の少ない列は小さいまま済む (BM_TableFewValues の 20 万行で 47 → 39ms)。
             FlatHashMap<uint32_t> first_rows;
             for (size_t r = 0; r < tbl.row_count; ++r) {
                 const size_t ci = tbl.CellIndex(r, c);
@@ -154,7 +156,7 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
     return reps;
 }
 
-// テーブルを行チャンクで並列処理するときの 1 チャンクの行数
+// テーブルを行チャンクで並列処理するときの 1 チャンクの行数。小さな表も 1 画面分の行の復元も、ワーカーに行き渡る細かさにする。
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
 {
     constexpr size_t kCellsPerChunk = 8;
@@ -169,6 +171,7 @@ void RaiseTo(std::atomic<float>& a, float value) noexcept
     }
 }
 
+// セル layout の無い行は高さを見積もるだけで、chunk の取得のほうが重いので粗く分ける (直列にすると大きな表で遅れる)。
 constexpr size_t kEstimatedRowsPerChunk = 256;
 
 // 記号を 1 行目の中央に置くため (GenListBullet)。layout 自体は変えない。
@@ -209,7 +212,8 @@ std::optional<float> MeasureWithoutTextLayout(const Node& node, const Theme& the
     return std::nullopt;
 }
 
-// 既存の text_layout を SetMaxWidth で再計測する
+// 既存の text_layout を SetMaxWidth で再計測する。中身が変わる経路は text_layout を捨てるので、残っていれば中身は一致し、
+// 装飾を付け直さずに済む。
 float RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
 {
     MENDO_PROFILE("MeasureNode.fastpath");
@@ -389,6 +393,8 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
         layout->SetUnderline(TRUE, r);
     } };
 
+    // 数式ごとにインラインオブジェクトを作り、run ごとに掛ける (1 個約 135ns、BM_InlineMathLayout)。同じオブジェクトを隣り合う
+    // 範囲 (*$x$*$x$ など) に掛けると DirectWrite が 1 つにまとめて数式 1 個分の幅にするので、使い回さず、範囲もまとめない。
     bool pending = false;
     bool has_image = false;
     bool placed_block_math = false;
@@ -519,9 +525,11 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
         if (entry.cached_width == layout_width) {
             return metrics.height;
         }
-        // 画像は行の幅に縮めるので、縮めずに置けない幅になったら組み直す。
+        // 画像は行の幅に縮めるので、縮めずに置けない幅になったときだけ組み直す
+        // (BM_ImageResizeRemeasure/inline_icons が 27.5 → 0.12ms)。
         const bool images_change = entry.image_min_width() > layout_width;
         // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
+        // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。
         if (!images_change && metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width &&
             entry.text_layout()->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_LEADING) {
             return metrics.height;
@@ -606,9 +614,11 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     // layout を残す小さい表は、全セルの layout が要るので代表を探さない (空のまま)。
     const auto reps = keep_layouts ? std::vector<uint32_t>{} : FindRepresentativeCells(tbl, scheduler_);
 
-    // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する
+    // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。列の最小幅と自然幅はセルごとに持たず、
+    // 列ごとの最大を atomic で重ねる (chunk は 8 セルと細かく、chunk ごとの確保とロックは計測より重い)。自然幅が今の最大以下の
+    // セルは最小幅も効かないので DetermineMinWidth を呼ばない。
     std::vector<std::atomic<float>> min_widths(col_count);
-    // 列の自然幅も同じく列ごとの最大を重ねる
+    // 列の自然幅も同じく列ごとの最大を重ねる。代表と同じ中身のセルは同じ幅なので、測ったセルだけで足りる。
     std::vector<std::atomic<float>> natural_maxes(col_count);
     // 測るセル。代表と同じ中身のセルは測らない。
     const auto measured = [&](size_t ci) noexcept { return reps.empty() || reps[ci] == ci; };
@@ -649,9 +659,12 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
             }
         }
     };
-    // 行を区切り、区切りごとに止める印を見る
+    // 行を区切り、区切りごとに止める印を見る。ワーカーで組むとき 1 回の ParallelFor の手伝いは chunk の尽きるまで抜けないので、
+    // 区切らないと計測ワーカーをふさぎ、UI スレッドの計測が手伝いを得られない。区切りは測るセル (代表) の数で数える
+    // (全セルの数だと測らないセルばかりの区切りが続き、BM_TableFewValues の 20 万行で 32.2 → 39.4ms)。
     constexpr size_t kCellsPerStopCheck = 4096;
-    // first から始まる区切り [first, end) と、その中で測るセルのある最後の行の次 (work_end)
+    // first から始まる区切り [first, end) と、その中で測るセルのある最後の行の次 (work_end)。work_end から先の行は回さない
+    // (同じ値ばかりの表は代表が先頭の数行に集まる。BM_TableFewValues の 20 万行で -21%)。
     struct Batch {
         size_t work_end;
         size_t end;
@@ -712,7 +725,8 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
 
     layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
 
-    // 画像は列幅に縮めるので、画像を縮めずに置けない列幅になったセルを今の列幅で組み直す
+    // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (BM_ImageTableResize が 759 → 17µs)。layout の無いセル
+    // (evict 中の行) は行を戻すときに組む。
     if (!tl.image_cells.empty()) {
         const auto& ctx = Context();
         for (auto& image_cell : tl.image_cells) {
