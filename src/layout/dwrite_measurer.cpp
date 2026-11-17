@@ -103,7 +103,7 @@ float EvictedCellHeight(const TableLayoutData& tl, size_t ci, float cw) noexcept
 float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height)
 {
     float height = base_row_height;
-    auto* const bgs = tl.row_code_bgs.empty() ? nullptr : &tl.row_code_bgs[r];
+    auto* const bgs = tl.MutableRowCodeBgs(r);
     if (bgs) {
         bgs->clear();
     }

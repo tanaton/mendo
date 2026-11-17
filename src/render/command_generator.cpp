@@ -1238,10 +1238,7 @@ struct MdPaneEmitter : CmdWriter {
 
             out.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
-            std::span<const CellInlineCodeBg> row_bgs;
-            if (r < tl.row_code_bgs.size()) {
-                row_bgs = tl.row_code_bgs[r];
-            }
+            std::span<const CellInlineCodeBg> row_bgs = tl.RowCodeBgs(r);
             for (size_t c = c_begin; c < c_end; c++) {
                 const auto [text_x, text_y] = TableCellTextOrigin(offset_x + tl.col_cum_x[c], y);
 

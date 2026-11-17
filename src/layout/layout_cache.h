@@ -76,8 +76,8 @@ struct IndexRange {
 struct TableLayoutData {
     const size_t row_count;
     const size_t col_count; // セルの番号 (CellIndex) のストライド
-    // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
-    std::vector<std::vector<CellInlineCodeBg>> row_code_bgs;
+    // インラインコードを含むか。含む表だけ、行の計測でインラインコードの背景を作る。
+    const bool has_inline_code;
     std::vector<float> col_widths;
     std::vector<float> row_heights;
     std::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
@@ -109,8 +109,8 @@ struct TableLayoutData {
     float last_applied_max_width = 0.0f;
 
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
-    TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
-        : row_count(rows), col_count(cols), row_code_bgs(has_inline_code ? rows : 0),
+    TableLayoutData(size_t rows, size_t cols, bool inline_code)
+        : row_count(rows), col_count(cols), has_inline_code(inline_code),
           col_widths(cols), row_heights(rows), natural_col_widths(cols), min_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
           row_cum_y(rows + 1), col_cum_x(cols + 1), row_layouts_(rows), row_evicted_(rows), live_rows_{ 0, rows }
     {
@@ -158,8 +158,8 @@ struct TableLayoutData {
     }
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
     {
-        const auto& cells = row_layouts_[row];
-        return cells ? cells[col].Get() : nullptr;
+        const auto& row_layouts = row_layouts_[row];
+        return row_layouts ? row_layouts->cells[col].Get() : nullptr;
     }
     IDWriteTextLayout* CellLayout(size_t ci) const noexcept
     {
@@ -168,14 +168,26 @@ struct TableLayoutData {
     // 行の配列は初めてセルを置くときに作る。行ごとに書き込み先が重ならないので、別の行へは並列に置いてよい。
     void SetCellLayout(size_t ci, Microsoft::WRL::ComPtr<IDWriteTextLayout> layout)
     {
-        auto& cells = row_layouts_[ci / col_count];
-        if (!cells) {
+        auto& row_layouts = row_layouts_[ci / col_count];
+        if (!row_layouts) {
             if (!layout) {
                 return;
             }
-            cells = std::make_unique<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>(col_count);
+            row_layouts = std::make_unique<RowLayouts>(std::make_unique<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>(col_count));
         }
-        cells[ci % col_count] = std::move(layout);
+        row_layouts->cells[ci % col_count] = std::move(layout);
+    }
+    // 行 r のインラインコードの背景 (セルのテキスト原点基準)。セル layout を持たない行には無い。
+    std::span<const CellInlineCodeBg> RowCodeBgs(size_t r) const noexcept
+    {
+        const auto& row_layouts = row_layouts_[r];
+        return row_layouts ? std::span<const CellInlineCodeBg>{ row_layouts->code_bgs } : std::span<const CellInlineCodeBg>{};
+    }
+    // 行の計測で作り直す背景の置き場所。インラインコードを含まない表と、セル layout を持たない行は null。
+    std::vector<CellInlineCodeBg>* MutableRowCodeBgs(size_t r) noexcept
+    {
+        auto& row_layouts = row_layouts_[r];
+        return has_inline_code && row_layouts ? &row_layouts->code_bgs : nullptr;
     }
 
     // [local_top, local_bottom] (エントリ上端からのローカル座標) に重なる行帯 [r_begin, r_end) を二分探索で返す。
@@ -231,12 +243,17 @@ private:
         return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
     }
     void RebuildColCumX();
-    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
+    // セル layout とインラインコードの背景を一緒に捨てる (背景は復元するときの行の計測で必ず作り直す)。
     void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
 
-    // 行ごとのセル layout。layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の
-    // ComPtr が並び、メモリを大きく使った。
-    std::vector<std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>> row_layouts_;
+    // 行ごとのセル layout と、それを組んだ幅でのインラインコードの背景。
+    struct RowLayouts {
+        std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]> cells;
+        std::vector<CellInlineCodeBg> code_bgs;
+    };
+    // layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の ComPtr が並び、
+    // メモリを大きく使った。背景を全行分の配列で持っていた頃は、一度見た行の背景が表の幾何を捨てるまで残った。
+    std::vector<std::unique_ptr<RowLayouts>> row_layouts_;
     std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
     size_t evicted_row_count_ = 0;
     IndexRange live_rows_;
