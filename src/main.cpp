@@ -16,8 +16,6 @@
 
 namespace {
 
-// "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。
-// MSVC の absolute は GetFullPathNameW 経由で "." / ".." も解決する。
 std::wstring ToAbsolutePath(std::wstring_view path)
 {
     std::error_code ec;
@@ -64,29 +62,21 @@ StartupPlan PlanStartup(const StartupArgs& args, std::wstring_view last_file)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
-    // 起動の計測を取りこぼさないよう、Tracy の GUI が接続するのを待つ (ms)。Tracy を組み込まないビルドでは
-    // MENDO_IF_TRACY が空に展開される。
+    // 起動の計測を取りこぼさないよう、Tracy の GUI の接続を待つ
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
     MENDO_FRAME_MARK();
 
     {
         MENDO_PROFILE("wWinMain - init");
-        // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
         SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
-        // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
-        // DPI 認識 (PerMonitorV2) はマニフェストで宣言しているので、ここでは設定しない。
-        // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と
-        // 重ねてメインスレッドが待たないよう、そのスレッドを始める前に読んでおく。
         LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     }
 
     PrefetchD3DDevice();
 
-    // CoUninitialize は Win32Window 破棄（COM オブジェクト解放）より後に走らせる必要がある。
-    // window より先にこのガードを宣言することで、全 return 経路でこの順序を保証する。
     bool com_initialized = false;
     ScopeGuard com_guard([&com_initialized] {
         if (com_initialized) {
@@ -101,25 +91,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         i18n::Init(session::LoadLanguage(config));
     }
 
-    // 引数は CRT がスタートアップで分解済み。
     const StartupArgs args = (__wargv && __argc > 1) ? ParseStartupArgs({ __wargv + 1, static_cast<size_t>(__argc - 1) }) : StartupArgs{};
-
-    // session::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
     const std::wstring last_file = session::LoadLastFilePath(config);
     StartupPlan plan = PlanStartup(args, last_file);
 
     Win32Window window(config);
 
-    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D2D/DWrite/WIC のファクトリ) と並列に
-    // I/O + Markdown パースを進める。通知先の hwnd は Create の中の LoadInitialDocument で渡し、
-    // 結果 (PARSE_COMPLETE) は最初のフレームより前に OnParseComplete で取り込む。
-    // preload が無ければ LoadInitialDocument がヘルプを開く。
     if (!plan.document_path.empty()) {
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }
 
     // preload の結果は Create の中で取り込むので、復元情報を先に渡す。
-    // equivalent は前回のファイルを開くので、ネットワークドライブ上なら確かめずに復元しない (LoadLastFilePath と同じ理由)。
     // clang-format off
     std::visit(overloaded{
         [](const startup_scroll::None&) static {},

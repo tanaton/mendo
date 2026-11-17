@@ -26,7 +26,7 @@ protected:
         return signaled;
     }
 
-    // name を書き換え、変更通知を待つ。通知が届いたら true。
+    // 通知が届いたら true。
     bool ModifyAndWait(FileWatcher& watcher, std::wstring_view name, std::string_view content, int timeout_ms = 2000)
     {
         WriteTempFile(name, content);
@@ -140,8 +140,6 @@ TEST_F(FileWatcherTest, ReportsEveryChange)
     }));
 }
 
-// ---- GetEventHandle テスト ----
-
 // 監視の対象を作った時点で最初の読み取りを発行しているので、UI が監視を引き継ぐ前の保存も通知で届く
 // (読み込みの worker は、ファイルを読む前に対象を作る)。
 TEST_F(FileWatcherTest, ReportsChangeMadeBeforeWatching)
@@ -170,7 +168,6 @@ TEST_F(FileWatcherTest, DiscardedTargetCancelsPendingRead)
     WriteTempFile(L"discard.md", "modified");
 }
 
-// 監視中だけイベントハンドルを持つ。
 TEST_F(FileWatcherTest, GetEventHandleOnlyWhileWatching)
 {
     auto path = WriteTempFile(L"evtstop.md", "content");
@@ -196,8 +193,6 @@ TEST_F(FileWatcherTest, StartWatchingWithoutFolderStopsWatching)
     watcher.StartWatching(std::move(missing), []() static {});
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }
-
-// ---- ImageFolderWatcher ----
 
 class ImageFolderWatcherTest : public TempDirTestBase {
 protected:

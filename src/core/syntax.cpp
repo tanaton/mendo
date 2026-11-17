@@ -103,14 +103,13 @@ constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
     return p == npos ? text.size() : p;
 }
 
-// pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
 constexpr size_t SkipChars(std::string_view text, size_t pos, CharSet chars) noexcept
 {
     return SkipWhile(text, pos, [chars](char c) { return chars.contains(c); });
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
-// 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾）。
+// 閉じ引用符の次の位置を返す（未終端の場合はテキストの末尾。allow_multiline が false なら改行の位置）。
 constexpr size_t ScanString(std::string_view text, size_t pos, char quote, bool allow_multiline, bool handle_escape = true) noexcept
 {
     size_t i = pos + 1;
@@ -330,8 +329,7 @@ constexpr size_t ScanRubyBlockComment(std::string_view text, size_t pos) noexcep
     return p == npos ? text.size() : SkipToEol(text, p + 1);
 }
 
-// posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
-// 閉じペアの次の位置を返す。未終端の場合はtext.size()を返す。
+// pos (開始ペアの最初の文字) からのブロックコメントをスキャンし、閉じペアの次の位置を返す。未終端なら text.size()。
 constexpr size_t ScanBlockComment(std::string_view text, size_t pos, char close1, char close2) noexcept
 {
     // close1 はソース中で比較的レアな文字（'*' や '#'）なので、find で間引いてから close2 を確認する。
@@ -418,8 +416,7 @@ constexpr bool IsShellWordBoundary(char c) noexcept
     return kBoundaries.contains(c);
 }
 
-// LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
-// 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
+// LexerConfig を NTTP にして `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、各言語の lexer を最小のコードにする。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
 // line_head は begin が行の頭か (区切ったコードの続きを行の途中から読むときは偽)。
 template <LexerConfig Cfg>
@@ -435,8 +432,7 @@ void TokenizeRange(
     constexpr bool kNeedAtLineStart = kHasLineHeadTokens<Cfg>;
 
     size_t i = begin;
-    // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
-    // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
+    // 位置 i が行の頭 (行の開始から i までが空白だけ) か。反復の開始時点の i の状態で、i を進めた後に更新する。
     [[maybe_unused]] bool at_line_start = line_head;
 
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
@@ -472,7 +468,6 @@ void TokenizeRange(
             continue;
         }
 
-        // 行コメント: //
         if constexpr (Cfg.line_comment_slash) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
@@ -514,7 +509,6 @@ void TokenizeRange(
             }
         }
 
-        // ブロックコメント: /* */
         if constexpr (Cfg.block_comment) {
             if (c == '/' && i + 1 < text.size() && text[i + 1] == '*') {
                 emit_until(ScanBlockComment(text, i, '*', '/'), SyntaxTokenType::Comment);
@@ -522,7 +516,7 @@ void TokenizeRange(
             }
         }
 
-        // プリプロセッサ: 行頭の#（C/C++）
+        // プリプロセッサ: 行頭の#（C 系・C#・Swift）
         if constexpr (Cfg.preprocessor) {
             if (c == '#' && at_line_start) {
                 emit_until(SkipToLogicalEol(text, i), SyntaxTokenType::Preprocessor);
@@ -583,7 +577,6 @@ void TokenizeRange(
             }
         }
 
-        // トリプルクォート文字列
         if constexpr (Cfg.triple_quote != TripleQuote::None) {
             if ((c == '"' || c == '\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
                 const size_t e = Cfg.triple_quote == TripleQuote::CountedRaw && c == '"'
@@ -594,7 +587,6 @@ void TokenizeRange(
             }
         }
 
-        // 文字列リテラル
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
             // 生文字列 R"(...)" の R は識別子として後の分岐で消費されるため、ここでは通常の文字列として扱う。
             emit_until(ScanString(text, i, c, false), SyntaxTokenType::String);
@@ -609,13 +601,11 @@ void TokenizeRange(
             }
         }
 
-        // 数値
         if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
             emit_until(ScanNumber(text, i), SyntaxTokenType::Number);
             continue;
         }
 
-        // 識別子とキーワード
         if (IsIdentStart(c)) {
             const size_t start = i;
             i = SkipWhile(text, i, IsIdentChar);
@@ -2031,8 +2021,7 @@ constexpr size_t FindMakeOperator(std::string_view text, size_t pos, size_t end)
 bool TokenizeMakeLine(std::string_view text, size_t pos, size_t end, bool& in_rule, std::vector<SyntaxToken>& tokens)
 {
     size_t i = SkipBlanks(text, pos, end);
-    // md4c はコードブロック行頭のタブをスペースに展開して渡すので、タブではなく
-    // 「ルール行に続くインデント行」をレシピとみなす。
+    // md4c はコードブロック行頭のタブをスペースに展開するので、タブでなく「ルール行に続くインデント行」をレシピとみなす。
     if (in_rule && i > pos) {
         TokenizeMakeRecipe(text, i, end, tokens);
         return true;
@@ -2120,7 +2109,6 @@ constexpr size_t ScanNestedComment(std::string_view text, size_t pos, std::strin
     const char firsts[]{ open[0], close[0] };
     int depth = 0;
     size_t i = pos;
-    // 開き・閉じの先頭文字の候補まで find で飛ぶ
     while ((i = text.find_first_of(std::string_view{ firsts, 2 }, i)) != npos) {
         const auto rest = text.substr(i);
         if (rest.starts_with(open)) {
@@ -2612,9 +2600,8 @@ constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
     return i;
 }
 
-// <<[ trim][ eval] MARKER の解析。<< が無ければ Kind::None。
-// pos はコマンドの直後 (let は =<< の <)。行の途中のシフト演算子や文字列中の "<<" で始めると
-// 文書の残りが本文になるので、空白の後にすぐ << が来るときだけ受け付ける。
+// <<[ trim][ eval] MARKER の解析。<< が無ければ Kind::None。pos はコマンドの直後 (let は =<< の <)。
+// 行の途中のシフト演算子や文字列の "<<" で始めると文書の残りが本文になるので、空白の直後に << が来るときだけ受け付ける。
 constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHeredoc::Kind kind) noexcept
 {
     const size_t lt = SkipBlanks(text, pos, text.size());
@@ -2634,8 +2621,7 @@ constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHered
     return heredoc;
 }
 
-// 行頭 (と | の後) をコマンド位置として読み、コマンド名を Keyword、引数を式として色付けする。
-// text は行末で切ってある。
+// 行頭 (と | の後) をコマンド位置として読み、コマンド名を Keyword、引数を式として色付けする。text は行末で切ってある。
 VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bool vim9, std::vector<SyntaxToken>& tokens)
 {
     const size_t eol = text.size();

@@ -54,10 +54,8 @@ PaneLayout PaneController::ComputeLayout(float total_width, float total_height, 
     float x = 0.0f;
     const float pane_height = std::max(total_height - top_offset, 0.0f);
 
-    // 保存幅がウィンドウより広い場合 (広いモニタで保存→狭い画面で起動した等) でも
-    // MD ペインとスプリッタを画面内に保つため、表示上の side 幅を clamp する。論理幅
-    // (Instance::width) は変更しないので、ウィンドウを広げれば元に戻る。
-    // side がウィンドウに収まる通常時は no-op。
+    // 保存幅がウィンドウより広くても (広いモニタで保存→狭い画面で起動した等) MD ペインとスプリッタを画面内に保つよう、
+    // 表示上の side 幅を縮める。論理幅 (Instance::width) は変えないので、ウィンドウを広げれば戻る。
     float fw = file.show ? file.width : 0.0f;
     float tw = toc.show ? toc.width : 0.0f;
     const float avail_sides = SidePanesAvailableWidth(total_width, splitter_width, int{ file.show } + int{ toc.show });

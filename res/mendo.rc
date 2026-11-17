@@ -1,13 +1,10 @@
 #include <winresrc.h>
 #include "../src/util/resource.h"
 
-// Icon
 IDI_APP_ICON ICON "mendo.ico"
 
-// Manifest
 1 RT_MANIFEST "mendo.manifest"
 
-// Version info
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION    0,5,1,0
 PRODUCTVERSION 0,5,1,0

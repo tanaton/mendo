@@ -1,5 +1,4 @@
-// 部分レイアウト・ダーティ処理・エビクトを乱数の操作列で混ぜ、不変条件と
-// 全再計算との一致を確かめるモデルベーステスト。
+// 部分レイアウト・ダーティ処理・エビクトを乱数の操作列で混ぜ、不変条件と全再計算との一致を確かめるモデルベーステスト。
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <cmath>
@@ -28,8 +27,7 @@ constexpr float kYEps = 0.05f;
 // Reestimate が再計測を省く幅変化の上限。
 constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 
-// 計測したエントリに目印の text_layout を残す。EvictEntryLayout はこれを
-// 破棄するので、keep 範囲外に目印が残っていれば解放漏れと分かる。
+// 計測したエントリに目印の text_layout を残す。EvictEntryLayout はこれを破棄するので、keep 範囲外に目印が残れば解放漏れ。
 class MarkingMeasurer : public MockTextMeasurer {
 public:
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width) const override
@@ -395,7 +393,6 @@ protected:
     ViewportManager viewport_;
     LayoutService service_{ engine_, viewport_ };
 
-    // 計測したノードを記録する計測器で組む。
     void UseRecordingMeasurer()
     {
         ASSERT_TRUE(engine_.Init(&recording_, theme_));

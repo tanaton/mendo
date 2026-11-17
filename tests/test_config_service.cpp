@@ -27,8 +27,6 @@ protected:
     }
 };
 
-// ---- GetConfigPath ----
-
 TEST_F(ConfigServiceTest, GetConfigPathDefaultsToMendoFolder)
 {
     const ConfigService config;
@@ -42,8 +40,6 @@ TEST_F(ConfigServiceTest, GetConfigPathCombinesCorrectly)
     auto path = config_.GetConfigPath(L"test.txt");
     EXPECT_EQ(path, temp_dir_ / L"test.txt");
 }
-
-// ---- 値の保存と読み出し ----
 
 // 無いキーは既定値。空のディレクトリや壊れたファイルを読んだ後も同じ。
 TEST_F(ConfigServiceTest, MissingKeysReturnDefaults)
@@ -114,8 +110,6 @@ TEST_F(ConfigServiceTest, SaveWStringOverwrites)
     }
 }
 
-// ---- Load / Flush ラウンドトリップ ----
-
 TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
 {
     config_.SaveBool("View", "DarkMode", true);
@@ -131,8 +125,7 @@ TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
 
 TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
 {
-    // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも
-    // 先頭セクションが無言で失われないこと
+    // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも先頭セクションが無言で失われないこと
     WriteTempFile(L"settings.ini", "\xEF\xBB\xBF[Window]\r\nX=42\r\n");
     config_.Load();
     EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
@@ -256,8 +249,6 @@ TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
     EXPECT_EQ(config_.LoadInt("Test", "Suffix", 7, 0, 100), 7);
 }
 
-// ---- Parse テスト ----
-
 // 空行・コメント (; と #)・'=' の無い行は飛ばす。セクションより前のキーは名前の無いセクションに入る。
 TEST(IniParserTest, ParseSections)
 {
@@ -345,8 +336,6 @@ protected:
     }
 };
 
-// ---- SavePanes / LoadPanes ----
-
 // 表示・幅・倍率はペインごとに往復する。幅はズームを含まない DIP 値で、読み側は倍率を掛けない。
 TEST_F(SessionTest, PanesRoundTrip)
 {
@@ -387,9 +376,8 @@ TEST_F(SessionTest, LoadPanesOverwritesCurrentState)
 
 TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
 {
-    // 過剰幅は PaneController::ComputeLayout が表示幅だけを縮めて扱うので、LoadPanes はウィンドウ幅で
-    // clamp せず保存値をそのまま使う。clamp すると狭いウィンドウで起動したときに保存値が min へ潰れ、
-    // 終了時の再保存で失われる。
+    // 過剰幅は PaneController::ComputeLayout が表示幅だけを縮めるので、LoadPanes はウィンドウ幅で clamp せず保存値を
+    // そのまま使う。clamp すると狭いウィンドウで起動したときに保存値が min へ潰れ、終了時の再保存で失われる。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
@@ -414,8 +402,6 @@ TEST_F(SessionTest, LoadsDefaultsWhenNothingSaved)
     EXPECT_EQ(pos.offset, 0);
     EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
 }
-
-// ---- SaveScrollPosition / LoadScrollPosition ----
 
 // offset は丸めて保存する。ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
 TEST_F(SessionTest, SaveAndLoadScrollPosition)
@@ -449,8 +435,6 @@ TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
     EXPECT_EQ(pos.node, -1);
     EXPECT_EQ(pos.offset, 0);
 }
-
-// ---- SaveLastFilePath / LoadLastFilePath ----
 
 // 保存したパスを読み戻し、空のパスでは上書きしない。LoadLastFilePath は実在しないパスを弾くので実ファイルを作る。
 TEST_F(SessionTest, SaveLastFilePathSkipsEmpty)

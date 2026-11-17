@@ -12,9 +12,8 @@
 #include <vector>
 #include <wrl/client.h>
 
-// Document テキスト (UTF-8 string_view) を IDWriteTextLayout / IDWriteTextFormat に
-// 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で UTF-16 にし、
-// UTF-8 byte と UTF-16 code unit の位置は Utf16OffsetCursor で前方に数えて対応させる。
+// Document テキスト (UTF-8 string_view) を IDWriteTextLayout / IDWriteTextFormat に渡す境界。MultiByteToWideChar 相当の
+// 自前 decode で UTF-16 にし、UTF-8 byte と UTF-16 code unit の位置は Utf16OffsetCursor で前方に数えて対応させる。
 //
 // 描画用 wchar_t (フォント名 / locale / i18n リテラル等) は初めから UTF-16 なので、CreateDocTextLayout を通さない。
 
@@ -111,12 +110,11 @@ inline std::optional<DWRITE_HIT_TEST_METRICS> LineBoxAt(IDWriteTextLayout* layou
 Microsoft::WRL::ComPtr<IDWriteFont> MapSystemFallback(IDWriteFactory* factory, uint32_t cp, const wchar_t* base_family, DWRITE_FONT_WEIGHT weight,
                                                       DWRITE_FONT_STYLE style, const wchar_t* locale, float* scale = nullptr);
 
-// 書式のフォントに字形が無い文字体系の文字を、システムのフォールバックが選ぶフォント名に対応させる。
-// 計測の手間の大半はフォールバックの処理で、同じフォントを範囲に明示するとグリフは同じまま速くなる
-// (test.md の幅変更 192 → 56ms)。選ばれるフォントは言語設定と環境で変わる (同じ漢字が ko-kr では Malgun Gothic) ので、
-// 名前を持たずシステムに尋ねる。解決には 1 文字体系で数百 µs かかるので、文書に現れた文字体系だけを初めて現れたときに解決する。
-// kScripts に無い文字体系、尋ねても分からないもの、書式のフォントに字形がある文字はこれまでどおりに組むので、
-// どの言語の文字も表示は変わらない。
+// 書式のフォントに字形が無い文字体系の文字を、システムのフォールバックが選ぶフォント名に対応させる。計測の手間の大半は
+// フォールバックの処理で、同じフォントを範囲に明示するとグリフは同じまま速くなる (test.md の幅変更 192 → 56ms)。
+// 選ばれるフォントは言語設定と環境で変わる (同じ漢字が ko-kr では Malgun Gothic) ので、名前を持たずシステムに尋ねる。
+// 解決には 1 文字体系で数百 µs かかるので、文字体系ごとに文書に初めて現れたときに解決する。kScripts に無い文字体系、
+// 尋ねても分からないもの、書式のフォントに字形がある文字はこれまでどおりに組むので、どの言語の文字も表示は変わらない。
 class FallbackFontMap {
 public:
     static constexpr size_t kScriptCount = 21;

@@ -16,8 +16,7 @@ namespace {
 // 928〜937 → 863〜867µs になる (新旧を交互に 3 回)。手間の正体は D2D が色の変わるたびに描画のまとまりを切ることで
 // (全層を 1 色で描くと −290µs)、ブラシの使い回しや (書体, 字形) ごとの層の並びの記憶は効かなかった。
 // 画素は、同じ色の層の縁が重なるところのアンチエイリアスが少し薄くなるだけ (250% で最大 62 階調・824 画素、100% で最大
-// 11 階調・16 画素、500% は同じ)。
-// 右から左のランは送り幅 0 だと字形の位置がずれ、縦書きは使わないので、どちらもまとめない。
+// 11 階調・16 画素、500% は同じ)。右から左のランは送り幅 0 だと字形がずれ、縦書きは使わないので、どちらもまとめない。
 class LayerPainter {
 public:
     LayerPainter(ID2D1RenderTarget* rt, ID2D1Brush* brush, DWRITE_MEASURING_MODE mode) noexcept : rt_(rt), brush_(brush), mode_(mode)
@@ -76,7 +75,7 @@ private:
                foreground == foreground_ && (foreground || (c.r == color_.r && c.g == color_.g && c.b == color_.b && c.a == color_.a));
     }
 
-    // 色の部分の無い字形 (paletteIndex 0xFFFF) は brush_ で描く。色のブラシを作れないときも brush_ で描く。
+    // 色の部分の無い字形 (paletteIndex 0xFFFF) と、色のブラシを作れないときは brush_ で描く。
     // 色のブラシは brush_ の不透明度 (非アクティブの窓のタイトルなど) に合わせる (DrawMath の色の字形と同じ)。
     void Paint(D2D1_POINT_2F origin, const DWRITE_GLYPH_RUN& run, bool foreground, const D2D1_COLOR_F& color) noexcept
     {
@@ -134,7 +133,6 @@ bool DrawColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURI
     return true;
 }
 
-// 1 つの brush で描くテキストレイアウトのレンダラ。
 class SingleBrushTextRenderer final : public RenderTargetTextRenderer {
 public:
     SingleBrushTextRenderer(ID2D1RenderTarget* rt, ID2D1Brush* brush) noexcept : RenderTargetTextRenderer(rt), brush_(brush)

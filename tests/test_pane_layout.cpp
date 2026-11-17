@@ -86,10 +86,6 @@ TEST(PaneLayout, MdPaneMinWidth)
     }
 }
 
-// ============================================================
-// DetectPaneZone
-// ============================================================
-
 // サイドペインは [x, x + 幅)、その右のスプリッタは [x + 幅, x + 幅 + SPLITTER_W)。隠したペインとスプリッタは MD ペインが詰める。
 TEST(DetectPaneZone, FollowsPaneAndSplitterRanges)
 {
@@ -121,10 +117,6 @@ TEST(DetectPaneZone, FollowsPaneAndSplitterRanges)
         EXPECT_EQ(DetectPaneZone(c.x, Layout(c.params), SPLITTER_W), c.expected);
     }
 }
-
-// ============================================================
-// ComputeScrollInfo
-// ============================================================
 
 // 収まる内容はスクロールせず、つまみが内容領域を占めて動かない。
 TEST(ComputeScrollInfo, FittingContentHasNoMaxScroll)
@@ -172,10 +164,6 @@ TEST(CenterPaneScrollOnItem, CentersItemAndClamps)
     EXPECT_FLOAT_EQ(CenterPaneScrollOnItem(45, 20.0f, info), 600.0f);
 }
 
-// ============================================================
-// ComputeThumbY / ScrollFromThumbY
-// ============================================================
-
 // スクロール 0..max_scroll はつまみの上端が内容領域の上端からつまみが下端に着く位置までに対応し、互いに逆変換になる。
 TEST(PaneScrollThumb, ThumbYAndScrollAreInverse)
 {
@@ -197,8 +185,6 @@ TEST(PaneScrollThumb, ThumbYAndScrollAreInverse)
     EXPECT_FLOAT_EQ(ScrollFromThumbY(info, 99999.0f), info.max_scroll);
 }
 
-// ---- 追加エッジケース ----
-
 TEST(PaneLayout, OversizedSavedWidthsKeepMdOnScreen)
 {
     // 広いモニタで保存した side 幅 (合計がウィンドウ超過) で狭い画面に起動しても、
@@ -208,7 +194,6 @@ TEST(PaneLayout, OversizedSavedWidthsKeepMdOnScreen)
     auto layout = Layout({ .total_w = total, .total_h = 600.0f, .file_w = 2000.0f, .toc_w = 2000.0f });
 
     EXPECT_GE(layout.md_rect.width, md_min);
-    // MD ペイン左端が画面内に収まる (md_min 幅を確保できる位置)
     EXPECT_LE(layout.md_rect.x, total - md_min);
     // 両スプリッタが画面内に残る (ドラッグで回復可能)
     const float splitter1_x = layout.file_rect.x + layout.file_rect.width;
@@ -229,10 +214,6 @@ TEST(PaneLayout, SingleOversizedPaneKeepsSplitterOnScreen)
     EXPECT_LT(splitter1_x, total);
 }
 
-// ============================================================
-// SidePaneLocalY
-// ============================================================
-
 TEST(SidePaneLocalY, OffsetsByContentTopAndScroll)
 {
     // ペイン上端 32 + ヘッダー 32 の直下は、スクロール 0 でローカル 0、スクロール 40 でローカル 40。
@@ -240,10 +221,6 @@ TEST(SidePaneLocalY, OffsetsByContentTopAndScroll)
     EXPECT_FLOAT_EQ(SidePaneLocalY(64.0f, 64.0f, 40.0f), 40.0f);
     EXPECT_FLOAT_EQ(SidePaneLocalY(100.0f, 64.0f, 10.0f), 46.0f);
 }
-
-// ============================================================
-// HitTestUniformList
-// ============================================================
 
 // 高さ item_h の項目が count 個並ぶ一覧で、y にある項目。外や項目が無いときと、高さが未確定 (0 以下) のときは -1 (0 除算しない)。
 TEST(HitTestUniformList, ReturnsIndexOfItemUnderY)
@@ -271,11 +248,6 @@ TEST(HitTestUniformList, ReturnsIndexOfItemUnderY)
     }
 }
 
-// ============================================================
-// ToPaneTarget
-// ============================================================
-
-// サイドペインだけが対象のペインを持つ。
 TEST(PaneZoneConversion, OnlySidePanesMapToTargets)
 {
     const std::pair<PaneZone, std::optional<PaneTarget>> kCases[] = {
@@ -308,10 +280,6 @@ TEST(ShowsVScrollbar, KeepsShowingWhileContentMayGrow)
     EXPECT_FALSE(ShowsVScrollbar(info, false));
     EXPECT_TRUE(ShowsVScrollbar(info, true));
 }
-
-// ═══════════════════════════════════════════════
-// PaneController
-// ═══════════════════════════════════════════════
 
 class PaneControllerTest : public ::testing::Test {
 protected:
@@ -382,10 +350,6 @@ TEST_P(PaneControllerPerPaneTest, ScrollByClampsAndReportsChange)
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(other_), 0.0f);
 }
 
-// ═══════════════════════════════════════════════
-// ペインスクロール
-// ═══════════════════════════════════════════════
-
 TEST_F(PaneControllerTest, ResetScrollStates)
 {
     panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
@@ -394,10 +358,6 @@ TEST_F(PaneControllerTest, ResetScrollStates)
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File), 0.0f);
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc), 0.0f);
 }
-
-// ═══════════════════════════════════════════════
-// スプリッタードラッグ制約
-// ═══════════════════════════════════════════════
 
 // ドラッグした幅はペインの最小幅を割らず、本文ペインに最小幅を残す。非表示のペインのスプリッターも同じく制約する。
 // 既定の幅は file 220・toc 220、スプリッターは 4。

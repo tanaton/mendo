@@ -9,10 +9,6 @@
 
 using namespace std::literals;
 
-// ═══════════════════════════════════════════════
-// QuantizeWidth
-// ═══════════════════════════════════════════════
-
 // 32 の倍数へ切り上げ、倍数はそのまま。0 以下は最小の 32。
 TEST(QuantizeWidth, RoundsUpToMultipleOf32)
 {
@@ -165,10 +161,6 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
     }
 }
 
-// ============================================================
-// SanitizeErrorMessage テスト
-// ============================================================
-
 TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
 {
     struct Case {
@@ -194,10 +186,6 @@ TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
         EXPECT_EQ(mermaid_util::SanitizeErrorMessage(c.msg, c.max_len), c.expected);
     }
 }
-
-// ============================================================
-// DiagramRequestHash テスト
-// ============================================================
 
 namespace {
 

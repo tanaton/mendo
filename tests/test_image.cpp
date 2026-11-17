@@ -281,7 +281,6 @@ TEST(ParserImage, ImageInFootnoteDefKeepsNumberAndSrc)
     EXPECT_TRUE(ParseInvariantsHold(md, result.nodes));
 }
 
-// 画像を含むリスト項目の後の段落に画像が漏れない。
 TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 {
     const auto result = ParseMarkdown("- ![alt](img.png)\n\nNormal paragraph");
@@ -436,9 +435,8 @@ protected:
     }
 };
 
-// 拡張子ではなく先頭バイトで形式を決め、ブラウザで表示できる形式以外のデコーダは動かさない。
-// 内容から自動判定する CreateDecoderFromStream に戻すと、インストール済みの任意のコーデックが
-// 文書を開いただけでプロセス内で動く。
+// 拡張子ではなく先頭バイトで形式を決め、ブラウザで表示できる形式以外のデコーダは動かさない。内容から自動判定する
+// CreateDecoderFromStream に戻すと、インストール済みの任意のコーデックが文書を開いただけでプロセス内で動く。
 TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
 {
     ASSERT_TRUE(CreateTestImage(L"tiff_as.png", GUID_ContainerFormatTiff, 40, 30));
@@ -574,7 +572,7 @@ TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
     EXPECT_EQ(loader_.ImageInfoCount(), 0u);
 }
 
-// ---- 異常系: ファイルが存在しない ----
+// ---- 異常系: パスが空 ----
 
 TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 {
@@ -622,20 +620,17 @@ TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
     EXPECT_FALSE(LoadAndGet(loader_null, GetTestImagePath(L"valid.png"), entry));
 }
 
-// ---- Shutdown テスト ----
-
 TEST_F(ImageLoaderTest, ShutdownWithoutInitIsNoOp)
 {
     ImageLoader loader;
     loader.SetRenderTarget(render_target_.Get());
-    loader.Shutdown(); // Init 未呼び出しでもクラッシュしないこと
+    loader.Shutdown();
 }
 
 // ---- ファイルロック回避テスト ----
 
 TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 {
-    // 壊れた画像でも読み込み後にファイルがロックされないこと
     const auto path = temp_dir_.Write(L"bad_lock.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
     LoadedImage entry;
@@ -786,7 +781,6 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     ASSERT_TRUE(CreateTestImage(L"dup.png", GUID_ContainerFormatPng, 50, 50));
     auto path = GetTestImagePath(L"dup.png");
 
-    // 同じパスを2回リクエスト — 重複は無視される
     loader_.RequestLoadAsync(path, 0.0f);
     loader_.RequestLoadAsync(path, 0.0f);
 
@@ -923,7 +917,6 @@ TEST_F(ImageLoaderAsyncTest, LoadAfterShutdownWithHeavyLoad)
 
 TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
 {
-    // 大量リクエスト中にキャンセルし、その後に新たなリクエストが処理されること
     constexpr int kImageCount = 8;
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"cancel_heavy_" + std::to_wstring(i) + L".png";
@@ -933,7 +926,6 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
 
     loader_.CancelPending();
 
-    // キャンセル後に新しいリクエストが正常に処理されること
     ASSERT_TRUE(CreateTestImage(L"after_cancel.png", GUID_ContainerFormatPng, 88, 66));
     auto path = GetTestImagePath(L"after_cancel.png");
 
@@ -966,7 +958,6 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     EXPECT_FALSE(TakeLoadedImage(loader_, path, entry));
 }
 
-// 失敗の記録を消す操作の後は、同じパスを読み直せる。
 TEST_F(ImageLoaderAsyncTest, ClearingFailedPathsAllowsRetry)
 {
     struct Case {
@@ -1293,7 +1284,7 @@ TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
 }
 
 // ============================================================
-// デコードサイズ計算
+// デコードサイズ計算と画像形式の判定
 // ============================================================
 
 TEST(ComputeDecodeSize, KeepsAspectWithinLimits)
@@ -1349,7 +1340,7 @@ TEST(SniffImageContainer, RejectsOtherFormats)
 }
 
 // ============================================================
-// ImageLoader 寸法の表のテスト
+// ImageLoader 寸法の表と、ファイルの更新 (Invalidate) のテスト
 // ============================================================
 
 // 件数が上限に届いたら、空にしてから新しい画像を入れる。
@@ -1418,8 +1409,7 @@ TEST_F(ImageLoaderAsyncTest, InvalidateAllowsRetryAfterGivingUp)
     EXPECT_TRUE(LoadAndGet(path, entry));
 }
 
-// 読んでいる間に更新されたファイルの結果は、更新の前の中身かもしれないので stale で入れ、次の読み込みで stale を外す。
-// 失敗は数えない。
+// 読んでいる間に更新されたファイルの結果は更新前の中身かもしれないので stale で入れ、次の読み込みで外す。失敗は数えない。
 TEST_F(ImageLoaderAsyncTest, InvalidateWhilePendingKeepsResultStale)
 {
     ASSERT_TRUE(CreateTestImage(L"inv_pending.png", GUID_ContainerFormatPng, 40, 30));

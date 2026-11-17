@@ -222,10 +222,6 @@ TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
     EXPECT_FALSE(LookupPath(cache_, 42, entry, path));
 }
 
-// ═══════════════════════════════════════════════
-// LRU削除 — 合計サイズ上限
-// ═══════════════════════════════════════════════
-
 // 足すと上限 (500) を超えるので、最古の 1 を追い出して 200 + 300 に収める。
 TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
 {
@@ -242,10 +238,6 @@ TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
     MermaidFileCache::CacheEntry entry;
     EXPECT_FALSE(LookupDimensions(cache_, 1, entry));
 }
-
-// ═══════════════════════════════════════════════
-// SaveIndex / LoadIndex 永続化
-// ═══════════════════════════════════════════════
 
 TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
 {
@@ -346,10 +338,6 @@ TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
     EXPECT_EQ(fresh->TotalSize(), 512u);
 }
 
-// ═══════════════════════════════════════════════
-// Initなしでの呼び出し
-// ═══════════════════════════════════════════════
-
 TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
 {
     // Initを呼ばない状態で各メソッドがクラッシュしないこと
@@ -363,10 +351,6 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
     uninit.SaveIndex();
     uninit.Shutdown();
 }
-
-// ═══════════════════════════════════════════════
-// LRU — Lookupが使用順を更新する
-// ═══════════════════════════════════════════════
 
 // 読んだ 1 は 2 より新しくなるので、上限を超えたら 2 を追い出す。追い出した結果は索引を読み直しても残る。
 TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
@@ -465,9 +449,8 @@ TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
 // Pending-write integrity (Medium-5 回帰)
 // ═══════════════════════════════════════════════
 
-// StoreAsync 直後でファイルが未着地のまま Lookup された時、index が
-// stale 扱いで消されないこと。修正前は orphan ファイル（書き込み完了後に
-// インデックスが指していないファイル）を生み出す原因になっていた。
+// StoreAsync の直後、ファイルが未着地のまま Lookup しても index を stale として消さない。修正前は orphan ファイル
+// (書き込み完了後にインデックスが指していないファイル) を生んでいた。
 TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 {
     InitCache();

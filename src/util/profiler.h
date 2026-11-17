@@ -1,9 +1,6 @@
 #pragma once
 
-// バックエンドは Tracy のみ。
-//
-// CMake -DMENDO_USE_TRACY=ON で有効化される。OFF のときは全マクロが no-op に展開され、
-// バイナリにも一切のコードが残らない。
+// バックエンドは Tracy のみ。CMake -DMENDO_USE_TRACY=ON で有効になり、OFF なら全マクロが no-op でコードを残さない。
 //
 // マクロ一覧:
 //   MENDO_PROFILE(label)             : スコープ計測。label は文字列リテラル必須。
@@ -16,9 +13,8 @@
 //                                      fmt は std::format のコンパイル時チェック対象のため
 //                                      文字列リテラル必須 (std::format_to_n に渡される)。
 
-// __LINE__ ベースで一意な識別子を生成するための内部マクロ。
-// MENDO_PROFILE の展開で参照されるため #undef で隠せないが、`_MENDO_DETAIL_` prefix で
-// 他 TU/サードパーティとの命名衝突を最小化する。
+// __LINE__ で一意な識別子を作る内部マクロ。MENDO_PROFILE の展開で参照されるので #undef で隠せず、
+// `_MENDO_DETAIL_` prefix で他 TU/サードパーティとの命名衝突を抑える。
 #define _MENDO_DETAIL_CONCAT2(a, b) a##b
 #define _MENDO_DETAIL_CONCAT(a, b) _MENDO_DETAIL_CONCAT2(a, b)
 
@@ -27,18 +23,16 @@
 #include <tracy/Tracy.hpp>
 #include <format>
 
-// Tracy の ZoneScopedN は固定変数名 `___tracy_scoped_zone` を生成するため、
-// 同一スコープに 2 個書くと再定義エラーになる。__LINE__ で固有名を作る
-// ZoneNamedN を使って同一関数内で複数 MENDO_PROFILE を書ける形にする。
+// Tracy の ZoneScopedN は固定の変数名 `___tracy_scoped_zone` を作り、同じスコープに 2 個書くと再定義エラーになるので、
+// __LINE__ で固有名を作る ZoneNamedN で同じ関数に複数の MENDO_PROFILE を書けるようにする。
 #define MENDO_PROFILE(label) \
     ZoneNamedN(_MENDO_DETAIL_CONCAT(_mendo_zone_, __LINE__), label, true)
 #define MENDO_FRAME_MARK() FrameMark
 #define MENDO_PLOT(label, value) TracyPlot(label, value)
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
-// 256 バイト固定はトレース用途として十分 (callsite が短いメッセージのみ生成)。
-// 切り詰め時は format_to_n の out iterator がバッファ末尾で停止し、`out - buf` が
-// 実書き込みバイト数 (= min(必要量, sizeof(buf))) を表す。
+// トレースは短いメッセージだけなので 256 バイト固定で足りる。切り詰めても format_to_n の out はバッファ末尾で止まり、
+// `out - buf` が実書き込みバイト数 (= min(必要量, sizeof(buf))) になる。
 #define MENDO_LOGF(fmt_str, ...)                                                  \
     do {                                                                          \
         char _mendo_buf[256];                                                     \

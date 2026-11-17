@@ -9,8 +9,6 @@
 #include "document_types.h"
 #include "text_arena.h"
 
-// ---- TextSelection::MakeOrdered ----
-
 // アンカーとキャレットを文書順に並べ、同じ位置どうしなら非アクティブにする。
 TEST(TextSelection, MakeOrderedSortsEndpoints)
 {
@@ -55,8 +53,6 @@ TEST(TextSelection, ClearResetsStateAndAllowsNewSelection)
     EXPECT_EQ(s.end_node, 3);
 }
 
-// ---- Nodeのデフォルト状態 ----
-
 TEST(NodeTest, DefaultState)
 {
     Node node;
@@ -72,8 +68,6 @@ TEST(NodeTest, DefaultState)
     EXPECT_EQ(node.code_language, SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
-
-// ---- TextRun ----
 
 TEST(TextRun, DefaultState)
 {
@@ -123,8 +117,6 @@ TEST(TextRun, HasLinkWhenIndexIsNonNegative)
     EXPECT_TRUE(TextRun{ .link_url_index = 0 }.has_link());
     EXPECT_FALSE(TextRun{ .link_url_index = -1 }.has_link());
 }
-
-// ---- AlertColorIndex ----
 
 // Note から順に 0 始まり。None は色を持たない番兵 ALERT_TYPE_COUNT。
 TEST(AlertColorIndex, MapsTypesInDeclarationOrder)
@@ -207,8 +199,7 @@ TEST(NodeTest, TextStoredRegardlessOfType)
     }
 }
 
-// alert_type は伝播ロジック (parser.cpp の DetectAlert) で後続ノードにも付く。
-// ラベル長は先頭のノードだけが持ち、伝播先ノードは 0 のはず。
+// alert_type は伝播ロジック (parser.cpp の DetectAlert) で後続ノードにも付くが、ラベル長は先頭のノードだけが持つ。
 TEST(NodeTest, AlertLabelLengthOnlyOnHead)
 {
     Node body;

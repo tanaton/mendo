@@ -101,10 +101,6 @@ TEST_F(TitleBarTest, TitleTextRectSpansBetweenButtonGroups)
     EXPECT_LT(rect.left, rect.right);
 }
 
-// ═══════════════════════════════════════════════
-// HitTest
-// ═══════════════════════════════════════════════
-
 TEST_F(TitleBarTest, HitTestOutsideTitleBar)
 {
     EXPECT_EQ(tb_.HitTest(400.0f, -1.0f), TitleBarHitZone::None);
@@ -135,10 +131,6 @@ TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
     }
     EXPECT_EQ(tb_.HitTest(tb_.GetButton(TitleBarHitZone::Minimize).right, cy), TitleBarHitZone::Maximize);
 }
-
-// ═══════════════════════════════════════════════
-// 狭いウィンドウでのレイアウト安全性
-// ═══════════════════════════════════════════════
 
 TEST_F(TitleBarTest, NarrowWindowTitleTextDoesNotGoNegativeWidth)
 {

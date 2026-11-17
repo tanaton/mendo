@@ -39,18 +39,14 @@ add_link_options(
 set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 
 # ---- Tracy プロファイラ（オプション） ----
-# 開発時のフレーム/ゾーン計測用。Release 配布では OFF が前提。
-# ON にすると <tracy/Tracy.hpp> が <windows.h> を引き込むため、
-# Tracy の zone/frame マクロは profiler.h 経由でラップして使う。
+# 開発時のフレーム/ゾーン計測用で、配布では OFF。<tracy/Tracy.hpp> は <windows.h> を引き込むので、
+# Tracy の zone/frame マクロは profiler.h 経由で使う。
 option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
 
 include(FetchContent)
 if(MENDO_USE_TRACY)
-    # Tracy v0.15.0 のソース取得（add_subdirectory 相当）。
-    # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
-    # 内で TracyClient のコンパイル定義として伝播する。
-    # TRACY_ON_DEMAND は Tracy GUI が接続するまで計測バッファを溜めない設定。
-    # アプリ起動だけでメモリを食わないので開発用に都合がよい。
+    # TRACY_ENABLE (クライアント側の計装) は、Tracy の CMakeLists が TracyClient のコンパイル定義として伝える。
+    # TRACY_ON_DEMAND は GUI が接続するまで計測を溜めないので、起動しただけではメモリを食わない。
     set(TRACY_ENABLE    ON CACHE BOOL "" FORCE)
     set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
     set(TRACY_STATIC    ON CACHE BOOL "" FORCE)
@@ -88,15 +84,9 @@ target_include_directories(quickjs SYSTEM PUBLIC ${quickjs_SOURCE_DIR})
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
-# quickjs は /GL (LTCG) から外す。LTCG の下で組むと解釈実行が遅く、外すと test.md の図 27 個が 942 → 708ms、数式 978 個が
-# 1187 → 991ms になる (エンジン単体、2026-11-10)。リンクのたびのコード生成も無くなり mendo.exe のリンクが 8.2 → 6.5 秒、exe は 6.6KB 増える。
-# 外すのは先頭の add_compile_options の条件で行う (ここで /GL- を足すと、ファイルごとに警告 D9025 が出る)。
-# clang-cl で組むと test.md の図 27 個が 790 → 500ms、数式 978 個が 283 → 233ms に縮む (#411) が、MSVC に戻した。
-# 手元と CI で clang の版が揃わず (23.1.3 と 20.1.8)、無い環境では MSVC に落ちて速さが変わるのを管理する手間に対し、
-# 体感できる差は大きな図を描くときに限られるため。MSVC の /Ob3 は 3% で揺れの内だった。
+# quickjs は LTCG の下で組むと遅いため /GL (LTCG) から外す
 
-# pele と KaTeX はビルドの時にバイトコードにして埋め込む (実行時のコンパイル約 60ms と約 20ms を省く)。
-# 同じ quickjs ターゲットで組むので、バイトコードの版は実行時のものと必ず合う。
+# pele と KaTeX はビルドの時にバイトコードにして埋め込む
 add_executable(mendo_js_compile src/mermaid/js_compile.cpp)
 target_link_libraries(mendo_js_compile PRIVATE quickjs)
 target_compile_options(mendo_js_compile PRIVATE /W4 /utf-8)
@@ -124,7 +114,6 @@ target_include_directories(rapidhash SYSTEM INTERFACE third_party/rapidhash)
 
 # ---- コアライブラリ（テストがリンクするコード。WinMain・App は含まない） ----
 add_library(mendo_core STATIC
-    # core - ドキュメントモデル・パース
     src/core/document.cpp
     src/core/document_utils.cpp
     src/core/anchor.cpp
@@ -132,39 +121,31 @@ add_library(mendo_core STATIC
     src/core/html_entities.cpp
     src/core/selection_html.cpp
     src/core/syntax.cpp
-    # layout - レイアウト計算
     src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dwrite_measurer.cpp
     src/layout/inline_math.cpp
     src/layout/doc_dwrite_bridge.cpp
-    # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
-    # ui - UIコンポーネント
     src/ui/context_menu.cpp
     src/ui/search_state.cpp
     src/ui/settings_dialog.cpp
     src/ui/titlebar.cpp
     src/ui/tooltip.cpp
-    # input - 入力処理
     src/input/hit_test_service.cpp
-    # io - ファイルI/O・永続化
     src/io/file_explorer.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
     src/io/file_watcher.cpp
-    # mermaid - Mermaid図表サポート
     src/mermaid/mermaid.cpp
     src/mermaid/mermaid_util.cpp
     src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
     src/mermaid/diagram_view.cpp
-    # theme - テーマ管理
     src/theme/theme.cpp
-    # app - アプリケーション制御
     src/app/async_load_coordinator.cpp
     src/app/app_controller.cpp
     src/app/clipboard_manager.cpp
@@ -173,7 +154,6 @@ add_library(mendo_core STATIC
     src/app/resource_manager.cpp
     src/app/startup_plan.cpp
     src/app/theme_service.cpp
-    # util - ユーティリティ
     src/util/d2d_util.cpp
     src/util/file_io.cpp
     src/util/pane_layout.cpp
@@ -197,9 +177,8 @@ if(MENDO_USE_TRACY)
     target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
-# /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
-# profiler.h の MENDO_LOGF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
-# PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
+# /Zc:preprocessor (__VA_OPT__ 等) は、profiler.h の MENDO_LOGF/TRACEF が利用側の TU でも展開されるので
+# PUBLIC で伝える (依存先の Tracy/md4c には伝わらない)。
 target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 
 # ---- プリコンパイル済みヘッダー ----

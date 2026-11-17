@@ -56,9 +56,8 @@ constexpr int8_t SaturateToInt8(int value) noexcept
 // nodes・arena・tables・indices (NodeStorage) は、そのまま Document に渡す。
 struct ParseContext : NodeStorage {
     std::stop_token stop_token;
-    // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
-    // 1024 callbacks ごとに stop_requested() を確認する間引きカウンタ。
-    // 最大 1024 callback 分の検知遅延は 600ms parse に対し μs オーダーで許容範囲。
+    // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるので、stop_requested() (atomic load) は 1024 回に 1 度見る。
+    // 検知が最大 1024 回分遅れても、600ms の parse に対し μs オーダーなので許容する。
     uint32_t cancel_check_counter = 0;
     bool cancel_requested = false;
     // コールバックで投げた例外。md_parse の後で投げ直す (NoThrowCallback)。
@@ -83,9 +82,8 @@ struct ParseContext : NodeStorage {
     // 現在ノードの本文の位置を記録した。していなければ本文を原文と突き合わせられない。
     bool source_offset_recorded = false;
 
-    // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
+    // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。md4c は強調の入れ子に上限が無いので 8bit では数えない。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ (フラグは uint8_t なので添字は 8 未満)。
-    // md4c は強調の入れ子に上限が無いので 8bit では数えない。
     std::array<uint32_t, 8> span_depths{};
     // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
@@ -105,9 +103,8 @@ struct ParseContext : NodeStorage {
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
 
-    // active_text_buffer 内の「未確定 TextRun」の開始位置。
-    // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
-    // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
+    // active_text_buffer 内の「未確定 TextRun」の開始位置。同じ span 状態で連続する AppendDoc は 1 つにまとめ、
+    // span 切替 / ブロック退出時に FlushPendingRun で確定する。
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
 
@@ -122,9 +119,8 @@ struct ParseContext : NodeStorage {
 
     Node* current_node = nullptr;
 
-    // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
-    // 47-94 万回呼ばれる hot path で毎回テーブルセル内かを判定しないよう、
-    // 状態遷移点 (BeginNode / TD/TH 進入 / current_node clear) で更新したポインタを直接使う。
+    // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。47-94 万回呼ばれる hot path なので、
+    // 毎回セル内かを判定せず、状態遷移点 (BeginNode / TD/TH 進入 / current_node clear) で更新したポインタを直接使う。
     // &current_text 以外を指すのはテーブルセル内 (table_text) のときだけ。
     ReservedArray<char>* active_text_buffer = nullptr;
 
@@ -155,8 +151,7 @@ struct ParseContext : NodeStorage {
     // 区切った (色分けする) コードブロックの並びの先頭。パースを終えてから AnnotateCodeChunkLeads に渡す。
     std::vector<size_t> split_code_runs;
 
-    // 現在ノードのテキストと runs のスクラッチを Node に確定し、スクラッチをクリアする。
-    // BeginNode と EndNode から呼ぶ。
+    // 現在ノードのテキストと runs のスクラッチを Node に確定してクリアする。BeginNode と EndNode から呼ぶ。
     // スクラッチの capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
     {
@@ -420,9 +415,8 @@ struct ParseContext : NodeStorage {
 
     // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
     // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
-    // 範囲外 (静的リテラル) のときは記録せず、後続の実体テキストで設定できるようにする。
-    // 脚注定義のように原文の途中から文書末尾へ移るノードは、ソース位置の単調増加
-    // (FindNodeBySourceOffset の二分探索の前提) を崩すので記録しない。
+    // 範囲外 (静的リテラル) なら記録せず、後続の実体テキストで設定する。脚注定義のように原文の途中から文書末尾へ
+    // 移るノードは、ソース位置の単調増加 (FindNodeBySourceOffset の二分探索の前提) を崩すので記録しない。
     void RecordSourceOffset(std::string_view chunk) noexcept
     {
         if (!IsSubrangeOf(chunk, markdown)) {
@@ -472,9 +466,8 @@ struct ParseContext : NodeStorage {
         current_link_url_index = !url.empty() ? FindOrAddLinkUrl(url) : int16_t{ -1 };
     }
 
-    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではハッシュ計算を伴う
-    // ハッシュマップより線形 memcmp の方が速い。数が増えたノードだけ link_url_lookup に切り替え、
-    // テーブル等で O(n^2) になるのを防ぐ。
+    // 1 ノードあたりの URL 数は典型的に < 8 で、そこではハッシュマップより線形 memcmp の方が速い。
+    // 数が増えたノードだけ link_url_lookup に切り替え、テーブル等で O(n^2) になるのを防ぐ。
     int16_t FindOrAddLinkUrl(std::string_view url)
     {
         const size_t n = current_link_urls.size();
@@ -601,14 +594,12 @@ struct ParseContext : NodeStorage {
         target->append(text);
     }
 
-    // DirectWrite は書式を付けるたびに範囲の並びを作り直すので、1 レイアウトに数万の装飾があると
-    // 計測と描画が二乗で遅くなる (1 段落に `a` を 8 万個で 20 秒超)。普通の文書が届かない数で打ち切り、
-    // 残りは装飾なしのテキストにする。
+    // DirectWrite は書式を付けるたびに範囲の並びを作り直すので、1 レイアウトに数万の装飾があると計測と描画が二乗で
+    // 遅くなる (1 段落に `a` を 8 万個で 20 秒超)。普通の文書が届かない数で打ち切り、残りは装飾なしのテキストにする。
     static constexpr size_t kMaxRunsPerText = 4096;
 
-    // 未確定 TextRun を確定して runs に push する。
+    // 未確定 TextRun を確定して runs に push する。装飾もリンクも無い run は出さない。runs の隙間は既定スタイル。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
-    // 装飾もリンクも無い run は出さない。runs の隙間は既定スタイルとして扱われる。
     void FlushPendingRun()
     {
         if (has_pending_run) {
@@ -690,7 +681,6 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
     const size_t col = tbl->cell_text_starts.size() - static_cast<size_t>(tbl->row_count - 1) * tbl->col_count;
     assert(col < tbl->col_count);
     const bool first_row = (tbl->row_count == 1);
-    // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
     if (col > 0) {
         ctx->table_text.push_back('\t');
     }
@@ -786,9 +776,8 @@ void LeaveCodeBlock(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
     assert(cn && cn->type == NodeType::CodeBlock);
-    // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
+    // md4c はコード各行を改行付きで渡すので、最終行の改行を落とす (区切りを待って取り除いた改行は戻してから)。
     // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
-    // 区切りを待って取り除いていた改行は戻してから落とす。
     ctx->CancelPendingSplit();
     ctx->FlushPendingRun();
     assert(ctx->current_runs.empty());
@@ -1281,14 +1270,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする (ReservedArray)。ノードは
-// 少なくとも 2 byte の入力から作られる (空のリスト項目 "-\n" や見出し "#\n")。超えたら倍を予約し直して写す。
-// 以前は入力 128 byte に 1 個を std::vector に予約し (256 と 2 往復した。8b22f224・cc98b79b と 8eee1cc6・29e67089)、
-// 足りなければ読み終えた割合から見積もって全ノードを写して広げ、パース後に容量が要素数の 1.25 倍を超えたら写して詰めていた
-// (詰める処理は 100MB の文書で commit 約 -30MB・約 3.6ms。「アプリ全体のメモリの 10% 以上効くものだけ置く」基準で置いた)。
-// 2026-11-13 に、予約したアドレス空間に置く形をユーザーが選んだ。パース中に実際の約 2 倍をコミットすることも、写すことも無い。
-// current_text と表の本文の置き場も入力の長さまで予約する (AppendDoc が置き場を分岐せずに足せるよう同じ型にする)。
-// arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
+// ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする
 constexpr size_t kInputBytesPerNode = 2;
 
 void ReserveForInput(ParseContext& ctx)
@@ -1299,9 +1281,7 @@ void ReserveForInput(ParseContext& ctx)
     ctx.list_counter.reserve(8);
 }
 
-// コールバックの例外 (表の行補完などの確保の失敗) を md4c の C のフレームに通さない。通すと md4c が確保したものが残り、
-// /EHsc は extern "C" の md_parse を例外を投げないものとして扱うので ParseContext の後片付けも保証されない。
-// 捕まえたら 0 以外を返して md4c に後片付けさせ、md_parse の後で投げ直す。
+// コールバックの例外 (ノードやテキストの置き場の確保の失敗など) を md4c の C のフレームに通さない
 template <auto Callback>
 struct NoThrowCallback;
 
@@ -1350,9 +1330,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         if (ctx.cancel_requested) {
             return {};
         }
-        // ほかの失敗は md4c の確保の失敗。ブロックと行の並びの大きさを int で持つので、短い行が続くと溢れる (空のリスト項目は
-        // 200MB、1 文字の行は 400MB で失敗し、test.md の繰り返しは 4000MB でも通る。2026-11-14)。途中までのノードでは
-        // 文書が黙って欠けるので投げる。
+        // ほかの失敗は md4c の確保の失敗
         if (ret != 0) {
             throw std::bad_alloc();
         }
@@ -1366,8 +1344,6 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
     }
 
-    // コミットを足したときの余り (最大 1/4) を、写さずに外す。
-    // 表・構文トークン・ヒットテストのバッファ・表の行の背景は 0.5MB 未満しか効かないので詰めない (e48be6cc)。
     ctx.nodes.shrink_to_fit();
 
     return std::move(static_cast<NodeStorage&>(ctx));

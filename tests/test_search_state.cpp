@@ -54,10 +54,6 @@ SearchState Searched(std::span<const Node> nodes, std::string_view query, bool c
 
 } // namespace
 
-// ═══════════════════════════════════════════════
-// 非表示
-// ═══════════════════════════════════════════════
-
 TEST(SearchStateTest, HideClearsMatches)
 {
     auto s = Searched(TextNodes({ "hello world" }), "hello");
@@ -68,10 +64,6 @@ TEST(SearchStateTest, HideClearsMatches)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
     EXPECT_EQ(s.GetMatches().capacity(), 0u) << "使わない間は結果の確保を返す";
 }
-
-// ═══════════════════════════════════════════════
-// 基本検索
-// ═══════════════════════════════════════════════
 
 // 既定は大文字小文字を無視し、区別するときは完全一致だけ。テキストを持たないノードは飛ばす。
 // 位置は UTF-16 で、表のセルではセル内の位置。
@@ -133,10 +125,6 @@ TEST(SearchStateTest, FindsAllMatches)
     }
 }
 
-// ═══════════════════════════════════════════════
-// マッチナビゲーション
-// ═══════════════════════════════════════════════
-
 TEST(SearchStateTest, NextMatchCycles)
 {
     auto s = Searched(TextNodes({ "aaa" }), "a");
@@ -179,10 +167,6 @@ TEST(SearchStateTest, NextAndPrevMatchNoOpWhenEmpty)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-// ═══════════════════════════════════════════════
-// SetCurrentMatchNear
-// ═══════════════════════════════════════════════
-
 TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
 {
     SearchState s;
@@ -191,8 +175,7 @@ TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
-// issue #97: 縦長テーブル内で下方にスクロール中にマッチを確定する際、
-// ブロック先頭 Y ではなく該当行の Y を評価してマッチを選択する。
+// issue #97: 縦長テーブル内で下方にスクロール中にマッチを確定する際、ブロック先頭 Y ではなく該当行の Y でマッチを選ぶ。
 TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 {
     auto s = Searched(Nodes(MakeTableNode({ { "hit" }, { "hit" }, { "hit" } })), "hit");
@@ -494,9 +477,8 @@ TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsMatchSpillingIntoChangedRa
     EXPECT_EQ(s.GetMatches()[0].node_index, 2);
 }
 
-// 実セルレイアウト (DWriteTestBase) を使う検索マッチ Y のテスト。
-// 表の複数行セルでは (row, col, start) 順に並ぶマッチの Y が単調にならないため、
-// モックの固定行高では再現できない。
+// 実セルレイアウト (DWriteTestBase) を使う検索マッチ Y のテスト。表の複数行セルでは (row, col, start) 順に並ぶ
+// マッチの Y が単調にならないので、モックの固定行高では再現できない。
 namespace {
 
 // 1 列目の長文が折り返して "hit" が 3 行目以降に来る一方、同じ行の 2 列目の "hit" は 1 行目にある。

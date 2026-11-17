@@ -1,13 +1,8 @@
 #include <gtest/gtest.h>
 #include "utility.h"
 
-// ═══════════════════════════════════════════════
-// RapidHash
-// ═══════════════════════════════════════════════
-
 // 図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら
-// MermaidFileCache::VERSION を上げる。
-// 長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
+// MermaidFileCache::VERSION を上げる。長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
 TEST(RapidHash, KeepsPersistedValues)
 {
     const std::string x200(200, 'x');
@@ -34,10 +29,6 @@ TEST(RapidHash, WideStringHashesUtf16Bytes)
 {
     EXPECT_EQ(RapidHash(L"ab"), RapidHash(std::string_view{ "a\0b\0", 4 }));
 }
-
-// ═══════════════════════════════════════════════
-// FlatHashMap
-// ═══════════════════════════════════════════════
 
 TEST(FlatHashMap, EmptyFindsNothing)
 {

@@ -100,8 +100,6 @@ TEST(Toc, EntriesFollowHeadingsInOrder)
     }
 }
 
-// ---- FindActiveIndex ----
-
 // scroll_y + margin 以前に始まる最後の見出しがアクティブ。最初の見出しより前や目次が空なら -1。
 // margin は目次のクリックで見出しの margin 上へスクロールした位置でも、その見出しを選ぶため。
 TEST(Toc, FindActiveIndex)

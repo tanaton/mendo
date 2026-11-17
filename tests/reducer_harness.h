@@ -77,9 +77,8 @@ inline SideEffectList Reduce(AppState& state, const AppAction& action, std::pmr:
     return Reduce(state, action, no_layout, resource);
 }
 
-// reducer を App 相当の前提 (Theme 設定済み・ウィンドウの大きさ確定済み) で
-// 駆動するテスト用ハーネス。ランダム列テストで同じ初期状態を何度も組み立てるために使う。
-// state が theme を指すため、生成後は移動・コピーしない。
+// reducer を App 相当の前提 (Theme 設定済み・ウィンドウの大きさ確定済み) で駆動するテスト用ハーネス。
+// ランダム列テストで同じ初期状態を何度も組み立てるのに使う。state が theme を指すので、生成後は移動・コピーしない。
 class ReducerHarness {
 public:
     static constexpr float kNodeHeight = 60.0f;

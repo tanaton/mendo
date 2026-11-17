@@ -271,8 +271,7 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
         return false;
     }
     const auto* at = a.table_data();
-    // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
-    // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
+    // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない
     return (at ? *at == *b.table_data() : a.GetText() == b.GetText()) && std::ranges::equal(a.runs(), b.runs()) &&
            std::ranges::equal(a.view_link_urls(), b.view_link_urls()) && std::ranges::equal(a.image_srcs(), b.image_srcs());
 }
@@ -339,8 +338,6 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     if (lead == 0 && state == 0) {
         return Tokenize(text, node.code_language);
     }
-    // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
-    // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外からその状態で解析を始めたのと同じになる。
     std::vector<SyntaxToken> tokens;
     tokens.reserve((text.size() - lead) / 32 + 1);
     if (lead > 0) {
@@ -357,8 +354,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     if (n < 2) {
         return;
     }
-    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い (16MB の INI のパースが 79 → 56ms)。
-    // 長い 1 行を途中で区切った並びは解析する。
+    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い
     if (IsLineLocalLanguage(run.front().code_language) && std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk)) {
         return;
     }
@@ -369,9 +365,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         begins[j] = pos;
         pos += run[j].GetText().size();
     }
-    // 区切ったコードの並びをつないだテキストでの、ノード k の終わり。
     const auto run_end = [&](size_t k) noexcept { return begins[k] + run[k].GetText().size(); };
-    // つないだテキストの pos から解析を始めるとき、そこが行の頭か。前の改行まで、継ぎ目を越えてさかのぼる (ふつうは直前の文字で決まる)。
     const SyntaxLanguage language = run.front().code_language;
     const auto at_line_head = [&](size_t pos) {
         size_t k = static_cast<size_t>(std::ranges::upper_bound(begins, pos) - begins.begin()) - 1;
@@ -388,22 +382,14 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         }
     };
 
-    // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す。16MB のコードのパースが C++ で 51〜72ms、JS で 96ms、
-    // YAML で 98ms ほどになるが、巨大なコードを開くときだけなので worker に配らない。LexerConfig の言語は継ぎ目をまたぐトークンだけを
-    // 作る経路 (語を飛ばしてキーワードの表も引かない) も持っていたが、効くのは巨大なコードだけなので、言語で分けずにそろえた
-    // (2026-11-15。C++ は 21.6 → 50.6ms・38.5 → 72.2ms、JS は 52 → 96ms と遅くなり、JSON は 8〜24% 速くなった)。
+    // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す
     constexpr size_t kWindowNodes = 8;
-    // 改行が無いまま窓の端に届いた行は、頭からこれだけ読んでいれば、行の頭の読み方 (キー・命令・ルールか代入か) が決まった
-    // ものとして行の途中から次の窓を読む。行の頭から読み直すと、窓より長い 1 行で、窓を倍にしながら行の頭から何度も読む
-    // (4MB の 1 行で YAML 30ms、Vim script 45ms)。これより後ろにだけ区切りのある行は、頭の色付けが 1 度に読んだときと変わる。
     constexpr size_t kLineHeadBytes = 64 * 1024;
     std::string seg;
-    // 状態を知りたい位置 (seg の中の継ぎ目と最後の行の頭)。
+    // 状態を知りたい位置 (seg の中の継ぎ目と最後の行の頭)
     std::vector<size_t> wanted;
     std::vector<SyntaxToken> tokens;
     SyntaxStateTrace trace;
-    // next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
-    // (トークンの先頭か、どのトークンにも入らない位置) で、restart_state はそこでの状態。
     size_t next = 1;
     size_t restart = 0;
     SyntaxLexState restart_state = 0;
@@ -428,14 +414,10 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         trace.Reset(restart_state, seg.size(), wanted);
         tokens.clear();
         AppendTokens(seg, language, tokens, 0, restart_state, &trace);
-        // 状態を持たない lexer でも、行の頭でだけ効くトークン (C 系の # など) を持つ言語は、行の途中から始めることを状態で渡す。
-        // 続くトークンの後ろも行の途中 (トークンは空白でない文字で終わる)。
         const auto resume_state = [&](size_t pos, SyntaxLexState traced) {
             return trace.NeedsLineHeadState() && !at_line_head(pos) ? kSyntaxMidLine : traced;
         };
 
-        // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、解析を始め直せる位置から次の窓を読む。
-        // 先読みが窓の端に届いた所から後ろも、続きを読むまで決まらない。
         SyntaxStateTrace::Point stop = trace.SettledEnd();
         if (last == n) {
             stop.pos = end - restart;
@@ -513,12 +495,9 @@ void ReplaceNulls(std::string& s, size_t nuls)
 }
 
 // CRLF と CR を LF 1 つにし、NUL の数を返す。CR と NUL を 16 バイトずつ一緒に探して 1 回の走査で済ませる
-// (行ごとの memchr と memmove に、NUL を数える全文の走査を足していた頃は、100MB の CRLF の文書で 20.2ms、今は 13.7ms)。
-// CR と NUL は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは衝突しない。
 size_t NormalizeNewlines(std::string& s)
 {
-    // 最初の CR か NUL までは STL の find_first_of で飛ばす (LF だけの文書は下の 16 バイトずつの走査より速い。100MB で
-    // 6.8ms と 7.8ms)。
+    // 最初の CR か NUL までは find_first_of で飛ばす
     const size_t first = std::string_view{ s }.find_first_of(std::string_view{ "\r\0", 2 });
     if (first == std::string_view::npos) {
         return 0;
@@ -610,8 +589,6 @@ void AppendPercentEncoded(Str& out, unsigned char b)
     out += kHex[b & 0x0F];
 }
 
-// ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
-// 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
 std::string EncodeShellUnsafeChars(std::string_view url)
 {
     std::string out;
@@ -762,13 +739,11 @@ std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
     }
     // "my%20images/a.png" のようなエンコード済みの記述も多いので、デコードしてから引く。
     const auto decoded = PercentDecode(src);
-    // 制御文字は Windows のファイル名に使えない。NUL は Win32 API がそこでパスを切るので、拡張子の確認をすり抜ける。
+    // 制御文字は Windows のファイル名に使えない
     if (std::ranges::any_of(decoded, [](char c) { return static_cast<unsigned char>(c) < 0x20; })) {
         return {};
     }
-    // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
     std::filesystem::path local_path(string_convert::Utf8ToWide(decoded));
-    // 相対パスは文書と同じ場所を引くだけなので、文書が共有フォルダ上でも通す。
     if (!path_util::IsLocalPath(local_path.native())) {
         return {};
     }
@@ -780,9 +755,7 @@ std::wstring ResolveLocalPath(std::string_view src, std::wstring_view doc_dir)
         }
         local_path = std::filesystem::path(std::move(*base)) / local_path;
     }
-    // canonical() は symlink 解決のためにファイルシステムを叩くので、
-    // UI 同期パスから外すため absolute() + lexically_normal() を使う。
-    // symlink を跨ぐ参照はレアケースとして許容する。
+    // canonical() は symlink の解決でファイルシステムを叩くので、UI 同期パスでは absolute() + lexically_normal() を使う。
     std::error_code ec;
     const auto abs_path = std::filesystem::absolute(local_path, ec);
     if (ec) {

@@ -21,8 +21,7 @@ class ClipboardManager {
 public:
     using ToastCallback = std::function<void(std::wstring_view)>;
 
-    // show_toast は呼び出し側で必ず設定する想定。Init を呼び忘れた場合は
-    // ガード不要にするためデフォルトは no-op。wic はアプリ共有のファクトリ (非所有)。
+    // show_toast は必ず渡す。Init を呼び忘れてもガードが要らないよう既定は no-op。wic はアプリ共有のファクトリ (非所有)。
     void Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
 
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;

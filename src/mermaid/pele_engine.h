@@ -35,9 +35,8 @@ struct PeleOutcome {
 };
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で
-// 描画命令にする。
-// どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイム (pele で約 2.9MB、KaTeX で約 2.6MB) を作って使い回す。
-// 各ランタイムは使うときにバイトコードを読む (約 5ms と約 3ms)。
+// 描画命令にする。どのメソッドもどのスレッドからでも同時に呼べ、同時に動く数だけランタイム (pele で約 2.9MB、KaTeX で
+// 約 2.6MB) を作って使い回す。各ランタイムは使うときにバイトコードを読む (約 5ms と約 3ms)。
 class PeleEngine {
 public:
     // pele と katex は pele.mjs と katex.min.js をビルドの時にコンパイルしたバイトコード (js_compile)、katex_fonts は KaTeX の
@@ -50,9 +49,8 @@ public:
     PeleEngine& operator=(const PeleEngine&) = delete;
 
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
-    // ラベルの $$...$$ は KaTeX で描く。
-    // pele の出力 (SVG とラベルの数式) はテーマに依らないので覚えておき、テーマの切り替えでは JS を走らせずに解き直すだけにする
-    // (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
+    // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG とラベルの数式) はテーマに依らないので覚え、テーマの切り替えでは
+    // JS を走らせずに解き直すだけにする (重い図は 1 回 0.8 秒ほど、解くのは平均 0.2ms)。
     PeleOutcome Render(std::string_view code, bool dark, float max_width);
 
     struct MathSource {
@@ -92,7 +90,6 @@ private:
     bool EnsurePele(PeleContext& context);
     bool EnsureKatex(PeleContext& context);
     KatexAssets* Assets();
-    // pele で SVG を描く。描けなければ理由を返す。
     std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
     std::shared_ptr<const PeleSvg> FindSvg(uint64_t key);
     void StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg);

@@ -1,7 +1,6 @@
 #pragma once
-// MockTextMeasurer + LayoutEngine + CommandGenerator のフィクスチャ基底。
-// IDWriteTextLayout を必要としないコマンド生成テスト用。DirectWrite 経路を踏む
-// テストは別途 dwrite_test_base.h を使う。
+// MockTextMeasurer + LayoutEngine + CommandGenerator のフィクスチャ基底。IDWriteTextLayout の要らない
+// コマンド生成テスト用で、DirectWrite 経路を踏むテストは dwrite_test_base.h を使う。
 #include <gtest/gtest.h>
 #include "command_generator.h"
 #include "draw_cmd_test_util.h"

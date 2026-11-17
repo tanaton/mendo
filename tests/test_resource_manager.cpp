@@ -31,7 +31,7 @@
 
 namespace {
 
-// IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
+// 各メソッドの呼び出し回数と最後の引数を記録する。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
     std::vector<const Node*> requested;
@@ -140,8 +140,7 @@ LayoutCache SeedLayoutCache(size_t node_count, float block_height = 100.0f)
 
 class ResourceManagerTest : public ComApartmentTest {
 protected:
-    // 画像の適用は doc_dir.empty() で早期 return するため、テスト用ドキュメントパスは
-    // parent_path を持つ絶対パスでなければならない。
+    // 画像の適用は doc_dir.empty() で早期 return するので、テスト用ドキュメントパスは parent_path を持つ絶対パスにする。
     static constexpr const wchar_t* kTestDocPath = L"C:\\dir\\test.md";
     static constexpr float kContentWidth = 800.0f;
     static constexpr float kViewportHeight = 600.0f;

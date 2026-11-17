@@ -62,9 +62,8 @@ struct PopupWindow {
 
     ID2D1Factory* d2d_factory = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;
-    // 本体の描画デバイス (無ければ SOFTWARE の描画先で描く)。借りるだけなので、使うのは開いたときに描画先を作るときだけにする。
-    // 開いている間も本体のメッセージは進み、本体がデバイスを作り直すと借りたデバイスは解放されうる (置き直しはスワップ
-    // チェーンの大きさを変えて済ませ、作れなかったときと描けなくなったときは開いている間 SOFTWARE で描く)。
+    // 本体の描画デバイス (無ければ SOFTWARE で描く)。開いている間も本体のメッセージは進み、本体がデバイスを作り直すと
+    // 借りたデバイスは解放されうるので、使うのは開いたときに描画先を作るときだけにする (Place・DropDevice も参照)。
     ID3D11Device* d3d = nullptr;
     ID2D1Device* device = nullptr;
     // 呼び出し側から借りる。

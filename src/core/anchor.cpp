@@ -49,9 +49,8 @@ size_t WriteLowerNonAscii(utf8_codec::DecodedCp decoded, const char* src, char* 
     return utf8_codec::EncodeCp(lower, dst);
 }
 
-// アンカー (GitHub 互換スラグ) に採用しない記号・句読点か。非 ASCII コードポイント単位で判定。
-// Unicode 全カテゴリテーブルは持たないため、主要な記号ブロックの近似で判定する
-// (文字 (Letter) を誤って落とすより、稀な記号を通す方向に倒す)。
+// アンカー (GitHub 互換スラグ) に採用しない非 ASCII の記号・句読点か。Unicode の全カテゴリの表は持たないので、
+// 主要な記号ブロックで近似し、文字 (Letter) を誤って落とすより稀な記号を通す方向に倒す。
 constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 {
     // ラテン1補助の記号 (U+00A0–U+00BF)

@@ -54,8 +54,7 @@ private:
 };
 
 
-// worker の結果 (画像の GPU への転送・図の描画命令の記録) を UI スレッドで取り込む 1 回の持ち時間。1 件で数 ms かかるので、
-// まとめて届くと 1 フレームを押し出す。
+// worker の結果 (画像の GPU への転送・図の描画命令の記録) を UI スレッドで取り込む 1 回の持ち時間
 inline constexpr std::chrono::microseconds kImportSliceBudget{ 4000 };
 
 template <class... Ts>
@@ -190,9 +189,8 @@ inline bool IsSubrangeOf(std::string_view inner, std::string_view outer) noexcep
     return p >= base && p + inner.size() <= base + outer.size();
 }
 
-// スコープ離脱時にクリーンアップ関数を一度だけ実行する汎用 RAII ガード。
-// デストラクタのためだけの構造体をその場で定義する代わりに使う。
-// prvalue 初期化 (保証付きコピー省略) 専用のためコピー/ムーブは持たない。
+// スコープを抜けるときに関数を一度だけ実行する RAII ガード (デストラクタのためだけの構造体をその場で定義する代わり)。
+// prvalue 初期化 (保証付きコピー省略) 専用なので、コピー/ムーブは持たない。
 template <typename F>
 class ScopeGuard {
 public:

@@ -71,8 +71,7 @@ enum class TableAlign : uint8_t {
     Right = 3,
 };
 
-// テーブル専用データ（Tableノードのみ確保）。SoA レイアウトで全セルを 1 本の concat_text に連結保持し、
-// セルごとのアクセスは offset テーブル経由で O(1)。
+// テーブル専用データ (Table ノードのみ確保)。SoA で全セルを 1 本の concat_text につなぎ、offset 表でセルを O(1) で引く。
 // 不変条件:
 //   cell_text_starts.size() == row_count * col_count + 1 (md4c は短い行も列数ぶんのセルで出す)
 //   最後のセル以外は直後に区切り ('\t' / '\n') を 1 つ持つ
@@ -113,7 +112,6 @@ struct NodeTableData {
         return static_cast<size_t>(std::ranges::upper_bound(cell_text_starts, offset) - cell_text_starts.begin()) - 1;
     }
 
-    // セルの concat_text 内開始 offset。
     constexpr uint32_t CellTextStart(size_t r, size_t c) const noexcept
     {
         return cell_text_starts[CellIndex(r, c)];
@@ -349,9 +347,8 @@ struct Node {
         flags_ |= kHasAlertLabel;
     }
 
-    // 長いテキストはパーサが区切り、同じ種別のノードの並びにする (DirectWrite の計測は長いレイアウトほど 1 文字あたりも遅くなる。
-    // 理由と計測値は parser.h の kTextChunkTarget)。
-    // 並びは見た目もコピーも 1 つのブロックとして扱う。
+    // 長いテキストはパーサが区切って同じ種別のノードの並びにし、並びは見た目もコピーも 1 つのブロックとして扱う。
+    // DirectWrite の計測は長いレイアウトほど 1 文字あたりも遅くなる (理由と計測値は parser.h の kTextChunkTarget)。
     constexpr bool continues_prev() const noexcept
     {
         return (flags_ & kContinuesPrev) != 0;
@@ -483,10 +480,8 @@ constexpr bool IsListItem(const Node& node) noexcept
     return node.type == NodeType::ListItem || node.type == NodeType::TaskListItem;
 }
 
-// loose list の LI (md4c が中身を MD_BLOCK_P に外出しするためテキストを持たない枠)。
-// 高さ / spacing / cull / bullet 描画で同じ判定を共有するため集約する (issue#237)。
-// 子ブロックも無い本当に空の LI は含めない。高さ 0 にすると空の "1." の繰り返しが全部同じ Y に
-// 重なり、可視判定で間引けず毎フレーム全件描くことになる。
+// loose list の LI (md4c が中身を MD_BLOCK_P に外出しするのでテキストを持たない枠)。
+// 高さ 0 にすると空の "1." の繰り返しが全部同じ Y に重なり、可視判定で間引けず毎フレーム全件描く。
 constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
 {
     return IsListItem(node) && !node.HasText() && node.has_child_blocks();

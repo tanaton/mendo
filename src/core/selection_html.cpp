@@ -572,8 +572,7 @@ std::string ExtractSelectedText(std::span<const Node> nodes, const TextSelection
         return {};
     }
 
-    // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持が起きないよう、
-    // 先に正確な長さを数えて 1 回で確保する。
+    // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持を避け、先に正確な長さを数えて 1 回で確保する。
     // CF_UNICODETEXT は CRLF が慣例で、LF だけでは改行しないアプリがあるため、
     // ノード内の改行 (コード行・BR・表の行区切り) も CRLF にする。本文は読み込み時に LF へ正規化済み。
     static constexpr std::string_view kCrlf = "\r\n";

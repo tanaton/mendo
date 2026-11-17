@@ -137,8 +137,7 @@ constexpr float PaneContentTop(const PaneRect& rect, float header_height) noexce
     return rect.y + header_height;
 }
 
-// ウィンドウ DIP の Y を、項目先頭を 0 とするペイン内ローカル Y (スクロール込み) に変換する。
-// ホバーとクリックの両方がこの式を共有する。
+// ウィンドウ DIP の Y を、項目先頭を 0 とするペイン内ローカル Y (スクロール込み) にする。ホバーとクリックで共有する。
 constexpr float SidePaneLocalY(float dip_y, float content_top, float scroll_y) noexcept
 {
     return dip_y - content_top + scroll_y;
@@ -157,7 +156,7 @@ constexpr int HitTestUniformList(float local_y, float item_height, size_t count)
     return index;
 }
 
-// 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする (issue#259)。
+// 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする。
 constexpr float CenterPaneScrollOnItem(size_t index, float item_height, const PaneScrollInfo& info) noexcept
 {
     const float item_y = SidePaneContentHeight(index, item_height);
@@ -255,6 +254,5 @@ inline constexpr unsigned DEFAULT_WHEEL_SCROLL_LINES = 3;
 
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 
-// マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
-// PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
+// md ペインの最小幅 (DIP)。PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;

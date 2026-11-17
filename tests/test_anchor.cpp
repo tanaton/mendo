@@ -123,8 +123,6 @@ TEST(AnchorId, LongText)
     EXPECT_EQ(std::string_view(id), std::string(1000, 'a'));
 }
 
-// ---- HeadingAnchorIndex (見出しへのアンカー割り当て) ----
-
 namespace {
 
 std::vector<std::string> AssignAnchors(std::initializer_list<std::string_view> headings)

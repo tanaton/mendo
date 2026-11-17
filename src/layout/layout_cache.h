@@ -68,10 +68,9 @@ struct IndexRange {
     }
 };
 
-// テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）。
-// エントリは中身の同じノードの間でしか移らない (TakeEntries) ので、行数・列数は作ったときに決まり変わらない。
-// 全セルを測って幾何を積んでから entry に置く (DWriteTextMeasurer::BuildTable で組み、MeasureTable か
-// LayoutService::PlaceMeasuredTables が置く) ので、table_layout() があれば幾何も揃っている。
+// テーブル専用のレイアウトデータ。エントリは中身の同じノードの間でしか移らない (TakeEntries) ので、行数・列数は
+// 作ったときに決まり変わらない。全セルを測って幾何を積んでから entry に置く (DWriteTextMeasurer::BuildTable で組み、
+// MeasureTable か LayoutService::PlaceMeasuredTables が置く) ので、table_layout() があれば幾何も揃っている。
 // 幅が変わっても次に組み直すまでは前の幅の幾何のまま残る (見えている表は描く前に組み直す)。
 struct TableLayoutData {
     const size_t row_count;
@@ -178,8 +177,7 @@ struct TableLayoutData {
         cells[ci % col_count] = std::move(layout);
     }
 
-    // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
-    // 座標はいずれもエントリ上端からのローカル系。
+    // [local_top, local_bottom] (エントリ上端からのローカル座標) に重なる行帯 [r_begin, r_end) を二分探索で返す。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
     // [local_top, local_bottom] に重なる行に、セル layout を退避した行があるか。
     bool HasEvictedRowsIn(float local_top, float local_bottom) const noexcept;
@@ -207,8 +205,7 @@ struct TableLayoutData {
         return col_cum_x.back();
     }
 
-    // row_heights から罫線込みの累積位置を積み直す。
-    // first_row より前の row_cum_y は有効なものとして使い回す。
+    // row_heights から罫線込みの累積位置を積み直す。first_row より前の row_cum_y は有効なものとして使い回す。
     void RebuildRowCumY(size_t first_row);
 
     // 最下行の下罫線まで含めた表の高さ (計測で entry.height に確定する値)。
@@ -217,8 +214,7 @@ struct TableLayoutData {
         return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
     }
 
-    // local_y がヒットする行インデックスを返す。ヒットなしは -1。
-    // 座標はエントリ上端からのローカル系。
+    // local_y (エントリ上端からのローカル座標) がヒットする行インデックスを返す。ヒットなしは -1。
     int RowIndexAt(float local_y) const noexcept;
 
 private:
@@ -391,12 +387,10 @@ struct NodeLayoutEntry {
         return aux_ ? std::move(aux_->text_layout) : nullptr;
     }
 
-    // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
-    // あれば text_offset_w (UTF-16 code unit) に対応する行 Y を精密に計算し、無ければ
-    // ブロック先頭/テーブル行先頭の座標にフォールバックする。
-    // Why: 長い段落内の複数マッチで同じブロック先頭 Y に丸まると「次へ」でスクロールしない。
-    // text_offset_w は IDWriteTextLayout のヒットテストに渡すので UTF-16 単位を渡すこと
-    // (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
+    // マッチの絶対 Y とその行の高さを返す。text_layout (テーブルはセル layout) があれば text_offset_w の行の Y を
+    // 精密に求め、無ければブロック先頭 / テーブル行先頭の座標にする。長い段落内の複数マッチが同じブロック先頭 Y に
+    // 丸まると「次へ」でスクロールしない。text_offset_w は IDWriteTextLayout のヒットテストに渡すので
+    // UTF-16 単位を渡すこと (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
     std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept;
 
 private:
@@ -409,9 +403,8 @@ private:
         // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
         // MeasureNode で text_layout 確定時に同時に求める。
         float first_line_height = 0.0f;
-        // CodeBlock の自然幅 (NO_WRAP で計測した最長行 + 左右の余白)。横スクロールバーのスケール計算と
-        // クランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
-        // CodeBlock 以外では 0 のまま。
+        // CodeBlock の自然幅 (NO_WRAP で計測した最長行 + 左右の余白、CodeBlock 以外は 0)。横スクロールバーのスケール
+        // 計算とクランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
         float natural_code_width = 0.0f;
         // text_layout の画像を縮めずに置ける最小の幅 (画像が無ければ 0、縮めて組んだら無限大)。この幅以上なら、幅を変えても
         // 画像の組み方は同じなので組み直さない。表はセルごとに TableLayoutData::ImageCell に持つ。
@@ -486,9 +479,8 @@ struct DiagramResult {
     float height = 0.0f;
     // 図の描画命令。クリップボードコピー・保存の画像と、捨てた commands を記録し直す元。
     std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
-    // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。
-    // 失敗は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
-    // クリアされ再試行の契機になる。
+    // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。失敗は再リクエストを止め、
+    // コードの書き換え・幅変更・テーマ変更・デバイスロストでクリアされて再試行の契機になる。
     DiagramError error;
 };
 
@@ -580,9 +572,8 @@ public:
     }
 
     // ノード Y 位置の唯一の真実。WRITE 経路は layout_computer の RecomputeYPositions / EstimateNodeHeights /
-    // ReestimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
-    // 高さ変化時の後続ノード一括シフトが AoS のエントリを全件なめないよう、
-    // 連続 float 配列として entries_ とは別に持つ。
+    // ReestimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。高さ変化時の後続ノード一括シフトが
+    // AoS のエントリを全件なめないよう、連続 float 配列として entries_ とは別に持つ。
     constexpr float Top(size_t i) const noexcept
     {
         return tops_[i] + top_block_offsets_[i >> kTopBlockShift];
@@ -631,18 +622,15 @@ public:
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 
-    // デバイスロスト時用。旧デバイスのコマンドリストは新 RT で描画できず、
-    // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
-    // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
+    // デバイスロスト用。旧デバイスのコマンドリストは新 RT で描けず、残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で
+    // 失敗し続ける。寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramCommands() noexcept;
 
-    // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を
-    // 破棄し、layout_dirty=true で再生成させる。text_top と height は維持する。
-    // テーブルは幾何を残してセルのレイアウトだけ捨て、dirty にはしない。レイアウトを持たないノードも dirty にはしない。
-    // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
-    // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
-    // のメモリを COM 側に常駐させてしまう。LAYOUT_EVICT_BUFFER_SCREENS 分の安全マージン
-    // を取った上で範囲外を解放する。呼び出し側（ResourceManager）は再描画時の
+    // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs を破棄し、
+    // layout_dirty=true で再生成させる。text_top と height は維持する。テーブルは幾何を残してセルのレイアウトだけ捨て、
+    // dirty にはしない。レイアウトを持たないノードも dirty にはしない。IDWriteTextLayout は内部で glyph buffer /
+    // bidi 解析を保持し 1K 文字あたり 2-5KB で、可視外も保持し続けると巨大ドキュメントで数十 MB を COM 側に常駐させる。
+    // LAYOUT_EVICT_BUFFER_SCREENS 分の安全マージンを取って範囲外を解放する。呼び出し側 (ResourceManager) は再描画時の
     // 再生成コストを踏まえてタイマー駆動で間引く。
     void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
@@ -732,9 +720,8 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, float margin
     return cache.Bottom(cache.size() - 1) + margin_bottom;
 }
 
-// ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
-// 端が接している場合（y+h == range_top 等）は重なり扱い（false = 描画対象）。
-// Why: ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分視認可能なため。
+// ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならなければ true。端が接している (y+h == range_top 等) のは
+// 重なり扱い (false = 描画対象)。ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分見えるため。
 constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
 {
     return y + h < range_top || y > range_bottom;
@@ -769,8 +756,7 @@ inline IndexRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_
     return { first, FindFirstNodeBelow(cache, range_bottom, first) };
 }
 
-// (node, offset) → 絶対スクロール位置。
-// 負の node や空キャッシュは 0 を返し、末尾を超える node は最後の要素へクランプする
+// (node, offset) → 絶対スクロール位置。負の node や空キャッシュは 0、末尾を超える node は最後の要素へクランプする。
 constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float offset) noexcept
 {
     if (cache.size() == 0 || node < 0) {

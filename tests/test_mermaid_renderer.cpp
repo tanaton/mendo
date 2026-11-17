@@ -175,7 +175,6 @@ protected:
         renderer_.OpenViewer(code, node, /*dark_mode=*/false);
     }
 
-    // 拡大表示に渡した図が count 個になるのを待つ。
     bool AwaitViewerDrawings(size_t count)
     {
         return Await([&] { return viewer_.drawings.size() >= count; });
@@ -457,8 +456,6 @@ TEST_F(MermaidRendererTest, WideDiagramFitsDisplayAndBitmapButNotSvg)
     EXPECT_EQ(ph, static_cast<UINT>(std::ceil(fit_h * dpr)));
 }
 
-// ---- 拡大表示 ----
-
 // 開くと窓を出し、描けたら図を渡す。図の目印とコードを覚える。
 TEST_F(MermaidRendererTest, ViewerShowsDrawingWhenRendered)
 {
@@ -710,8 +707,6 @@ TEST_F(MermaidRendererTest, ShutdownDropsPendingCallbacks)
     EXPECT_EQ(called, 0);
     EXPECT_EQ(updates_, 0);
 }
-
-// ---- DiagramView の倍率 ----
 
 using diagram_view::FitZoom;
 using diagram_view::NextZoom;

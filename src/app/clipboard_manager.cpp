@@ -35,8 +35,7 @@ bool SavePng(IWICImagingFactory* wic, IWICBitmapSource* source, const std::files
     if (!data) {
         return false;
     }
-    // 既存ファイルを上書き選択した場合でも、失敗時に原本を破壊しないよう
-    // tmp+rename のアトミック書き込みを使う。
+    // 既存ファイルの上書きを選んでも失敗時に原本を壊さないよう、tmp+rename のアトミック書き込みを使う。
     const bool ok = AtomicWriteUserFile(path, data, size);
     GlobalUnlock(mem);
     return ok;

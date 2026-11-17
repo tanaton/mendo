@@ -154,8 +154,6 @@ TEST_F(LayoutTest, MultipleHeadingLevelsDecreasingSize)
     EXPECT_GE(cache[1].height, cache[2].height);
 }
 
-// ---- コードブロックの折り返し無効 ----
-
 TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 {
     std::string long_line = "```\n";
@@ -168,16 +166,9 @@ TEST_F(LayoutTest, CodeBlockDoesNotWrap)
 
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    // コードブロックは折り返さないため、高さは1行分になるはず
-    // （おおよそコードフォントの高さ）
+    // コードブロックは折り返さないので、高さは 1 行分 (おおよそコードフォントの高さ)。
     EXPECT_LT(cache[0].height, 100.0f);
 }
-
-// ========================================================
-// フリー関数のテスト
-// ========================================================
-
-// ---- ComputeColumnWidths テスト ----
 
 namespace {
 std::vector<float> ColumnWidths(std::span<const float> natural, std::span<const float> min, float available)
@@ -379,8 +370,6 @@ TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
     EXPECT_GT(needs_padding_only, 0);
 }
 
-// ---- RecomputeYPositions テスト ----
-
 // 空の文書は推定も位置の計算も何もしない。
 TEST(RecomputeYPositionsTest, EmptyNodes)
 {
@@ -391,8 +380,6 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
     RecomputeYPositions(nodes, cache, theme);
     EXPECT_EQ(cache.size(), 0u);
 }
-
-// ---- ComputeTotalContentHeight テスト ----
 
 TEST(ComputeTotalContentHeightTest, SingleNode)
 {
@@ -432,8 +419,6 @@ TEST(RecomputeYPositionsTest, FirstNodeTop)
     }
 }
 
-// ---- EnsureVisibleLayout テスト ----
-
 TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(20));
@@ -461,7 +446,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 }
 
 // ズームアウトの直後 (App::ApplyZoom の InvalidateAllLayouts の後) の部分レイアウトで、画面外の Y に旧倍率の大きな
-// height を引きずらない (InvalidateAllLayouts が高さを捨てる理由は test_layout_cache.cpp の InvalidateAllLayoutsDropsMeasurement)。
+// height を引きずらない (高さを捨てる理由は test_layout_cache.cpp の InvalidateAllLayoutsDropsMeasurement)。
 TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
@@ -482,8 +467,6 @@ TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
     EXPECT_LT(cache.Top(node_count - 1), baseline_total * 2.0f)
         << "stale height (=" << STALE_HEIGHT << ") を Y 位置に取り込んでいる";
 }
-
-// ---- RecomputeYPositions 追加テスト ----
 
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 {
@@ -730,7 +713,6 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
 
 TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 {
-    // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
     auto nodes = ParseNodes("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---");
     LayoutCache est_cache(nodes.size());
 
@@ -905,8 +887,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     EXPECT_EQ(checked, 1);
 }
 
-// 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。
-// 結果の Y 位置は全件レイアウトと一致しなければならない。
+// 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。Y 位置は全件レイアウトと一致する。
 TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(200, " with some words"));

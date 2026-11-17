@@ -423,9 +423,8 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathDrawsSpecifiedColors)
     EXPECT_EQ(std::ranges::count(pixels, 0xFF0000FFu), 100);
 }
 
-// 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた
-// DrawTextLayout と同じ画素になること (フォールバックで別ランになる和文・ランの途中の境界・行またぎ・
-// 右から左のラン (ヘブライ語) の途中の境界を含む)。
+// 構文トークン付きのレイアウトはグリフランを分けて色を付け、SetDrawingEffect で色を付けた DrawTextLayout と同じ画素になる
+// (フォールバックで別ランになる和文・ランの途中の境界・行またぎ・右から左のラン (ヘブライ語) の途中の境界を含む)。
 TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffect)
 {
     const SyntaxToken ltr_tokens[]{

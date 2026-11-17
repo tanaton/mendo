@@ -19,9 +19,8 @@
 
 // 同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針と差分位置 (UTF-8 byte オフセット) を決める。
 
-// 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
-// 前提: 両テキストとも LF 正規化済みであること。old は DocumentData::raw、new は LoadFile 由来で
-// どちらも正規化済み (issue #273)。
+// 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一なら npos。
+// 前提: 両テキストとも LF 正規化済み (old は DocumentData::raw、new は LoadFile 由来。issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
 
 // 同一ファイルのリロード時に取るべき操作を示す。
@@ -38,8 +37,7 @@ struct ReloadDecision {
     size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
 };
 
-// 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
-// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (defer の上限後)。
+// リロード方針を決める純粋関数。accept_prefix_shrink なら prefix shrink も defer せず Replace にする (defer の上限後)。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept;
 
 struct Theme;
@@ -65,8 +63,8 @@ struct ReloadBase {
     bool accept_prefix_shrink = false;
 };
 
-// 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / DeferPrefixShrink / StillGrowing / Locked はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
+// 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。NoChange / DeferPrefixShrink /
+// StillGrowing / Locked はパースせずに返す (doc は空)。ただし StillGrowing はパースの間に伸びたときも付ける。
 struct ReloadCheck {
     // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、書き込み途中かは結果を出す直前に worker で確かめる。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
@@ -87,7 +85,6 @@ struct AsyncLoadResult {
     FileWatchTarget watch;
 };
 
-// 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。
 using AsyncLoadOutcome = std::expected<AsyncLoadResult, FileLoadError>;
 
 // stop_token による cancellation、mutex 保護の結果 sink、in_flight フラグを 1 クラスに閉じる。
@@ -111,22 +108,10 @@ public:
         return in_flight_;
     }
 
-    // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの ThemeService
-    // (ApplyZoom・ToggleDarkMode) がメンバ (ApplyZoom ではフォント名の std::wstring も) を非アトミックに書き換えるため、
-    // 参照キャプチャだと EstimateNodeHeights と race。
-    // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
-    // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
-    // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
-    // content_width は推定に使う本文幅 (0 は幅を知らない)。
     void Start(std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
-
-    // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
     bool Attach(HWND hwnd, UINT msg_id);
-
-    // ロード結果の取り出し。通知から Take までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
-    // request_stop で走行中の parse/Estimate を協調的に打ち切り、worker の以後の publish を弾く。outcome_ も即時クリア。
     void Cancel() noexcept
     {
         stop_source_.request_stop();
@@ -178,7 +163,6 @@ enum class ParseCompleteStep : uint8_t {
     // 結果もエラーも無い = Start の ResetSinks か Cancel で捨てた読み込みの古い通知。後始末は捨てた側
     // (Start は次の読み込み、Cancel の呼び出し元) が済ませているので、アニメーションや FileWatcher に触らない。
     IgnoreStale,
-    // 読み込みに失敗した。
     Fail,
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
@@ -236,23 +220,18 @@ struct ReloadCommand {
     // 0 でなければ FILE_RELOAD タイマーをこの間隔で掛け直す。
     UINT set_timer_ms = 0;
     bool kill_timer = false;
-    // 表示中のファイルを読み直す。
     bool start_reload = false;
-    // 読み直した結果で文書を差し替える。
     bool apply_result = false;
-    // 開けない状態が長引いていることを一度だけ知らせる。
     bool notify_locked = false;
     // 別の文書の読み込みを、文書を差し替えずに抜けた。読み始めに捨てて止めていた、表示を続ける文書の画像と図を頼み直す。
     bool resume_resources = false;
 };
 
-// 表示中のファイルの読み直しを、変更の通知・FILE_RELOAD タイマー・読み込みの開始と結果で進める。
-// FILE_RELOAD タイマーは Waiting の間だけ掛かっている。読み込み中 (Reloading / LoadingOther) は AsyncLoadCoordinator が
-// 読み込み中なのと一致する。
+// 表示中のファイルの読み直しを、変更の通知・FILE_RELOAD タイマー・読み込みの開始と結果で進める。FILE_RELOAD タイマーは
+// Waiting の間だけ掛かる。読み込み中 (Reloading / LoadingOther) は AsyncLoadCoordinator が読み込み中なのと一致する。
 class ReloadScheduler {
 public:
-    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
-    // 超えたら縮んだ内容を確定版として受け入れる。
+    // 末尾を削っただけの保存は何度読み直しても prefix shrink になるので、defer がこの回数に達したら縮んだ内容を受け入れる。
     static constexpr int kMaxPrefixShrinkDefers = 10;
     // 共有を許さずに開かれている間は開けるまで読み直す。諦めると、最後の変更通知を読み直しの前に捨てているので
     // 次の保存まで古い内容のままになる。短い間隔で 50 回 (約 3 秒) 開けなければ一度知らせ、以後は間隔を空ける。

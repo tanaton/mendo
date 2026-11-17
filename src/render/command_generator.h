@@ -22,10 +22,9 @@
 #include <unordered_map>
 
 // 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
-// (書式, フォントの対応, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
-// これで得たレイアウトを DrawTextLayout で描く。キーで書式を参照して持つので、書式を作り直しても
-// 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはない。作り直した書式のものは Forget で捨て、
-// ほかの古いものは上限で捨てる。
+// (書式, フォントの対応, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るので、
+// これで得たレイアウトを DrawTextLayout で描く。書式はキーで参照して持つので、作り直しても解放したアドレスが新しい書式に
+// 使い回されて別の大きさのレイアウトが返ることはない。作り直した書式のものは Forget で、ほかの古いものは上限で捨てる。
 class TextLayoutCache {
 public:
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -248,7 +247,6 @@ struct SidePaneFormats {
     IDWriteTextFormat* header_icon = nullptr;
     IDWriteTextFormat* file_item = nullptr;
     IDWriteTextFormat* toc_item = nullptr;
-    // ファイル一覧のアイコン。
     IDWriteTextFormat* file_icon = nullptr;
     // file_item と toc_item だけに掛ける。header は UI のロケールなので、掛けると字形が変わる。
     const FallbackFontMap* item_fonts = nullptr;
@@ -257,13 +255,11 @@ struct SidePaneFormats {
 void EmitSidePanes(CmdWriter w, const SidePaneFormats& fmts, const Theme& theme, const SidePaneState& sp);
 } // namespace chrome
 
-// ドキュメントデータとビューポート状態から DrawCommandList を生成する。
-// 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
+// 文書とビューポートの状態から DrawCommandList を作り、「何を描画するか」と「どう描画するか」(エグゼキュータ) を分ける。
 class CommandGenerator {
 public:
-    // theme・formats・text_layouts は持ち主 (Renderer) のもので、作り直しても同じ場所を指したままでよい。
-    // formats と text_layouts は文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) に使う。
-    // 前フレームのレイアウトの破棄 (TextLayoutCache::BeginFrame) は持ち主が行う。
+    // theme・formats・text_layouts は持ち主 (Renderer) のもので、作り直しても同じ場所を指したままでよい。formats と
+    // text_layouts は本文の文字列に使う。前フレームのレイアウトの破棄 (TextLayoutCache::BeginFrame) は持ち主が行う。
     void Init(const Theme& theme, const MdPaneFormats& formats, TextLayoutCache& text_layouts) noexcept
     {
         theme_ = &theme;

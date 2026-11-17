@@ -1,7 +1,6 @@
-// CommandGenerator の DirectWrite 必須経路（ハイライト系）のテスト。
-// MockTextMeasurer では entry.text_layout が nullptr になるため、検索/選択
-// ハイライトの矩形発行と「検索→選択→本文」の順序は検証できない。本ファイルは
-// 実 IDWriteFactory を使う DWriteTestBase の上で、その経路を踏む。
+// CommandGenerator の DirectWrite 必須経路 (ハイライト系) のテスト。MockTextMeasurer では entry.text_layout が
+// nullptr なので検索/選択ハイライトの矩形発行と「検索→選択→本文」の順序は検証できない。本ファイルは実 IDWriteFactory を
+// 使う DWriteTestBase の上で、その経路を踏む。
 #include <gtest/gtest.h>
 #include "command_generator.h"
 #include "document_test_helpers.h"
@@ -122,16 +121,14 @@ TEST_F(HighlightOrderTest, QuotedBlocksUseBlockquoteTextColor)
     }
 }
 
-// 検索ハイライト → 選択ハイライト → 本文（DrawTextLayoutCmd）の順序を検証する。
-// この順序が崩れると、選択中のテキストが検索ハイライトに塗り潰される、または
-// 本文が両ハイライトの下に隠れる、という視覚的不具合が発生する。
+// 検索ハイライト → 選択ハイライト → 本文 (DrawTextLayoutCmd) の順序を検証する。崩れると、選択中のテキストが
+// 検索ハイライトに塗り潰されるか、本文が両ハイライトの下に隠れる。
 TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 {
     auto pl = ParseAndLayout("Hello World");
     ASSERT_FALSE(pl.nodes.empty());
 
-    // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
-    // ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
+    // 範囲を重ねず、ハイライト矩形を独立に発行させる。ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
     const SearchMatch matches[] = { { 0, -1, -1, 0, 5 } };
     const auto& cmds = Draw(pl, TextSelection::MakeOrdered(0, 6, 0, 11), matches, 0);
 
@@ -184,7 +181,6 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
 }
 
-// start == end の選択範囲は描画ハイライトを発行しない。
 TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
     auto pl = ParseAndLayout("Hello World");
@@ -192,9 +188,8 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
         << "空選択で BrushId::Selection の FillRectCmd は出ない";
 }
 
-// SearchMatch は UTF-16 code unit の位置を持つ。HitTestTextRange に UTF-8 byte 位置を渡す取り違えがあると、
-// 非 ASCII 後方の ASCII マッチで矩形位置が破綻する。
-// 「あいうabc」の "abc" を検索して、ASCII 単独 "abc" と同等幅の矩形が出ることで担保する。
+// SearchMatch は UTF-16 code unit の位置を持つ。HitTestTextRange に UTF-8 byte 位置を渡すと、非 ASCII の後ろの
+// ASCII マッチで矩形位置が破綻するので、「あいうabc」の "abc" を検索して ASCII 単独 "abc" と同等幅の矩形が出るかを見る。
 TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 {
     const SearchMatch ascii[] = { { 0, -1, -1, 0, 3 } };
@@ -513,8 +508,7 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     EXPECT_EQ(error_cmd->brush_id, BrushId::AlertCaution);
 }
 
-// 言語で変わる文言は描くときに引くので、失敗した図も切り替えた言語の文言で出る。
-// 失敗はコードで決まるので要求を止める。
+// 言語で変わる文言は描くときに引くので、失敗した図も切り替えた言語の文言で出る。失敗はコードで決まるので要求を止める。
 TEST(DiagramEntryTest, ErrorsStopRendering)
 {
     DiagramEntry diagram;

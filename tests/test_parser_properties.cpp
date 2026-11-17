@@ -18,8 +18,6 @@
 #include <string_view>
 #include <vector>
 
-// ---- 構造不変条件 ----
-
 TEST(ParserProperty, RandomDocumentsSatisfyStructuralInvariants)
 {
     for (uint32_t seed = 1; seed <= 1000; ++seed) {
@@ -181,8 +179,6 @@ TEST(ParserProperty, TightAndLooseListsKeepEveryWordInItsBlockKind)
         }
     }
 }
-
-// ---- 見出しアンカー ----
 
 // 内部リンクはアンカー → 見出しの逆引きなので、衝突すると後続見出しへ飛べなくなる。
 // 期待値は連番付きスラグも登録する github-slugger の素直な実装で求める。

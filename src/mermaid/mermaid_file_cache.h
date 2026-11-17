@@ -11,12 +11,10 @@
 
 class TaskScheduler;
 
-// Mermaidダイアグラムの描画命令 (UTF-8) をファイルに永続化するキャッシュ。
-// コード・テーマと、量子化した幅 (mermaid_util::QuantizeWidth) または幅に縛られないことの組み合わせごとに保持する。
-// 書き出しはTaskSchedulerを介してバックグラウンドスレッドで非同期に行う。
-// インデックスはメモリ上で管理し、SaveIndex()でディスクに書き出す。複数のウィンドウ (プロセス) で同じフォルダを使うので、
-// 書く直前に読み直して、他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
-// すべてのパブリックメソッドはUIスレッドから呼び出す必要がある (worker で動くのはファイルの書き込みと削除だけ)。
+// Mermaid の図の描画命令 (UTF-8) をファイルに置くキャッシュ。コード・テーマと、量子化した幅 (mermaid_util::QuantizeWidth)
+// または幅に縛られないことの組み合わせごとに持つ。索引はメモリで管理して SaveIndex() でディスクに書き出し、複数のウィンドウ
+// (プロセス) で同じフォルダを使うので、書く直前に読み直して他のプロセスが先に書いた索引にこのプロセスの変更を重ねる。
+// パブリックメソッドはすべて UI スレッドから呼ぶ。TaskScheduler の worker で非同期に動くのはファイルの書き込みと削除だけ。
 class MermaidFileCache {
 public:
     // index.bin の先頭。
@@ -78,8 +76,6 @@ public:
 
 private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
-    // 描画命令は test.md の図で 1 件 1〜50KB (平均 9KB) なので、満杯の 4096 件でも約 37MB。件数で追い出すのが普通で、
-    // 大きさで追い出すのは 500 ノード級 (約 290KB) の図が溜まったときだけ。
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 64ULL * 1024 * 1024;
 
     struct IndexEntry {

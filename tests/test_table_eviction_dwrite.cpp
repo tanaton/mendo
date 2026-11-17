@@ -1,6 +1,5 @@
-// issue#210: スクロールでテーブルセル描画が欠落する不具合の再発防止テスト。
-// EvictInvisibleTableRows で行単位 evict された行が、dirty を経由せず
-// RestoreEvictedTableRows / EnsureVisibleLayout で可視行だけ復元される一連のフローを検証する。
+// issue#210: スクロールでテーブルセル描画が欠落する不具合の再発防止テスト。EvictInvisibleTableRows で行単位 evict
+// された行が、dirty を経由せず RestoreEvictedTableRows / EnsureVisibleLayout で可視行だけ復元される一連の流れを検証する。
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
@@ -79,8 +78,7 @@ protected:
 
 } // namespace
 
-// 範囲外行を evict すると null セルが発生するが、dirty にはしない
-// (dirty のままだと可視中に毎フレーム全行を測り直す)。
+// 範囲外行を evict すると null セルが発生するが、dirty にはしない (dirty のままだと可視中に毎フレーム全行を測り直す)。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 {
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(40)));
@@ -100,7 +98,6 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
         << "範囲外行のセルが Reset されているはず";
 }
 
-// 全行が viewport 内なら evict は発生しない。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 {
     ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(5)));

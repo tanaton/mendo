@@ -6,10 +6,6 @@
 #include "file_io.h"
 #include "mock_text_measurer.h"
 
-// ═══════════════════════════════════════════════
-// IsHelpPath
-// ═══════════════════════════════════════════════
-
 // 完全一致だけをヘルプとみなす (大文字小文字も区別する)。
 TEST(HelpPathTest, MatchesOnlyExactHelpPath)
 {
@@ -31,10 +27,6 @@ TEST(HelpPathTest, MatchesOnlyExactHelpPath)
         EXPECT_EQ(IsHelpPath(c.path), c.expected);
     }
 }
-
-// ═══════════════════════════════════════════════
-// ヘルプパスでDocumentを作成
-// ═══════════════════════════════════════════════
 
 // 埋め込みの文書はヘルプとサードパーティのライセンスだけ。ヘルプ扱い (言語の切り替えで読み直す) はヘルプだけ。
 TEST(HelpPathTest, EmbeddedPathsAreHelpAndLicenses)
@@ -60,7 +52,6 @@ TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
 
 class HelpLayoutTest : public MockLayoutTestBase {};
 
-// 実際の埋め込みヘルプで、別文書の表示中に開いても本文が計測されること。
 TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
 {
     constexpr float kWidth = 800.0f;
@@ -89,9 +80,8 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
     }
 }
 
-// 配布する zip には exe だけを入れるので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
-// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開けるようにする。GitHub で見たヘルプからも開けるよう、
-// リンクはリポジトリでの相対パスにする。
+// 配布する zip は exe だけなので、ライブラリと KaTeX の書体 (SIL OFL 1.1) のライセンス表記は、どの言語のヘルプからも
+// 埋め込みの THIRD_PARTY_LICENSES.md へのリンクで開ける。GitHub で見たヘルプからも開けるよう、リンクはリポジトリでの相対パス。
 TEST(HelpDocumentTest, EveryHelpLinksToLicenses)
 {
     const auto res_dir = std::filesystem::path(MENDO_RES_DIR);

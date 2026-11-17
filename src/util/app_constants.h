@@ -30,7 +30,7 @@ inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS = 500; // 描画デバイスの作り直しに失敗した後の再試行間隔
 // 非アクティブにした直後の描き直し (タイトルバーの色) や、すぐ戻る切り替えで外したページを触り直させない。
 inline constexpr UINT TRIM_WORKING_SET_DELAY_MS = 1000;
-// スクロールが止まったとみなし、図をビットマップからベクタの描画に戻すまでの時間。ホイールの刻みの間 (数十〜百数十 ms) では戻さない。
+// スクロールが止まったとみなし、図をビットマップからベクタの描画に戻すまでの時間
 inline constexpr UINT SCROLL_SETTLE_MS = 500;
 
 } // namespace app_timer

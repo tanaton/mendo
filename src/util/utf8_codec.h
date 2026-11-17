@@ -3,9 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
-// UTF-8 / UTF-16 の単一 code point decode と境界スナップ。
-// 不正バイト・truncated・不正 continuation・overlong・サロゲート・U+10FFFF 超は
-// すべて { kReplacement, 1 } を返し、呼び出し側のループが必ず 1 単位以上進むことを保証する。
+// UTF-8 / UTF-16 の単一 code point decode と境界スナップ。不正バイト・truncated・不正 continuation・overlong・
+// サロゲート・U+10FFFF 超はすべて { kReplacement, 1 } を返し、呼び出し側のループを必ず 1 単位以上進める。
 // すべての関数は pos < text.size() を前提とする (引数チェックは呼び出し側責任)。
 namespace utf8_codec {
 
@@ -36,7 +35,6 @@ constexpr bool IsSurrogate(uint32_t c) noexcept
     return c >= 0xD800u && c <= 0xDFFFu;
 }
 
-// cp を UTF-16 にしたときの code unit 数。
 constexpr uint32_t Utf16Units(uint32_t cp) noexcept
 {
     return cp > 0xFFFF ? 2 : 1;
@@ -98,9 +96,8 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
         }
         cp = (cp << 6) | (b & 0x3F);
     }
-    // 非スカラー値の排除:
-    //   overlong (より短い符号化が可能な値)、UTF-16 サロゲート領域、Unicode 範囲外。
-    //   これらをそのまま返すと UTF-16 化で孤立サロゲートを生むなど後続処理で破綻する。
+    // 非スカラー値 (overlong = より短く符号化できる値、UTF-16 サロゲート領域、Unicode 範囲外) を弾く。
+    // そのまま返すと UTF-16 化で孤立サロゲートを生むなど後続処理で破綻する。
     if (cp < kMinCpForLen[len] || cp > 0x10FFFFu || IsSurrogate(cp)) {
         return { kReplacement, 1 };
     }
@@ -122,9 +119,8 @@ constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
     return { kReplacement, 1 }; // 孤立サロゲート
 }
 
-// 先頭から DecodeAt を繰り返したときの区切りに揃える。
-// 遡りは最大 3 byte: 有効な先頭バイトに属さない継続バイトは各々が単独の U+FFFD になるため、
-// 上限なく遡ると直前の文字に吸収してしまい前方 decode と食い違う。
+// 先頭から DecodeAt を繰り返したときの区切りに揃える。遡りは最大 3 byte: 有効な先頭バイトに属さない継続バイトは
+// 各々が単独の U+FFFD になるので、上限なく遡ると直前の文字に吸収して前方 decode と食い違う。
 constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
 {
     if ((static_cast<unsigned char>(text[pos]) & 0xC0) != 0x80) {

@@ -54,8 +54,8 @@ protected:
 
 class ThrowingMeasurer : public MockTextMeasurer {
 public:
-    const Node* throw_on = nullptr;
     // throw_on の計測を失敗させる。worker から呼ばれるので試行回数は atomic。
+    const Node* throw_on = nullptr;
     // 例外の代わりに、書式やレイアウトを作れなかったときと同じく nullopt で失敗させる。
     bool fail_with_nullopt = false;
     mutable std::atomic<int> attempts{ 0 };
@@ -251,8 +251,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     }
 }
 
-// 並列計測で例外を投げるノードがあっても、計測できたノードの高さを Y に反映し、
-// 投げたノードは再試行に回さず dirty を外す。
+// 並列計測で例外を投げるノードがあっても、計測できたノードの高さを Y に反映し、投げたノードは再試行に回さず dirty を外す。
 TEST_F(ParallelMeasureTest, ProcessDirtyBatchGivesUpOnThrowingNode)
 {
     struct Case {
@@ -478,10 +477,6 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
 }
 
 INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(0, 1, 2, 8, 16));
-
-// ============================================================
-// ProcessDirtyBatch ビューポート制限テスト
-// ============================================================
 
 class ProcessDirtyBatchViewportTest : public MockLayoutTestBase {
 protected:

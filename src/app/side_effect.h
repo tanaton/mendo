@@ -14,8 +14,7 @@ namespace effect {
 struct InvalidateWindow {};
 struct SetCapture {};
 struct ReleaseCapture {};
-// text は Document テキスト由来の UTF-8。書き込み側で CF_UNICODETEXT 用に wstring 変換する。
-// html があれば CF_HTML にも載せる。
+// text は Document 由来の UTF-8。書き込み側で CF_UNICODETEXT 用に wstring 変換する。html があれば CF_HTML にも載せる。
 struct ClipboardWrite {
     std::string text;
     std::string html;

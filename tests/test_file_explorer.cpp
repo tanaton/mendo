@@ -56,8 +56,6 @@ protected:
     FileExplorer explorer_;
 };
 
-// ---- 現在ファイルの強調表示 ----
-
 TEST_F(FileExplorerTest, CurrentFileSurvivesRefreshAndDirectoryChange)
 {
     WriteTempFile(L"a.md");
@@ -77,8 +75,6 @@ TEST_F(FileExplorerTest, CurrentFileSurvivesRefreshAndDirectoryChange)
     EXPECT_EQ(CountCurrent(), 1u);
 }
 
-// ---- 基本的な列挙 ----
-
 TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
 {
     const auto& entries = ListTempDir();
@@ -86,8 +82,6 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
     EXPECT_TRUE(entries[0].is_parent);
     EXPECT_EQ(entries[0].GetDisplayName(), L"..");
 }
-
-// ---- 遅延列挙 ----
 
 TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilEnsureListed)
 {
@@ -164,9 +158,7 @@ TEST_F(FileExplorerTest, ListedOnceUntilRefresh)
     EXPECT_NE(explorer_.GetGeneration(), generation);
 }
 
-// ---- Bug #23: パスの正規化（末尾のバックスラッシュ） ----
-
-// 末尾の区切りだけが違う同じディレクトリは列挙し直さず、full_path に二重の区切りを作らない。
+// 末尾の区切りだけが違う同じディレクトリは列挙し直さず、full_path に二重の区切りを作らない (Bug #23)。
 TEST_F(FileExplorerTest, TrailingBackslashNormalized)
 {
     WriteTempFile(L"hello.md");

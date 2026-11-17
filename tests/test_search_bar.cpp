@@ -74,10 +74,6 @@ protected:
     CallbackLayout layout_;
 };
 
-// ═══════════════════════════════════════════════
-// 初期状態
-// ═══════════════════════════════════════════════
-
 TEST_F(SearchBarTest, InitialState)
 {
     const auto rs = RenderState();
@@ -86,10 +82,6 @@ TEST_F(SearchBarTest, InitialState)
     EXPECT_EQ(rs.selection_start, -1);
     EXPECT_TRUE(rs.ime_composition.empty());
 }
-
-// ═══════════════════════════════════════════════
-// 開く/閉じる
-// ═══════════════════════════════════════════════
 
 TEST_F(SearchBarTest, OpenSetsFocusAndInvalidates)
 {
@@ -136,11 +128,6 @@ TEST_F(SearchBarTest, ReopenSearchesWithKeptQuery)
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 1);
 }
 
-// ═══════════════════════════════════════════════
-// テキスト変更
-// ═══════════════════════════════════════════════
-
-// 入力を消したら、クエリとマッチを捨てる。
 TEST_F(SearchBarTest, TextChangedToEmptyClearsMatches)
 {
     SetDocument("hello world");
@@ -177,7 +164,6 @@ TEST_F(SearchBarTest, ContinueFinishesSlicedSearch)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// 入力が変わったら、前のクエリの検索の続きは止める。
 TEST_F(SearchBarTest, TextChangedStopsRunningSearch)
 {
     StartSlicedSearch(600);
@@ -187,10 +173,6 @@ TEST_F(SearchBarTest, TextChangedStopsRunningSearch)
     EXPECT_FALSE(state_.search.search_state.IsSearching()) << "y は無いので新しい検索は 1 回で終わる";
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 0);
 }
-
-// ═══════════════════════════════════════════════
-// 選択・IME
-// ═══════════════════════════════════════════════
 
 // 選択が変わったら描き直し、同じ選択の通知では何もしない。
 TEST_F(SearchBarTest, Selection)
@@ -242,10 +224,6 @@ TEST_F(SearchBarTest, ImeComposition)
     EXPECT_TRUE(Dispatch(ImeCompositionAction{ L"あい" }).empty());
 }
 
-// ═══════════════════════════════════════════════
-// 大文字小文字切替・ハイライト切替
-// ═══════════════════════════════════════════════
-
 TEST_F(SearchBarTest, ToggleCaseSensitive)
 {
     SetDocument("Hello hello");
@@ -265,10 +243,6 @@ TEST_F(SearchBarTest, ToggleHighlight)
     EXPECT_NE(state_.search.search_state.IsHighlightEnabled(), before);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
-
-// ═══════════════════════════════════════════════
-// リセット
-// ═══════════════════════════════════════════════
 
 // 別の文書を開いたら閉じて空にし、入力欄も空にさせる。
 TEST_F(SearchBarTest, DocumentOpenedClearsAll)
@@ -292,10 +266,6 @@ TEST_F(SearchBarTest, DocumentOpenedClearsAll)
     // 入力欄を空にした EN_CHANGE は何もせず終わる。
     EXPECT_TRUE(Dispatch(SearchTextChangedAction{ L"" }).empty());
 }
-
-// ═══════════════════════════════════════════════
-// BuildSearchBarRenderState
-// ═══════════════════════════════════════════════
 
 TEST_F(SearchBarTest, RenderStateReflectsState)
 {
@@ -334,7 +304,6 @@ TEST_F(SearchBarTest, ReloadSettledResearchesWithoutScrolling)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// 検索バーを閉じていれば、リロードの後も検索しない。
 TEST_F(SearchBarTest, ReloadSettledSkipsWhenHidden)
 {
     SetDocument("hello");
@@ -355,10 +324,6 @@ TEST_F(SearchBarTest, DocumentReloadedKeepsMatchesOfUnchangedNodes)
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 2);
     EXPECT_FALSE(state_.search.search_state.IsSearching());
 }
-
-// ═══════════════════════════════════════════════
-// マッチへのスクロール
-// ═══════════════════════════════════════════════
 
 // マッチへ飛んだら scroll_target_ を捨てる。残すと後の ApplyScrollTarget が飛んだ位置を上書きする。
 TEST_F(SearchBarTest, ScrollToMatchClearsScrollTarget)

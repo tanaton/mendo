@@ -23,8 +23,7 @@ bool MaybeSameFile(std::wstring_view a, std::wstring_view b) noexcept
     return path_util::iequal(name_a, name_b) || name_a.contains(L'~') || name_b.contains(L'~');
 }
 
-// スタートメニュー等から起動されると cwd はユーザーの作業場所と無関係になるため、
-// その場合は前回ファイルのフォルダを優先する。
+// スタートメニュー等からの起動では cwd がユーザーの作業場所と無関係なので、前回ファイルのフォルダを優先する。
 std::wstring PaneDirectoryFromCwd(const StartupContext& ctx)
 {
     if (!ctx.last_file.empty() && (ctx.cwd.empty() || IsIgnoredCwd(ctx))) {

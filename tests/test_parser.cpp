@@ -61,8 +61,6 @@ TEST(Parser, MultipleParagraphs)
     EXPECT_EQ(nodes[2].GetText(), "Third");
 }
 
-// ---- 見出し ----
-
 TEST(Parser, HeadingLevels)
 {
     for (int level = 1; level <= 6; level++) {
@@ -162,8 +160,6 @@ TEST(Parser, MathIndicesListEveryNodeWithMath)
     }
 }
 
-// ---- リンク ----
-
 TEST(Parser, LinkRunPointsToUrl)
 {
     struct Case {
@@ -190,9 +186,8 @@ TEST(Parser, LinkRunPointsToUrl)
 
 TEST(Parser, LinkUrlCountCappedAtInt16Max)
 {
-    // link_url_index は int16_t。上限を超えた URL はリンクなしとして扱われ、
-    // wrap して別 URL へ誤マッピングしないこと。テーブルは全体が 1 ノードで
-    // link_urls を共有するため上限へ到達しうる。
+    // link_url_index は int16_t。上限を超えた URL はリンクなしとして扱われ、wrap して別 URL へ誤マッピングしない。
+    // テーブルは全体が 1 ノードで link_urls を共有するため上限へ到達しうる。
     constexpr int kUrls = 32769;
     std::string md = "| col |\n|---|\n";
     md.reserve(md.size() + static_cast<size_t>(kUrls) * 20);
@@ -215,16 +210,12 @@ TEST(Parser, LinkUrlCountCappedAtInt16Max)
     EXPECT_EQ(tbl->all_runs.size(), urls.size());
 }
 
-// ---- 水平線 ----
-
 TEST(Parser, HorizontalRuleWithAsterisks)
 {
     auto nodes = ParseNodes("***");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
 }
-
-// ---- リスト ----
 
 // loose list は md4c が LI 中身を MD_BLOCK_P に外出しするため LI 自体は空 (issue#237 の原因)。
 TEST(Parser, UnorderedListLooseProducesParagraphChildren)
@@ -377,8 +368,6 @@ TEST(Parser, BlockquoteDepthAndGroup)
     }
 }
 
-// ---- 文字参照 ----
-
 // 文字参照は UTF-8 に解いて前後の文字とつなぐ。文字にならない数 (U+10FFFF 超など) は、CommonMark と GitHub と同じく
 // U+FFFD にする。参照ごとの解き方は HtmlEntity のテストで見る。原文の NUL はパースの前に置き換える (NormalizeSource)。
 TEST(Parser, CharacterReferencesAreDecoded)
@@ -412,8 +401,6 @@ TEST(Parser, NonCharacterReferenceInImageSrcBecomesReplacement)
     ASSERT_EQ(nodes[0].runs().size(), 1u);
     EXPECT_EQ(nodes[0].image_src(nodes[0].runs()[0]), "x\xEF\xBF\xBDy.png");
 }
-
-// ---- リスト ----
 
 // 記号と番号の書式はリストの段で決まる。番号付きと順序なしは混ぜて数え、引用は数えない (issue#365)。
 // 項目の深さはリストの入れ子だけを数え、深い項目ほど字下げする。番号は箇条書きなら 0。
@@ -481,8 +468,6 @@ TEST(Parser, FootnoteDefIsOutermostList)
     EXPECT_EQ(result.nodes[result.indices.footnote_def_indices[0]].list_depth(), 1);
 }
 
-// ---- タスクリスト ----
-
 TEST(Parser, TaskListItem)
 {
     struct Case {
@@ -504,8 +489,6 @@ TEST(Parser, TaskListItem)
         EXPECT_EQ(nodes[0].GetText(), c.text);
     }
 }
-
-// ---- テーブル ----
 
 TEST(Parser, TableConcatStructure)
 {
@@ -631,8 +614,6 @@ TEST(Parser, TableMultipleRows)
     EXPECT_EQ(nodes[0].table_data()->row_count, 4u); // 1 header + 3 data
 }
 
-// ---- 複雑なドキュメント ----
-
 TEST(Parser, NodeTypesInComplexDocument)
 {
     auto nodes = ParseNodes(
@@ -644,8 +625,6 @@ TEST(Parser, NodeTypesInComplexDocument)
     }
 }
 
-// ---- UTF-8処理 ----
-
 TEST(Parser, MultibyteTextIsKept)
 {
     for (const std::string_view md : { std::string_view{ "日本語テスト" }, std::string_view{ "Hello 🎉" } }) {
@@ -655,8 +634,6 @@ TEST(Parser, MultibyteTextIsKept)
         EXPECT_EQ(nodes[0].GetText(), md);
     }
 }
-
-// ---- ラン位置の整合性 ----
 
 // 装飾の無い前後のテキストは run にならない。位置は UTF-8 byte。
 TEST(Parser, RunsOmitPlainText)
@@ -694,8 +671,6 @@ TEST(Parser, PlainParagraphAndCodeBlockHaveNoRuns)
     EXPECT_EQ(nodes[1].GetText(), "int x;");
 }
 
-// ---- インライン書式付きテーブル ----
-
 TEST(Parser, TableCellWithBold)
 {
     auto nodes = ParseNodes(
@@ -708,8 +683,6 @@ TEST(Parser, TableCellWithBold)
     ASSERT_GE(tbl->col_count, 2u);
     EXPECT_TRUE(std::ranges::any_of(tbl->GetCellRuns(0, 1), &TextRun::bold));
 }
-
-// ---- リンク付きテーブル ----
 
 TEST(Parser, TableCellLinks)
 {
@@ -753,16 +726,12 @@ TEST(Parser, TableCellMixedTextAndLink)
     EXPECT_EQ(runs[0].length, 4u);
 }
 
-// ---- インライン書式付きリンク ----
-
 TEST(Parser, BoldLink)
 {
     auto nodes = ParseNodes("[**bold link**](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
 }
-
-// ---- Mermaid言語のコードブロック ----
 
 TEST(Parser, MermaidCodeBlock)
 {
@@ -771,8 +740,6 @@ TEST(Parser, MermaidCodeBlock)
     EXPECT_EQ(nodes[0].type, NodeType::Diagram);
     EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
 }
-
-// ---- LaTeX display math ($$...$$) ----
 
 // $$...$$ だけの段落は図にせず、段落いっぱいの kMathDoubleDollar の run を持つブロック数式にする。
 TEST(Parser, LatexDisplayMathOnlyParagraphIsBlockMath)
@@ -922,9 +889,8 @@ TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
 
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
 {
-    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
-    // md4c は `$` の直後に空白・数字・記号が続く場合などインライン数式として解釈しないため、
-    // フラグ有効化で既存のドル記号テキストが壊れないことを確認する。
+    // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキスト。md4c は `$` の直後に空白・数字・記号が続く
+    // ときなどはインライン数式にしないので、フラグを有効にしても既存のドル記号のテキストは壊れない。
     auto nodes = ParseNodes("The price is $5 or $10.");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
@@ -990,8 +956,6 @@ TEST(Parser, MathFencedCodeBlockInQuoteAndEmpty)
     EXPECT_EQ(empty[0].type, NodeType::CodeBlock);
     EXPECT_TRUE(empty[0].runs().empty());
 }
-
-// ---- 空の見出し ----
 
 TEST(Parser, EmptyHeading)
 {
@@ -1113,7 +1077,6 @@ TEST(Parser, AlertIgnoresQuoteWithoutNodes)
 TEST(Parser, AlertFollowedByRegularBlockquote)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> Alert text\n\n> Normal quote");
-    // Alert と通常の blockquote が混在
     auto quotes = nodes | std::views::filter([](const Node& node) static { return IsQuoteParagraph(node); });
     EXPECT_TRUE(std::ranges::any_of(quotes, [](const Node& node) static { return node.alert_type != AlertType::None; }));
     EXPECT_TRUE(std::ranges::contains(quotes, AlertType::None, &Node::alert_type));
@@ -1250,8 +1213,6 @@ TEST(Parser, AlertWithInlineFormatting)
     EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), &TextRun::code));
 }
 
-// ---- ソースオフセット ----
-
 // source_offset はノードのテキストが始まる原文の UTF-8 byte 位置。テキストを持たない HR は前のノードの位置を受け継ぐ。
 TEST(Parser, SourceOffsetPointsAtTextStart)
 {
@@ -1301,8 +1262,6 @@ TEST(Parser, SourceOffsetsIncreaseAcrossBlocks)
         EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
     }
 }
-
-// ---- line_count ----
 
 // ソフト改行は空白、強制改行とコードの行は '\n' になり、line_count はその数。コード末尾の改行は落とす。
 TEST(Parser, NewlinesInTextAndLineCount)
@@ -1810,9 +1769,8 @@ TEST(ParserChunks, LongJapaneseLineSplitsAfterPunctuation)
     }
 }
 
-// 装飾の無い段落やコードは原文を指す (コピーしない)。
-// 字下げは md4c から静的な空白で届くが、原文も空白なら 1 行目が字下げされたコードも原文を指す。
-// タブの字下げは空白に置き換わるのでコピーになる。
+// 装飾の無い段落やコードは原文を指す (コピーしない)。字下げは md4c から静的な空白で届くが、原文も空白なら
+// 1 行目が字下げされたコードも原文を指す。タブの字下げは空白に置き換わるのでコピーになる。
 TEST(ParserRawView, PlainTextPointsIntoRaw)
 {
     struct Case {

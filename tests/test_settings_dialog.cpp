@@ -80,7 +80,6 @@ TEST_F(SettingsDialogLayoutTest, RowsStackInsideDialog)
     EXPECT_LT(l.clear.bottom, dialog_.height);
 }
 
-// どの言語の表示中でも、一番長い行がダイアログの幅に収まる。
 TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
 {
     for (const i18n::Strings* language : i18n::kAllStrings) {

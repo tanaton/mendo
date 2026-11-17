@@ -24,8 +24,7 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
 
 namespace {
 
-// wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。有限でない値もそのまま返すので、
-// 範囲は呼ぶ側が確かめる。
+// wstring_view は null 終端が保証されないので写して wcstof に渡す。有限でない値もそのまま返し、範囲は呼ぶ側が確かめる。
 float ParseFloatPrefix(std::wstring_view s) noexcept
 {
     wchar_t buf[64];

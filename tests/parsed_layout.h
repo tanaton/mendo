@@ -20,8 +20,7 @@ struct ParsedLayout {
     LayoutCache cache;
 };
 
-// ノードはソース文字列を参照するため、フィクスチャの寿命まで保持する
-// (呼び出し側が一時文字列を渡してもダングリングしない)。
+// ノードはソース文字列を参照するので、フィクスチャの寿命まで持つ (呼び出し側が一時文字列を渡してもダングリングしない)。
 class LayoutSourceStore {
 public:
     // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。

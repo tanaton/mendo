@@ -7,8 +7,6 @@
 
 NodeLayoutEntry::Aux::~Aux() = default;
 
-// ---------- TableLayoutData ----------
-
 std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
 {
     size_t r_begin = 0;
@@ -72,8 +70,6 @@ int TableLayoutData::RowIndexAt(float local_y) const noexcept
     }
     return static_cast<int>(idx);
 }
-
-// ---------- NodeLayoutEntry ----------
 
 std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
     int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept

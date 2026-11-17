@@ -10,8 +10,7 @@
 
 namespace {
 
-// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると
-// ワーカー thread の生成・join を毎回招きトータル数百ms に達するため。
+// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると worker の生成・join で合計数百 ms かかる。
 class AsyncLoadCoordinatorTest : public TempDirTestBase {
 protected:
     static TaskScheduler scheduler_;
@@ -33,7 +32,6 @@ std::optional<AsyncLoadOutcome> WaitForOutcome(TaskScheduler& scheduler, AsyncLo
 
 } // namespace
 
-// 始めていなければ結果は無く、取り消しても何も起きない。
 TEST_F(AsyncLoadCoordinatorTest, IdleHasNoOutcomeAndCancelIsSafe)
 {
     AsyncLoadCoordinator c{ scheduler_ };
@@ -90,9 +88,9 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
         size_t diff_pos;
     };
     const Case kCases[] = {
-        { L"aload_reload_same", "# Title\n\nbody\n", ReloadOp::NoChange, 0 },
-        { L"aload_reload_crlf", "# Title\r\n\r\nbody\r\n", ReloadOp::NoChange, 0 },
-        { L"aload_reload_change", "# Title\n\nchanged\n", ReloadOp::Replace, 9 },
+        { L"aload_reload_same",   "# Title\n\nbody\n",       ReloadOp::NoChange, 0 },
+        { L"aload_reload_crlf",   "# Title\r\n\r\nbody\r\n", ReloadOp::NoChange, 0 },
+        { L"aload_reload_change", "# Title\n\nchanged\n",    ReloadOp::Replace,  9 },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.file }));
@@ -112,8 +110,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadJudgesDiffOnWorker)
     }
 }
 
-// 別のファイルを開くときは監視の準備 (短縮名・親フォルダ・最初の読み取り) も worker で済ませる。リロードは今の監視を続けるので
-// 作らない。
+// 別のファイルなら監視の準備 (短縮名・親フォルダ・最初の読み取り) も worker で済ませる。リロードは今の監視を続けるので作らない。
 TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
 {
     const auto tmp = WriteTempFile(L"aload_watch", "# Title\n\nbody\n");
@@ -441,7 +438,13 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
     const std::wstring missing(L"C:\\__mendo_no_such_file_rand__.md");
     const std::shared_ptr<const DocumentData> ok1_base = Document::FromMarkdown(std::string("# one\n"), L"old.md").ShareData();
 
-    enum class Expect : uint8_t { None, Ok1, Ok2, Missing, Ok1NoChange };
+    enum class Expect : uint8_t {
+        None,
+        Ok1,
+        Ok2,
+        Missing,
+        Ok1NoChange
+    };
     constexpr std::string_view kOpNames[] = { "Start(ok1)", "Start(ok2)", "Start(missing)", "Start(ok1,reload)", "Cancel" };
 
     MessageOnlyWindow w;
@@ -607,7 +610,6 @@ TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeNotifiesAtOnce)
     EXPECT_FALSE(c.IsActive());
 }
 
-// 結果より先に Attach したら、結果を出したときに渡した通知先へ送る。
 TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
 {
     static std::shared_future<void> released;
@@ -648,12 +650,9 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
     EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
 }
 
-// ---- LoadFile ----
-
 class LoadFileTest : public TempDirTestBase {};
 
-// BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま
-// (部分書き込みの検出に使うため)。
+// BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま (部分書き込みの検出に使うため)。
 TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
 {
     struct Case {
@@ -662,13 +661,15 @@ TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
         std::string_view text;
     };
     constexpr Case kCases[] = {
-        { "Ascii", "Hello, World!", "Hello, World!" },
-        { "Multiline", "line1\nline2\nline3", "line1\nline2\nline3" },
+        { "Ascii",     "Hello, World!",             "Hello, World!"         },
+        { "Multiline", "line1\nline2\nline3",       "line1\nline2\nline3"   },
         { "CrlfAndCr", "line1\r\nline2\rline3\r\n", "line1\nline2\nline3\n" },
-        { "Bom", "\xEF\xBB\xBF" "Hello", "Hello" },
-        { "BomOnly", "\xEF\xBB\xBF", "" },
-        { "Empty", "", "" },
-        { "Japanese", "日本語テスト", "日本語テスト" },
+        { "Bom",       "\xEF\xBB\xBF"
+                 "Hello",
+         "Hello"                                                            },
+        { "BomOnly",   "\xEF\xBB\xBF",              ""                      },
+        { "Empty",     "",                          ""                      },
+        { "Japanese",  "日本語テスト",              "日本語テスト"          },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.label);
@@ -686,4 +687,3 @@ TEST_F(LoadFileTest, NonExistentFileReturnsError)
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
-

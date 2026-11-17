@@ -9,8 +9,7 @@
 #include <cmath>
 #include <string_view>
 
-// DirectWriteなしでLayoutEngineをテストするためのモックテキスト計測器。
-// テキスト長とノード種別から高さを決定論的に計算する。
+// DirectWrite なしで LayoutEngine をテストするモックテキスト計測器。テキスト長とノード種別から高さを決定論的に計算する。
 class MockTextMeasurer : public ITextMeasurer {
 public:
     // 行の高さ。テストが変えて再計測を確かめる。
@@ -63,9 +62,8 @@ private:
         const auto row_count = tbl->row_count;
         auto* const existing = entry.table_layout();
         auto& tl = existing ? *existing : entry.set_table_layout(std::make_unique<TableLayoutData>(row_count, col_count, false));
-        // 列幅は max_width/col_count の均等割り近似。実装 (dwrite_measurer の内容依存
-        // ComputeColumnWidths) とは異なるため、TableWidth() / col_widths の絶対値は
-        // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。
+        // 列幅は max_width/col_count の均等割りで、実装 (dwrite_measurer の内容依存の ComputeColumnWidths) と違うので
+        // TableWidth() / col_widths の絶対値は検証に使わない。行数・列数への依存形と border の入り方だけ実装に揃える。
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
         tl.row_heights.assign(row_count, kTableRowHeight);

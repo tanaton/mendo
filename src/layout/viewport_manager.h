@@ -4,9 +4,8 @@
 #include "ui_types.h"
 #include <algorithm>
 
-// スクロール位置の「目的地」を表す値型。
-// node が有効な間、レイアウトが変化するたびに scroll_y = text_top[node] + offset として再評価される。
-// ユーザー発のピクセルスクロール (SetScrollY / ScrollTo / DirectScrollBy) で無効化される。
+// スクロール位置の「目的地」。node が有効な間、レイアウトが変わると scroll_y = text_top[node] + offset で再評価され、
+// ユーザー発のピクセルスクロール (SetScrollY / ScrollTo / DirectScrollBy) で無効になる。
 struct ScrollTarget {
     int node = -1;       // -1 = 無効
     float offset = 0.0f; // ノード先頭からのピクセル距離
@@ -46,8 +45,7 @@ public:
         scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll);
     }
 
-    // 下端がscroll_y_より下にある最初のノードを見つける。
-    // 表示可能なノードが存在しない場合は-1を返す。
+    // 下端が scroll_y_ より下にある最初のノード。無ければ -1。
     constexpr int FindFirstVisibleNode(const LayoutCache& cache) const noexcept
     {
         const int idx = FindFirstVisibleNodeIndex(cache, scroll_y_);
@@ -55,8 +53,7 @@ public:
     }
 
     // scroll_target を明示設定する。内部の scroll_y は更新しないので、
-    // 呼び出し側は直後に ApplyScrollTarget を呼ぶか、レイアウト操作経由のフック
-    // で再評価されるのを待つ必要がある。
+    // 呼び出し側は直後に ApplyScrollTarget を呼ぶか、レイアウト操作経由のフックで再評価されるのを待つ。
     constexpr void SetScrollTarget(int node, float offset) noexcept
     {
         scroll_target_ = { node, offset };
@@ -78,9 +75,8 @@ public:
         scroll_y_ = NodeOffsetToScrollY(cache, scroll_target_.node, scroll_target_.offset);
     }
 
-    // scroll_target が未設定なら、現在の可視先頭ノードから合成する。
-    // レイアウト変化を挟む処理（OnPaint/SettleViewport/OnDeferredLayout 等）の直前に呼んで、
-    // 「見ている位置を保つ」挙動を target ベースで表現する。
+    // scroll_target が未設定なら、今の可視先頭ノードから合成する。レイアウト変化を挟む処理 (OnPaint / SettleViewport /
+    // OnDeferredLayout 等) の直前に呼び、「見ている位置を保つ」挙動を target で表す。
     constexpr void EnsureScrollTarget(const LayoutCache& cache) noexcept
     {
         if (!scroll_target_.IsValid()) {
@@ -96,8 +92,7 @@ public:
         return { idx, scroll_y_ - top };
     }
 
-    // クランプを掛けない scroll_y 書き込み。scroll_target を無効化する。
-    // max_scroll が未確定な段階（ファイルロード直後など）のシード投入に使う。
+    // scroll_target を無効にし、クランプせずに書く。max_scroll が未確定な段階 (ファイルロード直後など) のシードに使う。
     constexpr void SetScrollY(float y) noexcept
     {
         scroll_y_ = y;

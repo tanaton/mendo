@@ -136,7 +136,6 @@ public:
         std::memcpy(data_ + size_, items.data(), items.size_bytes());
         size_ += items.size();
     }
-    // pos の前に items を入れる。
     void insert_range(size_t pos, std::span<const T> items)
     {
         assert(pos <= size_);
@@ -256,9 +255,8 @@ private:
     size_t reserved_ = 0;
 };
 
-// パース後に書き換えないノードのテキスト・TextRun・リンク URL を置く領域。
-// 個別には解放せず、Document の差し替え・破棄のときにまとめて捨てる。
-// チャンクを積み足すだけのバンプアロケータ。チャンクは小さく始めて kMaxChunkSize まで倍々に広げ、
+// パース後に書き換えないノードのテキスト・TextRun・リンク URL を置く、チャンクを積み足すだけのバンプアロケータ。
+// 個別には解放せず、Document の差し替え・破棄でまとめて捨てる。チャンクは小さく始めて kMaxChunkSize まで倍々に広げ、
 // 小さな文書で大きく確保せず、大きな文書でも使わずに残る領域を末尾のチャンク 1 個分程度に抑える。
 // チャンクはヒープにあるので、移しても配ったポインタは有効なまま。移し元はもう使わないこと。
 class TextArena {

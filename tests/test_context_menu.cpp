@@ -93,8 +93,6 @@ protected:
     }
 };
 
-// ─── 項目構築 ───
-
 // MdPane 以外ではファイル操作 (Edit / Copy / CopyFormatted) と直後の区切りが消える。
 TEST_F(ContextMenuTest, ItemSequenceDependsOnPane)
 {
@@ -134,8 +132,6 @@ TEST_F(ContextMenuTest, NewWindowLabelFollowsFileEntry)
         EXPECT_EQ(item->text, on_entry ? ls.menu_open_in_new_window : ls.menu_new_window);
     }
 }
-
-// ─── 項目の有効/無効・チェック状態 ───
 
 TEST_F(ContextMenuTest, ItemFlagsFollowParams)
 {
@@ -193,7 +189,7 @@ TEST_F(ContextMenuTest, NavEnabledFollowsParams)
 // レイアウト・ヒットテスト（DWrite必要）
 // ============================================================
 
-// CreateTextFormats / ComputeLayout は DWrite だけを使う。D2D は Show で描くときにしか要らない。
+// CreateBaseTextFormats / ComputeLayout は DWrite だけを使う。D2D は Show で描くときにしか要らない。
 class ContextMenuLayoutTest : public ContextMenuTest {
 protected:
     void SetUp() override
@@ -210,8 +206,6 @@ protected:
         menu_.ComputeLayout();
     }
 };
-
-// ─── メニューサイズ ───
 
 TEST_F(ContextMenuLayoutTest, MenuHasMinimumWidthAndPositiveHeight)
 {
@@ -259,8 +253,6 @@ TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
     EXPECT_LT(short_h, full_h);
 }
 
-// ─── 項目矩形 ───
-
 // 項目は全幅で、重ならずに上から積まれ、メニューの高さに収まる。
 TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
 {
@@ -280,8 +272,6 @@ TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
         }
     }
 }
-
-// ─── ナビゲーションボタン配置 ───
 
 // 同じ大きさの 2 ボタンが間を空けて並び、ナビ行の中で左右中央に置かれる。
 TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
@@ -309,8 +299,6 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
     EXPECT_LE(nav.back_rect.bottom, row.bottom);
 }
 
-// ─── ヒットテスト ───
-
 // Text 項目の中心は自身の id、NavRow / ZoomRow / Separator の中心は 0 を返す。
 TEST_F(ContextMenuLayoutTest, HitTestAtItemCenters)
 {
@@ -331,8 +319,6 @@ TEST_F(ContextMenuLayoutTest, HitTestOutsideReturnsZero)
     EXPECT_EQ(menu_.HitTest(-10.0f, -10.0f), 0);
     EXPECT_EQ(menu_.HitTest(9999.0f, 9999.0f), 0);
 }
-
-// ─── ズームの行 ───
 
 // 縮小・倍率・拡大・元に戻すが左から重ならずに並び、見出しの右・メニューの内側に収まる。
 TEST_F(ContextMenuLayoutTest, ZoomRowButtonsLineUpInsideRow)
@@ -388,8 +374,6 @@ TEST_F(ContextMenuLayoutTest, ZoomHitTestFollowsZoomLevel)
         EXPECT_EQ(hit(z.percent_rect), std::nullopt);
     }
 }
-
-// ─── ナビゲーションヒットテスト ───
 
 TEST_F(ContextMenuLayoutTest, NavHitTest)
 {

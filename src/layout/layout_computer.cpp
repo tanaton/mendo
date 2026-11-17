@@ -25,7 +25,7 @@ float NodeStartY(std::span<const Node> nodes, const LayoutCache& cache, const Th
 }
 
 // 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
-// catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
+// catastrophic cancellation を避けるため厳密に保つ。
 float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
 {
     y += spacing_above;
@@ -90,7 +90,6 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        // 空 LI に sb を入れると直下 P の text_top が下ズレし bullet と分離する (issue#237)。
         return IsEmptyListItemContainer(node) ? 0.0f : theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;
@@ -204,8 +203,7 @@ size_t CarryOverUnchanged(
     new_cache.TakeEntries(old_cache, 0, 0, ends.head);
     new_cache.TakeEntries(old_cache, ends.OldTailBegin(), ends.NewTailBegin(), ends.tail);
 
-    // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
-    // 対応が付く図は旧結果を仮表示として引き継ぐ。
+    // 図のコードを書き換えて保存しても、対応が付く図は旧結果を仮表示として引き継ぐ (理由は DiagramEntry::stale)。
     size_t stale = 0;
     for (const auto [old_index, new_index] : PairChangedDiagrams(old_nodes, new_nodes, ends)) {
         stale += new_cache.TakeDiagramAsStale(old_cache, old_index, new_index) ? 1 : 0;
@@ -225,8 +223,7 @@ LayoutCache MakeEstimatedLayoutCache(std::span<const Node> nodes, const Theme& t
 
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
-    // 図の高さは寸法が届いた時点で DiagramNodeHeight が決める。推定で上書きすると
-    // 描画時に図が後続ノードへはみ出すため既存値を維持する。
+    // 図の高さは寸法が届いた時点で DiagramNodeHeight が決める。推定で上書きすると図が後続ノードへはみ出すので触らない。
     if (node.type == NodeType::Diagram) {
         return;
     }
@@ -235,8 +232,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     if (entry.is_measured() && std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon) {
         return;
     }
-    // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、
-    // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
+    // テーブルや折り返しの多い段落は推定値が実測値を大きく下回り、縮めると後続ノードと重なるので既存値より小さくしない。
     // 表の幾何は推定で伸ばした高さと食い違うが、計測が幾何の高さ (TotalHeight) で確定し直す。
     entry.height = std::max(entry.height, EstimateNodeHeight(node, theme, node_width));
 }

@@ -1,7 +1,6 @@
 #pragma once
-// プロパティテスト用のランダム Markdown 生成器。パーサが特殊扱いする断片
-// (ネストしたリスト / 引用、tight / loose リスト内のブロック、Alert、セル数不揃いの表、脚注、
-// entity、$$、画像、CJK、不正 UTF-8 バイト) を再帰的に組み合わせる。
+// プロパティテスト用のランダム Markdown 生成器。パーサが特殊扱いする断片 (ネストしたリスト / 引用、tight / loose
+// リスト内のブロック、Alert、セル数不揃いの表、脚注、entity、$$、画像、CJK、不正 UTF-8 バイト) を再帰的に組み合わせる。
 // 同じ seed なら同じ文書を返すので、失敗時は SCOPED_TRACE の seed で再現できる。
 #include <algorithm>
 #include <array>

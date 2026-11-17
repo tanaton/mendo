@@ -7,11 +7,9 @@
 #include <span>
 
 namespace {
-// Theme 内の「ズームでスケールする float メンバ」を一元管理する。
-// 新規のスケーラブルフィールドを追加する際はここに追記すれば
-// ApplyZoom へのスケール漏れを防げる。font_size_h は配列なので別ループで扱う。
-// サイドペイン (ファイル一覧・目次) の寸法は含めない。ズームは本文の可読性を上げる
-// ためのもので、一覧まで拡大すると同時に見える項目数が減って操作しにくくなる。
+// ApplyZoom で倍率を掛ける Theme の float メンバ (font_size_h は配列なので別ループ)。拡大するメンバはここに足す。
+// サイドペイン (ファイル一覧・目次) の寸法は含めない。ズームは本文を読みやすくするためで、
+// 一覧まで拡大すると同時に見える項目数が減って操作しにくくなる。
 constexpr float Theme::* kScalableThemeFields[]{
     &Theme::font_size_body,
     &Theme::font_size_code,
@@ -135,8 +133,7 @@ constexpr ThemeColor kThemeColors[]{
     { BrushId::Heading, Rgb(0x1a1a1a), Rgb(0xe0e0e0) },
     { BrushId::Link, Rgb(0x0366d6), Rgb(0x569cd6) },
     { BrushId::BlockquoteBar, Rgb(0xdfe2e5), Rgb(0x505050) },
-    // 引用と h6 の薄い文字色。ライトは GitHub の fgColor-muted。ダークは背景が GitHub (#0d1117) と違うので、
-    // GitHub の #9198a1 ではなく本文と同じ無彩色の灰色にしている。
+    // ライトは GitHub の fgColor-muted。ダークは背景が GitHub (#0d1117) と違うので、#9198a1 でなく本文と同じ無彩色の灰色。
     { BrushId::MutedText, Rgb(0x59636e), Rgb(0x9e9e9e) },
 
     Shared(BrushId::CodeBg, &SharedColors::code_bg),
@@ -164,14 +161,12 @@ constexpr ThemeColor kThemeColors[]{
     { BrushId::AlertWarningBg, Rgb(0xfff8c5, 0.4f), Rgb(0x2a1e02, 0.5f) },
     { BrushId::AlertCautionBg, Rgb(0xffebe9, 0.4f), Rgb(0x2e0b0d, 0.5f) },
 
-    // タイトルバー
     { BrushId::TitleBarBg, Rgb(0xf0f0f0), Rgb(0x272727) },
     { BrushId::TitleBarText, Rgb(0x333333), Rgb(0xcccccc) },
     { BrushId::TitleBarButtonHover, Rgb(0xe0e0e0), Rgb(0x383838) },
     { BrushId::TitleBarButtonActive, Rgb(0xd0d0d0), Rgb(0x444444) },
     Same(BrushId::TitleBarCloseRed, Rgb(0xE81123)),
 
-    // ペインレイアウト
     { BrushId::PaneBg, Rgb(0xf5f5f5), Rgb(0x252526) },
     { BrushId::Splitter, Rgb(0xe0e0e0), Rgb(0x3c3c3c) },
     { BrushId::PaneItemHover, Rgb(0xe8e8e8), Rgb(0x2a2d2e) },

@@ -545,7 +545,6 @@ TEST(InlineMathTable, ForgetRequestDropsOnlyWaitingEntry)
     EXPECT_FALSE(table.FindOrRequest(1));
     EXPECT_EQ(table.TakeRequests(), (std::vector<uint64_t>{ 1 }));
 }
-// ---- 本文中の画像 ----
 
 class DWriteInlineImageTest : public DWriteMeasurerTest {
 protected:
@@ -727,8 +726,7 @@ TEST_F(DWriteInlineImageTest, LargeTableEstimatesShrunkImageRowsFromRepresentati
     EXPECT_NEAR(tl.row_heights[300], tl.row_heights[1], tl.row_heights[1] * 0.2f);
 }
 
-// 画像を縮めずに置ける幅の間は、幅を変えても段落を組み直さない。置けない幅になったら縮めて組み直し、縮めて組んだ段落は
-// 幅が変わるたびに組み直す。
+// 画像を縮めずに置ける幅の間は幅を変えても組み直さない。置けない幅では縮めて組み、縮めた段落は幅が変わるたびに組み直す。
 TEST_F(DWriteInlineImageTest, UnshrunkImageKeepsLayoutUntilItMustShrink)
 {
     SetReady("p.png", 600.0f, 300.0f);
@@ -776,7 +774,7 @@ TEST_F(DWriteInlineImageTest, UnshrunkImageCellKeepsLayoutAcrossWidths)
 }
 
 
-// MockTextMeasurer と DWriteTextMeasurer の共通ルール (正の高さ・順序性) を突き合わせ、片方だけ仕様が変わったら気付けるようにする。
+// MockTextMeasurer と DWriteTextMeasurer の共通ルール (正の高さ・順序性) を突き合わせ、片方だけの仕様の変更に気付く。
 // 絶対値は両者で異なる（mock はヒューリスティック、DWrite は実測）ので比べない。
 class MeasurerParityTest : public DWriteTestBase {
 protected:
@@ -817,7 +815,6 @@ TEST_F(MeasurerParityTest, TextlessNodesArePositive)
     }
 }
 
-// 見出しと段落の順序性: 同じテキストに対し、両計測とも見出し > 段落 となること。
 TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 {
     Node para = MakeTextNode("Sample text");

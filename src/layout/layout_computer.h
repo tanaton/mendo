@@ -28,9 +28,8 @@ inline float NodeContentWidth(const Node& node, const Theme& theme, float conten
     return ShrinkKeepingMinContent(content_width, NodeIndent(node, theme));
 }
 
-// 折り返さないノード (CodeBlock) を組む幅。高さも行も本文幅に依存しない。
-// 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
-// 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
+// 折り返さないノード (CodeBlock) を組む幅。高さも行も本文幅に依存しない。1e7 は float の整数精度の限界 (2^24 ≈ 1.67e7)
+// より少し下で、DirectWrite 内部の幾何計算でも丸め誤差が乗らない。10MDIP ≈ 数十万行のコードブロックを許容する。
 // MaxHeight も事実上の上限で十分なので同じ値を使う。
 inline constexpr float kNoWrapLayoutWidth = 1.0e7f;
 
@@ -76,7 +75,6 @@ inline float EmptyListItemHeight(const Theme& theme) noexcept
 }
 
 // テキストが空のノードの高さ。中身を子ブロックに持つ LI は 0 にする
-// (paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する issue#237)。
 inline float EmptyTextNodeHeight(const Node& node, const Theme& theme) noexcept
 {
     return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme)
@@ -88,7 +86,7 @@ inline float HorizontalRuleHeight(const Theme& theme) noexcept
     return theme.paragraph_spacing + theme.hr_thickness;
 }
 
-// 行高さが未計測の表の行に使う高さ。
+// 表の行の高さの下限 (MeasureRowHeight)。
 inline float TableBaseRowHeight(const Theme& theme) noexcept
 {
     return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
@@ -163,9 +161,8 @@ void EstimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const 
 void ReestimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, float content_width);
 
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
-// 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
-// Y 位置は呼び出し側が組み直す。ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
-// 戻り値は移したノード数 (仮表示の図を含む)。
+// 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。Y 位置は呼び出し側が組み直す。
+// ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。戻り値は移したノード数 (仮表示の図を含む)。
 size_t CarryOverUnchanged(
     std::span<const Node> old_nodes, LayoutCache& old_cache,
     std::span<const Node> new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
@@ -179,8 +176,7 @@ LayoutCache MakeEstimatedLayoutCache(std::span<const Node> nodes, const Theme& t
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。図は触らない。
 void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
-// safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むため、再計算を先頭からの全件ではなく
-// この範囲に限定できる。
+// safe_exit_after は高さが変わった最後のノード。以降のノードは一定量のシフトで済むので、再計算をここまでに限る。
 void RecomputeYPositions(
     std::span<const Node> nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
@@ -190,8 +186,7 @@ void RecomputeYPositions(
 int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
-// diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
-// fallback_scroll を返す。
+// diff_pos が npos (差分位置なし = スクロール維持) かノードが見つからなければ fallback_scroll を返す。
 float CalcScrollYForDiff(
     std::span<const Node> nodes,
     const LayoutCache& cache,

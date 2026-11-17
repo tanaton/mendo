@@ -25,8 +25,6 @@ int MeasureIndicesParallel(
     if (!indices.empty()) {
         cache.NoteMaterialized(indices.front(), indices.back() + 1);
     }
-    // 1 ノードの計測 (数百 µs) に比べ worker を起こす手間 (8 本で約 30µs) と chunk の取得は小さいので、1 ノード単位で配って
-    // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
     std::atomic<int> left{ 0 };
     ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
@@ -44,8 +42,6 @@ int MeasureIndicesParallel(
             } catch (...) {
                 MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
             }
-            // 測れなかったノードも再試行しない。失敗の実体はレイアウトや確保の失敗で数 ms では回復せず、残すと描画のたびに
-            // 測り直して失敗し続ける。次の幅変更やズームで改めて試す。
             entry.layout_dirty = false;
         }
     });
@@ -155,8 +151,6 @@ bool LayoutEngine::Reestimate(std::span<const Node> nodes, LayoutCache& cache, f
     MENDO_PROFILE("LayoutEngine::Reestimate");
     assert(cache.size() == nodes.size());
 
-    // 別の幅やズームでの推定は折り返しの行数が合わず、最初の画面で実際と違う数のノードを計測してしまう。
-    // 幅を知らずに推定したキャッシュ (EstimateBasis が 0) も、ここで表示幅に合わせて推定し直す。
     const Theme& theme = GetTheme();
     const float content_width = theme.ContentWidth(viewport_width);
     const auto basis = cache.GetEstimateBasis();
@@ -194,7 +188,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             break;
         }
         if (entry.layout_dirty) {
-            // 巨大な表はワーカーで組ませ、組み終えるまで dirty のまま飛ばす (TableMeasureJobs)。
+            // 巨大な表はワーカーで組ませ、組み終えるまで dirty のまま飛ばす
             if (table_jobs_ && table_jobs_->Defer(nodes, i, entry, NodeContentWidth(nodes[i], theme, content_width))) {
                 continue;
             }
@@ -213,8 +207,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     }
 
     if (!dirty_indices.empty()) {
-        // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
-        // 毎フレーム計測するため、scheduler があれば並列化する。
+        // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を毎フレーム測るので、並列化する。
         const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, deadline);
         // 期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;
@@ -246,8 +239,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache&
         return false;
     }
 
-    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。見えている表の範囲外の退避した行も同じで、残さないと
-    // 大きな表だけの文書では先読みが走らず、めくるたびに描画の中で行を戻す (2 万行 6 列で PageDown 1 回 0.3〜0.4ms)。
+    // 範囲外は走査しないので dirty が残っていると保守的に仮定する
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
     const bool has_outside = vr.begin > 0 || vr.end < node_count;
@@ -291,7 +283,6 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     const float scroll_y = viewport_.GetScrollY();
     if (basis_changed) {
         // 幅かズームが変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
-        // (2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms)。
         cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), layout::BufferedRange(scroll_y, height, 0.0f));
     }
     engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);

@@ -117,7 +117,7 @@ public:
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
     };
-    // params.loading_angle があれば、本文ペイン・検索バー・スクロールバー・ナビボタンの代わりにスピナーを描く。
+    // params.loading_angle があれば、本文ペインなどの代わりにスピナーを描く (内訳は RenderParams::loading_angle)。
     FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
@@ -203,7 +203,7 @@ public:
     }
 
 private:
-    // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー、読み込み中はスピナー) を
+    // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー・リンクの行き先、読み込み中はスピナー) を
     // frame_cmds_ に積む。
     void GenOverlays(const RenderParams& p);
 
@@ -285,8 +285,7 @@ private:
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;
-    // 1 フレームの描画コマンド。タイトルバーとサイドペイン・本文・本文に重ねるものの順に積み、まとめて実行する。
-    // タイトルバーとサイドペインはデバイスに依存しないので、作成前に組み立てて最初のフレームの文字レイアウトを先に作れる。
+    // タイトルバーとサイドペイン (PrepareChrome)・本文・本文に重ねるものの順に 1 フレームぶん積み、まとめて実行する。
     DrawCommandList frame_cmds_;
     // frame_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> gesture_trail_;

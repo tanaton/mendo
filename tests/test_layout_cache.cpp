@@ -148,8 +148,6 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     }
 }
 
-// ---- NodeOffsetToScrollY ----
-
 TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
 {
     EXPECT_FLOAT_EQ(NodeOffsetToScrollY(LayoutCache{}, 0, 50.0f), 0.0f);
@@ -173,8 +171,6 @@ TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
     }
 }
 
-// ---- ComputeVisibleNodeRange ----
-
 TEST(ComputeVisibleNodeRangeTest, ReturnsNodesOverlappingRange)
 {
     const auto cache = MakeUniformCache(10);
@@ -189,8 +185,6 @@ TEST(ComputeVisibleNodeRangeTest, RangeBelowContentIsEmpty)
     const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 500.0f, 800.0f);
     EXPECT_EQ(first, last_plus_1);
 }
-
-// ---- TableLayoutData の行範囲 ----
 
 namespace {
 
@@ -267,8 +261,6 @@ TEST(LayoutCacheTops, ShiftAcrossBlocksKeepsPositions)
         EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
     }
 }
-
-// ---- 画面外のノードの高さの推定 ----
 
 using layout::EstimateInvisibleNodeHeight;
 using layout::EstimateNodeHeight;

@@ -36,9 +36,7 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
 }
 
 namespace {
-// md_parse の長さ (MD_SIZE) と Node の位置 (source_offset_ など) が 32 bit なので 4GB 未満にする。INT_MAX は文書全体を
-// UTF-16 に変換していた頃 (MultiByteToWideChar の長さが int) の値で、それより大きい文書を開ける必要は無いので残す。
-// この上限の内でも、短い行が続くと md4c が確保に失敗する (ParseMarkdown)。
+// md_parse の長さ (MD_SIZE) と Node の位置 (source_offset_ など) が 32 bit なので 4GB 未満にする
 constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 } // namespace
 
@@ -56,8 +54,7 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
         return result;
     }
 
-    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ先頭へ戻す。
-    // 一括読み + erase(0,3) と違い BOM ありファイルでも全体スケールの memmove を発生させない。
+    // UTF-8 BOM (EF BB BF) は先頭を覗いて読み飛ばす
     char prefix[3];
     const size_t prefix_read = std::min<size_t>(r.size, sizeof(prefix));
     if (!ReadExact(r.handle.get(), prefix, prefix_read)) {
@@ -97,8 +94,6 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         const std::lock_guard lock(mutex_);
         stale.swap(outcome_);
     }
-    // 100MB 級の文書は、テキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と表などの解放で UI を十数 ms 止める。
-    // 推定済みの LayoutCache は D2D の参照を持たない。
     if (stale && *stale) {
         DisposeOnWorker(scheduler_, std::move(stale));
     }
@@ -168,9 +163,6 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
 
     std::optional<ReloadCheck> reload;
     if (reload_base.data) {
-        // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
-        // 新旧 Document の二重保持が起きないよう、パース前に判定する。
-        // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
             publish_retry(ReloadOp::StillGrowing);
             return;

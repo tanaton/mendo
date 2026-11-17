@@ -89,9 +89,8 @@ inline constexpr int kSyntaxLexStateBits = 24;
 inline constexpr SyntaxLexState kSyntaxMidLine = 1;
 
 // 解析の途中の状態の記録。区切ったコードの並びを窓ごとに前から解析するとき (AnnotateCodeChunkLeads) にだけ渡し、
-// 継ぎ目での状態と、次の窓を始められる位置を取り出す。位置は解析したテキストの先頭から数える。
-// 状態が変わるたびに残すと 16MB の Emacs Lisp のパースが 82 → 110ms になるので、残すのは知りたい位置 (継ぎ目と最後の行の頭) の
-// 分だけにする。
+// 継ぎ目での状態と、次の窓を始められる位置を取り出す。位置は解析したテキストの先頭から数える。状態が変わるたびに残すと
+// 16MB の Emacs Lisp のパースが 82 → 110ms になるので、知りたい位置 (継ぎ目と最後の行の頭) の分だけ残す。
 class SyntaxStateTrace {
 public:
     // 解析を始め直せる位置と、そこでの状態。

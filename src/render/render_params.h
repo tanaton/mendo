@@ -118,6 +118,7 @@ struct RenderParams {
     // 指しているリンクの行き先。空なら出さない。
     std::wstring_view link_status;
     LinkStatusDock link_status_dock = LinkStatusDock::Left;
-    // 読み込み中のスピナーの角度。あれば本文ペイン・ナビボタン・検索バー・スクロールバーの代わりにスピナーを描く。
+    // 読み込み中のスピナーの角度。あれば本文ペイン・ナビボタン・ジェスチャーの軌跡・検索バー・スクロールバー・リンクの行き先の
+    // 代わりにスピナーを描く。
     std::optional<float> loading_angle;
 };

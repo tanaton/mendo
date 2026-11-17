@@ -1,7 +1,6 @@
-// MockTextMeasurer 経路の CommandGenerator テスト (COM / DirectWrite 不要)。
-// entry.text_layout は null なので、構造的なコマンド出力を確かめる。ハイライトや button 配置は
-// IDWriteTextFormat / IDWriteTextLayout が必要なため別ファイル
-// (test_command_generator_highlight.cpp) で扱う。
+// MockTextMeasurer 経路の CommandGenerator テスト (COM / DirectWrite 不要)。entry.text_layout は null なので、
+// 構造的なコマンド出力を確かめる。ハイライトや button 配置は IDWriteTextFormat / IDWriteTextLayout が要るので
+// test_command_generator_highlight.cpp で扱う。
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "cmd_gen_mock_test_base.h"
@@ -40,8 +39,6 @@ bool IsVertical(const DrawLineCmd& l)
 
 } // namespace
 
-// ---- Heading 下線 ----
-
 // h1 / h2 だけ entry.height の下に hr 色の下線を 1 本引く。h2 は h1 より細い。
 TEST_F(CmdGenContentTest, HeadingUnderlineOnlyForH1AndH2)
 {
@@ -51,9 +48,9 @@ TEST_F(CmdGenContentTest, HeadingUnderlineOnlyForH1AndH2)
         float thickness;
     };
     const Case kCases[] = {
-        { "# Title", true, theme_.hr_thickness },
-        { "## Subtitle", true, theme_.h2_underline_thickness },
-        { "### Sub", false, 0.0f },
+        { "# Title",     true,  theme_.hr_thickness           },
+        { "## Subtitle", true,  theme_.h2_underline_thickness },
+        { "### Sub",     false, 0.0f                          },
     };
     EXPECT_LT(theme_.h2_underline_thickness, theme_.hr_thickness);
     for (const auto& c : kCases) {
@@ -110,11 +107,8 @@ TEST_F(CmdGenContentTest, TransformsArePaired)
     EXPECT_EQ(CountCmd<SetTransformCmd>(cmds), 2); // スクロール変換 + 単位行列リセット
 }
 
-// ---- 角丸の背景 ----
-
 // コードブロック・Alert と、描き終えていない Mermaid のプレースホルダーは角丸の背景を描く。段落は描かない。
-// 本文中の画像は読み込み中は何も描かない (ブラウザと同じ)。
-// プレースホルダーの背景はコードブロックと同じ色。
+// 本文中の画像は読み込み中は何も描かない (ブラウザと同じ)。プレースホルダーの背景はコードブロックと同じ色。
 TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 {
     struct Case {
@@ -142,8 +136,6 @@ TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
     }
 }
 
-// ---- 引用ブロック ----
-
 TEST_F(CmdGenContentTest, MultiLineBlockQuoteGeneratesSingleBar)
 {
     auto cmds = Generate("> Line 1\n>\n> Line 2");
@@ -160,8 +152,6 @@ TEST_F(CmdGenContentTest, MultiLineAlertGeneratesSingleBarAndBackground)
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::AlertNoteBg; }), 1);
 }
 
-// ---- 箇条書き記号を持たないリスト ----
-
 TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoBullet)
 {
     for (const char* md : { "1. First\n2. Second\n3. Third", "- [x] Done\n- [ ] Not done" }) {
@@ -170,16 +160,12 @@ TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoBullet)
     }
 }
 
-// ---- コピーボタン ----
-
 // アイコンのフォントが無ければ、コピーボタンは背景も出さない。
 TEST_F(CmdGenContentTest, CodeBlockNoCopyButtonWithoutIconFont)
 {
     const auto cmds = Generate("```\ncode\n```");
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::Overlay; }), 0);
 }
-
-// ---- リスト箇条書き記号の垂直位置 ----
 
 TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
 {
@@ -196,7 +182,6 @@ TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds, kDisc) + CountCmd<DrawRoundedRectCmd>(cmds, kCircle), 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
-// ● ○ ■ □ を段ごとに繰り返す (issue#365, #407)。
 TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
 {
     const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4\n        - 5");
@@ -285,8 +270,6 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
         EXPECT_EQ(FormatListNumber(buf, c.number, c.depth), c.expected);
     }
 }
-
-// ---- 区切ったコードブロック ----
 
 // 区切ったコードブロックは間を空けずに並べ、背景は継ぎ目で丸めずにつなげる。
 TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)

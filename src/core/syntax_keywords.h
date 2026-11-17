@@ -22,8 +22,7 @@ constexpr size_t WordHash(std::string_view w) noexcept
     return n + fold(w[0]) * 5 + fold(w[n - 1]) * 31 + fold(w[n / 2]) * 131;
 }
 
-// type-erased view。言語ごとに異なる N のテーブルを同じ型で受け渡すため、
-// 各 WordTable<N> から暗黙変換できる軽量ビューを使う。
+// type-erased view。N の異なる各言語の WordTable<N> を同じ型で受け渡すため、そこから暗黙変換できる軽量ビューにする。
 struct KeywordTable {
     std::span<const std::string_view> entries;
     std::span<const uint16_t> slots; // 大きさは 2 のべき乗

@@ -8,12 +8,10 @@
 
 class MockLayoutTest : public MockLayoutTestBase {
 protected:
-    // content 幅が content_width になるビューポート幅。
     float ViewportWidthFor(float content_width) const
     {
         return content_width + theme_.margin_left + theme_.margin_right;
     }
-    // content 幅で全ノードを計測する。
     void LayoutAll(std::vector<Node>& nodes, LayoutCache& cache, float content_width)
     {
         ComputeLayout(engine_, nodes, cache, ViewportWidthFor(content_width));
@@ -63,7 +61,6 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 
 // ---- Mermaidブロックのズーム耐性 ----
 
-// Mermaidブロックの初回レイアウトでプレースホルダー高さが設定されること
 TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 {
     auto [nodes, cache] = ParseAndLayout("```mermaid\ngraph TD;\n  A-->B;\n```");
@@ -115,13 +112,10 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 
 // ---- issue #158 リグレッション: 縦に長いテーブルの直後の描画がテーブルに重なる ----
 
-// 長いテーブルが viewport 外にあって partial モードで再レイアウトされたときに、
-// 既存の実測高さが推定値で縮められないことを確認する。
-// 縮められると以降のノードの y_position が上に詰まり、テーブル直後のノードが
-// テーブルに重なって描画される。
+// viewport 外の長いテーブルを partial モードで組み直しても、実測した高さを推定値で縮めない。縮めると以降のノードの
+// y_position が上に詰まり、テーブル直後のノードがテーブルに重なって描かれる。
 TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 {
-    // 100 行のテーブル + その後の段落
     std::string md = "| col1 | col2 |\n|------|------|\n";
     for (int i = 0; i < 100; i++) {
         md += "| row" + std::to_string(i) + " | val" + std::to_string(i) + " |\n";
@@ -153,16 +147,13 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 // 推定値より小さい既存高さは、推定値まで成長させてよい（max_scroll の精度のため）
 TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
 {
-    // 高さ 0 で partial モード（width_changed=true）。
-    // 不可視ノードでも entry.height が 0 なら推定値まで成長すべき。
+    // 高さ 0 で partial モード (width_changed=true)。不可視ノードでも entry.height が 0 なら推定値まで成長すべき。
     auto [nodes, cache] = ParseAndLayout("First\n\nSecond\n\nThird", 800.0f, 0.0f, 1.0f);
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].height, 0.0f)
             << "ノード " << i << " の高さが推定値まで成長していない";
     }
 }
-
-// ---- RecreateFormats ----
 
 // ズームで書式を作り直したら、幅が同じでも全ノードを再計測させる。
 TEST_F(MockLayoutTest, InvalidateAllLayoutsForcesRemeasureAtSameWidth)

@@ -150,10 +150,6 @@ TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
     }
 }
 
-// ═══════════════════════════════════════════════
-// WriteAllBytes + ReadAllBytes ラウンドトリップ
-// ═══════════════════════════════════════════════
-
 TEST_F(FileIoTest, RoundTripBinary)
 {
     const auto path = temp_dir_ / L"binary.bin";
@@ -174,10 +170,6 @@ TEST_F(FileIoTest, WriteOverwritesExistingFile)
     ASSERT_TRUE(Write(path, "short"));
     EXPECT_EQ(ReadAsString(path), "short");
 }
-
-// ═══════════════════════════════════════════════
-// エラーケース
-// ═══════════════════════════════════════════════
 
 TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
@@ -205,7 +197,6 @@ TEST_F(FileIoTest, ErrorPointerResetOnSuccess)
 
 TEST_F(FileIoTest, WriteToInvalidPathFails)
 {
-    // 存在しないディレクトリ配下のパス（親ディレクトリがない）
     EXPECT_FALSE(Write(temp_dir_ / L"no_such_dir" / L"file.bin", "data"));
 }
 
@@ -322,8 +313,7 @@ TEST_F(FileIoTest, AtomicWriteUserFile_ToInvalidPath_Fails)
 
 TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
 {
-    // 既存の `<path>.tmp` がたとえ残っていても、新しい AtomicWriteAllBytes は
-    // 上書きで作り直し、MoveFileExW で消費するため最終的に残らない。
+    // 既存の `<path>.tmp` が残っていても、AtomicWriteAllBytes は上書きで作り直して MoveFileExW で消費するので残らない。
     const auto path = temp_dir_ / L"atomic_stale_tmp.bin";
     const std::string_view payload = "fresh-payload";
     ASSERT_TRUE(Write(TmpOf(path), "stale-tmp-leftover"));

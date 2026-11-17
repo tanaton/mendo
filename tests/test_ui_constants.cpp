@@ -5,10 +5,6 @@
 #include "pane_layout.h"
 #include "ui_constants.h"
 
-// ═══════════════════════════════════════════════
-// PointInRect
-// ═══════════════════════════════════════════════
-
 // left/top は内側、right/bottom は外側 (half-open)
 TEST(PointInRectTest, HalfOpenBounds)
 {
@@ -37,10 +33,6 @@ TEST(PointInRectTest, HalfOpenBounds)
     // 大きさ 0 の矩形はどの点も含まない
     EXPECT_FALSE(PointInRect(10.0f, 10.0f, D2D1::RectF(10.0f, 10.0f, 10.0f, 10.0f)));
 }
-
-// ═══════════════════════════════════════════════
-// SnapToPhysicalPixel
-// ═══════════════════════════════════════════════
 
 // 物理ピクセル境界 (1/scale DIP 刻み) の最寄りへ寄せる。境界上の値はそのまま。
 TEST(SnapToPhysicalPixelTest, SnapsToNearestPhysicalPixel)
@@ -97,10 +89,6 @@ TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
         }
     }
 }
-
-// ═══════════════════════════════════════════════
-// PaneHeaderButtonRect
-// ═══════════════════════════════════════════════
 
 namespace {
 
@@ -214,10 +202,6 @@ TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
     EXPECT_TRUE(right_aligned(threshold));
 }
 
-// ═══════════════════════════════════════════════
-// HitTestSearchBar — 右寄せ close ボタンのヒット判定
-// ═══════════════════════════════════════════════
-
 // 右寄せされた close ボタンの中心は Close、highlight との間の空白はどのゾーンにも当たらない。
 TEST(SearchBarHitTestTest, RightAlignedCloseAndGap)
 {
@@ -226,10 +210,6 @@ TEST(SearchBarHitTestTest, RightAlignedCloseAndGap)
     EXPECT_EQ(HitTestSearchBar(l, cx, cy), SearchBarHitZone::Close);
     EXPECT_EQ(HitTestSearchBar(l, (l.highlight_btn.right + l.close_btn.left) / 2.0f, cy), SearchBarHitZone::None);
 }
-
-// ═══════════════════════════════════════════════
-// PaneHeaderTextRect
-// ═══════════════════════════════════════════════
 
 // サイド幅はウィンドウ縮小で PANE_MIN_WIDTH 未満にもなる (PaneController::ComputeLayout の比例縮小)。
 // どの幅でも見出し矩形は反転せず、ボタンと重ならない (bb25241 の回帰)。
@@ -258,10 +238,6 @@ TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
     }
 }
 
-// ═══════════════════════════════════════════════
-// DPI 変換
-// ═══════════════════════════════════════════════
-
 // DPI 未初期化 (0) で 0 除算や 0 倍にならないよう等倍に倒す。
 TEST(DpiScaleFromTest, NonPositiveDpiFallsBackToOne)
 {
@@ -285,10 +261,6 @@ TEST(PixelToDipTest, DividesByScale)
     EXPECT_FLOAT_EQ(p.x, 200.0f);
     EXPECT_FLOAT_EQ(p.y, 100.0f);
 }
-
-// ═══════════════════════════════════════════════
-// ブロック横スクロールバー
-// ═══════════════════════════════════════════════
 
 // つまみの幅は可視幅 × 可視の割合。最小幅で止めるが、可視幅が最小幅より狭ければ可視幅に収める。中身の幅が 0 以下なら 0。
 TEST(BlockHScrollbarThumbWidthTest, ProportionalAndClamped)

@@ -18,7 +18,6 @@ struct Theme {
         return colors[std::to_underlying(id)];
     }
 
-    // フォント
     std::wstring font_family;
     // 本文の書式に渡すロケール (i18n::TextLocale)。
     const wchar_t* text_locale = L"ja-jp";
@@ -52,7 +51,6 @@ struct Theme {
     float hr_thickness = 0.0f;
     float h2_underline_thickness = 0.0f;
 
-    // ペインレイアウト
     float pane_item_height = 0.0f;
     float pane_header_height = 0.0f;
     float splitter_width = 0.0f;
@@ -81,7 +79,6 @@ struct Theme {
     void ApplyZoom(float new_zoom) noexcept;
 };
 
-// プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
-// 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。
+// プロセス内で 1 度だけ作る定数テーマ。変えるならコピーしてから ApplyZoom 等を行う。
 const Theme& GetLightTheme();
 const Theme& GetDarkTheme();
