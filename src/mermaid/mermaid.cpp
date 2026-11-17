@@ -93,10 +93,11 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
+DiagramResult* MermaidRenderer::FindCached(DisplayTarget& target, float max_width)
 {
-    auto* free = cache_.Find(width_free_hash);
-    return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
+    auto* free = cache_.Find(target.width_free_hash);
+    target.width_free = free && mermaid_util::IsWidthFree(free->width, max_width);
+    return target.width_free ? free : cache_.Find(target.request_hash);
 }
 
 void MermaidRenderer::DropQueued()
@@ -137,29 +138,35 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
+    const std::string_view code = node.GetText();
+    DisplayTarget hit;
+    auto* result = FindOrRequest(code, max_width, dark_mode, &hit);
     if (!result) {
         return false;
     }
-    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す (worker で組んだ文字は記録時に捨てたので、ここで組む)。
-    // デバイスを作り直している間は記録できないので、次の要求まで待たせる。
+    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録時に捨てたので、初めて
+    // 描いたときと同じく worker で組み直してから記録する (先読みは捨てる範囲より 0.5 画面内側なので、ふつうは見えるまでに
+    // 間に合う)。届くまではプレースホルダーを同じ寸法で出す。
     if (result->drawing && !result->commands) {
-        result->commands = RecordDrawing(*result->drawing, nullptr);
-        if (!result->commands) {
-            return false;
+        if (inflight_.insert(hit.request_hash).second) {
+            StartRelayout(RenderRequest{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = hit }, result->drawing);
         }
+        return false;
     }
     // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
     diagram_entry.SetResult(*result);
     return true;
 }
 
-DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
+DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key)
 {
     const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
-    if (auto* cached = FindCached(hash, width_free_hash, max_width)) {
+    if (DisplayTarget key{ .request_hash = hash, .width_free_hash = width_free_hash }; auto* cached = FindCached(key, max_width)) {
+        if (cached_key) {
+            *cached_key = key;
+        }
         return cached;
     }
     if (!inflight_.insert(hash).second) {
@@ -220,6 +227,15 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
     read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
     return read;
+}
+
+void MermaidRenderer::StartRelayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)
+{
+    PostJob(std::move(req), JobWork::Relayout, [this, drawing = std::move(drawing)](Job&) mutable -> JobOutcome {
+        JobDrawing laid_out{ .drawing = std::move(drawing) };
+        laid_out.texts = LayoutDiagramTexts(dw_factory_.Get(), *laid_out.drawing, i18n::TextLocale());
+        return laid_out;
+    });
 }
 
 Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts)

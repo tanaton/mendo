@@ -162,10 +162,12 @@ private:
         Render,
         // ディスクキャッシュの描画命令を読む。表示用の要求だけ。
         DiskLoad,
+        // キャッシュにある描画命令の文字を組む。画面外でコマンドリストを捨てた図を記録し直す前に行う。表示用の要求だけ。
+        Relayout,
     };
     // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
     struct JobDropped {};
-    // 描いたか読んだ描画命令。UI で commands にする。
+    // 描いたか読んだ (か文字を組み直した) 描画命令。UI で commands にする。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
         // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
@@ -231,6 +233,8 @@ private:
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。
     JobOutcome LoadDiskJob(Job& job, const std::filesystem::path& path);
+    // 描画命令の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
+    void StartRelayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
@@ -240,9 +244,11 @@ private:
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
     void InsertCache(uint64_t hash, DiagramResult result);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
-    DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
+    // target.width_free には、幅なしのキーで当たったかを書く。
+    DiagramResult* FindCached(DisplayTarget& target, float max_width);
     // 結果 (描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
-    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
+    // cached_key があれば、当たった結果のキーを書く (Find は並びを入れ替えるので、引き直さずにこれで同じ結果を指す)。
+    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key = nullptr);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;

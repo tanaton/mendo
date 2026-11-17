@@ -255,7 +255,8 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(file_cache_.Find(d.WidthFreeHash(), 0, kMaxWidth, false).has_value());
 }
 
-// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令から同期で記録し直し、描き直しもディスクの読み込みもしない。
+// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令の文字を worker で組んでから記録し直し、描き直しもディスクの
+// 読み込みもしない (どちらも別の描画命令になる)。
 TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
 {
     const DiagramDoc d(kAlpha);
@@ -271,14 +272,14 @@ TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
     EXPECT_TRUE(entry.NeedsRender());
     EXPECT_EQ(entry.width, width) << "寸法は残す";
 
-    const int updates = updates_;
-    EXPECT_TRUE(Request(d, entry));
+    EXPECT_FALSE(Request(d, entry)) << "UI では文字を組まない";
+    EXPECT_FALSE(entry.HasImage());
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
     ASSERT_TRUE(entry.HasImage());
     EXPECT_NE(entry.commands, released) << "捨てたものは使わない";
-    EXPECT_EQ(entry.drawing, drawing);
+    EXPECT_EQ(entry.drawing, drawing) << "描き直さない";
     EXPECT_EQ(entry.width, width);
     EXPECT_EQ(entry.height, height);
-    EXPECT_EQ(updates_, updates) << "描き直さない";
 }
 
 // 描いた図のエラーは描き直しても同じなので確定させ、ディスクには置かない。
