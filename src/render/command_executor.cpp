@@ -55,10 +55,9 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。D2D の DrawTextLayout は
-// 描画面外を含む全グリフランを処理し、巨大なコードブロックでは 1 フレームに数十 ms かかる (1 万行で約 20ms) ので、可視範囲外の
-// ランを飛ばして描く。構文トークンの色は、グリフランをトークン境界で分けて描く。SetDrawingEffect は 1 回ごとに既存の範囲数に
-// 比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
+// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。DrawTextLayout は描画面外の
+// グリフランも全部処理するので、可視範囲外のランを飛ばして描く。構文の色は、範囲数に比例して重くなる SetDrawingEffect を使わず、
+// グリフランをトークン境界で分けて描く。
 class VisibleRunRenderer final : public RenderTargetTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
@@ -205,8 +204,8 @@ private:
         };
         const auto tokens = cmd_.syntax_tokens;
 
-        // トークンごとに DrawGlyphRun を呼ぶと、トークンの細かい JSON 60 行で 1 フレーム 1.5ms かかる。同じ色のグリフを
-        // 1 つのランに集め、間の別の色のグリフの送り幅は直前のグリフの送り幅に足して、色ごとに 1 回で描く (0.35ms)。
+        // 同じ色のグリフを 1 つのランに集め (間の別の色のグリフの送り幅は直前のグリフに足す)、色ごとに 1 回で描く。トークンごとに
+        // 描くより速い (BM_CodeBlockDraw が 1.5 → 0.35ms)。
         struct BrushGlyphs {
             ID2D1Brush* brush = nullptr;
             float start_x = 0.0f;

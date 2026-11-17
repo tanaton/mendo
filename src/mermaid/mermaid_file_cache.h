@@ -76,8 +76,7 @@ public:
 
 private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
-    // 描画命令は 1 件 1〜50KB (平均 9KB) なので、満杯の 4096 件でも約 37MB。件数で追い出すのが普通で、大きさで追い出すのは
-    // 500 ノード級 (約 290KB) の図が溜まったときだけ。
+    // 描画命令は 1 件平均 9KB で、満杯の 4096 件でも約 37MB。大きさで追い出すのは巨大な図が溜まったときだけ。
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 64ULL * 1024 * 1024;
 
     struct IndexEntry {

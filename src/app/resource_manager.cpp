@@ -28,10 +28,8 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 
 using ImageSlots = std::bitset<kMaxImageSlots>;
 
-// ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする。
-// 表全体にすると 1 行が範囲にかかるだけで表の全画像を持つ (写真 40 行の表で、行ごとにすると private 98 → 57MB・GPU 55 → 42MB)。
-// 表の行の位置が決まらない間 (組む前・keep が無い・数式か画像の寸法を待って仮に組んだ間) は nullopt。仮に組んだ表は
-// 画像を幅 0 で組んで行が詰まっているので、範囲の行が実際よりずっと多い。
+// ノード i の画像のうち keep に重なる部分にあるもの。表は 1 ノードなので、keep に重なる行のセルの画像だけにする (表全体だと
+// 1 行が範囲にかかるだけで全画像を持つ)。行の位置が決まらない表は nullopt (仮に組んだ表は行が詰まり、範囲の行が多すぎる)。
 std::optional<ImageSlots> ImageSlotsIn(const Node& node, const LayoutCache& cache, size_t i, const YRange* keep,
                                        std::array<float, kMaxImageSlots>* col_widths = nullptr)
 {
@@ -119,8 +117,7 @@ void ResourceManager::LoadImages()
     };
     const InlineImageUpdate update = request(image_loader_.TakeDelivered());
     NotifyInlineImages(update);
-    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像をすぐ頼む (RESOURCE_MANAGE を待つより、初めて開いた
-    // 写真の表の最初の画像が 275 → 123ms)。
+    // 寸法を待って組み直した表は行の位置が決まったので、範囲の行の画像を RESOURCE_MANAGE を待たずにすぐ頼む
     if (update.pending_resolved && update.unsettled_tables) {
         request({});
     }
@@ -153,12 +150,10 @@ void ResourceManager::EvictOffscreenResources()
     const auto layout_keep = ComputeBufferedRange(LAYOUT_EVICT_BUFFER_SCREENS);
     const auto& lr = layout_keep->range;
     state_.document.layout_cache.EvictTextLayouts(lr.begin, lr.end);
-    // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。表はセルごとに text_layout を持つので、
-    // ノード単位の evict では拾えない不可視行のセルも捨てる。
+    // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す (1 個 40〜70KB)。戻ってきたら先読み範囲に入ったときに描画命令から
-    // UI で記録し直す (1 個約 0.9ms) が、メモリを返すほうをユーザーが選んだ。
+    // 図のコマンドリストも保持範囲の図の分だけ残す。戻ったら描画命令から記録し直すが、メモリを返すほうをユーザーが選んだ。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
@@ -263,8 +258,7 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
         const float max_width = layout::NodeContentWidth(node, theme, content_width);
-        // 表のセルの画像は列幅に縮めて出すので、置かれる列の幅でデコードする (本文の幅より、3 列 40 行の写真の表で
-        // commit 121 → 66MB・GPU 97 → 51MB)。列が広がったら NeedsSharperDecode が読み直させる。
+        // 表のセルの画像は列幅に縮めて出すので、置かれる列の幅でデコードする。列が広がったら NeedsSharperDecode が読み直させる。
         const bool table = node.has_table();
         const auto slots = ImageSlotsIn(node, state_.document.layout_cache, i, prefetch ? &prefetch->keep : nullptr, &col_widths);
         update.unsettled_tables |= !slots;
@@ -324,9 +318,8 @@ void ResourceManager::ApplyCachedImage(std::string_view src, const std::wstring&
     if (!may_request) {
         return;
     }
-    // 描くビットマップが無ければ読む。持っている間は読み直さない (件数に上限のあるキャッシュに置いていた頃は、表の画像が
-    // 128 種類を超えると読み込みが互いを追い出し、読み直しと描き直しが続いた)。表示幅が広がったときとファイルが更新された
-    // ときは、前の絵を描きながら読み直す (読めるまで寸法もビットマップも前のままなので、ちらつかない)。
+    // 描くビットマップが無ければ読み、持っている間は読み直さない (件数に上限のあるキャッシュでは、表の画像が多いと読み込みが
+    // 互いを追い出し続けた)。幅が広がったときと更新されたときは、前の絵を描きながら読み直す (ちらつかない)。
     if (!inline_drawings_.FindImage(key) || stale || (info && image_loader_.NeedsSharperDecode(*info, max_width))) {
         image_loader_.RequestLoadAsync(*abs_path, max_width);
     }

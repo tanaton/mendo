@@ -25,8 +25,7 @@ int MeasureIndicesParallel(
     if (!indices.empty()) {
         cache.NoteMaterialized(indices.front(), indices.back() + 1);
     }
-    // 1 ノードの計測 (数百 µs) に比べ worker を起こす手間 (8 本で約 30µs) は小さいので、1 ノード単位で配って 1 画面分
-    // (数十ノード) の dirty でも全 worker に行き渡らせる。
+    // worker を起こす手間は 1 ノードの計測より小さいので、1 ノード単位で配って 1 画面分の dirty でも全 worker に行き渡らせる。
     std::atomic<int> left{ 0 };
     ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
@@ -241,8 +240,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache&
         return false;
     }
 
-    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。見えている表の範囲外の退避した行も同じで、残さないと大きな表
-    // だけの文書では先読みが走らず、めくるたびに描画の中で行を戻す (2 万行 6 列で PageDown 1 回 0.3〜0.4ms)。
+    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。見えている表の範囲外の退避した行も同じで、残さないと
+    // 大きな表だけの文書では先読みが走らず、めくるたびに描画の中で行を戻す。
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
     const bool has_outside = vr.begin > 0 || vr.end < node_count;
@@ -286,7 +285,6 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     const float scroll_y = viewport_.GetScrollY();
     if (basis_changed) {
         // 幅かズームが変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
-        // (2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7 → 0.55ms)。
         cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), layout::BufferedRange(scroll_y, height, 0.0f));
     }
     engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);

@@ -74,8 +74,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
         // DPI 認識 (PerMonitorV2) はマニフェストで宣言しているので、ここでは設定しない。
-        // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と重ねて待たないよう、
-        // そのスレッドを始める前に読んでおく。
+        // 遅延ロードの D2D / DWrite は、D3D 先行作成スレッドのドライバ読み込み (ローダーロック) と重ねないよう先に読む。
         LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     }
@@ -104,8 +103,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     Win32Window window(config);
 
-    // 窓の作成と App::Init (D2D/DWrite/WIC のファクトリ) と並列に、読み込みとパースを進める。
-    // 結果は最初のフレームより前に取り込む。
+    // 窓の作成・App::Init と並列に読み込みとパースを進め、結果は最初のフレームより前に取り込む。
     if (!plan.document_path.empty()) {
         window.app().StartPreloadAsync(std::move(plan.document_path));
     }

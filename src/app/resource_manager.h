@@ -46,13 +46,11 @@ public:
     // 画像を読む範囲。遅延レイアウトの範囲より広くしても、組んでいない表は行の位置が分からず寸法しか読めない。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= DEFERRED_LAYOUT_BUFFER_SCREENS);
-    // 画像のビットマップを残す範囲。読む範囲と同じだと、境目の画像を小刻みなスクロールのたびに捨てて読み直す。写真 40 枚の
-    // 表で上下の往復のデコードが 76 → 35 回 (3 でも同じ)、めくって戻ったときのメモリは private +2%・GPU +2〜10%。
+    // 画像のビットマップを残す範囲。読む範囲と同じだと、境目の画像を小刻みなスクロールのたびに捨てて読み直す。
     static constexpr float EVICT_BUFFER_SCREENS = 2.5f;
     static_assert(PREFETCH_BUFFER_SCREENS < EVICT_BUFFER_SCREENS);
-    // text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。文書の大きさによらず上下 8 画面
-    // (5 → 2 → 8 と揺れた末に決定)。1MB の文書を最後まで読んで、8 画面と 2 画面で private WS に差が無かった (63〜84MB)。
-    // 1MB 以下の文書を全部残すのは、物理メモリ +50MB (全体の約 4 割) かかったのでやめた。
+    // text_layout と表のセルを残す範囲。文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。先読み範囲と同じだと
+    // 少し戻るだけで作り直し、1MB の文書では 2 画面とメモリが変わらない。1MB 以下を全部残すのはメモリが約 4 割増えてやめた。
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
@@ -72,10 +70,9 @@ public:
     void ScheduleResourceManage();
     void OnResourceManageTimer();
     void DropQueues();
-    // 開いた文書の画像は src を前の文書のフォルダで解決したものなので、寸法とビットマップ・解決したパス・監視する画像を外す。
-    // フォルダの読み取りは残し、枠が埋まったら今の文書で使っていないものから前に使った順にやめる (ユーザーの判断)。
-    // フォルダが変わったときだけ外すと前の文書のフォルダが枠を占め続け、開くたびにフォルダごと捨てると同じフォルダの文書を
-    // 渡り歩くたびに開き直す。ImageLoader に残る寸法は外した後の更新を知らないが、戻ったときの読み直しで入れ替わる。
+    // 開いた文書の画像は前の文書のフォルダで解決したものなので、寸法・ビットマップ・解決したパス・監視する画像を外す。
+    // フォルダの読み取りは同じフォルダの文書で開き直さないよう残し、枠が埋まったら今の文書で使っていないものから、
+    // 使ったのが古い順にやめる (ユーザーの判断)。
     void ForgetInlineImages();
     void OnRenderDeviceRecreated();
 

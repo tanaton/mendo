@@ -197,15 +197,14 @@ private:
         bool used_pele = false;
     };
 
-    // 描き終えて待ちが空になった時点で 1 個まで減らし (ProcessJobResults)、最後の 1 個をこの時間で捨てる。ランタイムは 5ms ほどで
-    // 作り直せる。読み進める間の描画の切れ目では捨てない長さにする。別のアプリへ切り替わったときは待たずに捨てる。
+    // 待ちが空になって 1 個まで減らしたランタイムの最後の 1 個を、この時間使わなければ捨てる (読み進める間の切れ目では
+    // 捨てない長さ)。別のアプリへ切り替わったときは待たずに捨てる。
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで、ID2D1CommandList (その約 5 倍) は数えないので、普通の図では件数の上限が先に効く。表示中の結果は
-    // DiagramEntry と CommandList を共有し、余分に持つのは画面外の結果だけ。CommandList を数える案は、幅を 10 段変えて全体を
-    // 読み進める最悪の場合でも commit -6% で、テーマの切り替えには効かないので見送った (ユーザーの判断)。結果はここを経由して
-    // しか DiagramEntry に届かないので、1 回に届く結果より小さな上限にすると描き直しが回り続ける。
+    // 数えるのは描画命令だけで、CommandList (その約 5 倍) は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
+    // CommandList も数える案は最悪でも commit -6% なので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
+    // 描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
