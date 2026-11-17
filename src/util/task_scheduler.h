@@ -19,8 +19,8 @@ constexpr int SharedWorkerCount(unsigned int cores) noexcept
 }
 
 // レイアウト計測用 scheduler のワーカー数。下限 2 は hardware_concurrency()==0 や 1 コアでも並列計測の枠組みを保つため。
-// 上限 8: ワーカーごとの ISOLATED ファクトリで本数なりに速くなるが (計測値は DWriteTextMeasurer)、ファクトリ 1 つで約 0.4MB 増える。
-// 16 本は test.md 表示時の commit を約 11% 増やし、ふだんの計測は可視範囲の数十ノードで 8 本でも余るので上げない。
+// 上限 8: ワーカーごとの ISOLATED ファクトリで本数なりに速くなるが、ファクトリ 1 つ分ずつメモリが増える。
+// 16 本はメモリが増え、ふだんの計測は可視範囲の数十ノードで 8 本でも余るので上げない。
 constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 {
     constexpr unsigned kMinLayoutWorkers = 2u;

@@ -24,7 +24,7 @@ add_compile_options(
 # /LTCG: リンク時コード生成
 # /OPT:REF: 未参照の関数/データを除去
 # /OPT:ICF: 同一COMDATの統合
-# /STACK: スレッドのスタックの予約を既定の 1MB から 8MB にする。QuickJS は JS の 1 呼び出しで C スタックを約 4.8KB 使い、
+# /STACK: スレッドのスタックの予約を既定の 1MB から 8MB にする。QuickJS は JS の呼び出しごとに C スタックを使い、
 #   1MB (JS に 512KB) では KaTeX が分数 3 段・行列 2 段の入れ子までしか描けなかった (PeleEngine の kJsStackBytes)。
 #   JS はワーカーでも、テストとベンチの主スレッドでも走るので、スレッドごとではなく exe の既定を変える。
 #   予約だけなので、空の文書でも test.md でも commit・private WS は変わらない (使った分だけコミットされる)。

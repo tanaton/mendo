@@ -3091,7 +3091,7 @@ void MergeGlyphRuns(std::vector<MathDrawing::Item>& items)
         }
         ++kept;
     }
-    // 詰め直し (shrink_to_fit) はしない (1 式約 0.4KB と小さい)。
+    // 詰め直し (shrink_to_fit) はしない (返るものは小さい)。
     items.erase(items.begin() + static_cast<std::ptrdiff_t>(kept), items.end());
 }
 
@@ -4183,7 +4183,7 @@ struct MathMaskCache::Impl {
         UINT height = 0;
         uint64_t last_frame = 0;
 
-        // 小さな A8 の描画先でも、1 枚で private が約 14KB 増えた。
+        // 小さな A8 の描画先でも 1 枚ごとに一定の private が増えるので、下限を付けて数える。
         size_t Bytes() const noexcept
         {
             return bitmap ? std::max<size_t>(static_cast<size_t>(width) * height, 14 * 1024) : 0;

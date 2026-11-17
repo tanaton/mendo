@@ -50,7 +50,7 @@ public:
     // owner の中央に、owner の 9 割の大きさで「読み込み中」として開く。on_close は ×・Esc で呼ぶ (呼ばれた側がこれを壊す)。
     // 開けなければ null。d3d と device は本体の描画デバイスで、この窓のスワップチェーンを d3d に作り device で描く。
     // 別のデバイス (既定の HwndRenderTarget) で描いていた頃は、開くたびにデバイスの作成で最初の描画が遅れ、ドライバのデバイスの
-    // 分の commit 約 30MB が閉じた後も残った。数式の形 (MathDrawing::Shape) はファクトリごとに作るので、本体と同じファクトリで
+    // 分の commit が閉じた後も残った。数式の形 (MathDrawing::Shape) はファクトリごとに作るので、本体と同じファクトリで
     // 描くと本体と交互に作り直さない。
     static std::unique_ptr<IDiagramViewer> Open(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic,
                                                 bool dark, std::move_only_function<void()> on_close);

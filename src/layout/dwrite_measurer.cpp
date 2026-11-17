@@ -121,8 +121,8 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
     return height;
 }
 
-// 初回計測でセル layout を残す表の大きさの上限 (layout は 1 セル約 7KB)。大きい表は可視行だけ作り直し、小さい表は可視行を
-// 2 回作らないよう残す (どの表も捨てると BM_ComputeLayoutCold が 8 本で 180 → 244ms)。
+// 初回計測でセル layout を残す表の大きさの上限。layout は大きいので、大きい表は可視行だけ作り直す。小さい表は
+// 可視行を 2 回作らないよう残す (どの表も捨てると BM_ComputeLayoutCold が 8 本で 180 → 244ms)。
 constexpr size_t kMaxKeptTableCells = 1024;
 
 // 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。大きな表は同じ値が

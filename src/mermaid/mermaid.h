@@ -202,8 +202,8 @@ private:
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで、CommandList (その約 5 倍) は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
-    // CommandList も数える案は最悪でも commit -6% なので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
+    // 数えるのは描画命令だけで、より大きい CommandList は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
+    // CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
     // 描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 

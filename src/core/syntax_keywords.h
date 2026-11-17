@@ -58,7 +58,7 @@ private:
     }
 };
 
-// 番地は語の数の 3〜6 倍。2〜4 倍にすると exe は 4KB 減るが BM_TokenizeLanguage/elisp が 50.9 → 55.6µs に戻る。
+// 番地は語の数の 3〜6 倍。2〜4 倍にすると exe は少し減るが BM_TokenizeLanguage/elisp が 50.9 → 55.6µs に戻る。
 template <size_t N>
 struct WordTable {
     std::array<std::string_view, N> entries{};

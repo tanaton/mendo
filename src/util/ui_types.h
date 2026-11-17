@@ -26,7 +26,7 @@ protected:
 struct PopupEnv {
     ID2D1Factory* d2d_factory = nullptr;
     // 本体の描画デバイス。あればポップアップもこれで描く。無ければ SOFTWARE の描画先で描く (D2D の SOFTWARE は WARP を
-    // 読み込み、閉じた後も commit 約 +3MB・working set 約 +8MB が残る)。
+    // 読み込み、閉じた後もその分のメモリが残る)。
     ID3D11Device* d3d = nullptr;
     ID2D1Device* device = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;

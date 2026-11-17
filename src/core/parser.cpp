@@ -628,8 +628,7 @@ struct ParseContext : NodeStorage {
         has_pending_run = false;
     }
 
-    // 装飾もリンクも無い表は cell_run_starts を持たない。セルごとに 4 byte で、短いセルが 1100 万個の 60MB の表では
-    // commit が 242MB から 198MB に、private working set が 219MB から 175MB に減る (どちらも約 18%)。
+    // 装飾もリンクも無い表は cell_run_starts を持たない。セルごとに 4 byte なので、短いセルの多い大きな表で効く。
     // 最初の run を積むときに、ここまでのセル (run は無い) の開始位置を埋める。
     // 以後はセルに入るたびに積むので、表のセル数分を cell_text_starts と同じだけ確保しておく。
     static void StartCellRunStarts(NodeTableData& tbl)
@@ -1053,10 +1052,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
             ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
         }
-        // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、test.md を繰り返した 100MB の文書で
-        // commit が 86 → 115MB に増えた)。大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す
-        // (std::string で組んでいた頃は伸びるたびに写し、最後の倍の余りを持ち続けた。60MB の表でパース中の commit の最大
-        // 179 → 123MB)。置き場は残りの入力の長さで取り直す。
+        // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、小さな表の多い文書で commit が増える)。
+        // 大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す (std::string で組んでいた頃は伸びるたびに写し、
+        // 最後の倍の余りを持ち続けた)。置き場は残りの入力の長さで取り直す。
         constexpr size_t kOwnTableTextBytes = 1024 * 1024;
         if (text.size() <= kOwnTableTextBytes) {
             tbl->concat_text = ctx->arena.CopyText(text);
@@ -1348,7 +1346,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
     }
 
-    // コミットを足したときの余り (最大 1/4) を写さずに外す。表・構文トークンなどの配列は 0.5MB 未満しか効かないので詰めない。
+    // コミットを足したときの余り (最大 1/4) を写さずに外す。表・構文トークンなどの配列は効きが小さいので詰めない。
     ctx.nodes.shrink_to_fit();
 
     return std::move(static_cast<NodeStorage&>(ctx));

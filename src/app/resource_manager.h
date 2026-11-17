@@ -50,7 +50,7 @@ public:
     static constexpr float EVICT_BUFFER_SCREENS = 2.5f;
     static_assert(PREFETCH_BUFFER_SCREENS < EVICT_BUFFER_SCREENS);
     // text_layout と表のセルを残す範囲。文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。先読み範囲と同じだと
-    // 少し戻るだけで作り直し、1MB の文書では 2 画面とメモリが変わらない。1MB 以下を全部残すのはメモリが約 4 割増えてやめた。
+    // 少し戻るだけで作り直し、1MB の文書では 2 画面とメモリが変わらない。1MB 以下を全部残すのはメモリが大きく増えてやめた。
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 

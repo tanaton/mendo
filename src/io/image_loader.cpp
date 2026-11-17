@@ -17,7 +17,7 @@ uint64_t PathKey(const std::wstring& path) noexcept
 // 大きなメタデータが前にあるものと BMP は足りず、全体を読む。
 constexpr size_t kImageHeadBytes = 64 * 1024;
 
-// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む (4MB の写真 40 枚の表で、読む量が 161MB → 2.5MB)。
+// 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む。
 std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const std::wstring& path, LONGLONG max_size)
 {
     const auto file = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, max_size);
