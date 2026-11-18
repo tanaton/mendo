@@ -124,17 +124,50 @@ struct ParseContext : NodeStorage {
     // &current_text 以外を指すのはテーブルセル内 (table_text) のときだけ。
     ReservedArray<char>* active_text_buffer = nullptr;
 
-    // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
-    std::vector<std::string_view> current_link_urls;
-    // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
-    // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
-    static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::unordered_map<std::string_view, int16_t, StringTransparentHash> link_url_lookup;
+    // 1 ノードの URL (リンク先か画像の src) の並び。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ
+    // arena へコピーする。数は典型的に 8 個以下で、そこではハッシュマップより線形 memcmp の方が速い。数が増えたノード
+    // (表は全セルで 1 ノードのため数万 URL になりうる) だけ索引に切り替え、O(n^2) になるのを防ぐ。
+    struct UrlList {
+        static constexpr size_t kLinearScanMax = 8;
+        std::vector<std::string_view> urls;
+        std::unordered_map<std::string_view, uint32_t, StringTransparentHash> lookup;
+
+        std::optional<size_t> Find(std::string_view url)
+        {
+            const size_t n = urls.size();
+            if (n <= kLinearScanMax) {
+                const auto it = std::ranges::find(urls, url);
+                return it != urls.end() ? std::optional<size_t>{ static_cast<size_t>(it - urls.begin()) } : std::nullopt;
+            }
+            if (lookup.empty()) {
+                for (size_t i = 0; i < n; ++i) {
+                    lookup.emplace(urls[i], static_cast<uint32_t>(i));
+                }
+            }
+            const auto it = lookup.find(url);
+            return it != lookup.end() ? std::optional<size_t>{ it->second } : std::nullopt;
+        }
+        // url は Find で見つからなかったもの (InternUrl 済み)。番号を返す。
+        size_t Add(std::string_view url)
+        {
+            urls.push_back(url);
+            if (!lookup.empty()) {
+                lookup.emplace(url, static_cast<uint32_t>(urls.size() - 1));
+            }
+            return urls.size() - 1;
+        }
+        void Clear() noexcept
+        {
+            urls.clear();
+            lookup.clear();
+        }
+    };
+    UrlList current_link_urls;
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;
     // 現在ノードの画像の src (image_slot の順)。FinalizeCurrentNode でリンク URL の後ろに続けて arena へコピーする。
-    std::vector<std::string_view> current_image_srcs;
+    UrlList current_image_srcs;
     // 開いている最外側の画像の image_slot と、その範囲の始まり (active_text_buffer での位置)。
     // 画像の範囲は current_run_flags の kImage で示す。
     uint8_t current_image_slot = 0;
@@ -171,20 +204,20 @@ struct ParseContext : NodeStorage {
                     indices.math_indices.push_back(CurrentNodeIndex());
                 }
             }
-            if (!current_image_srcs.empty()) {
+            if (!current_image_srcs.urls.empty()) {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
-            if (!current_link_urls.empty() || !current_image_srcs.empty()) {
-                const size_t link_count = current_link_urls.size();
-                current_link_urls.append_range(current_image_srcs);
-                current_node->SetLinkUrlsAndImageSrcs(arena.Copy(current_link_urls), link_count);
+            if (!current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
+                auto& urls = current_link_urls.urls;
+                const size_t link_count = urls.size();
+                urls.append_range(current_image_srcs.urls);
+                current_node->SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
             }
         }
         current_text.clear();
         current_runs.clear();
-        current_link_urls.clear();
-        current_image_srcs.clear();
-        link_url_lookup.clear();
+        current_link_urls.Clear();
+        current_image_srcs.Clear();
     }
 
     // ノードを追加するのは BeginNode だけなので、最後に始めたノードは常に末尾にある。
@@ -461,7 +494,7 @@ struct ParseContext : NodeStorage {
     // ノードを閉じても続きのノードへ登録し直せるよう、開いているリンクの URL を返す。無ければ空。
     std::string_view OpenLinkUrl() const noexcept
     {
-        return current_link_url_index >= 0 ? std::string_view{ current_link_urls[static_cast<size_t>(current_link_url_index)] } : std::string_view{};
+        return current_link_url_index >= 0 ? std::string_view{ current_link_urls.urls[static_cast<size_t>(current_link_url_index)] } : std::string_view{};
     }
 
     // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
@@ -471,35 +504,15 @@ struct ParseContext : NodeStorage {
         current_link_url_index = !url.empty() ? FindOrAddLinkUrl(url) : int16_t{ -1 };
     }
 
-    // 1 ノードあたりの URL 数は典型的に < 8 で、そこではハッシュマップより線形 memcmp の方が速い。
-    // 数が増えたノードだけ link_url_lookup に切り替え、テーブル等で O(n^2) になるのを防ぐ。
     int16_t FindOrAddLinkUrl(std::string_view url)
     {
-        const size_t n = current_link_urls.size();
-        if (n <= kLinkUrlLinearScanMax) {
-            if (const auto it = std::ranges::find(current_link_urls, url); it != current_link_urls.end()) {
-                return static_cast<int16_t>(it - current_link_urls.begin());
-            }
+        if (const auto found = current_link_urls.Find(url)) {
+            return static_cast<int16_t>(*found);
         }
-        else {
-            if (link_url_lookup.empty()) {
-                for (size_t i = 0; i < n; ++i) {
-                    link_url_lookup.emplace(current_link_urls[i], static_cast<int16_t>(i));
-                }
-            }
-            if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
-                return it->second;
-            }
-        }
-        if (n >= kMaxLinkUrls) {
+        if (current_link_urls.urls.size() >= kMaxLinkUrls) {
             return -1;
         }
-        const auto new_index = static_cast<int16_t>(n);
-        current_link_urls.push_back(InternUrl(url));
-        if (!link_url_lookup.empty()) {
-            link_url_lookup.emplace(current_link_urls.back(), new_index);
-        }
-        return new_index;
+        return static_cast<int16_t>(current_link_urls.Add(InternUrl(url)));
     }
 
     // md4c の href / 画像 src は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
@@ -512,14 +525,13 @@ struct ParseContext : NodeStorage {
     // 同じ src は 1 つの image_slot にまとめる (表のアイコンなど)。kMaxImageSlots を超えたら nullopt。
     std::optional<uint8_t> FindOrAddImageSrc(std::string_view src)
     {
-        if (const auto it = std::ranges::find(current_image_srcs, src); it != current_image_srcs.end()) {
-            return static_cast<uint8_t>(it - current_image_srcs.begin());
+        if (const auto found = current_image_srcs.Find(src)) {
+            return static_cast<uint8_t>(*found);
         }
-        if (current_image_srcs.size() >= kMaxImageSlots) {
+        if (current_image_srcs.urls.size() >= kMaxImageSlots) {
             return std::nullopt;
         }
-        current_image_srcs.push_back(InternUrl(src));
-        return static_cast<uint8_t>(current_image_srcs.size() - 1);
+        return static_cast<uint8_t>(current_image_srcs.Add(InternUrl(src)));
     }
 
     // 最外側の画像に入る。中の文字 (alt) を画像の範囲にする。src が空か登録できない画像は alt を文字のまま出す。

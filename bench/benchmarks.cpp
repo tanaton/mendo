@@ -158,6 +158,17 @@ void BM_FromMarkdown(benchmark::State& state)
 }
 BENCHMARK(BM_FromMarkdown)->UseManualTime()->Unit(benchmark::kMicrosecond);
 
+// 行ごとに違う画像を置いた 1 万行の表。表は 1 ノードなので、同じ src を探す相手が 1 ノードの画像の数 (上限 256) まで増える。
+void BM_ParseImageTable(benchmark::State& state)
+{
+    std::string src = "| icon | name |\n|---|---|\n";
+    for (int i = 0; i < 10000; ++i) {
+        std::format_to(std::back_inserter(src), "| ![r{0}](images/icon-{0}.png) | item {0} |\n", i);
+    }
+    RunParse(state, src);
+}
+BENCHMARK(BM_ParseImageTable)->UseManualTime()->Unit(benchmark::kMillisecond);
+
 // 時間はパースだけ。破棄の時間とパースで増えたメモリはカウンタに出す。
 // メモリは最初の反復だけ測る (2 回目以降は解放済み領域の再利用で小さく出る)。
 void RunLargeDocument(benchmark::State& state, const std::string& src)
