@@ -1,4 +1,5 @@
 #pragma once
+#include "text_types.h"
 #include <algorithm>
 #include <cassert>
 #include <concepts>
@@ -287,6 +288,12 @@ public:
     {
         return adopted_.emplace_back(std::move(text));
     }
+    // 組んだ run の置き場を写さずに引き取る (大きな表の run)。
+    std::span<const TextRun> Adopt(ReservedArray<TextRun>&& runs)
+    {
+        const auto& kept = adopted_runs_.emplace_back(std::move(runs));
+        return { kept.data(), kept.size() };
+    }
 
 private:
     static constexpr size_t kMinChunkSize = 4 * 1024;
@@ -322,6 +329,7 @@ private:
 
     std::vector<std::unique_ptr<std::byte[]>> chunks_;
     std::vector<ReservedArray<char>> adopted_;
+    std::vector<ReservedArray<TextRun>> adopted_runs_;
     std::byte* cur_ = nullptr;
     std::byte* end_ = nullptr;
     size_t next_chunk_size_ = kMinChunkSize;

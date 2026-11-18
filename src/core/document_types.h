@@ -83,7 +83,8 @@ struct NodeTableData {
     // 大きな表はパースで伸ばした置き場を引き取ったもの)。
     std::string_view concat_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
-    std::vector<TextRun> all_runs;
+    // concat_text と同じく TextArena の上にある。
+    std::span<const TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
     std::vector<uint32_t> cell_text_starts;
     // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。run の無い表では空。
@@ -167,7 +168,11 @@ struct NodeTableData {
         return aligns[c];
     }
 
-    bool operator==(const NodeTableData&) const = default;
+    bool operator==(const NodeTableData& other) const noexcept
+    {
+        return concat_text == other.concat_text && std::ranges::equal(all_runs, other.all_runs) && cell_text_starts == other.cell_text_starts &&
+               cell_run_starts == other.cell_run_starts && aligns == other.aligns && row_count == other.row_count && col_count == other.col_count;
+    }
 };
 
 // 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。

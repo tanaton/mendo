@@ -100,6 +100,8 @@ struct ParseContext : NodeStorage {
     // 表の全セルの本文 (NodeTableData::concat_text) を組む置き場。表を閉じたら、小さな表は arena へ写し、大きな表は
     // 写さずに arena へ引き取らせて取り直す。
     ReservedArray<char> table_text;
+    // 表の全セルの run (NodeTableData::all_runs) を組む置き場。表を閉じたら table_text と同じく arena へ写すか引き取らせる。
+    ReservedArray<TextRun> table_runs;
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
 
@@ -636,8 +638,8 @@ struct ParseContext : NodeStorage {
                     if (tbl->cell_run_starts.empty()) {
                         StartCellRunStarts(*tbl);
                     }
-                    if (tbl->all_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
-                        tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
+                    if (table_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
+                        table_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
                     }
                 }
             }
@@ -705,7 +707,7 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
     }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(ctx->table_text.size()));
     if (!tbl->cell_run_starts.empty()) {
-        tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+        tbl->cell_run_starts.push_back(static_cast<uint32_t>(ctx->table_runs.size()));
     }
     ctx->active_text_buffer = &ctx->table_text;
 
@@ -716,12 +718,12 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 }
 
 // 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
-void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size)
+void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size, size_t run_count)
 {
     assert(tbl.cell_text_starts.size() == tbl.CellCount());
     tbl.cell_text_starts.push_back(static_cast<uint32_t>(text_size));
     if (!tbl.cell_run_starts.empty()) {
-        tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
+        tbl.cell_run_starts.push_back(static_cast<uint32_t>(run_count));
     }
 }
 
@@ -1072,21 +1074,30 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         assert(cn && cn->has_table());
         auto* const tbl = cn->table_data();
         auto& text = ctx->table_text;
-        FinalizeTableOffsets(*tbl, text.size());
-        if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
-            ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
-        }
-        // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、小さな表の多い文書で commit が増える)。
-        // 大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す (std::string で組んでいた頃は伸びるたびに写し、
-        // 最後の倍の余りを持ち続けた)。置き場は残りの入力の長さで取り直す。
-        constexpr size_t kOwnTableTextBytes = 1024 * 1024;
-        if (text.size() <= kOwnTableTextBytes) {
+        auto& runs = ctx->table_runs;
+        FinalizeTableOffsets(*tbl, text.size(), runs.size());
+        // 本文と run を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、小さな表の多い文書で commit が増える)。
+        // 大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す (伸びるたびに写すと最後の倍の余りを持ち続け、
+        // 終わりに写すと表の終わりで倍を持つ)。置き場は残りの入力の長さで取り直す。
+        constexpr size_t kOwnTableBytes = 1024 * 1024;
+        const size_t rest = ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size());
+        if (text.size() <= kOwnTableBytes) {
             tbl->concat_text = ctx->arena.CopyText(text);
         }
         else {
             text.shrink_to_fit();
-            tbl->concat_text = ctx->arena.Adopt(
-                std::exchange(text, ReservedArray<char>(ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size()) + 64)));
+            tbl->concat_text = ctx->arena.Adopt(std::exchange(text, ReservedArray<char>(rest + 64)));
+        }
+        if (runs.size() * sizeof(TextRun) <= kOwnTableBytes) {
+            tbl->all_runs = ctx->arena.Copy(runs);
+            runs.clear();
+        }
+        else {
+            runs.shrink_to_fit();
+            tbl->all_runs = ctx->arena.Adopt(std::exchange(runs, ReservedArray<TextRun>(rest / 4 + 64)));
+        }
+        if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
+            ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
         }
         cn->SetText(tbl->concat_text);
         ctx->EndNode();
@@ -1302,6 +1313,8 @@ void ReserveForInput(ParseContext& ctx)
 {
     ctx.current_text = ReservedArray<char>(ctx.markdown.size() + 64);
     ctx.table_text = ReservedArray<char>(ctx.markdown.size() + 64);
+    // run は装飾の記号を伴うので、入力 4 byte に 1 個を超えない (超えたら予約し直す)。
+    ctx.table_runs = ReservedArray<TextRun>(ctx.markdown.size() / 4 + 64);
     ctx.nodes = ReservedArray<Node>(ctx.markdown.size() / kInputBytesPerNode + 64);
     ctx.list_counter.reserve(8);
 }
