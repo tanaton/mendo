@@ -188,3 +188,8 @@ void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<Sy
 // text の後ろから language の解析を続けるとき、そこが行の頭か。text の最後の改行から後ろが、行の頭を崩さない文字 (空白。cmd は
 // エコーを抑える @ も) だけなら行の頭。改行に届かずに text が尽きたら nullopt (前のテキストで決まる)。
 std::optional<bool> EndsAtLineHead(SyntaxLanguage language, std::string_view text) noexcept;
+
+// text に、行をまたぎうるトークン (ブロックコメント・複数行の文字列・行末の \ で続く文字列や行) を始める並びがあるか。
+// 無ければ、どの行の頭から状態なしで始めても、先頭から解析したのと同じトークンになる。行や入れ子の状態を持つ専用 lexer の
+// 言語は、行の中だけで済む言語 (IsLineLocalLanguage) を除いて常に true。
+bool MayHaveMultilineToken(SyntaxLanguage language, std::string_view text) noexcept;

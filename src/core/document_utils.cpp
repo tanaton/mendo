@@ -366,9 +366,12 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     if (n < 2) {
         return;
     }
-    // 行の頭でだけ区切った並びなら、継ぎ目をまたぐトークンも持ち越す状態も無い (BM_ParseCodeBlock/ini が 79 → 56ms)。
-    // 長い 1 行を途中で区切った並びは解析する。
-    if (IsLineLocalLanguage(run.front().code_language) && std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk)) {
+    // 行の頭でだけ区切った並びで、行をまたぐトークンを始める並びがどのノードにも無ければ、継ぎ目をまたぐトークンも持ち越す
+    // 状態も無い (BM_ParseGiantCode が 46 → 24ms、BM_ParseCodeBlock/ini が 79 → 56ms)。言語ごとの経路ではなく字句解析の設定から導く
+    // 1 つの判定で、ブロックコメントなどの無い巨大なコードでも解析を省くほうをユーザーが選んだ。長い 1 行を途中で区切った並びは解析する。
+    const SyntaxLanguage language = run.front().code_language;
+    if (std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk) &&
+        std::ranges::none_of(run, [language](const Node& node) { return MayHaveMultilineToken(language, node.GetText()); })) {
         return;
     }
     std::vector<size_t> begins(n);
@@ -379,7 +382,6 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
         pos += run[j].GetText().size();
     }
     const auto run_end = [&](size_t k) noexcept { return begins[k] + run[k].GetText().size(); };
-    const SyntaxLanguage language = run.front().code_language;
     const auto at_line_head = [&](size_t pos) {
         size_t k = static_cast<size_t>(std::ranges::upper_bound(begins, pos) - begins.begin()) - 1;
         std::string_view before = run[k].GetText().substr(0, pos - begins[k]);
