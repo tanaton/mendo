@@ -59,6 +59,13 @@ public:
         entries_.clear();
     }
 
+    // pred(値) が真のものを、並び順を変えずに捨てる。
+    template <class Pred>
+    void EraseIf(Pred&& pred)
+    {
+        std::erase_if(entries_, [&pred](Entry& e) { return pred(e.value); });
+    }
+
     // 並び順を変えずに全部の値を渡す。
     template <class Fn>
     void ForEach(Fn&& fn)

@@ -115,18 +115,37 @@ void MermaidRenderer::DropQueued()
     });
 }
 
-void MermaidRenderer::ReleaseCommands(DiagramEntry& diagram_entry)
+void MermaidRenderer::ReleaseDrawing(DiagramEntry& diagram_entry)
 {
     // 外し終えるまで同じアドレスが別の図に使われないよう、参照を持っておく。
-    const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram_entry.commands;
-    if (!diagram_entry.ReleaseCommands()) {
+    const auto drawing = diagram_entry.drawing;
+    if (!diagram_entry.ReleaseImage()) {
         return;
     }
+    // 画面外の図のメモリが見た範囲に比例しないよう、描画命令ごと手放す。戻ったらディスクから読み直す (外れていれば JS で
+    // 描き直す) が、図の多い文書でメモリを返すほうをユーザーが選んだ。
+    cache_.EraseIf([&drawing](const DiagramResult& r) { return r.drawing == drawing; });
+}
+
+void MermaidRenderer::ForgetCommands(const Microsoft::WRL::ComPtr<ID2D1CommandList>& commands)
+{
     cache_.ForEach([&commands](DiagramResult& r) {
         if (r.commands == commands) {
             r.commands = nullptr;
         }
     });
+}
+
+void MermaidRenderer::ReleaseCachedCommands()
+{
+    cache_.ForEach([](DiagramResult& r) { r.commands = nullptr; });
+}
+
+size_t MermaidRenderer::CachedCommandLists()
+{
+    size_t count = 0;
+    cache_.ForEach([&count](const DiagramResult& r) { count += r.commands != nullptr; });
+    return count;
 }
 
 void MermaidRenderer::DropQueuedMath()
@@ -153,6 +172,12 @@ bool MermaidRenderer::RequestRender(
             StartRelayout(RenderRequest{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = hit }, result->drawing);
         }
         return false;
+    }
+    // 置き換わる結果 (前のコード・幅・テーマ) のコマンドリストは、どの図も持たなくなるので覚えている結果からも外す。
+    // 描画命令は残し、テーマや幅を戻したら記録し直す。
+    if (diagram_entry.commands && diagram_entry.commands != result->commands) {
+        const Microsoft::WRL::ComPtr<ID2D1CommandList> replaced = std::move(diagram_entry.commands);
+        ForgetCommands(replaced);
     }
     // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
     diagram_entry.SetResult(*result);

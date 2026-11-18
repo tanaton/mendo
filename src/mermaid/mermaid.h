@@ -87,7 +87,11 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
-    void ReleaseCommands(DiagramEntry& diagram_entry) override;
+    void ReleaseDrawing(DiagramEntry& diagram_entry) override;
+    // 覚えている結果のコマンドリストを全部外す (描画命令は残す)。文書を切り替えたら、前の文書の図のものはどの図も持たない。
+    void ReleaseCachedCommands();
+    // 覚えている結果のうち、コマンドリストを持つものの数 (テスト用)。
+    size_t CachedCommandLists();
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -209,9 +213,9 @@ private:
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで、より大きい CommandList は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
-    // CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
-    // 描き直しが回り続ける。
+    // 数えるのは描画命令だけで、より大きい CommandList は数えない。CommandList は表示中の結果の分を DiagramEntry と共有し、
+    // 置き換わった結果と画面外へ出た図のものは外す。CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。
+    // 1 回に届く結果より小さい上限にすると、描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
@@ -248,6 +252,8 @@ private:
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
     void InsertCache(uint64_t hash, DiagramResult result);
+    // commands を覚えている結果から外す。どの図も持たなくなったコマンドリストを残さない。
+    void ForgetCommands(const Microsoft::WRL::ComPtr<ID2D1CommandList>& commands);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
     // target.width_free には、幅なしのキーで当たったかを書く。
     DiagramResult* FindCached(DisplayTarget& target, float max_width);

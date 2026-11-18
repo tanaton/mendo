@@ -153,13 +153,13 @@ void ResourceManager::EvictOffscreenResources()
     // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す。戻ったら描画命令から記録し直すが、メモリを返すほうをユーザーが選んだ。
+    // 図のコマンドリストと描画命令も保持範囲の図の分だけ残す。戻ったら読み直して記録し直すが、メモリを返すほうをユーザーが選んだ。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
         for (const size_t i : part) {
             if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
-                mermaid_.ReleaseCommands(*diagram);
+                mermaid_.ReleaseDrawing(*diagram);
             }
         }
     }

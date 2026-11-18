@@ -545,25 +545,25 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
-    // 画面外へ出た図のコマンドリストだけを捨てる。寸法と描画命令は残し、戻ったら描画命令から記録し直させる (NeedsRender)。
+    // 画面外へ出た図のコマンドリストと描画命令を捨てる。寸法は残し、戻ったら読み直させる (NeedsRender)。
     // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
-    bool ReleaseCommands() noexcept
+    bool ReleaseImage() noexcept
     {
-        if (!HasImage() || !drawing || stale) {
+        if (!drawing || stale) {
             return false;
         }
-        commands = nullptr;
+        SetResult({ .width = width, .height = height });
         return true;
     }
 
-    // 仮表示として残せる結果 (描いた絵か、コマンドリストだけを捨てた図の描画命令) があるか。
+    // 仮表示として残せる結果 (描いた絵か、画面外へ出て絵を捨てた図の寸法) があるか。
     bool HasStaleableResult() const noexcept
     {
-        return HasImage() || drawing;
+        return HasImage() || (width > 0.0f && height > 0.0f);
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
-    // 再試行可能に戻す。コマンドリストだけを捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
+    // 再試行可能に戻す。絵を捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
     void MarkStale() noexcept
     {
         if (!HasStaleableResult()) {

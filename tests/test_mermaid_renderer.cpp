@@ -255,31 +255,71 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(file_cache_.Find(d.WidthFreeHash(), 0, kMaxWidth, false).has_value());
 }
 
-// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令の文字を worker で組んでから記録し直し、描き直しもディスクの
-// 読み込みもしない (どちらも別の描画命令になる)。
-TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
+// 画面外へ出て絵と描画命令を捨てた図は、覚えている結果からも外し、戻ったらディスクから読み直す (描き直さない)。
+// ディスクの描画命令を別の図のものに置き換えておき、読み直したことを見分ける。
+TEST_F(MermaidRendererTest, ReleasedDrawingIsReadBackFromDisk)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(alpha, entry));
+    const DiagramDoc beta(kBeta);
+    DiagramEntry other;
+    ASSERT_TRUE(RenderUntilSettled(beta, other));
+    // 書き込み中の同じキーは 2 本目を出さないので、alpha の書き込みを終えてから置き換える。
+    ASSERT_TRUE(DrainScheduler(file_scheduler_));
+    StoreDrawingAs(other, alpha.WidthFreeHash());
+    const float width = entry.width;
+    const float height = entry.height;
+
+    renderer_.ReleaseDrawing(entry);
+    EXPECT_FALSE(entry.HasImage());
+    EXPECT_EQ(entry.drawing, nullptr);
+    EXPECT_TRUE(entry.NeedsRender());
+    EXPECT_EQ(entry.width, width) << "寸法は残す";
+    EXPECT_EQ(entry.height, height);
+
+    EXPECT_FALSE(Request(alpha, entry)) << "覚えている結果からも外す";
+    ASSERT_TRUE(RenderUntilSettled(alpha, entry));
+    EXPECT_TRUE(SvgOf(entry).contains("Beta")) << "ディスクから読む";
+}
+
+// テーマを切り替えて置き換わった結果のコマンドリストは、覚えている結果からも外す。描画命令は残し、テーマを戻したら
+// 描き直さずに、worker で文字を組んでから記録し直す。
+TEST_F(MermaidRendererTest, ReplacedResultDropsItsCommandsAndKeepsDrawing)
 {
     const DiagramDoc d(kAlpha);
     DiagramEntry entry;
     ASSERT_TRUE(RenderUntilSettled(d, entry));
-    const auto drawing = entry.drawing;
-    const float width = entry.width;
-    const float height = entry.height;
-    const ComPtr<ID2D1CommandList> released = entry.commands;
+    const auto light = entry.drawing;
+    const ComPtr<ID2D1CommandList> light_commands = entry.commands;
 
-    renderer_.ReleaseCommands(entry);
-    EXPECT_FALSE(entry.HasImage());
-    EXPECT_TRUE(entry.NeedsRender());
-    EXPECT_EQ(entry.width, width) << "寸法は残す";
+    entry.MarkStale();
+    ASSERT_TRUE(Await([&] { return renderer_.RequestRender(d.node(), entry, kMaxWidth, /*dark_mode=*/true); }));
+    EXPECT_NE(entry.drawing, light);
+    EXPECT_EQ(renderer_.CachedCommandLists(), 1u) << "明るいテーマのコマンドリストは外す";
 
+    entry.MarkStale();
     EXPECT_FALSE(Request(d, entry)) << "UI では文字を組まない";
-    EXPECT_FALSE(entry.HasImage());
     ASSERT_TRUE(RenderUntilSettled(d, entry));
-    ASSERT_TRUE(entry.HasImage());
-    EXPECT_NE(entry.commands, released) << "捨てたものは使わない";
-    EXPECT_EQ(entry.drawing, drawing) << "描き直さない";
-    EXPECT_EQ(entry.width, width);
-    EXPECT_EQ(entry.height, height);
+    EXPECT_EQ(entry.drawing, light) << "描き直さない";
+    EXPECT_NE(entry.commands, light_commands);
+    EXPECT_EQ(renderer_.CachedCommandLists(), 1u);
+}
+
+// 文書を切り替えたら、覚えている結果のコマンドリストを全部外す。描画命令は残し、また開いたら描き直さずに記録し直す。
+TEST_F(MermaidRendererTest, ReleaseCachedCommandsKeepsDrawings)
+{
+    const DiagramDoc d(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    ASSERT_EQ(renderer_.CachedCommandLists(), 1u);
+
+    renderer_.ReleaseCachedCommands();
+    EXPECT_EQ(renderer_.CachedCommandLists(), 0u);
+    DiagramEntry reopened;
+    EXPECT_FALSE(Request(d, reopened));
+    ASSERT_TRUE(RenderUntilSettled(d, reopened));
+    EXPECT_EQ(reopened.drawing, entry.drawing) << "描き直さない";
 }
 
 // 幅の上限より広い図は、別の幅で描き直した pele の SVG が同じなら、どの幅でも使える結果として幅なしのキーに置く。
