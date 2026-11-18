@@ -443,18 +443,6 @@ TEST_F(PeleEngineTest, FittingDiagramDoesNotDependOnMaxWidth)
     EXPECT_EQ(narrow.drawing, wide.drawing);
 }
 
-// 覚えておいた pele の出力をテーマを変えて解き直しても、初めて描いたときと同じになる。
-TEST_F(PeleEngineTest, ReusedPeleOutputMatchesFreshRender)
-{
-    constexpr std::string_view kCode = "flowchart LR\n  A[\"面積 $$x^2$$\"] --> B[bbbbbbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccc]";
-    ASSERT_EQ(engine_->Render(kCode, false, 300.0f).status, Status::Drawn);
-    const auto reused = engine_->Render(kCode, true, 300.0f);
-    const auto fresh = NewEngine()->Render(kCode, true, 300.0f);
-    ASSERT_EQ(reused.status, Status::Drawn);
-    ASSERT_EQ(fresh.status, Status::Drawn);
-    EXPECT_EQ(reused.drawing, fresh.drawing);
-}
-
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。
 TEST_F(PeleEngineTest, DrawingToSvgWritesShapesAndTextWithoutCss)
 {

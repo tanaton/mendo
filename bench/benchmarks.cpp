@@ -1498,8 +1498,8 @@ struct DiagramBench {
 };
 
 // test.md の図を pele で描き、SVG を解いて描画命令にする。ランタイムとバイトコードの用意は小さな図 1 個で済ませて測らない。
-// resolve は 2 回目以降 (テーマの切り替え。覚えた SVG を解き直すだけで JS を走らせない)。
-void BM_DiagramRender(benchmark::State& state, bool resolve)
+// テーマの切り替えも同じ手間 (pele の出力は覚えない)。
+void BM_DiagramRender(benchmark::State& state)
 {
     const auto assets = PeleTestAssets::Load();
     if (!assets.ok() || !SharedDWriteFactory()) {
@@ -1507,32 +1507,21 @@ void BM_DiagramRender(benchmark::State& state, bool resolve)
         return;
     }
     const auto codes = TestMdDiagramCodes(state);
-    auto engine = assets.NewEngine(SharedDWriteFactory());
-    if (resolve) {
-        for (const auto& code : codes) {
-            engine->Render(code, false, kDiagramMaxWidth);
-        }
-    }
     size_t drawn = 0;
-    bool dark = false;
     for (auto _ : state) {
-        if (!resolve) {
-            engine = assets.NewEngine(SharedDWriteFactory());
-            engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
-        }
-        dark = !dark;
+        const auto engine = assets.NewEngine(SharedDWriteFactory());
+        engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
         drawn = 0;
         state.SetIterationTime(SecondsOf([&] {
             for (const auto& code : codes) {
-                drawn += engine->Render(code, resolve && dark, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
+                drawn += engine->Render(code, false, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
             }
         }));
     }
     state.counters["diagrams"] = static_cast<double>(codes.size());
     state.counters["drawn"] = static_cast<double>(drawn);
 }
-BENCHMARK_CAPTURE(BM_DiagramRender, first, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_DiagramRender)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
 // prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。

@@ -1,6 +1,5 @@
 #pragma once
 #include "mermaid_util.h"
-#include "transposition_cache.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -51,8 +50,8 @@ public:
     PeleEngine& operator=(const PeleEngine&) = delete;
 
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
-    // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG とラベルの数式) はテーマに依らないので覚え、テーマの切り替えでは
-    // JS を走らせずに解き直すだけにする。
+    // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG) はテーマに依らないが覚えない。テーマを切り替えるたびに JS で
+    // 描き直すが、切り替えのためだけにプロセスの間ずっと最大 4MB を持つより手放すほうをユーザーが選んだ。
     PeleOutcome Render(std::string_view code, bool dark, float max_width);
 
     struct MathSource {
@@ -92,16 +91,11 @@ private:
     bool EnsurePele(PeleContext& context);
     bool EnsureKatex(PeleContext& context);
     KatexAssets* Assets();
-    std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
-    std::shared_ptr<const PeleSvg> FindSvg(uint64_t key);
-    void StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg);
+    std::expected<PeleSvg, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
     // 覚えていなければ nullopt。KaTeX が描けなかった TeX は null を覚えている。
     std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
     void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);
 
-    // 図の数は文書の図の数ほどで足りる。大きさは pele の SVG の合計で抑える。
-    static constexpr size_t kMaxSvgEntries = 64;
-    static constexpr size_t kMaxSvgBytes = 4u * 1024 * 1024;
     // KaTeX の HTML を覚える上限。溢れると全部捨てるのでズームに効かなくなる。2MB では根号や行列の多い式が約 840 個で
     // 溢れるので、メモリは増えるが 4MB (同じ式で約 1700 個) をユーザーが選んだ。
     static constexpr size_t kMaxHtmlBytes = 4u * 1024 * 1024;
@@ -118,9 +112,6 @@ private:
     std::unique_ptr<KatexAssets> assets_;
     std::mutex mutex_;
     std::vector<std::unique_ptr<PeleContext>> idle_;
-    // (コード, 幅の上限) → pele の出力。
-    std::mutex svg_mutex_;
-    TranspositionCache<uint64_t, std::shared_ptr<const PeleSvg>, kMaxSvgEntries> svgs_;
     // TeX のハッシュ → KaTeX の HTML。KaTeX に渡すのは TeX だけで、文字の大きさは配置にしか使わないので、ズームや
     // 見出しと本文の同じ式では JS を走らせずに配置だけをやり直す (根号や行列の多い 707 式で 650 → 32ms。BM_MathRender)。
     std::mutex html_mutex_;

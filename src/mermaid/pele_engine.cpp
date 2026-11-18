@@ -5,7 +5,6 @@
 #include "utility.h"
 #include <quickjs.h>
 #include <algorithm>
-#include <bit>
 #include <format>
 #include <optional>
 #include <string>
@@ -229,7 +228,7 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
     return context;
 }
 
-// pele の出力を覚えた図 (テーマの切り替え) は測定器しか使わないので、ランタイムは JS を動かすときに作る。
+// HTML を覚えた数式 (ズームや同じ式) は配置しか使わないので、ランタイムは JS を動かすときに作る。
 bool PeleEngine::EnsureRuntime(PeleContext& context)
 {
     if (context.ctx) {
@@ -496,20 +495,6 @@ bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
     return true;
 }
 
-std::shared_ptr<const PeleSvg> PeleEngine::FindSvg(uint64_t key)
-{
-    const std::lock_guard lock(svg_mutex_);
-    const auto* found = svgs_.Find(key);
-    return found ? *found : nullptr;
-}
-
-void PeleEngine::StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg)
-{
-    const std::lock_guard lock(svg_mutex_);
-    svgs_.Insert(key, std::move(svg));
-    svgs_.TrimToBudget(kMaxSvgBytes, [](const std::shared_ptr<const PeleSvg>& s) static noexcept { return s->svg.size(); });
-}
-
 PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width)
 {
     using Status = PeleOutcome::Status;
@@ -520,20 +505,11 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     if (!context->measurer) {
         context->measurer.emplace(dw_, locale_);
     }
-    // pele に渡す幅そのもので引く (要求のキーの量子化した幅では、出力が変わる幅を取り違える)。
-    const uint64_t key = mermaid_util::DiagramCodeHash(code) ^ (std::bit_cast<uint32_t>(max_width) * kGoldenRatio64);
     PeleOutcome out;
-    auto svg = FindSvg(key);
-    if (!svg) {
-        if (auto rendered = RenderSvg(*context, code, max_width)) {
-            svg = std::move(*rendered);
-            StoreSvg(key, svg);
-        }
-        else {
-            out = std::move(rendered.error());
-        }
+    if (auto svg = RenderSvg(*context, code, max_width); !svg) {
+        out = std::move(svg.error());
     }
-    if (svg) {
+    else {
         out.svg_hash = RapidHash(svg->svg);
         auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
@@ -545,7 +521,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     return out;
 }
 
-std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
+std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
 {
     using Status = PeleOutcome::Status;
     if (!EnsurePele(context)) {
@@ -563,7 +539,7 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
-    std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> out = std::unexpected(PeleOutcome{});
+    std::expected<PeleSvg, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
         if (Cancelled()) {
@@ -577,10 +553,10 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            out = std::make_shared<const PeleSvg>(PeleSvg{
+            out = PeleSvg{
                 .svg = std::string{ s, length },
                 .labels = std::move(context.labels)
-            });
+            };
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);
