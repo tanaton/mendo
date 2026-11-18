@@ -1,5 +1,5 @@
 #include "renderer.h"
-#include "diagram_raster.h"
+#include "math_raster.h"
 #include "d2d_util.h"
 #include "i18n.h"
 #include "profiler.h"

@@ -1,5 +1,5 @@
 #include "renderer.h"
-#include "diagram_raster.h"
+#include "math_raster.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 #include "win32_util.h"
