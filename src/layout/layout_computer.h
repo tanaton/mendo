@@ -149,9 +149,11 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
 // min_widths は列ごとの最小幅 (最も長い単語)。自然幅以下であること。
 void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width);
-// 表を max_width (罫線とパディングを含む表の幅の上限) で組むときの列幅。前に組んだ列幅 (tl.col_widths) から変わるなら true。
-// 計測 (FinalizeTableLayout) と幅の変化で行を捨てる判定 (ViewportLayout) は、これで変わるかをそろえる。
-bool ComputeTableColumnWidths(std::vector<float>& out, const TableLayoutData& tl, float max_width);
+// 表を max_width (罫線とパディングを含む表の幅の上限) で組むときの列幅を tl.col_widths に入れる。
+void ComputeTableColumnWidths(TableLayoutData& tl, float max_width);
+// max_width で組むと、前に組んだ列幅 (tl.col_widths) から変わるか。列幅の配列を作らずに比べる。計測 (FinalizeTableLayout) と
+// 幅の変化で行を捨てる判定 (ViewportLayout) は、これで変わるかをそろえる。
+bool TableColumnWidthsChange(const TableLayoutData& tl, float max_width) noexcept;
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;

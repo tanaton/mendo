@@ -724,12 +724,11 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
 
     // 列幅が前に組んだときと同じなら、セルの layout も行の高さも累積位置も変わらないので、組んだ幅だけ進める。
     // 収まる表と最小幅でも収まらない表は、どの幅でも自然幅か最小幅を写すだけなので、ここを通る。
-    std::vector<float> col_widths;
-    if (!layout::ComputeTableColumnWidths(col_widths, tl, max_width) && tl.HasGeometry()) {
+    if (tl.HasGeometry() && !layout::TableColumnWidthsChange(tl, max_width)) {
         tl.last_applied_max_width = max_width;
         return tl.TotalHeight();
     }
-    tl.col_widths = std::move(col_widths);
+    layout::ComputeTableColumnWidths(tl, max_width);
 
     // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (ほかのセルは下で幅を付け替えるだけで済む)。layout の
     // 無いセル (evict 中の行) は行を戻すときに組む。
