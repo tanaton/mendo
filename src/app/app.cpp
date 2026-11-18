@@ -182,6 +182,8 @@ void App::OnRenderDeviceRecreated()
 
 void App::LoadInitialDocument()
 {
+    // 窓の大きさが決まったので、先読みに本文の幅を渡す (パースが終わる前なら、推定がこの幅で済む)。
+    load_coordinator_.SetContentWidth(MdContentWidth(state_));
     // 結果は出ていても通知で届く。Win32Window::Create が最初のフレームより前に取り込む。
     if (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
         ScheduleLoadingAnimation();

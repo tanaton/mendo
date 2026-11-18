@@ -650,6 +650,21 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
     EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
 }
 
+// 幅を知らずに始めた先読みでも、推定の前に幅が届けばその幅で推定する (開いたときに UI で推定し直さない)。
+TEST_F(AsyncLoadCoordinatorTest, EstimatesWithLateContentWidth)
+{
+    const auto tmp = WriteTempFile(L"coord_late_width", "# heading\n\nbody\n");
+    AsyncLoadCoordinator c{ scheduler_, GatedLoad };
+    ArmedLoaderGate gate(LoadFile(tmp.native(), {}));
+    c.Start(tmp.native(), GetLightTheme());
+    ASSERT_TRUE(gate.WaitForCalls(1));
+    c.SetContentWidth(640.0f);
+    gate.Open();
+    auto outcome = WaitForOutcome(scheduler_, c);
+    ASSERT_TRUE(outcome && outcome->has_value());
+    EXPECT_FLOAT_EQ((*outcome)->cache.GetEstimateBasis().content_width, 640.0f);
+}
+
 class LoadFileTest : public TempDirTestBase {};
 
 // BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま (部分書き込みの検出に使うため)。
