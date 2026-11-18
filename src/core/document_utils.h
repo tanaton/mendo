@@ -110,7 +110,14 @@ struct UnchangedEnds {
         return new_count - tail;
     }
 };
-UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept;
+// 新旧の原文と、先頭から一致するバイト数 (FindFirstDifference)。新旧のノードのテキストが同じ位置の原文を指し、一致する範囲に
+// 収まれば、テキストを比べずに一致と分かる (リロードは差分の位置を先に求めているので、比べ直さずに済む)。
+struct RawCommonPrefix {
+    std::string_view old_raw;
+    std::string_view new_raw;
+    size_t length = 0;
+};
+UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const RawCommonPrefix& prefix = {}) noexcept;
 // 変わった範囲の図の (リロード前, 後) の添字の組。図の数が新旧で同じなら出現順に対応させ、違えば対応が分からないので空。
 std::vector<std::pair<size_t, size_t>> PairChangedDiagrams(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const UnchangedEnds& ends);
 // リロード前の図 (old_index) がリロード後のどのノードかを返す。無ければ -1。

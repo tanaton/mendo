@@ -260,7 +260,8 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
 
 namespace {
 
-bool NodeContentEquals(const Node& a, const Node& b) noexcept
+// text_equal は、テキスト (表なら NodeTableData を除く) が一致すると分かっているとき true。
+bool NodeContentEquals(const Node& a, const Node& b, bool text_equal = false) noexcept
 {
     // 続きのコードの色分けは、前のノードから続くトークン (code_lead_*) と字句解析を始める状態 (code_lex_state) でも決まる。
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
@@ -272,17 +273,26 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     }
     const auto* at = a.table_data();
     // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない
-    return (at ? *at == *b.table_data() : a.GetText() == b.GetText()) && std::ranges::equal(a.runs(), b.runs()) &&
+    return (at ? *at == *b.table_data() : text_equal || a.GetText() == b.GetText()) && std::ranges::equal(a.runs(), b.runs()) &&
            std::ranges::equal(a.view_link_urls(), b.view_link_urls()) && std::ranges::equal(a.image_srcs(), b.image_srcs());
 }
 
 } // namespace
 
-UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept
+UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes, const RawCommonPrefix& prefix) noexcept
 {
     UnchangedEnds ends{ .old_count = old_nodes.size(), .new_count = new_nodes.size() };
     const size_t common = std::min(ends.old_count, ends.new_count);
-    while (ends.head < common && NodeContentEquals(old_nodes[ends.head], new_nodes[ends.head])) {
+    const auto in_common_prefix = [&prefix](const Node& a, const Node& b) noexcept {
+        const std::string_view ta = a.GetText();
+        const std::string_view tb = b.GetText();
+        if (ta.size() != tb.size() || !IsSubrangeOf(ta, prefix.old_raw) || !IsSubrangeOf(tb, prefix.new_raw)) {
+            return false;
+        }
+        const auto offset = static_cast<size_t>(ta.data() - prefix.old_raw.data());
+        return offset == static_cast<size_t>(tb.data() - prefix.new_raw.data()) && offset + ta.size() <= prefix.length;
+    };
+    while (ends.head < common && NodeContentEquals(old_nodes[ends.head], new_nodes[ends.head], in_common_prefix(old_nodes[ends.head], new_nodes[ends.head]))) {
         ++ends.head;
     }
     while (ends.head + ends.tail < common &&

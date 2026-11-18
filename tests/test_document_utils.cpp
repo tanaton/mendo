@@ -1500,6 +1500,25 @@ TEST(FindUnchangedEnds, ContinuedCodeWithChangedLeadIsChanged)
     EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
 }
 
+// 原文の一致する範囲を同じ位置で指すノードは、テキストを比べずに一致とみなす。差分の位置を渡しても結果は変わらない。
+TEST(FindUnchangedEnds, RawCommonPrefixGivesSameEnds)
+{
+    std::string base;
+    for (int i = 0; i < 50; ++i) {
+        base += std::format("para {}\n\n", i);
+    }
+    const auto old_doc = Document::FromMarkdown(base + "tail old\n", L"a.md");
+    const auto new_doc = Document::FromMarkdown(base + "tail new\n\nadded\n", L"a.md");
+    const std::string_view old_raw = old_doc.GetRawText();
+    const std::string_view new_raw = new_doc.GetRawText();
+    const auto diff = static_cast<size_t>(std::ranges::mismatch(old_raw, new_raw).in1 - old_raw.begin());
+    const auto hinted = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes(), { old_raw, new_raw, diff });
+    const auto plain = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes());
+    EXPECT_EQ(hinted.head, 50u);
+    EXPECT_EQ(hinted.head, plain.head);
+    EXPECT_EQ(hinted.tail, plain.tail);
+}
+
 // 表の本文は NodeTableData の比較だけで見る。セルの文字が変われば変わったノードに数える。
 TEST(FindUnchangedEnds, TableCellTextChangeIsChanged)
 {

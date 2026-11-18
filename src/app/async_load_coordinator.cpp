@@ -182,9 +182,9 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
         return;
     }
     if (reload) {
-        // 差分の判定は UI スレッドだと止まるので、worker のここで行う (Reload/FindUnchangedEnds の 100MB で約 20ms)。
+        // 差分の判定は UI スレッドだと止まるので、worker のここで行う (Reload/FindUnchangedEnds の 100MB で約 8ms)。
         if (const auto old = reload->base.lock()) {
-            reload->ends = FindUnchangedEnds(old->parsed.nodes, doc.GetNodes());
+            reload->ends = FindUnchangedEnds(old->parsed.nodes, doc.GetNodes(), { old->raw, doc.GetRawText(), reload->decision.diff_pos });
         }
     }
 

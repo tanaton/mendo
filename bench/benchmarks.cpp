@@ -1984,8 +1984,12 @@ protected:
 
 BENCHMARK_DEFINE_F(Reload, FindUnchangedEnds)(benchmark::State& state)
 {
+    // アプリと同じく、差分の位置はリロードの判定で先に求めてある。
+    const std::string_view old_raw = old_doc_->GetRawText();
+    const std::string_view new_raw = new_doc_->GetRawText();
+    const RawCommonPrefix prefix{ old_raw, new_raw, static_cast<size_t>(std::ranges::mismatch(old_raw, new_raw).in1 - old_raw.begin()) };
     for (auto _ : state) {
-        benchmark::DoNotOptimize(FindUnchangedEnds(old_doc_->GetNodes(), new_doc_->GetNodes()));
+        benchmark::DoNotOptimize(FindUnchangedEnds(old_doc_->GetNodes(), new_doc_->GetNodes(), prefix));
     }
 }
 BENCHMARK_REGISTER_F(Reload, FindUnchangedEnds)->Iterations(50)->Unit(benchmark::kMillisecond);
