@@ -3,6 +3,7 @@
 #include <objbase.h>
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
 namespace {
 
@@ -29,13 +30,11 @@ TaskScheduler::~TaskScheduler()
 
 void TaskScheduler::StartWorkersLocked()
 {
-    if (!workers_.empty()) {
-        return;
-    }
+    // 待ちのタスクが、仕事をしていないワーカー (待っているか起動中) より多いときだけ足す。一度に全本数を作らないので、
+    // 畳んだ後のばらばらの Post や小さな ParallelFor でスレッドを作り過ぎない。
     const size_t count = thread_count_.load(std::memory_order_relaxed);
-    workers_.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-        workers_.emplace_back(&TaskScheduler::WorkerLoop, this);
+    while (workers_.size() < count && queue_.size() > workers_.size() - busy_) {
+        workers_.emplace_back(&TaskScheduler::WorkerLoop, this, generation_);
     }
 }
 
@@ -79,6 +78,25 @@ void TaskScheduler::Shutdown()
     thread_count_.store(0, std::memory_order_relaxed);
 }
 
+bool TaskScheduler::ReleaseIdleWorkers()
+{
+    std::vector<std::thread> retired;
+    {
+        const std::lock_guard lock(mutex_);
+        if (shutdown_ || workers_.empty() || !queue_.empty() || busy_ != 0) {
+            return false;
+        }
+        ++generation_;
+        retired = std::exchange(workers_, {});
+    }
+    // 待っているだけなので、起こせばすぐ終わる。この間の Post は新しい世代のワーカーを作って任せる。
+    cv_.notify_all();
+    for (auto& t : retired) {
+        t.join();
+    }
+    return true;
+}
+
 void TaskScheduler::EnsureWorkerCom() noexcept
 {
     if (t_worker_com != WorkerCom::Uninitialized) {
@@ -87,26 +105,33 @@ void TaskScheduler::EnsureWorkerCom() noexcept
     t_worker_com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)) ? WorkerCom::Initialized : WorkerCom::NotWorker;
 }
 
-void TaskScheduler::WorkerLoop()
+void TaskScheduler::WorkerLoop(uint64_t generation)
 {
     t_worker_com = WorkerCom::Uninitialized;
     if (below_normal_) {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     }
 
+    bool ran = false;
     while (true) {
         std::move_only_function<void()> task;
         {
             std::unique_lock lock(mutex_);
-            cv_.wait(lock, [this] {
-                return !queue_.empty() || shutdown_;
+            // 前の周回で動かしたタスクの分を、取り直したロックの下で戻す (ロックを増やさない)。
+            if (std::exchange(ran, false)) {
+                --busy_;
+            }
+            cv_.wait(lock, [this, generation] {
+                return !queue_.empty() || shutdown_ || generation != generation_;
             });
-            // predicate から戻った時点で queue に残りがあれば shutdown 中でも処理する
-            if (queue_.empty()) {
+            // predicate から戻った時点で queue に残りがあれば shutdown 中でも処理する。畳まれたワーカーは残りを新しい世代に任せる。
+            if (queue_.empty() || generation != generation_) {
                 break;
             }
             task = std::move(queue_.front());
             queue_.pop_front();
+            ++busy_;
+            ran = true;
         }
         task();
     }

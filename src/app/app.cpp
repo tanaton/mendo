@@ -632,6 +632,10 @@ void App::HandleTimer(UINT_PTR timer_id)
             return;
         }
         KillTimer(id);
+        // 待っているだけのワーカーのスタックと thread_local の DirectWrite のファクトリは、EmptyWorkingSet では commit が戻らない
+        // ので、スレッドごと畳む。戻った最初の計測と描画でスレッドとファクトリを作り直すが、メモリを返すほうをユーザーが選んだ。
+        scheduler_.ReleaseIdleWorkers();
+        layout_scheduler_.ReleaseIdleWorkers();
         // 空の文書でも private WS の大半はドライバが一度触ったきりのページ。使うページは soft fault で戻り、commit は変わらない。
         EmptyWorkingSet(GetCurrentProcess());
         return;

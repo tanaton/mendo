@@ -111,11 +111,12 @@ DirectoryChangeRead::Poll DirectoryChangeRead::Take(std::span<const std::byte>& 
     }
     DWORD bytes_returned = 0;
     if (!GetOverlappedResult(dir.get(), &overlapped, &bytes_returned, FALSE)) {
-        if (GetLastError() == ERROR_IO_INCOMPLETE) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_IO_INCOMPLETE) {
             return Poll::Waiting;
         }
         pending = false;
-        return Poll::Failed;
+        return error == ERROR_OPERATION_ABORTED ? Poll::Aborted : Poll::Failed;
     }
     pending = false;
     notified = std::as_bytes(std::span{ buf, bytes_returned });
@@ -173,7 +174,7 @@ void FileWatcher::CheckForChanges()
     std::span<const std::byte> notified;
     const Poll poll = read->Take(notified);
     if (poll != Poll::Ready) {
-        if (poll == Poll::Failed) {
+        if (poll == Poll::Failed || (poll == Poll::Aborted && !read->Begin())) {
             StopWatching();
         }
         return;
@@ -341,6 +342,12 @@ bool ImageFolderWatcher::CheckForChanges(std::vector<std::wstring>& changed)
         if (poll == Poll::Failed) {
             // フォルダが消えたなど。このフォルダの監視をやめる。
             stop_reading(f);
+            continue;
+        }
+        if (poll == Poll::Aborted) {
+            if (!f.read->Begin()) {
+                stop_reading(f);
+            }
             continue;
         }
         if (notified.empty()) {
