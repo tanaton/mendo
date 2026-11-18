@@ -3,8 +3,11 @@
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "utility.h"
+#include <windows.h>
 #include <quickjs.h>
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <format>
 #include <optional>
 #include <string>
@@ -38,6 +41,72 @@ size_t JsStackBudget() noexcept
 
 // 壊れたコードで止まらずに確保し続けても、プロセスを道連れにしない。
 constexpr size_t kJsMemoryBytes = 256 * 1024 * 1024;
+
+// ランタイムごとの専用ヒープの確保。プロセスのヒープで捨てたランタイムは、2 個捨てても commit が 1 個分ほどしか戻らなかった
+// ので、ランタイムを捨てた後に HeapDestroy でまとめて返す。usable_size には opaque が来ないので、確保の頭に大きさを書く
+// (16 バイトで境界を保つ)。
+constexpr size_t kJsHeapHeader = 16;
+
+void* JsHeapAlloc(void* heap, size_t size, DWORD flags) noexcept
+{
+    if (size > SIZE_MAX - kJsHeapHeader) {
+        return nullptr;
+    }
+    auto* const base = static_cast<std::byte*>(HeapAlloc(heap, flags, size + kJsHeapHeader));
+    if (!base) {
+        return nullptr;
+    }
+    *reinterpret_cast<size_t*>(base) = size;
+    return base + kJsHeapHeader;
+}
+
+std::byte* JsHeapBase(void* ptr) noexcept
+{
+    return static_cast<std::byte*>(ptr) - kJsHeapHeader;
+}
+
+void* JsCalloc(void* heap, size_t count, size_t size) noexcept
+{
+    if (size != 0 && count > SIZE_MAX / size) {
+        return nullptr;
+    }
+    return JsHeapAlloc(heap, count * size, HEAP_ZERO_MEMORY);
+}
+
+void* JsMalloc(void* heap, size_t size) noexcept
+{
+    return JsHeapAlloc(heap, size, 0);
+}
+
+void JsFree(void* heap, void* ptr) noexcept
+{
+    if (ptr) {
+        HeapFree(heap, 0, JsHeapBase(ptr));
+    }
+}
+
+void* JsRealloc(void* heap, void* ptr, size_t size) noexcept
+{
+    if (!ptr) {
+        return JsMalloc(heap, size);
+    }
+    if (size > SIZE_MAX - kJsHeapHeader) {
+        return nullptr;
+    }
+    auto* const base = static_cast<std::byte*>(HeapReAlloc(heap, 0, JsHeapBase(ptr), size + kJsHeapHeader));
+    if (!base) {
+        return nullptr;
+    }
+    *reinterpret_cast<size_t*>(base) = size;
+    return base + kJsHeapHeader;
+}
+
+size_t JsUsableSize(const void* ptr) noexcept
+{
+    return ptr ? *reinterpret_cast<const size_t*>(static_cast<const std::byte*>(ptr) - kJsHeapHeader) : 0;
+}
+
+constexpr JSMallocFunctions kJsHeapFunctions{ JsCalloc, JsMalloc, JsFree, JsRealloc, JsUsableSize };
 
 // 本文と同じ書体で組み、Segoe UI に無い文字はロケールで決まるフォントにする。
 struct DiagramFonts {
@@ -90,6 +159,8 @@ struct PeleSvg {
 
 struct PeleContext {
     PeleEngine* engine = nullptr;
+    // rt の確保はすべてここから取る (kJsHeapFunctions)。
+    HANDLE heap = nullptr;
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     // pele を読んだら (code, maxWidth, fontFamily, fontFamilyMono, katexHtml) → SVG
@@ -114,6 +185,9 @@ struct PeleContext {
         }
         if (rt) {
             JS_FreeRuntime(rt);
+        }
+        if (heap) {
+            HeapDestroy(heap);
         }
     }
 };
@@ -235,7 +309,11 @@ bool PeleEngine::EnsureRuntime(PeleContext& context)
         return true;
     }
     if (!context.rt) {
-        context.rt = JS_NewRuntime();
+        // HEAP_NO_SERIALIZE は付けない (付けると LFH が効かない)。
+        if (!context.heap && !(context.heap = HeapCreate(0, 0, 0))) {
+            return false;
+        }
+        context.rt = JS_NewRuntime2(&kJsHeapFunctions, context.heap);
         if (!context.rt) {
             return false;
         }
