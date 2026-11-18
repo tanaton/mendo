@@ -192,7 +192,9 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
-    bool DispatchKeyAction(const std::optional<AppAction>& action);
+    // アクションは reducer へ渡し、コマンドはその場で行う。割り当てが無ければ false。
+    bool RunBinding(const std::optional<AppBinding>& binding);
+    void RunCommand(AppCommand command);
     void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
@@ -211,6 +213,8 @@ private:
     // 変更の通知は reload_ に渡す。
     void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
+    // path が空なら表示中の文書 (app_controller::NewWindowArgs)。anchor (UTF-8) は新しいウィンドウで飛ぶ見出し。
+    void OpenInNewWindow(std::wstring_view path, std::string_view anchor = {});
 
     bool IsRenderReady() const noexcept
     {
@@ -292,12 +296,13 @@ private:
     // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk は頼んだ組、generation は頼んだときの計画の世代。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation);
     // 数式か画像の寸法を待って組んだレイアウトを、見ている位置を保って捨てる。表は force_tables でなければ間引く。捨てたら true。
-    bool InvalidatePendingInline(bool force_tables);
+    // arrived (昇順) があれば、表でないノードはそのキーの数式を待つものだけを捨てる (届いた数式の組)。
+    bool InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
     // InvalidatePendingInline で捨てた分を組み直す。
-    void RelayoutPendingInline(bool force_tables);
-    // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
+    void RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
+    // 描いた数式の描画命令と寸法を捨て、計画を作り直す。別の文書を開いたときに呼ぶ。
     void ForgetInlineMath();
-    // 文書か文字の大きさが変わったら作り直す。
+    // 文書が変わったら作り直す (キーはズーム前の大きさなので、ズームでは作り直さない)。
     void RebuildInlineMathPlan();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトをワーカーで解放する。
@@ -380,7 +385,9 @@ private:
     std::wstring toast_message_;
 
     Renderer renderer_;
-    TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()) };
+    // 図・数式・画像のデコード・読み込みのワーカーは、UI より優先度を下げる。CPU が埋まると図が揃うまでが延びるが、キーから
+    // 画面が変わるまでを 1 フレーム待たせないほうをユーザーが選んだ。
+    TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()), /*below_normal=*/true };
     // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
     TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
     MermaidFileCache file_cache_;        // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）

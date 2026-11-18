@@ -3044,54 +3044,143 @@ bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::Key
     return true;
 }
 
-// TokenizeRange で解析する言語なら解析して true を返す。
-bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, SyntaxLexState state,
-                           SyntaxStateTrace* trace)
+// TokenizeRange で解析する言語なら、その設定とキーワード表で fn.template operator()<Cfg>(keywords, types) を呼んで true を返す。
+template <class Fn>
+bool VisitLexerConfig(SyntaxLanguage language, Fn&& fn)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
-        return Lex<CPP_LEXER_CONFIG>(text, begin, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens, state, trace);
+        fn.template operator()<CPP_LEXER_CONFIG>(kw::CPP_KEYWORDS, kw::CPP_TYPES);
+        return true;
     case SyntaxLanguage::Python:
-        return Lex<PYTHON_LEXER_CONFIG>(text, begin, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens, state, trace);
+        fn.template operator()<PYTHON_LEXER_CONFIG>(kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES);
+        return true;
     case SyntaxLanguage::JavaScript:
-        return Lex<JS_LEXER_CONFIG>(text, begin, kw::JS_KEYWORDS, kw::JS_TYPES, tokens, state, trace);
+        fn.template operator()<JS_LEXER_CONFIG>(kw::JS_KEYWORDS, kw::JS_TYPES);
+        return true;
     case SyntaxLanguage::Go:
-        return Lex<GO_LEXER_CONFIG>(text, begin, kw::GO_KEYWORDS, kw::GO_TYPES, tokens, state, trace);
+        fn.template operator()<GO_LEXER_CONFIG>(kw::GO_KEYWORDS, kw::GO_TYPES);
+        return true;
     case SyntaxLanguage::Rust:
-        return Lex<RUST_LEXER_CONFIG>(text, begin, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens, state, trace);
+        fn.template operator()<RUST_LEXER_CONFIG>(kw::RUST_KEYWORDS, kw::RUST_TYPES);
+        return true;
     case SyntaxLanguage::TypeScript:
-        return Lex<JS_LEXER_CONFIG>(text, begin, kw::TS_KEYWORDS, kw::TS_TYPES, tokens, state, trace);
+        fn.template operator()<JS_LEXER_CONFIG>(kw::TS_KEYWORDS, kw::TS_TYPES);
+        return true;
     case SyntaxLanguage::Bash:
-        return Lex<BASH_LEXER_CONFIG>(text, begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens, state, trace);
+        fn.template operator()<BASH_LEXER_CONFIG>(kw::BASH_KEYWORDS, kw::BASH_TYPES);
+        return true;
     case SyntaxLanguage::PowerShell:
-        return Lex<PWSH_LEXER_CONFIG>(text, begin, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens, state, trace);
+        fn.template operator()<PWSH_LEXER_CONFIG>(kw::PWSH_KEYWORDS, kw::PWSH_TYPES);
+        return true;
     case SyntaxLanguage::Cmd:
-        return Lex<CMD_LEXER_CONFIG>(text, begin, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens, state, trace);
+        fn.template operator()<CMD_LEXER_CONFIG>(kw::CMD_KEYWORDS, kw::CMD_TYPES);
+        return true;
     case SyntaxLanguage::Json:
-        return Lex<JSON_LEXER_CONFIG>(text, begin, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens, state, trace);
+        fn.template operator()<JSON_LEXER_CONFIG>(kw::JSON_KEYWORDS, kw::KeywordTable{});
+        return true;
     case SyntaxLanguage::Java:
-        return Lex<JAVA_LEXER_CONFIG>(text, begin, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens, state, trace);
+        fn.template operator()<JAVA_LEXER_CONFIG>(kw::JAVA_KEYWORDS, kw::JAVA_TYPES);
+        return true;
     case SyntaxLanguage::CSharp:
-        return Lex<CSHARP_LEXER_CONFIG>(text, begin, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens, state, trace);
+        fn.template operator()<CSHARP_LEXER_CONFIG>(kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES);
+        return true;
     case SyntaxLanguage::Kotlin:
-        return Lex<KOTLIN_LEXER_CONFIG>(text, begin, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens, state, trace);
+        fn.template operator()<KOTLIN_LEXER_CONFIG>(kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES);
+        return true;
     case SyntaxLanguage::Swift:
-        return Lex<SWIFT_LEXER_CONFIG>(text, begin, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens, state, trace);
+        fn.template operator()<SWIFT_LEXER_CONFIG>(kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES);
+        return true;
     case SyntaxLanguage::Php:
-        return Lex<PHP_LEXER_CONFIG>(text, begin, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens, state, trace);
+        fn.template operator()<PHP_LEXER_CONFIG>(kw::PHP_KEYWORDS, kw::PHP_TYPES);
+        return true;
     case SyntaxLanguage::Ruby:
-        return Lex<RUBY_LEXER_CONFIG>(text, begin, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens, state, trace);
+        fn.template operator()<RUBY_LEXER_CONFIG>(kw::RUBY_KEYWORDS, kw::RUBY_TYPES);
+        return true;
     case SyntaxLanguage::Sql:
-        return Lex<SQL_LEXER_CONFIG>(text, begin, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens, state, trace);
+        fn.template operator()<SQL_LEXER_CONFIG>(kw::SQL_KEYWORDS, kw::SQL_TYPES);
+        return true;
     case SyntaxLanguage::Zig:
-        return Lex<ZIG_LEXER_CONFIG>(text, begin, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens, state, trace);
+        fn.template operator()<ZIG_LEXER_CONFIG>(kw::ZIG_KEYWORDS, kw::ZIG_TYPES);
+        return true;
     case SyntaxLanguage::Lua:
-        return Lex<LUA_LEXER_CONFIG>(text, begin, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens, state, trace);
+        fn.template operator()<LUA_LEXER_CONFIG>(kw::LUA_KEYWORDS, kw::LUA_TYPES);
+        return true;
     default:
         return false;
     }
 }
 
+// TokenizeRange で解析する言語なら解析して true を返す。
+bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, SyntaxLexState state,
+                           SyntaxStateTrace* trace)
+{
+    return VisitLexerConfig(language, [&]<LexerConfig Cfg>(kw::KeywordTable keywords, kw::KeywordTable types) {
+        Lex<Cfg>(text, begin, keywords, types, tokens, state, trace);
+    });
+}
+
+// 行をまたぎうるトークンを始める並び (行末の \ を除く) のうち、Cfg の言語で有効なもの。TokenizeRange に行をまたぐトークンを
+// 足したらここにも足す (SyntaxResume.TextsWithoutMultilineTokenStartsNeedNoState で確かめる)。行の頭でしか効かない =begin なども、
+// 位置を問わず数える。
+struct TokenStarts {
+    std::array<std::string_view, 11> list{};
+    size_t count = 0;
+
+    constexpr void Add(bool enabled, std::string_view start) noexcept
+    {
+        if (enabled) {
+            list[count++] = start;
+        }
+    }
+};
+template <LexerConfig Cfg>
+constexpr TokenStarts kMultilineTokenStarts = [] {
+    constexpr bool triple = Cfg.triple_quote != TripleQuote::None;
+    TokenStarts t;
+    t.Add(Cfg.block_comment, "/*");
+    t.Add(Cfg.angle_block_comment, "<#");
+    t.Add(Cfg.lua_long_bracket, "[[");
+    t.Add(Cfg.lua_long_bracket, "[=");
+    t.Add(Cfg.ruby_block_comment, "=begin");
+    t.Add(Cfg.verbatim_at_string, "@\"");
+    t.Add(Cfg.verbatim_at_string, "@$\"");
+    t.Add(triple, "\"\"\"");
+    t.Add(triple, "'''");
+    t.Add(Cfg.backtick_string, "`");
+    t.Add(Cfg.raw_string, "R\"");
+    return t;
+}();
+
+// Cfg の言語で、行をまたぎうるトークンを始める並びが text にあるか。
+template <LexerConfig Cfg>
+bool HasMultilineTokenStart(std::string_view text) noexcept
+{
+    constexpr const TokenStarts& starts = kMultilineTokenStarts<Cfg>;
+    // 文字列の \ は次の文字を飛ばすので、行末の \ で文字列が次の行へ続く。プリプロセッサの行も行末の \ (後ろの空白は許す) で続く。
+    constexpr CharSet kHeads{ [](char c) static noexcept {
+        const TokenStarts& t = kMultilineTokenStarts<Cfg>;
+        return c == '\\' || std::ranges::any_of(t.list.data(), t.list.data() + t.count, [c](std::string_view start) { return start.front() == c; });
+    } };
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (!kHeads.contains(text[i])) {
+            continue;
+        }
+        if (text[i] == '\\') {
+            if (const size_t eol = SkipChars(text, i + 1, " \t\r"); eol == text.size() || text[eol] == '\n') {
+                return true;
+            }
+            continue;
+        }
+        const std::string_view rest = text.substr(i);
+        for (size_t k = 0; k < starts.count; ++k) {
+            if (rest.starts_with(starts.list[k])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 // 状態を持たない専用 lexer の解析だった。トークンの頭からなら、どこからでも状態なしで始め直せる。
 void MarkStateless(SyntaxStateTrace* trace) noexcept
 {
@@ -3243,6 +3332,15 @@ std::optional<bool> EndsAtLineHead(SyntaxLanguage language, std::string_view tex
         }
     }
     return std::nullopt;
+}
+
+bool MayHaveMultilineToken(SyntaxLanguage language, std::string_view text) noexcept
+{
+    bool found = true;
+    if (VisitLexerConfig(language, [&]<LexerConfig Cfg>(kw::KeywordTable, kw::KeywordTable) { found = HasMultilineTokenStart<Cfg>(text); })) {
+        return found;
+    }
+    return !IsLineLocalLanguage(language);
 }
 
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

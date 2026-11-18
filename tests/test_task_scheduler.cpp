@@ -9,7 +9,9 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <stop_token>
 #include <thread>
+#include <utility>
 #include <windows.h>
 #include <objbase.h>
 
@@ -25,6 +27,49 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     });
     EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
     EXPECT_TRUE(different_thread.load());
+    sch.Shutdown();
+}
+
+// below_normal の scheduler のワーカーは UI より低い優先度で動き、指定しなければ普通の優先度のまま。
+TEST(TaskScheduler, BelowNormalLowersWorkerPriority)
+{
+    for (const bool below_normal : { false, true }) {
+        TaskScheduler sch{ 1, below_normal };
+        std::promise<int> priority;
+        sch.Post([&] { priority.set_value(GetThreadPriority(GetCurrentThread())); });
+        EXPECT_EQ(priority.get_future().get(), below_normal ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_NORMAL);
+        sch.Shutdown();
+    }
+}
+
+// 待っているだけのワーカーは畳め、次の Post で別のスレッドを作り直して動かす。仕事中のワーカーがあれば畳まない。
+TEST(TaskScheduler, ReleaseIdleWorkersRestartsOnNextPost)
+{
+    TaskScheduler sch{ 1 };
+    // 作り直したかはスレッドの ID では見分けられない (Windows は終わったスレッドの ID を使い回す) ので、thread_local の印で見る。
+    const auto run_and_mark = [&sch] {
+        std::promise<bool> marked;
+        sch.Post([&] {
+            static thread_local bool t_marked = false;
+            marked.set_value(std::exchange(t_marked, true));
+        });
+        return marked.get_future().get();
+    };
+    EXPECT_FALSE(run_and_mark());
+    EXPECT_TRUE(run_and_mark()) << "同じワーカーで動く";
+    ASSERT_TRUE(PollUntil([&] { return sch.ReleaseIdleWorkers(); }));
+    EXPECT_FALSE(sch.ReleaseIdleWorkers()) << "畳んだ後はワーカーが無い";
+    EXPECT_FALSE(run_and_mark()) << "作り直したワーカーで動く";
+
+    std::promise<void> release;
+    std::atomic<bool> started{ false };
+    sch.Post([&] {
+        started = true;
+        release.get_future().wait();
+    });
+    ASSERT_TRUE(PollUntil([&] { return started.load(); }));
+    EXPECT_FALSE(sch.ReleaseIdleWorkers()) << "仕事中は畳まない";
+    release.set_value();
     sch.Shutdown();
 }
 
@@ -154,6 +199,8 @@ constexpr auto kHangBudget = std::chrono::seconds(10);
 constexpr auto kShutdownRaceLoopTime = std::chrono::milliseconds(100);
 // Post と Shutdown の競合は数ループで踏めるので短くてよい。
 constexpr auto kPostRaceLoopTime = std::chrono::milliseconds(30);
+// 畳む間の Post は、修正前の実装で 100ms 回すと毎回 (数十回目で) 踏んだ。30ms では踏まないことがあった。
+constexpr auto kReleaseRaceLoopTime = std::chrono::milliseconds(100);
 
 } // namespace
 
@@ -221,6 +268,28 @@ TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
                     return;
                 }
             }
+            iteration.fetch_add(1);
+        }
+    }));
+}
+
+// 畳んでいる最中に別のスレッドから Post しても、新しい世代のワーカーが作られて動く。畳まれるワーカーを空いている数に
+// 数え残すと、ワーカーを作らず、起こした古いワーカーも取らずに終わって、次の Post まで動かなかった。
+TEST(TaskScheduler, PostWhileReleasingRuns)
+{
+    EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {
+        TaskScheduler sch{ 2 };
+        // sch より後に作って先に止める (Shutdown と ReleaseIdleWorkers は重ねて呼ばない約束)。
+        std::jthread releaser([&sch](std::stop_token stop) {
+            while (!stop.stop_requested()) {
+                sch.ReleaseIdleWorkers();
+            }
+        });
+        const auto deadline = std::chrono::steady_clock::now() + kReleaseRaceLoopTime;
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::promise<void> ran;
+            sch.Post([&ran] { ran.set_value(); });
+            ran.get_future().wait();
             iteration.fetch_add(1);
         }
     }));

@@ -86,7 +86,14 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
-    void ReleaseCommands(DiagramEntry& diagram_entry) override;
+    void BeginRequestPass() override;
+    void ReleaseDrawing(DiagramEntry& diagram_entry) override;
+    // 覚えている結果のコマンドリストを全部外す (描画命令は残す)。文書を切り替えたら、前の文書の図のものはどの図も持たない。
+    void ReleaseCachedCommands();
+    // 覚えている結果のうち、コマンドリストを持つものの数 (テスト用)。
+    size_t CachedCommandLists();
+    // 描画の待ちの順。表示用は要求のキー、数式は 0 (テスト用)。
+    std::vector<uint64_t> WaitingRequests() const;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -130,8 +137,10 @@ private:
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t request_hash = 0;
         uint64_t width_free_hash = 0;
-        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かったか、どの幅でも使える。
         bool width_free = false;
+        // どの幅でも使える (DiagramResult::any_width)。width_free も立つ。
+        bool any_width = false;
         uint64_t CacheKey() const noexcept
         {
             return width_free ? width_free_hash : request_hash;
@@ -162,16 +171,20 @@ private:
         Render,
         // ディスクキャッシュの描画命令を読む。表示用の要求だけ。
         DiskLoad,
+        // キャッシュにある描画命令の文字を組む。コマンドリストを外した結果を記録し直す前に行う。表示用の要求だけ。
+        Relayout,
     };
     // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
     struct JobDropped {};
-    // 描いたか読んだ描画命令。UI で commands にする。
+    // 描いたか読んだ (か文字を組み直した) 描画命令。UI で commands にする。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
         // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
         DiagramTextLayouts texts;
         // 描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
         std::string bytes;
+        // 描いたときだけ、pele の SVG のハッシュ (PeleOutcome::svg_hash)。
+        uint64_t svg_hash = 0;
     };
     // PeleEngine で描けなかった。描き直しても同じ。
     struct JobFailed {
@@ -193,6 +206,8 @@ private:
         // 既定値を置かない (Render だと指定し忘れた仕事も描画の枠を返す)。
         JobWork work;
         JobOutcome outcome;
+        // 投入したときの drop_gen_。表示用の仕事は、これと違えば描かずに返し、描いている途中でも止める。
+        uint32_t drop_gen = 0;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
     };
@@ -202,9 +217,10 @@ private:
     static constexpr UINT PELE_TRIM_MS = 10000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
-    // 数えるのは描画命令だけで、より大きい CommandList は数えない。表示中の結果は DiagramEntry と共有し、余分は画面外の分。
-    // CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。1 回に届く結果より小さい上限にすると、
-    // 描き直しが回り続ける。
+    // 数えるのは描画命令だけで、より大きい CommandList は数えない。CommandList は表示中の結果の分を DiagramEntry と共有し、
+    // 置き換わった結果と前の文書のものは外し、画面外へ出た図は描画命令ごと手放す (ReleaseDrawing)。CommandList も数える案は
+    // 効きが小さいので見送った (ユーザーの判断)。
+    // 1 回に届く結果より小さい上限にすると、描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     void ApplyMathResult(Job& r);
@@ -222,6 +238,8 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
+    // 待ちの表示用の要求を、この回に頼まれた分の後ろへ移す (BeginRequestPass)。
+    void PromoteWaiting(uint64_t request_hash);
     // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す
     template <typename Work>
     void PostJob(RenderRequest req, JobWork kind, Work work);
@@ -231,6 +249,8 @@ private:
     void StartDiskLoad(RenderRequest req, std::filesystem::path path);
     // worker で呼ぶ。
     JobOutcome LoadDiskJob(Job& job, const std::filesystem::path& path);
+    // 描画命令の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
+    void StartRelayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
@@ -239,10 +259,14 @@ private:
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
     void InsertCache(uint64_t hash, DiagramResult result);
+    // commands を覚えている結果から外す。どの図も持たなくなったコマンドリストを残さない。
+    void ForgetCommands(const Microsoft::WRL::ComPtr<ID2D1CommandList>& commands);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
-    DiagramResult* FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width);
+    // target.width_free には、幅なしのキーで当たったかを書く。
+    DiagramResult* FindCached(DisplayTarget& target, float max_width);
     // 結果 (描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
-    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
+    // cached_key があれば、当たった結果のキーを書く (Find は並びを入れ替えるので、引き直さずにこれで同じ結果を指す)。
+    DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key = nullptr);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -259,6 +283,14 @@ private:
     std::move_only_function<void()> on_update_;
 
     std::unordered_set<uint64_t> inflight_;
+    // 図のコードとテーマ (幅なしのキー) ごとに、最後に描いた幅と pele の SVG のハッシュ。別の幅で描き直して SVG が同じなら、
+    // 幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに置く (追加の JS は要らない)。
+    // 保存のたびにコードが変わって増え続けないよう、cache_ と同じ件数で古いものから捨てる。
+    struct DrawnSvg {
+        float max_width = 0.0f;
+        uint64_t svg_hash = 0;
+    };
+    TranspositionCache<uint64_t, DrawnSvg, MAX_CACHE_ENTRIES> drawn_svgs_;
 
     TranspositionCache<uint64_t, DiagramResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
@@ -269,7 +301,11 @@ private:
 
     PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
-    std::deque<RenderRequest> render_waiting_;
+    // 描画の待ち。数式の要求は表示用の図より先に描く (PumpRenders)。表示用の要求は、この回 (BeginRequestPass) に頼まれた
+    // もの (先頭の pass_count_ 個)、それより前の回のものの順に並ぶ。
+    std::deque<RenderRequest> math_waiting_;
+    std::deque<RenderRequest> display_waiting_;
+    size_t pass_count_ = 0;
     int renders_running_ = 0;
 
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;

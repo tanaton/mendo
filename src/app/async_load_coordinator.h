@@ -5,6 +5,7 @@
 #include "file_watcher.h"
 #include "layout_cache.h"
 #include "worker_latch.h"
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -109,6 +110,12 @@ public:
     }
 
     void Start(std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
+    // 幅を知らずに始めた読み込み (起動の先読み) に、窓を置いた後で本文の幅を渡す。worker が推定を始める前に届けば、
+    // 開いたときに UI で全ノードを推定し直さない (間に合わなければ今までどおり)。
+    void SetContentWidth(float content_width) noexcept
+    {
+        late_content_width_.store(content_width, std::memory_order_relaxed);
+    }
     bool Attach(HWND hwnd, UINT msg_id);
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
@@ -133,6 +140,8 @@ private:
     // worker の完了を待つ (latch_) ので coordinator より長く生きる。
     TaskScheduler& scheduler_;
     LoadFileFn load_file_;
+    // SetContentWidth で後から渡した幅。Start で 0 に戻す。
+    std::atomic<float> late_content_width_{ 0.0f };
     bool in_flight_ = false;
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;

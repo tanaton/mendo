@@ -1,4 +1,5 @@
 #pragma once
+#include "text_types.h"
 #include <algorithm>
 #include <cassert>
 #include <concepts>
@@ -281,11 +282,34 @@ public:
         return { static_cast<const T*>(p), src.size() };
     }
 
+    // リンク URL・画像の src の配列と、その直後に続く TextRun の配列を 1 つの塊に置く (Node::SetRefs)。
+    std::pair<std::span<const std::string_view>, std::span<const TextRun>> CopyRefs(std::span<const std::string_view> urls, std::span<const TextRun> runs)
+    {
+        const size_t bytes = urls.size_bytes() + runs.size_bytes();
+        if (bytes == 0) {
+            return {};
+        }
+        auto* const p = static_cast<std::byte*>(Allocate(bytes, alignof(std::string_view)));
+        if (!urls.empty()) {
+            std::memcpy(p, urls.data(), urls.size_bytes());
+        }
+        if (!runs.empty()) {
+            std::memcpy(p + urls.size_bytes(), runs.data(), runs.size_bytes());
+        }
+        return { { reinterpret_cast<const std::string_view*>(p), urls.size() }, { reinterpret_cast<const TextRun*>(p + urls.size_bytes()), runs.size() } };
+    }
+
     // 組んだ置き場を写さずに引き取る (大きな表の本文)。ReservedArray は動かしても要素の場所が変わらないので、返した view は
     // arena と同じ寿命の間有効。
     std::string_view Adopt(ReservedArray<char>&& text)
     {
         return adopted_.emplace_back(std::move(text));
+    }
+    // 組んだ run の置き場を写さずに引き取る (大きな表の run)。
+    std::span<const TextRun> Adopt(ReservedArray<TextRun>&& runs)
+    {
+        const auto& kept = adopted_runs_.emplace_back(std::move(runs));
+        return { kept.data(), kept.size() };
     }
 
 private:
@@ -322,6 +346,7 @@ private:
 
     std::vector<std::unique_ptr<std::byte[]>> chunks_;
     std::vector<ReservedArray<char>> adopted_;
+    std::vector<ReservedArray<TextRun>> adopted_runs_;
     std::byte* cur_ = nullptr;
     std::byte* end_ = nullptr;
     size_t next_chunk_size_ = kMinChunkSize;

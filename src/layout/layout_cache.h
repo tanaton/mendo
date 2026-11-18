@@ -10,6 +10,7 @@
 #include <d2d1_1.h>
 #include <dwrite.h>
 #include <algorithm>
+#include <functional>
 #include <ranges>
 #include <span>
 #include <unordered_map>
@@ -75,8 +76,8 @@ struct IndexRange {
 struct TableLayoutData {
     const size_t row_count;
     const size_t col_count; // セルの番号 (CellIndex) のストライド
-    // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
-    std::vector<std::vector<CellInlineCodeBg>> row_code_bgs;
+    // インラインコードを含むか。含む表だけ、行の計測でインラインコードの背景を作る。
+    const bool has_inline_code;
     std::vector<float> col_widths;
     std::vector<float> row_heights;
     std::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
@@ -108,8 +109,8 @@ struct TableLayoutData {
     float last_applied_max_width = 0.0f;
 
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
-    TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
-        : row_count(rows), col_count(cols), row_code_bgs(has_inline_code ? rows : 0),
+    TableLayoutData(size_t rows, size_t cols, bool inline_code)
+        : row_count(rows), col_count(cols), has_inline_code(inline_code),
           col_widths(cols), row_heights(rows), natural_col_widths(cols), min_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
           row_cum_y(rows + 1), col_cum_x(cols + 1), row_layouts_(rows), row_evicted_(rows), live_rows_{ 0, rows }
     {
@@ -157,8 +158,8 @@ struct TableLayoutData {
     }
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
     {
-        const auto& cells = row_layouts_[row];
-        return cells ? cells[col].Get() : nullptr;
+        const auto& row_layouts = row_layouts_[row];
+        return row_layouts ? row_layouts->cells[col].Get() : nullptr;
     }
     IDWriteTextLayout* CellLayout(size_t ci) const noexcept
     {
@@ -167,14 +168,26 @@ struct TableLayoutData {
     // 行の配列は初めてセルを置くときに作る。行ごとに書き込み先が重ならないので、別の行へは並列に置いてよい。
     void SetCellLayout(size_t ci, Microsoft::WRL::ComPtr<IDWriteTextLayout> layout)
     {
-        auto& cells = row_layouts_[ci / col_count];
-        if (!cells) {
+        auto& row_layouts = row_layouts_[ci / col_count];
+        if (!row_layouts) {
             if (!layout) {
                 return;
             }
-            cells = std::make_unique<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>(col_count);
+            row_layouts = std::make_unique<RowLayouts>(std::make_unique<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>(col_count));
         }
-        cells[ci % col_count] = std::move(layout);
+        row_layouts->cells[ci % col_count] = std::move(layout);
+    }
+    // 行 r のインラインコードの背景 (セルのテキスト原点基準)。セル layout を持たない行には無い。
+    std::span<const CellInlineCodeBg> RowCodeBgs(size_t r) const noexcept
+    {
+        const auto& row_layouts = row_layouts_[r];
+        return row_layouts ? std::span<const CellInlineCodeBg>{ row_layouts->code_bgs } : std::span<const CellInlineCodeBg>{};
+    }
+    // 行の計測で作り直す背景の置き場所。インラインコードを含まない表と、セル layout を持たない行は null。
+    std::vector<CellInlineCodeBg>* MutableRowCodeBgs(size_t r) noexcept
+    {
+        auto& row_layouts = row_layouts_[r];
+        return has_inline_code && row_layouts ? &row_layouts->code_bgs : nullptr;
     }
 
     // [local_top, local_bottom] (エントリ上端からのローカル座標) に重なる行帯 [r_begin, r_end) を二分探索で返す。
@@ -197,6 +210,12 @@ struct TableLayoutData {
         RebuildRowCumY(0);
         RebuildColCumX();
         last_applied_max_width = max_width;
+        has_geometry_ = true;
+    }
+    // 一度でも幾何を確定したか (BuildTable の最初の確定の前は col_widths も row_cum_y も 0)。
+    constexpr bool HasGeometry() const noexcept
+    {
+        return has_geometry_;
     }
 
     // 列幅 + パディング + 罫線の合計。
@@ -224,15 +243,21 @@ private:
         return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
     }
     void RebuildColCumX();
-    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
+    // セル layout とインラインコードの背景を一緒に捨てる (背景は復元するときの行の計測で必ず作り直す)。
     void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
 
-    // 行ごとのセル layout。layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の
-    // ComPtr が並び、メモリを大きく使った。
-    std::vector<std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]>> row_layouts_;
+    // 行ごとのセル layout と、それを組んだ幅でのインラインコードの背景。
+    struct RowLayouts {
+        std::unique_ptr<Microsoft::WRL::ComPtr<IDWriteTextLayout>[]> cells;
+        std::vector<CellInlineCodeBg> code_bgs;
+    };
+    // layout を持たない行は null。セルごとに持っていた頃は、巨大な表で可視 ±数画面の行のほかは null の ComPtr が並び、
+    // メモリを大きく使った。背景を全行分の配列で持っていた頃は、一度見た行の背景が表の幾何を捨てるまで残った。
+    std::vector<std::unique_ptr<RowLayouts>> row_layouts_;
     std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
     size_t evicted_row_count_ = 0;
     IndexRange live_rows_;
+    bool has_geometry_ = false;
 };
 
 // セル枠の左端 (左罫線の右) と行上端 (上罫線の位置) から、セル本文の描画原点を求める。
@@ -278,25 +303,41 @@ constexpr YRange BufferedRange(float scroll_y, float height, float screens) noex
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
-    // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避ける。
-    // 未計測は kUnmeasuredWidth (負値)。全ノード分並ぶので optional<float> にせず、判定は is_measured() にまとめる。
-    static constexpr float kUnmeasuredWidth = -1.0f;
-    float cached_width = kUnmeasuredWidth;
-    constexpr bool is_measured() const noexcept
-    {
-        return cached_width > 0.0f;
-    }
     bool layout_dirty = true;
     // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_inline = false;
 
+    constexpr bool is_measured() const noexcept
+    {
+        return cached_width_ != 0;
+    }
+    // width (NodeLayoutWidth) で組んだか。0.5 DIP 刻みで比べる。
+    bool measured_at(float width) const noexcept
+    {
+        return cached_width_ != 0 && cached_width_ == WidthUnits(width);
+    }
+    // 直近に組んだ幅 (0.5 DIP 刻み)。未計測なら 0。折り返さない幅 (コードブロック) は 32767.5 になる。
+    constexpr float cached_width() const noexcept
+    {
+        return static_cast<float>(cached_width_) * 0.5f;
+    }
+    // 組んだ幅を覚え直す。0 以下なら未計測に戻す。
+    void set_cached_width(float width) noexcept
+    {
+        cached_width_ = WidthUnits(width);
+    }
+    void forget_measured() noexcept
+    {
+        cached_width_ = 0;
+    }
+
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
-    constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
+    void CommitMeasured(float layout_width, float measured_height) noexcept
     {
         height = measured_height;
         layout_dirty = false;
-        cached_width = layout_width;
+        set_cached_width(layout_width);
     }
 
     // 以降は計測・描画したノードでしか使わないので aux_ に置き、全ノード分は持たない。
@@ -437,11 +478,27 @@ private:
         }
     }
 
+    // 0.5 DIP 刻みの幅。0 は未計測、kNoWrapWidthUnits は 32767.5 DIP 以上 (折り返さないコードブロックの幅)。
+    static constexpr uint16_t kNoWrapWidthUnits = 0xFFFF;
+    static uint16_t WidthUnits(float width) noexcept
+    {
+        if (!(width > 0.0f)) {
+            return 0;
+        }
+        const float units = width * 2.0f + 0.5f;
+        return units >= static_cast<float>(kNoWrapWidthUnits) ? kNoWrapWidthUnits : static_cast<uint16_t>(std::max(units, 1.0f));
+    }
+
+    // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避け、MeasureNode が同じ幅で
+    // 組んだ layout を組み直さないのに使う。全ノード分並ぶので 0.5 DIP 刻みの 2 バイトにしてエントリを 16B に収める。
+    // 0.5 DIP 未満の幅の違いは同じ幅とみなして前の layout を使い (折り返しが 1 画素未満ずれうる)、全ノード分のメモリを減らす
+    // ほうをユーザーが選んだ。
+    uint16_t cached_width_ = 0;
     std::unique_ptr<Aux> aux_;
 };
 
 // 全ノード分並ぶので、計測・描画したノードでしか使わないフィールドは Aux に置いて増やさない。
-static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
+static_assert(sizeof(NodeLayoutEntry) <= 16, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
 
 // 図を描けなかった理由。言語で変わる文言は描くときに引き、言語を切り替えても前の言語の文言を残さない。
 struct DiagramError {
@@ -482,6 +539,8 @@ struct DiagramResult {
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。失敗は再リクエストを止め、
     // コードの書き換え・幅変更・テーマ変更・デバイスロストでクリアされて再試行の契機になる。
     DiagramError error;
+    // 幅の上限より広い図でも、pele がどの幅でも同じに描く (別の幅で描き直した SVG が同じだった)。幅が変わっても描き直さない。
+    bool any_width = false;
 };
 
 struct DiagramEntry : DiagramResult {
@@ -518,25 +577,25 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
-    // 画面外へ出た図のコマンドリストだけを捨てる。寸法と描画命令は残し、戻ったら描画命令から記録し直させる (NeedsRender)。
+    // 画面外へ出た図のコマンドリストと描画命令を捨てる。寸法は残し、戻ったら読み直させる (NeedsRender)。
     // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
-    bool ReleaseCommands() noexcept
+    bool ReleaseImage() noexcept
     {
-        if (!HasImage() || !drawing || stale) {
+        if (!drawing || stale) {
             return false;
         }
-        commands = nullptr;
+        SetResult({ .width = width, .height = height });
         return true;
     }
 
-    // 仮表示として残せる結果 (描いた絵か、コマンドリストだけを捨てた図の描画命令) があるか。
+    // 仮表示として残せる結果 (描いた絵か、画面外へ出て絵を捨てた図の寸法) があるか。
     bool HasStaleableResult() const noexcept
     {
-        return HasImage() || drawing;
+        return HasImage() || (width > 0.0f && height > 0.0f);
     }
 
     // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ結果 (成功/失敗とも) を破棄して
-    // 再試行可能に戻す。コマンドリストだけを捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
+    // 再試行可能に戻す。絵を捨てた図は寸法を残し、描き直しが届くまでプレースホルダーを同じ高さで出す。
     void MarkStale() noexcept
     {
         if (!HasStaleableResult()) {
@@ -617,8 +676,9 @@ public:
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
     // table_indices は文書の表のノード (Document::GetTableNodeIndices)。tables が false なら表は待たせたままにする
-    // (表は全セルを組み直すので重い)。
-    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept;
+    // (表は全セルを組み直すので重い)。affected があれば、表でないノードは affected(番号) が true のものだけを戻す
+    // (届いた数式の組を待つノード)。表は組み直しを間引くので絞らない (間引いた間に届いた組の数式が残る)。
+    bool InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables, const std::function<bool(size_t)>& affected = {}) noexcept;
     // indices のノードを dirty に戻し、組み直させる (組んだ画像の寸法が変わったとき)。1 つでもあれば true。
     bool InvalidateLayoutsOf(std::span<const size_t> indices) noexcept;
 

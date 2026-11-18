@@ -3,9 +3,11 @@
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "utility.h"
+#include <windows.h>
 #include <quickjs.h>
 #include <algorithm>
-#include <bit>
+#include <cstddef>
+#include <cstdint>
 #include <format>
 #include <optional>
 #include <string>
@@ -39,6 +41,72 @@ size_t JsStackBudget() noexcept
 
 // 壊れたコードで止まらずに確保し続けても、プロセスを道連れにしない。
 constexpr size_t kJsMemoryBytes = 256 * 1024 * 1024;
+
+// ランタイムごとの専用ヒープの確保。プロセスのヒープで捨てたランタイムは、2 個捨てても commit が 1 個分ほどしか戻らなかった
+// ので、ランタイムを捨てた後に HeapDestroy でまとめて返す。usable_size には opaque が来ないので、確保の頭に大きさを書く
+// (16 バイトで境界を保つ)。
+constexpr size_t kJsHeapHeader = 16;
+
+void* JsHeapAlloc(void* heap, size_t size, DWORD flags) noexcept
+{
+    if (size > SIZE_MAX - kJsHeapHeader) {
+        return nullptr;
+    }
+    auto* const base = static_cast<std::byte*>(HeapAlloc(heap, flags, size + kJsHeapHeader));
+    if (!base) {
+        return nullptr;
+    }
+    *reinterpret_cast<size_t*>(base) = size;
+    return base + kJsHeapHeader;
+}
+
+std::byte* JsHeapBase(void* ptr) noexcept
+{
+    return static_cast<std::byte*>(ptr) - kJsHeapHeader;
+}
+
+void* JsCalloc(void* heap, size_t count, size_t size) noexcept
+{
+    if (size != 0 && count > SIZE_MAX / size) {
+        return nullptr;
+    }
+    return JsHeapAlloc(heap, count * size, HEAP_ZERO_MEMORY);
+}
+
+void* JsMalloc(void* heap, size_t size) noexcept
+{
+    return JsHeapAlloc(heap, size, 0);
+}
+
+void JsFree(void* heap, void* ptr) noexcept
+{
+    if (ptr) {
+        HeapFree(heap, 0, JsHeapBase(ptr));
+    }
+}
+
+void* JsRealloc(void* heap, void* ptr, size_t size) noexcept
+{
+    if (!ptr) {
+        return JsMalloc(heap, size);
+    }
+    if (size > SIZE_MAX - kJsHeapHeader) {
+        return nullptr;
+    }
+    auto* const base = static_cast<std::byte*>(HeapReAlloc(heap, 0, JsHeapBase(ptr), size + kJsHeapHeader));
+    if (!base) {
+        return nullptr;
+    }
+    *reinterpret_cast<size_t*>(base) = size;
+    return base + kJsHeapHeader;
+}
+
+size_t JsUsableSize(const void* ptr) noexcept
+{
+    return ptr ? *reinterpret_cast<const size_t*>(static_cast<const std::byte*>(ptr) - kJsHeapHeader) : 0;
+}
+
+constexpr JSMallocFunctions kJsHeapFunctions{ JsCalloc, JsMalloc, JsFree, JsRealloc, JsUsableSize };
 
 // 本文と同じ書体で組み、Segoe UI に無い文字はロケールで決まるフォントにする。
 struct DiagramFonts {
@@ -91,6 +159,10 @@ struct PeleSvg {
 
 struct PeleContext {
     PeleEngine* engine = nullptr;
+    // 図を描く JS を動かす間だけ持つ。
+    PeleEngine::StaleWhen stale;
+    // rt の確保はすべてここから取る (kJsHeapFunctions)。
+    HANDLE heap = nullptr;
     JSRuntime* rt = nullptr;
     JSContext* ctx = nullptr;
     // pele を読んだら (code, maxWidth, fontFamily, fontFamilyMono, katexHtml) → SVG
@@ -102,6 +174,12 @@ struct PeleContext {
     std::optional<DiagramTextMeasurer> measurer;
     // 描いている図のラベルの数式。pele の math オプションが足し、DrawingFromPeleSvg が読む。
     std::vector<PeleMathLabel> labels;
+
+    // 終了で取り消したか、描いている図が古くなった。
+    bool Stopped() const noexcept
+    {
+        return engine->Cancelled() || (stale.generation && stale.generation->load(std::memory_order_relaxed) != stale.value);
+    }
 
     PeleContext() = default;
     PeleContext(const PeleContext&) = delete;
@@ -115,6 +193,9 @@ struct PeleContext {
         }
         if (rt) {
             JS_FreeRuntime(rt);
+        }
+        if (heap) {
+            HeapDestroy(heap);
         }
     }
 };
@@ -180,9 +261,10 @@ JSValue MathLabel(JSContext* ctx, JSValueConst, int, JSValueConst* argv)
     return out;
 }
 
-int CheckCancel(JSContext*, void* cancel)
+// JS が一定の命令を進めるごとに呼ばれ、1 を返すと止める。
+int CheckCancel(JSContext*, void* context)
 {
-    return static_cast<const std::atomic<bool>*>(cancel)->load(std::memory_order_relaxed) ? 1 : 0;
+    return static_cast<const PeleContext*>(context)->Stopped() ? 1 : 0;
 }
 
 // 評価の結果を確かめる。モジュールの評価は Promise を返すので、ジョブを流して確定させる (pele も KaTeX も最上位に await が無い)。
@@ -229,20 +311,24 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
     return context;
 }
 
-// pele の出力を覚えた図 (テーマの切り替え) は測定器しか使わないので、ランタイムは JS を動かすときに作る。
+// HTML を覚えた数式 (見出しと本文の同じ式・開き直した文書の式) は配置しか使わないので、ランタイムは JS を動かすときに作る。
 bool PeleEngine::EnsureRuntime(PeleContext& context)
 {
     if (context.ctx) {
         return true;
     }
     if (!context.rt) {
-        context.rt = JS_NewRuntime();
+        // HEAP_NO_SERIALIZE は付けない (付けると LFH が効かない)。
+        if (!context.heap && !(context.heap = HeapCreate(0, 0, 0))) {
+            return false;
+        }
+        context.rt = JS_NewRuntime2(&kJsHeapFunctions, context.heap);
         if (!context.rt) {
             return false;
         }
         JS_SetMaxStackSize(context.rt, JsStackBudget());
         JS_SetMemoryLimit(context.rt, kJsMemoryBytes);
-        JS_SetInterruptHandler(context.rt, CheckCancel, &cancel_);
+        JS_SetInterruptHandler(context.rt, CheckCancel, &context);
     }
     context.ctx = JS_NewContext(context.rt);
     if (!context.ctx) {
@@ -496,21 +582,7 @@ bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
     return true;
 }
 
-std::shared_ptr<const PeleSvg> PeleEngine::FindSvg(uint64_t key)
-{
-    const std::lock_guard lock(svg_mutex_);
-    const auto* found = svgs_.Find(key);
-    return found ? *found : nullptr;
-}
-
-void PeleEngine::StoreSvg(uint64_t key, std::shared_ptr<const PeleSvg> svg)
-{
-    const std::lock_guard lock(svg_mutex_);
-    svgs_.Insert(key, std::move(svg));
-    svgs_.TrimToBudget(kMaxSvgBytes, [](const std::shared_ptr<const PeleSvg>& s) static noexcept { return s->svg.size(); });
-}
-
-PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width)
+PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
     if (Cancelled()) {
@@ -520,20 +592,12 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     if (!context->measurer) {
         context->measurer.emplace(dw_, locale_);
     }
-    // pele に渡す幅そのもので引く (要求のキーの量子化した幅では、出力が変わる幅を取り違える)。
-    const uint64_t key = mermaid_util::DiagramCodeHash(code) ^ (std::bit_cast<uint32_t>(max_width) * kGoldenRatio64);
     PeleOutcome out;
-    auto svg = FindSvg(key);
-    if (!svg) {
-        if (auto rendered = RenderSvg(*context, code, max_width)) {
-            svg = std::move(*rendered);
-            StoreSvg(key, svg);
-        }
-        else {
-            out = std::move(rendered.error());
-        }
+    if (auto svg = RenderSvg(*context, code, max_width, stale); !svg) {
+        out = std::move(svg.error());
     }
-    if (svg) {
+    else {
+        out.svg_hash = RapidHash(svg->svg);
         auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
         if (drawing) {
@@ -544,7 +608,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     return out;
 }
 
-std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
+std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
     if (!EnsurePele(context)) {
@@ -558,14 +622,19 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
         NewString(ctx, context.fonts->mono),
         code.contains("$$") && EnsureKatex(context) ? JS_DupValue(ctx, context.katex) : JS_UNDEFINED,
     };
+    // バイトコードの読み込み (EnsurePele) は止めない (途中で止めるとランタイムを使えなくなる)。
+    context.stale = stale;
     JSValue svg = JS_Call(ctx, context.render, JS_UNDEFINED, 5, args);
+    const bool stopped = context.Stopped();
+    context.stale = {};
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
-    std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> out = std::unexpected(PeleOutcome{});
+    std::expected<PeleSvg, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
-        if (Cancelled()) {
+        // 止めた図はコードの誤りではないので、エラーとして確定させない。
+        if (stopped) {
             out.error().status = Status::Cancelled;
         }
         else {
@@ -576,10 +645,10 @@ std::expected<std::shared_ptr<const PeleSvg>, PeleOutcome> PeleEngine::RenderSvg
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            out = std::make_shared<const PeleSvg>(PeleSvg{
+            out = PeleSvg{
                 .svg = std::string{ s, length },
                 .labels = std::move(context.labels)
-            });
+            };
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);

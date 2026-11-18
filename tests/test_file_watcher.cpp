@@ -12,6 +12,7 @@
 #include <random>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 #include <windows.h>
 
@@ -152,6 +153,26 @@ TEST_F(FileWatcherTest, ReportsChangeMadeBeforeWatching)
     FileWatcher watcher;
     int changes = 0;
     watcher.StartWatching(std::move(target), [&] { ++changes; });
+    EXPECT_TRUE(WaitForEvent(watcher));
+    EXPECT_EQ(changes, 1);
+}
+
+// worker で発行した最初の読み取りは、そのスレッドが終わると取り消される。発行し直して監視を続け、取り消された後の変更も
+// ハンドルに貯まっているので取りこぼさない。
+TEST_F(FileWatcherTest, ReissuesReadAbortedByExitedThread)
+{
+    const auto path = WriteTempFile(L"aborted.md", "original");
+    FileWatchTarget target;
+    std::thread([&] { target = OpenWatchTarget(path.native()); }).join();
+    ASSERT_TRUE(target.read);
+    WriteTempFile(L"aborted.md", "modified");
+
+    FileWatcher watcher;
+    int changes = 0;
+    watcher.StartWatching(std::move(target), [&] { ++changes; });
+    EXPECT_TRUE(WaitForEvent(watcher)) << "取り消しで起きる";
+    EXPECT_EQ(changes, 0);
+    ASSERT_NE(watcher.GetEventHandle(), nullptr) << "監視を続ける";
     EXPECT_TRUE(WaitForEvent(watcher));
     EXPECT_EQ(changes, 1);
 }

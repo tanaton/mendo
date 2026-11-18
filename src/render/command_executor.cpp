@@ -1,6 +1,6 @@
 #include "draw_command.h"
 #include "d2d_util.h"
-#include "diagram_raster.h"
+#include "math_raster.h"
 #include "inline_math.h"
 #include "profiler.h"
 #include "ui_constants.h"
@@ -55,15 +55,61 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
+// 1 つのレイアウトの単色のグリフランを、書体・大きさ・ブラシ・測り方の組ごとに 1 本にまとめて描く (GlyphRunMerger)。DrawGlyphRun は
+// 1 回ごとの固定費が大きく、行や装飾の切れ目ごとに呼ぶとフレームの多くを占める (BM_DocFrameDraw)。右から左と縦のランはまとめない。
+// 1 回に描く字形が多いほど D2D が手元に残す領域も増える (送り続けても頭打ち。ずらしや描く時機では増えない) が、描画の CPU を
+// 減らすほうをユーザーが選んだ。
+class GlyphRunBatch {
+public:
+    bool Add(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, ID2D1Brush* brush)
+    {
+        if ((run.bidiLevel & 1) != 0 || run.isSideways || !run.glyphAdvances || run.glyphCount == 0) {
+            return false;
+        }
+        glyphs_.Add(x, y, run, brush, mode);
+        return true;
+    }
+
+    // 貯めたランを描き、続けて貯めた線 (下線・取り消し線) を描く (今までどおり線が字形の上に重なる)。
+    void Flush(ID2D1RenderTarget* rt)
+    {
+        glyphs_.Flush(rt);
+        for (const auto& [rect, brush] : lines_) {
+            rt->FillRectangle(rect, brush);
+        }
+        lines_.clear();
+    }
+
+    void AddLine(const D2D1_RECT_F& rect, ID2D1Brush* brush)
+    {
+        lines_.push_back({ rect, brush });
+    }
+
+private:
+    struct Line {
+        D2D1_RECT_F rect;
+        ID2D1Brush* brush;
+    };
+    // コマンドごとに確保し直さないよう、配列を残して使い回す (UI スレッドの 1 つだけ)。
+    GlyphRunMerger glyphs_;
+    std::vector<Line> lines_;
+};
+
 // 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。DrawTextLayout は描画面外の
 // グリフランも全部処理するので、可視範囲外のランを飛ばして描く。構文の色は、範囲数に比例して重くなる SetDrawingEffect を使わず、
 // グリフランをトークン境界で分けて描く。
 class VisibleRunRenderer final : public RenderTargetTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, const DrawTextLayoutCmd& cmd, const FixedBrushArray& brushes, const InlineDrawings& inline_drawings,
-                       MathMaskCache* math_masks) noexcept
-        : RenderTargetTextRenderer(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings), math_masks_(math_masks)
+                       MathMaskCache* math_masks, GlyphRunBatch& batch) noexcept
+        : RenderTargetTextRenderer(rt), default_brush_(default_brush), cmd_(cmd), brushes_(brushes), inline_(inline_drawings), math_masks_(math_masks), batch_(batch)
     {
+    }
+
+    // layout->Draw の後で呼び、貯めたランと線を描く。
+    void Flush()
+    {
+        batch_.Flush(rt_);
     }
 
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(
@@ -80,7 +126,10 @@ public:
         }
         const bool split = !cmd_.syntax_tokens.empty() || std::isfinite(cmd_.cull_left);
         if (!split || !desc || !desc->clusterMap || effect) {
-            rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushOr(BrushEffect::IdOf(effect)), mode);
+            ID2D1Brush* const brush = BrushOr(BrushEffect::IdOf(effect));
+            if (!batch_.Add(x, y, mode, *run, brush)) {
+                rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, brush, mode);
+            }
             return S_OK;
         }
         DrawGlyphRunParts(x, y, mode, *run, *desc);
@@ -271,7 +320,7 @@ private:
         if (top + thickness < cmd_.cull_top || top > cmd_.cull_bottom) {
             return;
         }
-        rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushOr(BrushEffect::IdOf(effect)));
+        batch_.AddLine(D2D1::RectF(x, top, x + width, top + thickness), BrushOr(BrushEffect::IdOf(effect)));
     }
 
     ID2D1Brush* default_brush_;
@@ -279,6 +328,7 @@ private:
     const FixedBrushArray& brushes_;
     const InlineDrawings& inline_;
     MathMaskCache* math_masks_;
+    GlyphRunBatch& batch_;
 };
 
 } // namespace
@@ -472,8 +522,10 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings, math_masks };
+                thread_local GlyphRunBatch batch;
+                VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings, math_masks, batch };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
+                renderer.Flush();
             }
         },
         [&](const DrawBitmapCmd& c) {

@@ -27,11 +27,12 @@ struct IndexRecord {
     float css_height;
     uint32_t file_size;
     int64_t last_used;
+    uint8_t any_width;
 };
 #pragma pack(pop)
 
 static_assert(sizeof(IndexHeader) == 12);
-static_assert(sizeof(IndexRecord) == 28);
+static_assert(sizeof(IndexRecord) == 29);
 
 constexpr std::wstring_view kFileExtension = L".drawing";
 constexpr std::wstring_view kIndexFileName = L"index.bin";
@@ -140,7 +141,7 @@ std::optional<MermaidFileCache::IndexState> MermaidFileCache::LoadIndex(bool str
             continue;
         }
 
-        index.Add(record.key, { record.css_width, record.css_height, record.file_size, record.last_used });
+        index.Add(record.key, { record.css_width, record.css_height, record.file_size, record.last_used, record.any_width != 0 });
     }
     index.MarkSaved();
     return index;
@@ -162,7 +163,7 @@ std::optional<MermaidFileCache::IndexState> MermaidFileCache::MergeWithSavedInde
     const int64_t shift = merged->lru_seq - index_->saved_seq;
     for (const auto& [key, entry] : index_->entries) {
         if (entry.last_used > index_->saved_seq) {
-            merged->Add(key, { entry.css_width, entry.css_height, entry.file_size, entry.last_used + shift });
+            merged->Add(key, { entry.css_width, entry.css_height, entry.file_size, entry.last_used + shift, entry.any_width });
         }
     }
     EvictIfNeeded(*merged, 0, 0);
@@ -215,7 +216,7 @@ void MermaidFileCache::SaveIndex()
     p += sizeof(header);
 
     for (const auto& [key, entry] : index.entries) {
-        IndexRecord record{ key, entry.css_width, entry.css_height, entry.file_size, entry.last_used };
+        IndexRecord record{ key, entry.css_width, entry.css_height, entry.file_size, entry.last_used, static_cast<uint8_t>(entry.any_width) };
         std::memcpy(p, &record, sizeof(record));
         p += sizeof(record);
     }
@@ -254,7 +255,7 @@ std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_
     auto& index = Index();
     uint64_t key = width_free_key;
     auto it = index.entries.find(key);
-    if (it == index.entries.end() || !mermaid_util::IsWidthFree(it->second.css_width, max_width)) {
+    if (it == index.entries.end() || !mermaid_util::UsableAtWidth(it->second.css_width, it->second.any_width, max_width)) {
         key = sized_key;
         it = index.entries.find(key);
         if (it == index.entries.end()) {
@@ -265,11 +266,11 @@ std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_
         index.Touch(it);
     }
     return Hit{
-        key, { it->second.css_width, it->second.css_height }
+        key, { it->second.css_width, it->second.css_height, it->second.any_width }
     };
 }
 
-void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::string data)
+void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::string data, bool any_width)
 {
     if (data.empty()) {
         return;
@@ -285,7 +286,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     EvictIfNeeded(index, 1, file_size);
 
-    index.Add(key, { css_width, css_height, file_size, index.NextLruSeq() });
+    index.Add(key, { css_width, css_height, file_size, index.NextLruSeq(), any_width });
 
     if (!scheduler_) {
         return;

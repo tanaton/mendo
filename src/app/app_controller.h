@@ -6,21 +6,27 @@
 #include "hit_test_service.h"
 #include <cstdint>
 #include <optional>
+#include <string_view>
+#include <vector>
 
-// イベント→アクション変換と、ポインタの判定。App が実行する。状態は呼び出し側が持って渡す。
+// イベント→アクション・コマンド変換と、ポインタの判定。App が実行する。状態は呼び出し側が持って渡す。
 // ポインタの判定は、ホバーとクリックが同じ優先順位で判定するよう、AppState と確定したペイン配置だけから求める。
 // px, py はクライアント座標 (物理 px)。
 namespace app_controller {
 
 // 割り当ての無いキーは nullopt。
-std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event);
+std::optional<AppBinding> HandleKeyDown(const KeyDownEvent& event);
 
-// タイトルバーのボタンを押したときのアクション。ウィンドウの操作 (最小化・最大化・閉じる) と設定ダイアログは App が直接行うので nullopt。
-std::optional<AppAction> TitleBarClickAction(TitleBarHitZone zone);
+// タイトルバーのボタンの割り当て。ウィンドウの操作 (最小化・最大化・閉じる) と設定ダイアログは App が直接行うので nullopt。
+std::optional<AppBinding> TitleBarClickBinding(TitleBarHitZone zone);
 
 // 検索欄にフォーカスがあるときのキー。nullopt なら入力欄 (EDIT) に処理させる。
 // 検索欄は開いている間フォーカスを持ち続けるので、入力欄が編集に使うキーだけ欄に任せ、それ以外は本体と同じ割り当てにする。
-std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event);
+std::optional<AppBinding> HandleSearchEditKeyDown(const KeyDownEvent& event);
+
+// 新しいウィンドウに渡す引数。path が空なら表示中の文書、ヘルプのようにファイルが無ければファイル一覧のフォルダを開く。
+// anchor は開いた文書で飛ぶ見出し。戻り値は path・anchor・state の文字列を指す。
+std::vector<std::wstring_view> NewWindowArgs(const AppState& state, std::wstring_view path, std::wstring_view anchor);
 
 // window_dip は窓のクライアント座標 (DIP)。
 MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, DipPoint window_dip) noexcept;

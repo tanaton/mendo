@@ -174,6 +174,50 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 5), 123.0f);
 }
 
+// ズームしても数式はズーム前の大きさのキーで引き (組み直しを頼まない)、置くときに倍率を掛ける。
+TEST_F(DWriteInlineMathTest, ZoomScalesMathWithoutNewKey)
+{
+    const float base = theme_.font_size_body;
+    theme_.ApplyZoom(1.5f);
+    ASSERT_TRUE(engine_.Init(&measurer_, theme_));
+    auto [nodes, cache] = ParseAndLayout("a $x^2$ b");
+    const auto requests = table_.TakeRequests();
+    ASSERT_EQ(requests.size(), 1u);
+    EXPECT_EQ(requests[0], InlineMathKey("x^2", base));
+    EXPECT_TRUE(HasInlineMathKey(nodes[0], theme_, requests));
+
+    table_.Resolve(requests[0], { 100.0f, 30.0f, 20.0f });
+    EXPECT_TRUE(InvalidatePending(nodes, cache, true));
+    ComputeLayout(engine_, nodes, cache, 800.0f);
+    EXPECT_FALSE(cache[0].pending_inline);
+    EXPECT_FLOAT_EQ(InlineRangeWidth(cache[0].text_layout(), 2, 5), 150.0f);
+}
+
+// 数式の組が届いたら、その組の数式を待つ段落だけを組み直させる。ほかの数式を待つ段落は印を残し、次の組で組み直す。
+TEST_F(DWriteInlineMathTest, InvalidatesOnlyParagraphsWaitingForArrivedKeys)
+{
+    auto [nodes, cache] = ParseAndLayout("a $x^2$ b\n\nc $y^3$ d");
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_TRUE(cache[0].pending_inline);
+    ASSERT_TRUE(cache[1].pending_inline);
+    table_.TakeRequests();
+    const uint64_t x = InlineMathKey("x^2", theme_.font_size_body);
+    const uint64_t y = InlineMathKey("y^3", theme_.font_size_body);
+    table_.Resolve(x, { 40.0f, 18.0f, 13.0f });
+    const std::vector<uint64_t> arrived{ x };
+    const auto affected = [&](size_t i) { return HasInlineMathKey(nodes[i], theme_, arrived); };
+
+    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts({}, true, affected));
+    EXPECT_TRUE(cache[0].layout_dirty);
+    EXPECT_FALSE(cache[1].layout_dirty) << "届いていない数式を待つ段落は組み直さない";
+    EXPECT_TRUE(cache[1].pending_inline);
+
+    table_.Resolve(y, { 40.0f, 18.0f, 13.0f });
+    const std::vector<uint64_t> next{ y };
+    EXPECT_TRUE(cache.InvalidatePendingInlineLayouts({}, true, [&](size_t i) { return HasInlineMathKey(nodes[i], theme_, next); }));
+    EXPECT_TRUE(cache[1].layout_dirty);
+}
+
 // 画面外の evict で layout を捨てたら、組み直しを待つ印も外す。寸法が届いても組み直す相手が無い。
 TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
 {

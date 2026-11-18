@@ -582,7 +582,7 @@ TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
     ASSERT_TRUE(drawing);
     ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
     EXPECT_EQ(drawing->layers[0].texts[0].text, L"b");
-    EXPECT_TRUE(mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(*drawing))));
+    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
 // 大きすぎる文字はディスクキャッシュが読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
@@ -598,7 +598,7 @@ TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
     EXPECT_FLOAT_EQ(texts[0].at.font_size, mermaid_util::kMaxFontSize);
     EXPECT_FLOAT_EQ(texts[1].at.font_size, mermaid_util::kMaxFontSize * 0.5f);
     EXPECT_FLOAT_EQ(texts[2].at.font_size, 16.0f);
-    EXPECT_TRUE(mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(*drawing))));
+    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
 // 読めない長さは前の値を残す (float に収まらない値で inf を書き出さない)。

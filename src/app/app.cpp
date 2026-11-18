@@ -1,7 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
 #include "ascii_util.h"
-#include "clipboard_util.h"
 #include "document_utils.h"
 #include "file_io.h"
 #include "i18n.h"
@@ -13,7 +12,6 @@
 #include "settings_dialog.h"
 #include "profiler.h"
 #include "resource.h"
-#include "startup_plan.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -182,6 +180,8 @@ void App::OnRenderDeviceRecreated()
 
 void App::LoadInitialDocument()
 {
+    // 窓の大きさが決まったので、先読みに本文の幅を渡す (パースが終わる前なら、推定がこの幅で済む)。
+    load_coordinator_.SetContentWidth(MdContentWidth(state_));
     // 結果は出ていても通知で届く。Win32Window::Create が最初のフレームより前に取り込む。
     if (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
         ScheduleLoadingAnimation();
@@ -268,10 +268,10 @@ void App::OnPaint()
     MENDO_PROFILE("OnPaint");
 
     PAINTSTRUCT ps;
-    BeginPaint(hwnd_, &ps);
     // 最小化中は見えないので描かない。描くと TrimForMinimize で手放したキャッシュを作り直してしまう。
     // 復元時は Win32Window::OnSize が描き直させる。
     if (IsIconic(hwnd_)) {
+        BeginPaint(hwnd_, &ps);
         EndPaint(hwnd_, &ps);
         return;
     }
@@ -282,7 +282,13 @@ void App::OnPaint()
         EnsureFrameLayout(layout);
         // 計測で見出しの Y が決まった後、目次ペインを組む前に決め直す。
         SyncActiveTocIndex(state_);
+        // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。経路ごとに引き直しを要求させず、
+        // 描く前に毎回引き直す。変化で出た再描画の要求は下の BeginPaint が消し、このフレームに描く (描いた後に引くと、
+        // もう 1 枚描き直すうえにホバーの表示が 1 フレーム遅れる)。変化が無ければ reducer が何もしない。
+        // ロード中の本文ペインは何にも当たらず、スピナーのフレームごとに引き直しても変わらないので省く。
+        RefreshHoverAtCursor();
     }
+    BeginPaint(hwnd_, &ps);
 
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
@@ -340,12 +346,6 @@ void App::OnPaint()
         ShareRenderTarget();
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
         break;
-    }
-    // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
-    // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
-    // ロード中の本文ペインは何にも当たらず、スピナーのフレームごとに引き直しても変わらないので省く。
-    if (!show_loading) {
-        RefreshHoverAtCursor();
     }
     MENDO_FRAME_MARK();
 }
@@ -443,18 +443,25 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
 {
     inline_math_plan_.FinishChunk(chunk, generation);
     table_jobs_.NoteInlineChanged();
+    std::vector<uint64_t> arrived;
+    arrived.reserve(result.items.size());
     for (auto& item : result.items) {
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
-        if (!inline_math_.Resolve(item.key, item.metrics) || !item.drawing) {
+        if (!inline_math_.Resolve(item.key, item.metrics)) {
             continue;
         }
-        *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
+        arrived.push_back(item.key);
+        if (item.drawing) {
+            *inline_drawings_.math.TryEmplace(item.key).first = std::move(item.drawing);
+        }
     }
-    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (表と違い 1 件が軽い)
-    RelayoutPendingInline(/*force_tables=*/false);
+    std::ranges::sort(arrived);
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す (表と違い 1 件が軽い)。組み直すのは、届いた組の数式を
+    // 待つ段落だけ (ほかの組を待つ段落は組み直しても仮のまま)。
+    RelayoutPendingInline(/*force_tables=*/false, &arrived);
 }
 
-bool App::InvalidatePendingInline(bool force_tables)
+bool App::InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived)
 {
     // 数式や画像の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。間引いた表を組み直すタイマーからも通る。
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
@@ -471,12 +478,18 @@ bool App::InvalidatePendingInline(bool force_tables)
         SetTimer(app_timer::Id::INLINE_TABLES,
                  static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kInlineTableRelayoutInterval - since).count()));
     }
-    return state_.document.layout_cache.InvalidatePendingInlineLayouts(state_.document.doc.GetTableNodeIndices(), tables);
+    std::function<bool(size_t)> affected;
+    if (arrived) {
+        affected = [nodes = state_.document.doc.GetNodes(), &theme = theme_service_.GetTheme(), arrived](size_t i) {
+            return HasInlineMathKey(nodes[i], theme, *arrived);
+        };
+    }
+    return state_.document.layout_cache.InvalidatePendingInlineLayouts(state_.document.doc.GetTableNodeIndices(), tables, affected);
 }
 
-void App::RelayoutPendingInline(bool force_tables)
+void App::RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived)
 {
-    if (InvalidatePendingInline(force_tables)) {
+    if (InvalidatePendingInline(force_tables, arrived)) {
         FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     }
     else {
@@ -511,21 +524,56 @@ void App::OnFileListed()
 
 bool App::OnKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key, flags)));
+    return RunBinding(app_controller::HandleKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
 bool App::OnSearchEditKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key, flags)));
+    return RunBinding(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
-bool App::DispatchKeyAction(const std::optional<AppAction>& action)
+bool App::RunBinding(const std::optional<AppBinding>& binding)
 {
-    if (!action) {
+    if (!binding) {
         return false;
     }
-    Dispatch(*action);
+    if (const auto* command = std::get_if<AppCommand>(&*binding)) {
+        RunCommand(*command);
+    }
+    else {
+        Dispatch(std::get<AppAction>(*binding));
+    }
     return true;
+}
+
+void App::RunCommand(AppCommand command)
+{
+    switch (command) {
+    case AppCommand::OpenFile:
+        OpenFileDialog();
+        return;
+    case AppCommand::Reload:
+        if (state_.document.doc.HasBackingFile()) {
+            RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
+        }
+        return;
+    case AppCommand::NewWindow:
+        OpenInNewWindow({});
+        return;
+    case AppCommand::ToggleDarkMode:
+        ToggleDarkMode();
+        return;
+    case AppCommand::Copy:
+    case AppCommand::CopyFormatted:
+        if (const auto& selection = state_.view.viewport.GetSelection(); selection.active()) {
+            clipboard_manager_.CopySelection(state_.document.doc, selection, command == AppCommand::CopyFormatted, theme_service_.IsDarkMode());
+        }
+        return;
+    case AppCommand::SearchSelectAll:
+        window_.FocusSearchEdit(0, -1);
+        return;
+    }
+    std::unreachable();
 }
 
 void App::Dispatch(const AppAction& action)
@@ -617,6 +665,10 @@ void App::HandleTimer(UINT_PTR timer_id)
             return;
         }
         KillTimer(id);
+        // 待っているだけのワーカーのスタックと thread_local の DirectWrite のファクトリは、EmptyWorkingSet では commit が戻らない
+        // ので、スレッドごと畳む。戻った最初の計測と描画でスレッドとファクトリを作り直すが、メモリを返すほうをユーザーが選んだ。
+        scheduler_.ReleaseIdleWorkers();
+        layout_scheduler_.ReleaseIdleWorkers();
         // 空の文書でも private WS の大半はドライバが一度触ったきりのページ。使うページは soft fault で戻り、commit は変わらない。
         EmptyWorkingSet(GetCurrentProcess());
         return;
@@ -879,6 +931,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     resource_manager_.DropQueues();
     // 拡大表示は開いた文書の図なので一緒に閉じる
     mermaid_renderer_.CloseViewer();
+    // 前の文書の図のコマンドリストはどの図も持たなくなった
+    mermaid_renderer_.ReleaseCachedCommands();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
@@ -979,6 +1033,14 @@ void App::OpenFileDialog()
     }
 }
 
+void App::OpenInNewWindow(std::wstring_view path, std::string_view anchor)
+{
+    const std::wstring wide_anchor = string_convert::Utf8ToWide(anchor);
+    const auto args = app_controller::NewWindowArgs(state_, path, wide_anchor);
+    // 元のウィンドウのタイトルバーが隠れないだけずらす。
+    LaunchSelfInNewWindow(hwnd_, args, DipToPixel(TitleBar::BASE_HEIGHT, state_.window.cached_dpi_scale));
+}
+
 void App::Execute(const SideEffect& effect)
 {
     // clang-format off
@@ -996,7 +1058,6 @@ void App::Execute(const SideEffect& effect)
                 ::ReleaseCapture();
             }
         },
-        [this](const effect::ClipboardWrite& ev) { WriteClipboardHtml(hwnd_, ev.html, ev.text); },
         [this](const effect::SetTooltip& ev) {
             tooltip_.Arm(ev.text);
         },
@@ -1016,9 +1077,6 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ApplyZoom&) {
             ApplyZoom();
         },
-        [this](const effect::ToggleDarkMode&) {
-            ToggleDarkMode();
-        },
         [this](const effect::SettleViewport&) {
             state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
             FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
@@ -1034,19 +1092,6 @@ void App::Execute(const SideEffect& effect)
         // ---- Navigation ----
         [this](const effect::LoadFile& ev) {
             LoadMarkdownFile(ev.path);
-        },
-        [this](const effect::ReloadFile&) {
-            if (state_.document.doc.HasBackingFile()) {
-                RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
-            }
-        },
-        [this](const effect::OpenFileDialog&) {
-            OpenFileDialog();
-        },
-        [this](const effect::LaunchNewWindow& e) {
-            // 元のウィンドウのタイトルバーが隠れないだけずらす。
-            const std::wstring anchor = string_convert::Utf8ToWide(e.anchor);
-            LaunchSelfInNewWindow(hwnd_, BuildStartupArgs(e.path, anchor), static_cast<int>(TitleBar::BASE_HEIGHT * state_.window.cached_dpi_scale));
         },
         [this](const effect::CancelOtherFileLoad&) {
             CancelOtherFileLoad();
@@ -1154,8 +1199,8 @@ void App::ApplyZoom()
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
     measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
-    // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
-    ForgetInlineMath();
+    // 数式はズーム前の大きさで組んであるので、捨てずに倍率を掛けて置き直す。分数線などの 1px の下限もズームと一緒に太る・
+    // 細る (ブラウザのズームと同じ) が、ズームのたびに組み直して行の高さが揺れるより、こちらをユーザーが選んだ。
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     UpdateTitleBar();
     session::SaveZoomLevel(config_, state_.view.viewport.Zoom());
@@ -1211,7 +1256,7 @@ void App::OnMButtonDown(int px, int py)
 {
     const auto dip = PixelToDip(px, py);
     if (const FileEntry* entry = FileEntryAt(dip.x, dip.y)) {
-        Dispatch(NewWindowAction{ entry->full_path });
+        OpenInNewWindow(entry->full_path);
         return;
     }
     // 本文のリンクも、ブラウザと同じく中クリックで新しいウィンドウに開く。
@@ -1314,7 +1359,7 @@ void App::HandleLinkClick(std::string_view url, bool new_window)
     case LinkClickResult::Type::Anchor:
         // 埋め込みの文書は引数で開けないので、新しいウィンドウにせずその場で飛ぶ。
         if (new_window && doc.HasBackingFile()) {
-            Dispatch(NewWindowAction{ doc.GetFilePath(), std::move(result.target) });
+            OpenInNewWindow(doc.GetFilePath(), result.target);
             return;
         }
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
@@ -1327,7 +1372,7 @@ void App::HandleLinkClick(std::string_view url, bool new_window)
         return;
     case LinkClickResult::Type::LocalFile:
         if (new_window) {
-            Dispatch(NewWindowAction{ std::move(result.path), std::move(result.target) });
+            OpenInNewWindow(result.path, result.target);
             return;
         }
         Dispatch(OpenPathAction{ std::move(result.path), std::move(result.target) });
@@ -1343,8 +1388,7 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     }
 
     const TitleBarHitZone zone = state_.window.titlebar.HitTest(dip_x, dip_y);
-    if (const auto action = app_controller::TitleBarClickAction(zone)) {
-        Dispatch(*action);
+    if (RunBinding(app_controller::TitleBarClickBinding(zone))) {
         return true;
     }
     switch (zone) {
@@ -1372,7 +1416,7 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
     switch (zone) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            Dispatch(SearchSelectAllAction{});
+            RunCommand(AppCommand::SearchSelectAll);
         }
         return;
     case SearchBarHitZone::Up:
@@ -1496,7 +1540,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
 {
     // ブラウザのリンクと同じく Ctrl+クリックは新しいウィンドウ。
     if (IsKeyDown(VK_CONTROL)) {
-        Dispatch(NewWindowAction{ entry.full_path });
+        OpenInNewWindow(entry.full_path);
         return;
     }
     if (entry.is_directory) {
@@ -1626,7 +1670,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     switch (const int cmd = ContextMenu::Show(hwnd_, params); cmd) {
     case IDM_NEW_WINDOW:
         // 項目の外なら空のまま渡し、表示中の文書を開かせる。
-        Dispatch(NewWindowAction{ std::move(entry_path) });
+        OpenInNewWindow(entry_path);
         break;
     case IDM_NAV_BACK:
     case IDM_NAV_FORWARD:
@@ -1642,10 +1686,10 @@ void App::OnContextMenu(int screen_x, int screen_y)
     }
     case IDM_COPY:
     case IDM_COPY_FORMATTED:
-        Dispatch(CopyAction{ .formatted = cmd == IDM_COPY_FORMATTED });
+        RunCommand(cmd == IDM_COPY_FORMATTED ? AppCommand::CopyFormatted : AppCommand::Copy);
         break;
     case IDM_TOGGLE_DARK_MODE:
-        Dispatch(ToggleDarkModeAction{});
+        RunCommand(AppCommand::ToggleDarkMode);
         break;
     case IDM_TOGGLE_FILE_PANE:
         Dispatch(TogglePaneAction{ PaneTarget::File });

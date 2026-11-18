@@ -126,10 +126,10 @@ void Bury(ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&&
 void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
 {
     bool buried = false;
-    if (auto cells = std::move(row_layouts_[r])) {
+    if (const auto row_layouts = std::move(row_layouts_[r])) {
         for (size_t c = 0; c < col_count; ++c) {
-            if (cells[c]) {
-                Bury(released, std::move(cells[c]));
+            if (auto& cell = row_layouts->cells[c]) {
+                Bury(released, std::move(cell));
                 buried = true;
             }
         }
@@ -188,7 +188,7 @@ void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
         ReleaseEntryLayouts(e, released_layouts_);
         // ズーム変更で計測条件が変わるので、測れなかったノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.layout_dirty = true;
-        e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
+        e.forget_measured();
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
         // 図のノードの高さは図の寸法で決まるので残す。
@@ -202,11 +202,16 @@ void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables) noexcept
+bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_indices, bool tables, const std::function<bool(size_t)>& affected) noexcept
 {
     bool any = false;
-    const auto invalidate = [&](NodeLayoutEntry& e) {
+    const auto invalidate = [&](size_t i) {
+        auto& e = entries_[i];
         if (!e.pending_inline || (!tables && e.table_layout())) {
+            return;
+        }
+        // 届いた組の数式を待たないノードは、組み直しても仮のままになる。
+        if (affected && !e.table_layout() && !affected(i)) {
             return;
         }
         // 数式や画像の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
@@ -218,12 +223,12 @@ bool LayoutCache::InvalidatePendingInlineLayouts(std::span<const size_t> table_i
     // 捨てるだけで印を残すので、範囲の外も見る。全エントリを見ると大きな文書で重いうえ、数式の組の結果や
     // 画像が届くたびに呼ばれる。
     for (size_t i = live_nodes_.begin; i < live_nodes_.end; ++i) {
-        invalidate(entries_[i]);
+        invalidate(i);
     }
     if (tables) {
         for (const size_t i : table_indices) {
             if (i < live_nodes_.begin || i >= live_nodes_.end) {
-                invalidate(entries_[i]);
+                invalidate(i);
             }
         }
     }
@@ -295,7 +300,7 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
 bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)
 {
     const auto it = src.diagrams_.find(from);
-    // コマンドリストだけを捨てた画面外の図も、寸法を引き継ぐ。
+    // 絵を捨てた画面外の図も、寸法を引き継ぐ。
     if (it == src.diagrams_.end() || !it->second.HasStaleableResult()) {
         return false;
     }

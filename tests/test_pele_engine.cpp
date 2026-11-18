@@ -14,6 +14,7 @@
 #include <process.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -145,7 +146,7 @@ TEST_F(PeleEngineTest, SerializedDrawingParsesBackAndResolvesMaths)
 {
     auto out = engine_->Render("flowchart TD\n  A[\"$$x^2$$\"] --> B[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> C((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
-    auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
+    auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(out.drawing));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
     engine_->ResolveMaths(*back);
@@ -431,6 +432,17 @@ TEST_F(PeleEngineTest, WideDiagramKeepsNaturalSizeWithoutBakedScale)
     EXPECT_EQ(texts, 4u);
 }
 
+// 描く前から古くなっていた図は、JS を止めて Cancelled で返し、エラーにしない。ランタイムはそのまま次の図に使える。
+TEST_F(PeleEngineTest, StaleRenderIsCancelledAndRuntimeStaysUsable)
+{
+    constexpr std::string_view kCode = "flowchart LR\n  A[開始] --> B[終了]";
+    const std::atomic<uint32_t> generation{ 1 };
+    const auto stale = engine_->Render(kCode, false, 600.0f, { &generation, 0 });
+    EXPECT_EQ(stale.status, Status::Cancelled);
+    EXPECT_TRUE(stale.error.empty());
+    EXPECT_EQ(engine_->Render(kCode, false, 600.0f, { &generation, 1 }).status, Status::Drawn);
+}
+
 // 幅の上限に収まる図は、上限が変わっても同じ描画命令になる (幅に縛られない結果のキャッシュの前提)。
 TEST_F(PeleEngineTest, FittingDiagramDoesNotDependOnMaxWidth)
 {
@@ -441,18 +453,6 @@ TEST_F(PeleEngineTest, FittingDiagramDoesNotDependOnMaxWidth)
     ASSERT_EQ(wide.status, Status::Drawn);
     ASSERT_LT(narrow.drawing.width, 600.0f);
     EXPECT_EQ(narrow.drawing, wide.drawing);
-}
-
-// 覚えておいた pele の出力をテーマを変えて解き直しても、初めて描いたときと同じになる。
-TEST_F(PeleEngineTest, ReusedPeleOutputMatchesFreshRender)
-{
-    constexpr std::string_view kCode = "flowchart LR\n  A[\"面積 $$x^2$$\"] --> B[bbbbbbbbbbbbbbbbbbbbbbbb] --> C[cccccccccccccccc]";
-    ASSERT_EQ(engine_->Render(kCode, false, 300.0f).status, Status::Drawn);
-    const auto reused = engine_->Render(kCode, true, 300.0f);
-    const auto fresh = NewEngine()->Render(kCode, true, 300.0f);
-    ASSERT_EQ(reused.status, Status::Drawn);
-    ASSERT_EQ(fresh.status, Status::Drawn);
-    EXPECT_EQ(reused.drawing, fresh.drawing);
 }
 
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。

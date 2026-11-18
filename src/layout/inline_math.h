@@ -30,7 +30,7 @@ struct InlineMathMetrics {
     }
 };
 
-// 描く数式 1 つ。font_size は数式を置く場所の文字の大きさ (DIP)。
+// 描く数式 1 つ。font_size は数式を組む大きさ (MathLayoutSize、ズーム前の DIP)。
 struct InlineMathItem {
     uint64_t key = 0;
     std::string tex;
@@ -43,10 +43,15 @@ std::optional<std::string_view> InlineMathTex(std::string_view text, const TextR
 
 // 数式は文字の大きさごとに描くので、キーに大きさも混ぜる。
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
-// 数式を置く場所の文字の大きさ。計画と計測はこれでキーを揃える。見出しは見出しの大きさ、表の見出し行は h4、ほかは本文。
+// 数式を置く場所の文字の大きさ。見出しは見出しの大きさ、表の見出し行は h4、ほかは本文。
 // コードの大きさは当たらない (数式はインラインコードと重ならず、コードブロックに数式は無い)。
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
+// 文字の大きさ text_size の場所に置く数式を組む大きさ。ズームはテーマの全寸法を一様に掛けるだけなので、数式はズーム前の
+// 大きさで組み、置くときに倍率を掛ける。計画と計測はこれでキーを揃える。
+float MathLayoutSize(const Theme& theme, float text_size) noexcept;
+// node (表でないもの) のインライン数式に、sorted_keys (昇順) のキーがあるか。届いた数式の組を待つノードを選ぶのに使う。
+bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys);
 
 // 1 回のまとめ描き (bg のワーカーの 1 つの仕事) に載せる数式の数。
 // 1 つの仕事が短く終わる数にして、ほかの図や画像のデコードを長く待たせない。
@@ -85,7 +90,7 @@ public:
 private:
     std::vector<InlineMathChunk> chunks_;
     uint64_t generation_ = 0;
-    // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない
+    // 開く・読み直すたびに数式の数だけ足すので、要素ごとに確保しない
     // (BM_InlineMathPlanBuild/math_12000 が 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
 };

@@ -45,10 +45,6 @@ struct MouseWheelAction {
     unsigned scroll_lines = DEFAULT_WHEEL_SCROLL_LINES;
 };
 
-// 選択範囲をコピーする。formatted なら HTML (書式付き) も載せる。
-struct CopyAction {
-    bool formatted = false;
-};
 struct SelectAllAction {};
 // ダブルクリック位置の単語を選択する。
 struct SelectWordAction {
@@ -69,15 +65,6 @@ struct ZoomAction {
     std::optional<PaneTarget> pane;
 };
 
-struct ReloadFileAction {};
-struct OpenFileAction {};
-// path が空なら表示中の文書 (ヘルプならファイル一覧のフォルダ) を新しいウィンドウで開く。
-struct NewWindowAction {
-    std::wstring path;
-    // 新しいウィンドウで飛ぶ見出し (UTF-8)。空なら文書の先頭。
-    std::string anchor;
-};
-struct ToggleDarkModeAction {};
 // 履歴を戻る (forward が false) か進む。
 struct NavigateHistoryAction {
     bool forward = false;
@@ -89,8 +76,6 @@ struct CloseSearchBarAction {};
 struct SearchStepAction {
     bool forward = true;
 };
-// 検索の入力欄の中の全選択 (検索欄で Ctrl+A)。
-struct SearchSelectAllAction {};
 // 検索の入力欄のダブルクリック。pos (UTF-16) を含む語を選ぶ。
 struct SearchSelectWordAction {
     int pos = 0;
@@ -294,22 +279,16 @@ struct ImeCompositionAction {
 using AppAction = std::variant<
     KeyScrollAction,
     MouseWheelAction,
-    CopyAction,
     SelectAllAction,
     SelectWordAction,
     ClearSelectionAction,
     TogglePaneAction,
     ZoomAction,
-    ReloadFileAction,
-    OpenFileAction,
-    NewWindowAction,
-    ToggleDarkModeAction,
     NavigateHistoryAction,
     ShowHelpAction,
     OpenSearchBarAction,
     CloseSearchBarAction,
     SearchStepAction,
-    SearchSelectAllAction,
     SearchSelectWordAction,
     PointerHoverAction,
     MouseLeaveAction,
@@ -349,3 +328,20 @@ using AppAction = std::variant<
     ToggleHighlightAction,
     SearchSelectionAction,
     ImeCompositionAction>;
+
+// 状態を変えず、App がその場で行う操作。reducer に渡しても副作用 1 つに置き換えて返すだけなので、アクションにしない。
+enum class AppCommand : uint8_t {
+    OpenFile,
+    Reload,
+    // 表示中の文書を新しいウィンドウで開く (開く先は app_controller::NewWindowArgs)。
+    NewWindow,
+    ToggleDarkMode,
+    // 選択範囲をコピーする。Formatted は HTML (書式付き) も載せる。
+    Copy,
+    CopyFormatted,
+    // 検索の入力欄の中の全選択。
+    SearchSelectAll,
+};
+
+// キーやボタンに割り当てたもの。
+using AppBinding = std::variant<AppAction, AppCommand>;

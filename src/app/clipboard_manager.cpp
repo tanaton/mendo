@@ -51,6 +51,12 @@ void ClipboardManager::Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICI
     show_toast_ = std::move(show_toast);
 }
 
+void ClipboardManager::CopySelection(const Document& doc, const TextSelection& selection, bool formatted, bool dark) const
+{
+    const auto& nodes = doc.GetNodes();
+    WriteClipboardHtml(hwnd_, formatted ? ExtractSelectedTextAsHtml(nodes, selection, dark) : std::string{}, ExtractSelectedText(nodes, selection));
+}
+
 void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool dark) const
 {
     const Node* node = NodeOfType(doc.GetNodes(), node_index, NodeType::CodeBlock);
@@ -61,8 +67,7 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
     // 区切ったコードブロックは並び全体をコピーする。選択コピーと同じく、プレーンテキストの改行は CRLF にする。
     const auto& nodes = doc.GetNodes();
     const auto last = static_cast<int>(ChunkRunLast(nodes, static_cast<size_t>(node_index)));
-    const auto selection = TextSelection::MakeOrdered(node_index, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
-    WriteClipboardHtml(hwnd_, ExtractSelectedTextAsHtml(nodes, selection, dark), ExtractSelectedText(nodes, selection));
+    CopySelection(doc, TextSelection::MakeOrdered(node_index, 0, last, static_cast<uint32_t>(nodes[last].GetText().size())), /*formatted=*/true, dark);
 }
 
 void ClipboardManager::SaveDiagramAsPng(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, float md_width) const

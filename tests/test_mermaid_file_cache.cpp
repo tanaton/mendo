@@ -69,9 +69,10 @@ struct RawIndexRecord {
     float css_height = 0.0f;
     uint32_t file_size = 0;
     int64_t last_used = 0;
+    uint8_t any_width = 0;
 };
 
-// index.bin の書式 (ヘッダ 12 バイト + レコード 28 バイト) でバイト列を組み立てる。
+// index.bin の書式 (ヘッダ 12 バイト + レコード 29 バイト) でバイト列を組み立てる。
 // declared_count はヘッダに書く件数で、records の数と食い違わせて壊れた索引を作れる。
 static std::string BuildRawIndex(uint32_t declared_count, std::initializer_list<RawIndexRecord> records,
                                  uint32_t version = MermaidFileCache::VERSION)
@@ -87,6 +88,7 @@ static std::string BuildRawIndex(uint32_t declared_count, std::initializer_list<
         put(r.css_height);
         put(r.file_size);
         put(r.last_used);
+        put(r.any_width);
     }
     return buf;
 }
@@ -263,6 +265,24 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_EQ(out.size(), 512u);
 }
 
+// どの幅でも使える印は索引に残り、幅の上限より広い図でも幅なしのキーで当たる。印の無い広い図は幅つきのキーでしか引けない。
+TEST_F(MermaidFileCacheTest, AnyWidthEntryHitsAtEveryWidth)
+{
+    InitCache();
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyData(64), /*any_width=*/true);
+    cache_.StoreAsync(200, 640.0f, 480.0f, MakeDummyData(64));
+    const auto hit = cache_.Find(100, 1, 300.0f, false);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->key, 100u);
+    EXPECT_FALSE(cache_.Find(200, 2, 300.0f, false).has_value());
+    cache_.SaveIndex();
+
+    const auto fresh = OpenFreshCache();
+    const auto reloaded = fresh->Find(100, 1, 300.0f, false);
+    ASSERT_TRUE(reloaded.has_value());
+    EXPECT_TRUE(reloaded->entry.any_width);
+}
+
 TEST_F(MermaidFileCacheTest, InitDoesNotTouchDisk)
 {
     const auto dir = temp_dir_ / L"lazy";
@@ -305,7 +325,7 @@ TEST_F(MermaidFileCacheTest, LoadIndexIgnoresBrokenFile)
         const char* label;
         std::string bytes;
     };
-    // 5 件と宣言したうえで、1 件目のレコードの途中 (28 バイト中 10 バイト) で切る。
+    // 5 件と宣言したうえで、1 件目のレコードの途中 (29 バイト中 10 バイト) で切る。
     auto truncated = BuildRawIndex(5, { { .key = 999, .css_width = 100.0f } });
     truncated.resize(12 + 10);
     const Case kCases[] = {

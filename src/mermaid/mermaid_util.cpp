@@ -3,8 +3,8 @@
 #include "utility.h"
 #include "string_convert.h"
 #include <algorithm>
+#include <charconv>
 #include <cmath>
-#include <cwchar>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -24,23 +24,21 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
 
 namespace {
 
-// wstring_view は null 終端が保証されないので写して wcstof に渡す。有限でない値もそのまま返し、範囲は呼ぶ側が確かめる。
-float ParseFloatPrefix(std::wstring_view s) noexcept
+// 数として読めない値と float に収まらない値は NaN にする。有限でない値もそのまま返し、範囲は呼ぶ側が確かめる。
+float ParseFloatPrefix(std::string_view s) noexcept
 {
-    wchar_t buf[64];
-    const auto num_len = std::min(s.size(), std::size(buf) - 1);
-    std::char_traits<wchar_t>::copy(buf, s.data(), num_len);
-    buf[num_len] = L'\0';
-    return std::wcstof(buf, nullptr);
+    float v = 0.0f;
+    const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+    return ec == std::errc{} ? v : std::numeric_limits<float>::quiet_NaN();
 }
 
 // カンマで区切った数を先頭から out に読む。足りない分は 0 のまま。
-void ParseFloatList(std::wstring_view s, std::span<float> out) noexcept
+void ParseFloatList(std::string_view s, std::span<float> out) noexcept
 {
     for (float& v : out) {
-        const auto pos = s.find(L',');
+        const auto pos = s.find(',');
         v = ParseFloatPrefix(s.substr(0, pos));
-        if (pos == std::wstring_view::npos) {
+        if (pos == std::string_view::npos) {
             break;
         }
         s.remove_prefix(pos + 1);
@@ -48,10 +46,10 @@ void ParseFloatList(std::wstring_view s, std::span<float> out) noexcept
 }
 
 // s の先頭から ':' までを切り出して進める。':' が無ければ nullopt。
-std::optional<std::wstring_view> TakeField(std::wstring_view& s) noexcept
+std::optional<std::string_view> TakeField(std::string_view& s) noexcept
 {
-    const auto pos = s.find(L':');
-    if (pos == std::wstring_view::npos) {
+    const auto pos = s.find(':');
+    if (pos == std::string_view::npos) {
         return std::nullopt;
     }
     const auto field = s.substr(0, pos);
@@ -60,17 +58,17 @@ std::optional<std::wstring_view> TakeField(std::wstring_view& s) noexcept
 }
 
 // 10 進の数字だけからなる値。max を超えれば nullopt。
-std::optional<uint32_t> ParseDecimal(std::wstring_view s, uint32_t max) noexcept
+std::optional<uint32_t> ParseDecimal(std::string_view s, uint32_t max) noexcept
 {
     if (s.empty()) {
         return std::nullopt;
     }
     uint64_t v = 0;
-    for (const wchar_t c : s) {
-        if (c < L'0' || c > L'9') {
+    for (const char c : s) {
+        if (c < '0' || c > '9') {
             return std::nullopt;
         }
-        v = v * 10 + static_cast<uint64_t>(c - L'0');
+        v = v * 10 + static_cast<uint64_t>(c - '0');
         if (v > max) {
             return std::nullopt;
         }
@@ -79,7 +77,7 @@ std::optional<uint32_t> ParseDecimal(std::wstring_view s, uint32_t max) noexcept
 }
 
 // "<長さ>:<本文>" を切り出して進める。長さは残りを超えられないので、偽った長さで大きく確保することはない。
-std::optional<std::wstring_view> TakeText(std::wstring_view& s) noexcept
+std::optional<std::string_view> TakeText(std::string_view& s) noexcept
 {
     const auto len_field = TakeField(s);
     const auto len = len_field ? ParseDecimal(*len_field, std::numeric_limits<uint32_t>::max()) : std::nullopt;
@@ -121,10 +119,10 @@ void AppendPlacement(Out out, const mermaid_util::DrawingPlacement& p)
     std::format_to(out, "{},{},{},{},{},{},{},{},{},{},{}", m[0], m[1], m[2], m[3], m[4], m[5], p.x, p.y, p.font_size, p.rgb, p.alpha);
 }
 
-std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
+std::optional<mermaid_util::DrawingText> ParseDrawingText(std::string_view& s)
 {
     const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, L',') != kPlacementNumbers + 2) {
+    if (!numbers || std::ranges::count(*numbers, ',') != kPlacementNumbers + 2) {
         return std::nullopt;
     }
     float v[kPlacementNumbers + 3]{};
@@ -145,15 +143,15 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::wstring_view& s)
         .weight = static_cast<uint16_t>(weight),
         .italic = v[12] != 0.0f,
         .decoration = static_cast<uint8_t>(v[13]),
-        .family = std::wstring{ *family },
-        .text = std::wstring{ *text },
+        .family = string_convert::Utf8ToWide(*family),
+        .text = string_convert::Utf8ToWide(*text),
     };
 }
 
-std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
+std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::string_view& s)
 {
     const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, L',') != kPlacementNumbers - 1) {
+    if (!numbers || std::ranges::count(*numbers, ',') != kPlacementNumbers - 1) {
         return std::nullopt;
     }
     float v[kPlacementNumbers]{};
@@ -163,21 +161,40 @@ std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::wstring_view& s)
     if (!tex) {
         return std::nullopt;
     }
-    return mermaid_util::DrawingMath{ .at = *at, .tex = string_convert::WideToUtf8(*tex) };
-}
-
-// ParseDrawing は長さを UTF-16 の単位で読む。
-size_t Utf16Length(std::string_view utf8) noexcept
-{
-    size_t n = 0;
-    for (const unsigned char c : utf8) {
-        n += (c & 0xC0) != 0x80; // 継続バイト以外で 1 文字
-        n += c >= 0xF0;          // 4 バイトの文字はサロゲートの 2 単位
-    }
-    return n;
+    return mermaid_util::DrawingMath{ .at = *at, .tex = std::string{ *tex } };
 }
 
 } // namespace
+
+bool mermaid_util::IsFlowchartCode(std::string_view code) noexcept
+{
+    bool in_frontmatter = false;
+    bool first_line = true;
+    while (!code.empty()) {
+        const size_t eol = code.find('\n');
+        std::string_view line = code.substr(0, eol);
+        code = eol == std::string_view::npos ? std::string_view{} : code.substr(eol + 1);
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.remove_prefix(1);
+        }
+        while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {
+            line.remove_suffix(1);
+        }
+        const bool fence = line == "---";
+        if ((first_line && fence) || (in_frontmatter && fence)) {
+            in_frontmatter = !in_frontmatter;
+            first_line = false;
+            continue;
+        }
+        first_line = false;
+        if (in_frontmatter || line.empty() || line.starts_with("%%")) {
+            continue;
+        }
+        const std::string_view keyword = line.substr(0, line.find_first_of(" \t;"));
+        return keyword == "flowchart" || keyword == "graph" || keyword == "flowchart-elk";
+    }
+    return false;
+}
 
 bool mermaid_util::IsStorable(const DrawingPlacement& p) noexcept
 {
@@ -189,20 +206,22 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
 {
     std::string out;
     const auto out_it = std::back_inserter(out);
-    // {} の浮動小数は最短の往復表記なので、wcstof で同じ値に読み戻せる。
-    std::format_to(out_it, "{}:{}:{}:{}:{}{}:", drawing.width, drawing.height, drawing.background, Utf16Length(drawing.defs), drawing.defs,
+    // {} の浮動小数は最短の往復表記なので、from_chars で同じ値に読み戻せる。長さは UTF-8 のバイト数。
+    std::format_to(out_it, "{}:{}:{}:{}:{}{}:", drawing.width, drawing.height, drawing.background, drawing.defs.size(), drawing.defs,
                    drawing.layers.size());
     for (const auto& layer : drawing.layers) {
-        std::format_to(out_it, "{}:{}{}:", Utf16Length(layer.shapes), layer.shapes, layer.texts.size());
+        std::format_to(out_it, "{}:{}{}:", layer.shapes.size(), layer.shapes, layer.texts.size());
         for (const auto& t : layer.texts) {
             AppendPlacement(out_it, t.at);
             std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.decoration);
-            std::format_to(out_it, "{}:{}{}:{}", t.family.size(), string_convert::WideToUtf8(t.family), t.text.size(), string_convert::WideToUtf8(t.text));
+            const std::string family = string_convert::WideToUtf8(t.family);
+            const std::string text = string_convert::WideToUtf8(t.text);
+            std::format_to(out_it, "{}:{}{}:{}", family.size(), family, text.size(), text);
         }
         std::format_to(out_it, "{}:", layer.maths.size());
         for (const auto& m : layer.maths) {
             AppendPlacement(out_it, m.at);
-            std::format_to(out_it, ":{}:{}", Utf16Length(m.tex), m.tex);
+            std::format_to(out_it, ":{}:{}", m.tex.size(), m.tex);
         }
     }
     return out;
@@ -236,9 +255,9 @@ mermaid_util::DiagramSize mermaid_util::FittedDiagramSize(const DiagramDrawing& 
     return { std::ceil(std::floor(w * 64.0f) / 64.0f), std::ceil(std::floor(h * 64.0f) / 64.0f) };
 }
 
-std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstring_view payload)
+std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::string_view payload)
 {
-    std::wstring_view s = payload;
+    std::string_view s = payload;
     const auto width_field = TakeField(s);
     const auto height_field = width_field ? TakeField(s) : std::nullopt;
     if (!height_field) {
@@ -263,7 +282,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
         .width = width,
         .height = height,
         .background = *background,
-        .defs = string_convert::WideToUtf8(*defs),
+        .defs = std::string{ *defs },
     };
     out.layers.reserve(*layer_count);
     for (uint32_t i = 0; i < *layer_count; ++i) {
@@ -272,7 +291,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::wstr
         if (!text_count) {
             return std::nullopt;
         }
-        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes = string_convert::WideToUtf8(*svg) });
+        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes = std::string{ *svg } });
         layer.texts.reserve(*text_count);
         for (uint32_t k = 0; k < *text_count; ++k) {
             auto text = ParseDrawingText(s);

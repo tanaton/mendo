@@ -68,10 +68,10 @@ public:
     }
     int drop_queued_count = 0;
 
-    void ReleaseCommands(DiagramEntry& diagram_entry) override
+    void ReleaseDrawing(DiagramEntry& diagram_entry) override
     {
         ID2D1CommandList* const commands = diagram_entry.commands.Get();
-        if (diagram_entry.ReleaseCommands()) {
+        if (diagram_entry.ReleaseImage()) {
             released_commands.push_back(commands);
         }
     }
@@ -839,9 +839,9 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 
 // ---- Mermaid 経路 ----
 
-// 図のコマンドリストは保持範囲の図の分だけ残す。寸法と描画命令は残し、戻ってきたら描画命令から記録し直させる。
+// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。
 // 仮表示中の図は描き直しが届くまでの代わりなので残す。
-TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramCommands)
+TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
                  /*block_height=*/3000.0f);
@@ -860,7 +860,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramCommands)
     const auto& stale_far = *cache_.FindDiagram(indices[2]);
     EXPECT_TRUE(kept.HasImage());
     EXPECT_FALSE(released.HasImage());
-    EXPECT_EQ(released.drawing, drawing);
+    EXPECT_EQ(released.drawing, nullptr);
     EXPECT_EQ(released.width, 100.0f);
     EXPECT_EQ(released.height, 50.0f);
     EXPECT_TRUE(released.NeedsRender());

@@ -474,13 +474,15 @@ TEST(ExtractSelectedTextAsHtml, OrderedListStartBoundaries)
     EXPECT_EQ(ExtractSelectedTextAsHtml(mid, from_second, false), "<ol start=\"2\"><li>b</li><li>c</li></ol>");
 }
 
-// loose list の段落の途中から選んでも、後続の項目の番号は start に出る。
+// loose list の項目の 2 つ目の段落から選んでも、後続の項目の番号は start に出る。最初の段落は項目と一緒に <li><p> で包む。
 TEST(ExtractSelectedTextAsHtml, LooseOrderedListFromParagraphKeepsNextStart)
 {
-    auto nodes = ParseNodes("1. a\n\n2. b");
-    ASSERT_EQ(nodes.size(), 4u);
-    const auto sel = TextSelection::MakeOrdered(1, 0, 3, 1);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>a</p><ol start=\"2\"><li><p>b</p></li></ol>");
+    auto nodes = ParseNodes("1. a\n\n   a2\n\n2. b");
+    ASSERT_EQ(nodes.size(), 3u);
+    const auto sel = TextSelection::MakeOrdered(1, 0, 2, 1);
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>a2</p><ol start=\"2\"><li><p>b</p></li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 2, 1), false),
+              "<ol><li><p>a</p><p>a2</p></li><li><p>b</p></li></ol>");
 }
 
 // 一度も描画していないコードブロックはコピー時にトークン化する。diff の追加/削除色も対応表から引けること
@@ -1496,6 +1498,24 @@ TEST(FindUnchangedEnds, ContinuedCodeWithChangedLeadIsChanged)
     ASSERT_EQ(old_nodes.size(), new_nodes.size());
     ASSERT_GE(new_nodes.size(), 3u);
     EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
+}
+
+// 原文の一致する範囲を同じ位置で指すノードは、テキストを比べずに一致とみなす。差分の位置を渡しても結果は変わらない。
+TEST(FindUnchangedEnds, RawCommonPrefixGivesSameEnds)
+{
+    std::string base;
+    for (int i = 0; i < 50; ++i) {
+        base += std::format("para {}\n\n", i);
+    }
+    const auto old_doc = Document::FromMarkdown(base + "tail old\n", L"a.md");
+    const auto new_doc = Document::FromMarkdown(base + "tail new\n\nadded\n", L"a.md");
+    const std::string_view old_raw = old_doc.GetRawText();
+    const std::string_view new_raw = new_doc.GetRawText();
+    const auto hinted = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes(), { old_raw, new_raw, FindFirstDifference(old_raw, new_raw) });
+    const auto plain = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes());
+    EXPECT_EQ(hinted.head, 50u);
+    EXPECT_EQ(hinted.head, plain.head);
+    EXPECT_EQ(hinted.tail, plain.tail);
 }
 
 // 表の本文は NodeTableData の比較だけで見る。セルの文字が変われば変わったノードに数える。

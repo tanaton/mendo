@@ -103,7 +103,7 @@ float EvictedCellHeight(const TableLayoutData& tl, size_t ci, float cw) noexcept
 float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height)
 {
     float height = base_row_height;
-    auto* const bgs = tl.row_code_bgs.empty() ? nullptr : &tl.row_code_bgs[r];
+    auto* const bgs = tl.MutableRowCodeBgs(r);
     if (bgs) {
         bgs->clear();
     }
@@ -474,11 +474,12 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
         if (!tex) {
             continue;
         }
-        const uint64_t key = InlineMathKey(*tex, format.font_size);
+        const uint64_t key = InlineMathKey(*tex, MathLayoutSize(*theme_, format.font_size));
         if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
+                // ズーム前の大きさで組んであるので、倍率を掛けて置く。
                 const float fit_width = format.math_fit_width;
-                const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
+                const float scale = fit_width > 0.0f ? std::min(theme_->zoom, fit_width / metrics->width) : theme_->zoom;
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
                 placed_block_math = fit_width > 0.0f;
             }
@@ -522,7 +523,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
         // 同じ幅で組んだ text_layout が残っていれば、高さも行もインラインコードの背景も変わらない。
-        if (entry.cached_width == layout_width) {
+        if (entry.measured_at(layout_width)) {
             return metrics.height;
         }
         // 画像は行の幅に縮めるので、縮めずに置けない幅になったときだけ組み直す
@@ -720,13 +721,17 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
     MENDO_PROFILE("FinalizeTableLayout");
     const auto& tbl = *node.table_data();
     const size_t col_count = tl.col_count;
-    const float borders_width = (static_cast<float>(col_count) + 1.0f) * TABLE_BORDER_WIDTH;
-    const float paddings_width = static_cast<float>(col_count) * TABLE_CELL_PADDING * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
+    // 列幅が前に組んだときと同じなら、セルの layout も行の高さも累積位置も変わらないので、組んだ幅だけ進める。
+    // 収まる表と最小幅でも収まらない表は、どの幅でも自然幅か最小幅を写すだけなので、ここを通る。
+    if (tl.HasGeometry() && !layout::TableColumnWidthsChange(tl, max_width)) {
+        tl.last_applied_max_width = max_width;
+        return tl.TotalHeight();
+    }
+    layout::ComputeTableColumnWidths(tl, max_width);
 
-    // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (BM_ImageTableResize が 759 → 17µs)。layout の無いセル
-    // (evict 中の行) は行を戻すときに組む。
+    // 画像を縮めずに置けない列幅になったセルだけ、今の列幅で組み直す (ほかのセルは下で幅を付け替えるだけで済む)。layout の
+    // 無いセル (evict 中の行) は行を戻すときに組む。
     if (!tl.image_cells.empty()) {
         const auto& ctx = Context();
         for (auto& image_cell : tl.image_cells) {

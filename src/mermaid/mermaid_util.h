@@ -25,8 +25,19 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 {
     return css_width + 1.0f < max_width;
 }
+// 幅なしのキーで引いた結果を幅の上限 max_width で使えるか。any_width (別の幅で描いても SVG が同じだった
+// フローチャート) はどの幅でも使える。メモリ・ディスクのキャッシュと幅の変化の判定でそろえる。
+constexpr bool UsableAtWidth(float css_width, bool any_width, float max_width) noexcept
+{
+    return any_width || IsWidthFree(css_width, max_width);
+}
 
 int QuantizeWidth(float max_width) noexcept;
+
+// 図のコードがフローチャート (flowchart / graph) か。先頭の空行・%% のコメント・--- の前置き (frontmatter) は読み飛ばす。
+// pele のフローチャートは幅の上限を見ないが、シーケンス図やガントなどは上限に収まらないと compact に切り替えるので、
+// 2 つの幅で同じ SVG になっても、上限に収まる幅では違う絵になりうる。
+bool IsFlowchartCode(std::string_view code) noexcept;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
@@ -104,8 +115,8 @@ struct DiagramDrawing {
 // 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
 // 並びは "<置き方>,<太さ>,<斜体 0/1>,<線のビット 0〜3 (kTextUnderline | kTextLineThrough)>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-16 の単位。ファイルが壊れていて欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
-std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
+// 長さは UTF-8 のバイト数。ファイルが壊れていて欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
+std::optional<DiagramDrawing> ParseDrawing(std::string_view payload);
 // ParseDrawing が読む形の UTF-8。描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。

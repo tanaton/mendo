@@ -4334,74 +4334,6 @@ size_t MathMaskCache::Bytes() const noexcept
     return impl_->bytes;
 }
 
-namespace {
-
-// 色の指定の無い単色のグリフ (絵文字でないもの) を、書体と大きさごとに 1 つの run にまとめ、ベースラインのずれは glyphOffsets で付ける
-class GlyphRunMerger {
-public:
-    void Add(const MathDrawing::Glyphs& g, float x, float baseline)
-    {
-        if (g.glyphs.empty()) {
-            return;
-        }
-        const auto used = std::span{ groups_ }.first(used_);
-        const auto it = std::ranges::find_if(used, [&](const Group& grp) { return grp.face == g.face.Get() && grp.size == g.size; });
-        Group* grp = it != used.end() ? std::to_address(it) : nullptr;
-        if (!grp) {
-            if (used_ == groups_.size()) {
-                groups_.emplace_back();
-            }
-            grp = &groups_[used_++];
-            grp->face = g.face.Get();
-            grp->size = g.size;
-            grp->origin = D2D1::Point2F(x, baseline);
-            grp->glyphs.clear();
-            grp->advances.clear();
-            grp->offsets.clear();
-        }
-        // 前の run の最後のグリフの送りで、ペンをこの run の先頭まで進める。
-        if (!grp->advances.empty()) {
-            grp->advances.back() += x - grp->pen;
-        }
-        grp->glyphs.append_range(g.glyphs);
-        grp->advances.append_range(g.advances);
-        grp->offsets.insert(grp->offsets.end(), g.glyphs.size(), { .advanceOffset = 0.0f, .ascenderOffset = grp->origin.y - baseline });
-        grp->pen = std::ranges::fold_left(g.advances, x, std::plus{});
-    }
-
-    void Flush(ID2D1RenderTarget* rt, ID2D1Brush* brush)
-    {
-        for (const Group& grp : std::span{ groups_ }.first(used_)) {
-            const DWRITE_GLYPH_RUN run{
-                .fontFace = grp.face,
-                .fontEmSize = grp.size,
-                .glyphCount = static_cast<UINT32>(grp.glyphs.size()),
-                .glyphIndices = grp.glyphs.data(),
-                .glyphAdvances = grp.advances.data(),
-                .glyphOffsets = grp.offsets.data(),
-            };
-            rt->DrawGlyphRun(grp.origin, &run, brush, DWRITE_MEASURING_MODE_NATURAL);
-        }
-        used_ = 0;
-    }
-
-private:
-    struct Group {
-        IDWriteFontFace* face = nullptr;
-        float size = 0.0f;
-        D2D1_POINT_2F origin{};
-        float pen = 0.0f;
-        std::vector<uint16_t> glyphs;
-        std::vector<float> advances;
-        std::vector<DWRITE_GLYPH_OFFSET> offsets;
-    };
-    // 毎フレーム確保し直さないよう、配列を残して使い回す。
-    std::vector<Group> groups_;
-    size_t used_ = 0;
-};
-
-} // namespace
-
 void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, ID2D1Brush* brush, MathMaskCache* masks)
 {
     D2D1::Matrix3x2F base;
@@ -4431,18 +4363,26 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         colored->SetOpacity(brush->GetOpacity());
         return colored.Get();
     };
+    // 色の指定の無い単色のグリフ (絵文字でないもの) は、書体と大きさごとに 1 つの run にまとめる。
     thread_local GlyphRunMerger merger;
     for (const auto& item : math.items) {
         const auto* g = std::get_if<MathDrawing::Glyphs>(&item);
         // 色を指定した部分 (\colorbox の背景など) や絵文字との重なりの順を保つ。
         if ((g && g->color_font) || std::visit([](const auto& it) noexcept { return it.color.has_value(); }, item)) {
-            merger.Flush(rt, brush);
+            merger.Flush(rt);
         }
         if (g) {
             // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
             const float gy = snap_y(y + g->y);
             if (!g->color && !g->mirror && !g->color_font) {
-                merger.Add(*g, x + g->x, gy);
+                const DWRITE_GLYPH_RUN run{
+                    .fontFace = g->face.Get(),
+                    .fontEmSize = g->size,
+                    .glyphCount = static_cast<UINT32>(g->glyphs.size()),
+                    .glyphIndices = g->glyphs.data(),
+                    .glyphAdvances = g->advances.data(),
+                };
+                merger.Add(x + g->x, gy, run, brush, DWRITE_MEASURING_MODE_NATURAL);
                 continue;
             }
             DWRITE_GLYPH_RUN run{};
@@ -4527,7 +4467,7 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
             rt->SetTransform(base);
         }
     }
-    merger.Flush(rt, brush);
+    merger.Flush(rt);
 }
 
 std::vector<std::wstring> ResolveFontFamilies(IDWriteFontCollection* fonts, std::wstring_view css_family)

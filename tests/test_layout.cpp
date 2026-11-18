@@ -815,46 +815,43 @@ TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
     EXPECT_FLOAT_EQ(cache.Top(1) - cache.Top(0), estimated.Top(1) - estimated.Top(0));
 }
 
-// loose list の LI (空) と直下の段落の text_top は一致する (issue#237)。記号は段落の 1 行目の中央に置く。
-// 空 LI の first_line_height は本文の行送りで、段落の 1 行目と同じ。差は物理ピクセルへのスナップの分だけ。
-TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
+// loose list の LI は最初の段落を自分で持ち (issue#237 の空の LI と段落の 2 ノードにしない)、記号は 1 行目の中央に置く。
+// 項目の間は段落と同じ余白。差は物理ピクセルへのスナップの分だけ。
+TEST_F(LayoutTest, LooseListBulletCenteredOnItsFirstLine)
 {
     auto [nodes, cache] = ParseAndLayout("- a\n\n- b");
 
-    ASSERT_EQ(nodes.size(), 4u);
+    ASSERT_EQ(nodes.size(), 2u);
     ASSERT_EQ(nodes[0].type, NodeType::ListItem);
-    ASSERT_EQ(nodes[1].type, NodeType::Paragraph);
-    ASSERT_EQ(nodes[2].type, NodeType::ListItem);
-    ASSERT_EQ(nodes[3].type, NodeType::Paragraph);
-    EXPECT_NEAR(cache.Top(0), cache.Top(1), 0.01f);
-    EXPECT_NEAR(cache.Top(2), cache.Top(3), 0.01f);
-    ASSERT_NE(cache[1].text_layout(), nullptr);
+    ASSERT_EQ(nodes[1].type, NodeType::ListItem);
+    ASSERT_NE(cache[0].text_layout(), nullptr);
+    EXPECT_NEAR(cache.Top(1) - (cache.Top(0) + cache[0].height), theme_.paragraph_spacing, 0.01f);
     DWRITE_LINE_METRICS lm;
     UINT32 lc;
-    ASSERT_TRUE(SUCCEEDED(cache[1].text_layout()->GetLineMetrics(&lm, 1, &lc)));
+    ASSERT_TRUE(SUCCEEDED(cache[0].text_layout()->GetLineMetrics(&lm, 1, &lc)));
     ASSERT_GT(lc, 0u);
 
     CommandGenerator gen;
     InitWithoutText(gen, theme_);
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
-    const float expected_y = cache.Top(1) + lm.height * 0.5f;
+    const float expected_y = cache.Top(0) + lm.height * 0.5f;
     const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
     ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
     EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 0.5f);
 }
 
-// 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem
-// (text_layout=nullptr) で early return され checkbox ごと消えていた。
+// 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、空の TaskListItem (text_layout=nullptr) で early return
+// され checkbox ごと消えていた。loose の項目は段落を持つようになったので、空の枠は最初の子ブロックがコードの項目で作る。
 TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
 {
-    auto [nodes, cache] = ParseAndLayout("- [ ] a\n\n- [x] b");
+    auto [nodes, cache] = ParseAndLayout("- [ ] a\n\n- [x]\n  ```\n  code\n  ```\n");
 
-    ASSERT_EQ(nodes.size(), 4u);
+    ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
-    EXPECT_FALSE(nodes[0].HasText());
-    EXPECT_EQ(nodes[2].type, NodeType::TaskListItem);
-    EXPECT_FALSE(nodes[2].HasText());
+    EXPECT_TRUE(IsLooseListItem(nodes[0]));
+    EXPECT_EQ(nodes[1].type, NodeType::TaskListItem);
+    EXPECT_FALSE(nodes[1].HasText());
 
     // checkbox 描画には formats_.checkbox (非 null) が必要。
     Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_fmt;

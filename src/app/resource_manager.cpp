@@ -153,13 +153,13 @@ void ResourceManager::EvictOffscreenResources()
     // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストも保持範囲の図の分だけ残す。戻ったら描画命令から記録し直すが、メモリを返すほうをユーザーが選んだ。
+    // 図のコマンドリストと描画命令も保持範囲の図の分だけ残す。戻ったら読み直して記録し直すが、メモリを返すほうをユーザーが選んだ。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
         for (const size_t i : part) {
             if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
-                mermaid_.ReleaseCommands(*diagram);
+                mermaid_.ReleaseDrawing(*diagram);
             }
         }
     }
@@ -350,6 +350,7 @@ void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
     const bool dark_mode = state_.theme->dark;
     InvalidateDiagramsForRequestChange(content_width, dark_mode);
     DropQueuesIfJumped();
+    mermaid_.BeginRequestPass();
     // 拡大表示の図は本文の範囲の外にもあるので、範囲に依らず頼む。見ている窓の図なので本文より先に並べる。
     mermaid_.RequestViewerDrawing(content_width, dark_mode);
     const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
@@ -463,7 +464,8 @@ void ResourceManager::InvalidateDiagramsForRequestChange(float content_width, bo
                 continue;
             }
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
-            if (dark_changed || !(diagram->HasImage() && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
+            if (dark_changed ||
+                !(diagram->HasImage() && diagram->width > 0 && mermaid_util::UsableAtWidth(diagram->width, diagram->any_width, min_width))) {
                 diagram->MarkStale();
             }
         }

@@ -4,7 +4,6 @@
 #include "document_utils.h"
 #include "file_io.h"
 #include "layout_computer.h"
-#include "selection_html.h"
 #include "string_convert.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -773,11 +772,6 @@ void On(ReduceContext& c, const SearchContinueAction&)
     }
 }
 
-void On(ReduceContext& c, const SearchSelectAllAction&)
-{
-    PushEffect(c.effects, effect::SearchFocus{});
-}
-
 // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないので、語の境界を自分で求めて選ぶ。
 void On(ReduceContext& c, const SearchSelectWordAction& a)
 {
@@ -911,19 +905,6 @@ void On(ReduceContext& c, const ClearSelectionAction&)
     }
 }
 
-void On(ReduceContext& c, const CopyAction& a)
-{
-    const auto& sel = c.state.view.viewport.GetSelection();
-    if (!sel.active()) {
-        return;
-    }
-    const auto& nodes = c.state.document.doc.GetNodes();
-    PushEffect(c.effects, effect::ClipboardWrite{
-                              .text = ExtractSelectedText(nodes, sel),
-                              .html = a.formatted ? ExtractSelectedTextAsHtml(nodes, sel, c.state.theme->dark) : std::string{},
-                          });
-}
-
 // 戻り値: 段が動いたか。
 bool StepZoomBy(ZoomLevel& zoom, const ZoomAction& a)
 {
@@ -994,11 +975,6 @@ void On(ReduceContext& c, const MouseWheelAction& a)
     else {
         ReduceWheelScroll(c, a);
     }
-}
-
-void On(ReduceContext& c, const ToggleDarkModeAction&)
-{
-    PushEffect(c.effects, effect::ToggleDarkMode{});
 }
 
 void On(ReduceContext& c, const ActivateAction& a)
@@ -1073,7 +1049,7 @@ void On(ReduceContext& c, const SwipeOverlayTimeoutAction&)
 
 // ノード/見出し index に結び付く一時状態 (選択・横スクロール・ホバー・目次の現在位置・ツールチップの対象・
 // 文書を対象にするドラッグ) を消す。文書を差し替えると別の要素を指すので、
-// ロードとリロードの両方で消す。ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
+// ロードとリロードの両方で消す。ホバーは描く前に引き直される (App::RefreshHoverAtCursor)。
 void ResetPerNodeTransientState(ReduceContext& c)
 {
     auto& view = c.state.view;
@@ -1137,26 +1113,6 @@ void On(ReduceContext& c, const LoadFailedAction&)
     DiscardPendingLoad(c.state);
 }
 
-void On(ReduceContext& c, const OpenFileAction&)
-{
-    PushEffect(c.effects, effect::OpenFileDialog{});
-}
-
-void On(ReduceContext& c, const NewWindowAction& a)
-{
-    std::wstring path = a.path;
-    if (path.empty()) {
-        const auto& doc = c.state.document.doc;
-        path = doc.HasBackingFile() ? doc.GetFilePath() : c.state.file_explorer.GetDirectory();
-    }
-    PushEffect(c.effects, effect::LaunchNewWindow{ std::move(path), a.anchor });
-}
-
-void On(ReduceContext& c, const ReloadFileAction&)
-{
-    PushEffect(c.effects, effect::ReloadFile{});
-}
-
 } // namespace
 
 SearchBarRenderState BuildSearchBarRenderState(const AppState& state)
@@ -1197,7 +1153,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     if (nav_buttons() != old_nav_buttons) {
         Invalidate(c);
     }
-    // 描き直しとキャプチャの変更は、モーダルの副作用 (メニュー・ファイルを開くダイアログ) より先に済ませるよう先頭に積む。
+    // 描き直しとキャプチャの変更は、モーダルの副作用 (メニュー) より先に済ませるよう先頭に積む。
     // 描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った。
     if (c.invalidated) {
         effects.insert(effects.begin(), effect::InvalidateWindow{});

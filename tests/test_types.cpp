@@ -137,7 +137,7 @@ TEST(NodeTest, SetTextAndRunsDoNotCopy)
 
     Node node;
     node.SetText(text);
-    node.SetRuns(runs);
+    node.SetRefs({}, 0, runs);
     EXPECT_EQ(node.GetText().data(), text.data());
     ASSERT_EQ(node.runs().size(), 1u);
     EXPECT_EQ(node.runs().data(), runs);
@@ -164,14 +164,14 @@ TEST(NodeTest, ImageSrcFollowsLinkUrls)
     Node node;
     EXPECT_FALSE(node.has_images());
     EXPECT_TRUE(node.image_srcs().empty());
-    node.SetLinkUrlsAndImageSrcs(kUrls, 1);
+    node.SetRefs(kUrls, 1, {});
     EXPECT_EQ(node.view_link_urls().size(), 1u);
     EXPECT_TRUE(node.has_images());
     EXPECT_TRUE(std::ranges::equal(node.image_srcs(), std::span{ kUrls }.subspan(1)));
     EXPECT_EQ(node.image_src(TextRun{ .flags = TextRun::kImage, .image_slot = 0 }), "a.png");
     EXPECT_EQ(node.image_src(TextRun{ .flags = TextRun::kImage, .image_slot = 1 }), "b.png");
 
-    node.SetLinkUrlsAndImageSrcs(kUrls, 3);
+    node.SetRefs(kUrls, 3, {});
     EXPECT_FALSE(node.has_images());
 }
 

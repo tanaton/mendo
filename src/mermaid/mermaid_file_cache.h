@@ -27,7 +27,8 @@ public:
     // 10: ライトの配色を mermaid の既定のテーマに寄せた。
     // 11: 図のコードのハッシュを FNV-1a から rapidhash に、幅を混ぜる係数を kGoldenRatio64 に替え、ファイル名が変わった。
     // 12: 幅の上限に収まらない図も、縮めない大きさの描画命令で置く (縮めるのは描くとき)。索引の寸法も縮めない大きさ。
-    static constexpr uint32_t VERSION = 12;
+    // 13: 描画命令の長さを UTF-8 のバイト数で書く (読むときにファイル全体を UTF-16 へ変換しない)。索引に「どの幅でも使える」印を持つ。
+    static constexpr uint32_t VERSION = 13;
 
     MermaidFileCache() = default;
     ~MermaidFileCache();
@@ -38,6 +39,8 @@ public:
     struct CacheEntry {
         float css_width = 0.0f;
         float css_height = 0.0f;
+        // 幅の上限より広い図でも、どの幅でも同じに描ける (幅なしのキーで置く。MermaidRenderer が別の幅で描き直して確かめた)。
+        bool any_width = false;
     };
 
     // 索引の読み込みは初回利用まで遅らせ、図を含まない文書の起動を塞がない。
@@ -46,14 +49,14 @@ public:
         uint64_t key = 0;
         CacheEntry entry;
     };
-    // 図の寸法を、幅に縛られない結果 (max_width より狭いときだけ使える) を先に、無ければ幅つきで引き、当たったキーと寸法を返す。
+    // 図の寸法を、幅に縛られない結果 (max_width より狭いか、どの幅でも使えるときだけ) を先に、無ければ幅つきで引き、当たったキーと寸法を返す。
     // touch なら当たった項目の LRU を更新する (使えない幅なしの項目では更新しない)。寸法だけ見るときは更新しない。
     std::optional<Hit> Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch);
     // ファイルの読み込み (ReadAllBytes) は呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
     std::filesystem::path FilePath(uint64_t key) const;
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    void StoreAsync(uint64_t key, float css_width, float css_height, std::string data);
+    void StoreAsync(uint64_t key, float css_width, float css_height, std::string data, bool any_width = false);
     void SaveIndex();
     // 索引とファイルをすべて消す。書き込み中のファイルは着地後に worker が消す。
     void Clear();
@@ -84,6 +87,7 @@ private:
         float css_height = 0.0f;
         uint32_t file_size = 0;
         int64_t last_used = 0;
+        bool any_width = false;
     };
 
     // 追い出しは満杯時だけなので、順序構造を持たず last_used の線形走査で最古を探す。

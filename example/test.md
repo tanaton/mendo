@@ -331,9 +331,9 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（レイアウトが変わった後の後始末の入口 `FinishLayout`, `EnsureFrameLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理、ファイル読み込み（`LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示 `OpenDocument` とリロードでの差し替え `ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる。読み直しの指示（`ReloadScheduler` が返す `ReloadCommand`）の実行 `RunReloadCommand`、埋め込みの文書（ヘルプ・サードパーティのライセンス）を開く `ShowEmbeddedResource`）、マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, `OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick`, `OnMouseHover` 等。点が指すものの判定は `app_controller` に任せる） |
-| `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/図のコピー（画像と SVG）を集約。図の画像と SVG はその場で描画命令から作る） |
-| `app_controller.h / .cpp` | `app_controller::HandleKeyDown` / `HandleSearchEditKeyDown`（キー → アクション）と、AppState とペイン配置だけから点が指すものを求める判定（`MakeMdPaneHitContext`, `ResolveMdPaneHit`, `ResolveSidePaneHit`, `ResolvePointerHover`, `IsOverMdScrollbar`） |
+| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `RunCommand`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（レイアウトが変わった後の後始末の入口 `FinishLayout`, `EnsureFrameLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理、ファイル読み込み（`LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示 `OpenDocument` とリロードでの差し替え `ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる。読み直しの指示（`ReloadScheduler` が返す `ReloadCommand`）の実行 `RunReloadCommand`、埋め込みの文書（ヘルプ・サードパーティのライセンス）を開く `ShowEmbeddedResource`）、マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, `OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick`, `OnMouseHover` 等。点が指すものの判定は `app_controller` に任せる） |
+| `clipboard_manager.h / .cpp` | `ClipboardManager`（選択範囲とコードブロックのコピー/PNG 保存/図のコピー（画像と SVG）を集約。図の画像と SVG はその場で描画命令から作る） |
+| `app_controller.h / .cpp` | `app_controller::HandleKeyDown` / `HandleSearchEditKeyDown`（キー → アクションかコマンド）、新しいウィンドウに渡す引数 `NewWindowArgs` と、AppState とペイン配置だけから点が指すものを求める判定（`MakeMdPaneHitContext`, `ResolveMdPaneHit`, `ResolveSidePaneHit`, `ResolvePointerHover`, `IsOverMdScrollbar`） |
 | `reducer.h / .cpp` | `Reduce(state, action, layout, resource)`（in-place 更新、副作用リストを返す。計測は `NodeLayoutAccess` で App に頼む）と、アクションごとの処理 `On(ReduceContext&, const XxxAction&)`（`std::visit` で振り分ける）。`On` と補助関数は無名名前空間に置き、キャプチャの取得・解放は `Reduce` が前後の状態（`CaptureRequired`）を比べて積む |
 | `side_effect.h` | `SideEffect`（`effect::*` の variant）と `SideEffectList`。実行は `App::Execute` |
 | `resource_manager.h` / `.cpp` | 画像・Mermaid 図の要求と取り込み、画面外の画像・図・レイアウトを捨てる整理（`ScheduleResourceManage`）、本文中の画像のフォルダの監視と、App に頼むことの抽象インターフェース `ResourceManagerHost` |
@@ -368,6 +368,9 @@ flowchart TD
 
     KEY --> AC[app_controller::HandleKeyDown]
     AC --> ACTION[AppAction]
+    AC --> CMD[AppCommand]
+    CMD --> RUNCMD[App::RunCommand]
+    RUNCMD --> WIN
     ACTION --> DISP[App::Dispatch]
     DISP --> RED[Reduce]
     RED --> EFFS[SideEffectList]
@@ -391,20 +394,20 @@ flowchart TD
 
 #### 3.2.5 キーボードショートカット
 
-`app_controller::HandleKeyDown()` がキー入力を `AppAction` に変換する。
+`app_controller::HandleKeyDown()` がキー入力を `AppAction` か `AppCommand`（状態を変えず App がその場で行う操作。3.4.2）に変換する。
 
-| キー | アクション | 備考 |
+| キー | アクション / コマンド | 備考 |
 |:-----|:-----------|:-----|
 | `F1` | `ShowHelpAction` | 内蔵ヘルプ表示 |
 | `F3` | `SearchStepAction{ forward = true }` | 次の検索結果 |
 | `Shift+F3` | `SearchStepAction{ forward = false }` | 前の検索結果 |
-| `F5` | `ReloadFileAction` | 再読み込み |
+| `F5` | `AppCommand::Reload` | 再読み込み |
 | `Esc` | `ClearSelectionAction` | 選択解除（検索バー表示中は検索バーを閉じる） |
-| `Ctrl+O` | `OpenFileAction` | OpenFileDialog |
-| `Ctrl+N` | `NewWindowAction` | 表示中のファイル（無ければファイルペインのフォルダ）を新しいウィンドウで開く。キーリピートは無視 |
-| `Ctrl+A` | `SelectAllAction` | 全選択 |
-| `Ctrl+C` | `CopyAction{ formatted = false }` | プレーンテキストコピー |
-| `Ctrl+Shift+C` | `CopyAction{ formatted = true }` | 書式付きコピー (HTML) |
+| `Ctrl+O` | `AppCommand::OpenFile` | ファイルを開くダイアログ |
+| `Ctrl+N` | `AppCommand::NewWindow` | 表示中のファイル（無ければファイルペインのフォルダ）を新しいウィンドウで開く。キーリピートは無視 |
+| `Ctrl+A` | `SelectAllAction` | 全選択（検索欄では `AppCommand::SearchSelectAll` で入力欄の中を全選択） |
+| `Ctrl+C` | `AppCommand::Copy` | プレーンテキストコピー |
+| `Ctrl+Shift+C` | `AppCommand::CopyFormatted` | 書式付きコピー (HTML) |
 | `Ctrl+F` | `OpenSearchBarAction` | 検索バー表示（表示中は閉じる） |
 | `Ctrl+G` | `SearchStepAction{ forward = true }` | 次の検索結果 |
 | `Ctrl+Shift+G` | `SearchStepAction{ forward = false }` | 前の検索結果 |
@@ -444,9 +447,12 @@ struct KeyDownEvent {
     bool repeat = false;   // 押し続けたときの自動リピート
 };
 
+// キーやボタンに割り当てたもの。状態を変えるものはアクションで reducer へ、それ以外はコマンドで App が行う。
+using AppBinding = std::variant<AppAction, AppCommand>;
+
 namespace app_controller {
     // 割り当ての無いキーは nullopt。
-    std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event);
+    std::optional<AppBinding> HandleKeyDown(const KeyDownEvent& event);
 }
 ```
 
@@ -684,23 +690,18 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
 
 #### 3.4.2 AppAction
 
-`AppAction` は `std::variant` で 57 種類のアクションを保持する（コマンド系、マウス・ドラッグ系、システム、タイマー、検索の 5 グループ）。ファイル変更通知・画像読み込み完了・パース完了は Reducer を通さず、`App` が直接処理する。文書の読み込みと差し替えは `App` が持ち、差し替えた後のビュー状態の後始末（番号に結び付いた一時状態・検索・ペインのスクロール・ファイル一覧・スクロールの復元）は `DocumentOpenedAction` / `DocumentReloadedAction` / `ReloadSettledAction` で reducer に任せる。
+`AppAction` は `std::variant` で 51 種類のアクションを保持する（コマンド系、マウス・ドラッグ系、システム、タイマー、検索の 5 グループ）。状態を変えない操作（ファイルを開くダイアログ・再読み込み・新しいウィンドウ・テーマの切り替え・コピー・検索欄の全選択）はアクションにせず、`AppCommand`（`app_events.h` の enum）にして `App::RunCommand` がその場で行う。reducer に渡しても副作用 1 つに置き換えて返すだけになるためである。キーとタイトルバーのボタンの割り当て（`app_controller`）は、どちらかを `AppBinding` で返す。ファイル変更通知・画像読み込み完了・パース完了は Reducer を通さず、`App` が直接処理する。文書の読み込みと差し替えは `App` が持ち、差し替えた後のビュー状態の後始末（番号に結び付いた一時状態・検索・ペインのスクロール・ファイル一覧・スクロールの復元）は `DocumentOpenedAction` / `DocumentReloadedAction` / `ReloadSettledAction` で reducer に任せる。
 
 ```cpp
 using AppAction = std::variant<
     // コマンド系
     KeyScrollAction, MouseWheelAction,
-    CopyAction,                         // formatted なら書式付き (HTML)
     SelectAllAction, SelectWordAction, ClearSelectionAction,
     TogglePaneAction, ZoomAction,
-    ReloadFileAction, OpenFileAction,
-    NewWindowAction,                    // path が空なら表示中の文書を新しいウィンドウで開く
-    ToggleDarkModeAction,
     NavigateHistoryAction,              // forward で戻る / 進む
     ShowHelpAction,
     OpenSearchBarAction, CloseSearchBarAction,
     SearchStepAction,                   // forward で次 / 前のマッチ
-    SearchSelectAllAction,
     SearchSelectWordAction,             // 検索の入力欄のダブルクリック
     // マウス・ドラッグ系
     PointerHoverAction, MouseLeaveAction,
@@ -743,18 +744,15 @@ using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
     effect::SetCapture, effect::ReleaseCapture,
-    effect::ClipboardWrite,   // { text, html }。html があれば CF_HTML にも載せる
     effect::SetTooltip,
     effect::ShowContextMenu, effect::Beep,
     // Window
     effect::SearchFocus, effect::SearchUnfocus,
-    effect::ApplyZoom, effect::ToggleDarkMode,
+    effect::ApplyZoom,
     effect::SettleViewport,
     effect::RendererResize, effect::ApplyDpi,   // ApplyDpi は { dpi, suggested }
     // Navigation
-    effect::LoadFile, effect::ReloadFile, effect::OpenFileDialog,
-    effect::LaunchNewWindow,   // { path, anchor }。path が空なら引数なしで起動する
-    effect::CancelOtherFileLoad,
+    effect::LoadFile, effect::CancelOtherFileLoad,
     // Layout
     effect::ResourceManage,
     // Timer
@@ -765,7 +763,7 @@ using SideEffectList = std::pmr::vector<SideEffect>;
 
 再描画要求は `effect::InvalidateWindow`（ウィンドウ全体の `InvalidateRect(hwnd, nullptr, FALSE)`）に一本化されている。タイトルバーや Markdown ペインだけを部分無効化する effect は持たない。`OnPaint` は `rcPaint` を見ずに毎回全面を描き、`FLIP_DISCARD` のスワップチェーンでは部分描画もできないため、無効化矩形を絞っても描画量は減らないからである。
 
-`PushEffect<T>(effects, e)` は effect を `SideEffectList` に追加するヘルパーで、最初の 1 件で 4 件分を予約する。一覧の領域は `Reduce` の最後の引数の `memory_resource` から取る（テストの `Reduce(state, action)` は既定のリソースを使う）。`App::Dispatch` は呼び出しごとにスタックの 1KiB を `monotonic_buffer_resource` にして渡す。マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積み、一覧の確保と解放が `Reduce` の 3〜4 割（1 イベント約 25ns）を占めていたため。effect が持つ文字列は `std::variant` が allocator を受け継がないので既定のリソースのままで、領域より長生きしない。描き直しは各処理が印（`ReduceContext::invalidated`）を立てるだけで、`Reduce` の終わりに `InvalidateWindow` を 1 件だけ副作用の先頭へ積む。キャプチャの取得・解放（前後の `CaptureRequired` の比較）も先頭へ積み、メニューやファイルを開くダイアログのようなモーダルの副作用より先に済ませる（描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った）。テストで使う `FindEffect<T>(effects)` と `HasEffect<T>(effects)` は `std::get_if` の薄いラッパである（`tests/reducer_harness.h`）。
+`PushEffect<T>(effects, e)` は effect を `SideEffectList` に追加するヘルパーで、最初の 1 件で 4 件分を予約する。一覧の領域は `Reduce` の最後の引数の `memory_resource` から取る（テストの `Reduce(state, action)` は既定のリソースを使う）。`App::Dispatch` は呼び出しごとにスタックの 1KiB を `monotonic_buffer_resource` にして渡す。マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積み、一覧の確保と解放が `Reduce` の 3〜4 割（1 イベント約 25ns）を占めていたため。effect が持つ文字列は `std::variant` が allocator を受け継がないので既定のリソースのままで、領域より長生きしない。描き直しは各処理が印（`ReduceContext::invalidated`）を立てるだけで、`Reduce` の終わりに `InvalidateWindow` を 1 件だけ副作用の先頭へ積む。キャプチャの取得・解放（前後の `CaptureRequired` の比較）も先頭へ積み、メニューのようなモーダルの副作用より先に済ませる（描き直しを後ろに積むと、メニューを閉じるまで右ドラッグの軌跡が残った）。テストで使う `FindEffect<T>(effects)` と `HasEffect<T>(effects)` は `std::get_if` の薄いラッパである（`tests/reducer_harness.h`）。
 
 #### 3.4.4 App::Execute — 副作用の実行
 
@@ -785,19 +783,28 @@ void App::Dispatch(const AppAction& action)
 | グループ | effect | 実行内容 |
 |:--|:--|:--|
 | Ui | `InvalidateWindow` / `SetCapture` / `ReleaseCapture` | `InvalidateRect(hwnd_, nullptr, FALSE)` / `::SetCapture(hwnd_)` / `::ReleaseCapture()`（キャプチャを持つのがこのウィンドウのときだけ。設定ダイアログなどのポップアップのキャプチャは外さない） |
-| | `ClipboardWrite` | `WriteClipboardHtml`（`clipboard_util.h`。`html` が空なら CF_UNICODETEXT だけを書く。UTF-16 変換もここで行う） |
 | | `SetTooltip` | `tooltip_.Arm` で出ているものを隠して文言を差し替え、文言があれば `TOOLTIP` タイマーを張る / 空ならタイマーを止める |
 | | `ShowContextMenu` | `App::OnContextMenu` |
 | | `Beep` | `MessageBeep(MB_OK)`（検索の折り返し） |
 | Window | `SearchFocus` / `SearchUnfocus` | `Win32Window::FocusSearchEdit` / `UnfocusSearch` をその場で呼ぶ（`Win32Window` が検索ボックスを操作する） |
-| | `ApplyZoom` / `ToggleDarkMode` | `App::ApplyZoom` / `App::ToggleDarkMode` |
+| | `ApplyZoom` | `App::ApplyZoom` |
 | | `SettleViewport` | `ViewportManager::EnsureScrollTarget` で見ている位置を決めてから `App::FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message)`（ライブリサイズ中は積まず、`ResizeAction` の reducer がスクロールを収めて再描画を積む） |
 | | `RendererResize` | `Renderer::Resize(width, height, live)` |
 | | `ApplyDpi` | `Renderer::SetDpi(dpi)` と、WM_DPICHANGED が勧める矩形 `suggested` への `SetWindowPos` |
-| Navigation | `LoadFile` / `ReloadFile` / `OpenFileDialog` / `CancelOtherFileLoad` | `App::LoadMarkdownFile` / ファイルのある文書なら `ReloadScheduler::OnReloadRequested` の指示を `RunReloadCommand` で実行 / `OpenFileDialog` / `CancelOtherFileLoad` |
-| | `LaunchNewWindow` | `LaunchSelfInNewWindow`（`win32_util.h`。元のウィンドウのタイトルバーが隠れないだけずらして、自分の exe を起動する） |
+| Navigation | `LoadFile` / `CancelOtherFileLoad` | `App::LoadMarkdownFile` / `CancelOtherFileLoad` |
 | Layout | `ResourceManage` | 先読みの範囲を空き時間で確かめさせ（`LayoutCache::SetHasDirtyNodes`）、`ResourceManager::ScheduleResourceManage` を呼ぶ。スクロールの間は見えている図をビットマップで描かせ（`Renderer::SetScrollingDiagrams(true)`）、`SCROLL_SETTLE` タイマー（500ms）でベクタに戻す |
 | Timer | `SetTimer` / `KillTimer` | `::SetTimer` / `::KillTimer`（ID は `app_timer::Id`） |
+
+キーとタイトルバーのボタンの `AppCommand` は `App::RunBinding` が `App::RunCommand` へ渡し、reducer を通さずにその場で行う。コンテキストメニューのコピーとテーマの切り替えも `RunCommand` を通す（新しいウィンドウは項目のパスを渡すので `App::OpenInNewWindow` を直接呼ぶ）。
+
+| コマンド | 実行内容 |
+|:--|:--|
+| `OpenFile` | `App::OpenFileDialog`（選んだファイルは `OpenPathAction` で開く） |
+| `Reload` | ファイルのある文書なら `ReloadScheduler::OnReloadRequested` の指示を `RunReloadCommand` で実行 |
+| `NewWindow` | `App::OpenInNewWindow` が `LaunchSelfInNewWindow`（`win32_util.h`。元のウィンドウのタイトルバーが隠れないだけずらして、自分の exe を起動する）を呼ぶ。引数は `app_controller::NewWindowArgs`（開く先が空なら表示中の文書、ファイルが無ければファイル一覧のフォルダ。見出しは `--anchor` で渡す） |
+| `ToggleDarkMode` | `App::ToggleDarkMode` |
+| `Copy` / `CopyFormatted` | 選択があれば `ClipboardManager::CopySelection` が `WriteClipboardHtml`（`clipboard_util.h`。HTML が空なら CF_UNICODETEXT だけを書く。UTF-16 変換もここで行う）を呼ぶ |
+| `SearchSelectAll` | `Win32Window::FocusSearchEdit(0, -1)`（入力欄の中の全選択） |
 
 ---
 
@@ -1342,7 +1349,7 @@ public:
 
 今のテーマは `ThemeService` が 1 つだけ持ち、`Renderer`（`const Theme*`）・`DWriteTextMeasurer` / `LayoutEngine`・`AppState::theme`・ポップアップ（`PopupEnv::theme`）はそれを参照する。切り替えは同じ場所を書き換え、ベーステーマから作り直すので倍率の累積誤差は溜まらない。起動時は `App::Init` が `session::LoadDarkMode` / `session::LoadZoomLevel` の値で `ThemeService::Init` を呼び、テーマを作ってフォントを決めてから `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。フォントの解決は DirectWrite の共有ファクトリだけを使い、D3D デバイスを待つより前に済む。
 
-ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシを作り直すだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文の記号・番号・プレースホルダの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。`App::ToggleDarkMode` もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ図だけは、後始末（`App::FinishLayout`）の図の要求がテーマの変化を見て描き直させる（`ResourceManager::InvalidateDiagramsForRequestChange`。reducer の `ToggleDarkModeAction` の処理は `effect::ToggleDarkMode` を積むだけで、文書には書かない）。
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシを作り直すだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文の記号・番号・プレースホルダの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。`App::ToggleDarkMode` もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ図だけは、後始末（`App::FinishLayout`）の図の要求がテーマの変化を見て描き直させる（`ResourceManager::InvalidateDiagramsForRequestChange`。テーマの切り替えは reducer を通さず、`App::RunCommand` が `App::ToggleDarkMode` を直接呼ぶ）。
 
 #### 3.9.3 ズームシステム
 
@@ -1811,7 +1818,7 @@ private:
 
 #### 3.13.2 リンク解決
 
-リンククリックは `document_utils.h` のフリー関数 `ClassifyLinkClick(url, doc_path)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）、外部 URL を `ShellExecuteExW` で開く処理（`App::ShellOpenAsync`。UI スレッドを待たせないよう専用スレッドで開く）、ローカルの Markdown ファイルと埋め込みの文書を開く処理（`OpenPathAction`）を分岐する。`#` で始まる URL がアンカー、`mendo://help`・`mendo://licenses` が埋め込みの文書（`Embedded`）、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外は文書のフォルダからの相対パスなどとして解決し（`ResolveLocalPath`）、Markdown ファイル（`.md`・`.markdown`・`.mkd`）なら `LocalFile` として開く（`#` より後ろは開いた文書で飛ぶ見出し。表示中の文書を指していれば見出しへ飛ぶだけ）。Markdown 以外のファイルや `file://` などは何もしない（ShellExecute に渡すと実行ファイルも起動できてしまう）。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。Ctrl+クリックと中クリックは、ローカルの Markdown と（ファイルを開いている文書の）見出しへのリンクを新しいウィンドウで開く（`NewWindowAction`）。別ファイルへの遷移（リンク、履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
+リンククリックは `document_utils.h` のフリー関数 `ClassifyLinkClick(url, doc_path)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）、外部 URL を `ShellExecuteExW` で開く処理（`App::ShellOpenAsync`。UI スレッドを待たせないよう専用スレッドで開く）、ローカルの Markdown ファイルと埋め込みの文書を開く処理（`OpenPathAction`）を分岐する。`#` で始まる URL がアンカー、`mendo://help`・`mendo://licenses` が埋め込みの文書（`Embedded`）、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外は文書のフォルダからの相対パスなどとして解決し（`ResolveLocalPath`）、Markdown ファイル（`.md`・`.markdown`・`.mkd`）なら `LocalFile` として開く（`#` より後ろは開いた文書で飛ぶ見出し。表示中の文書を指していれば見出しへ飛ぶだけ）。Markdown 以外のファイルや `file://` などは何もしない（ShellExecute に渡すと実行ファイルも起動できてしまう）。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。Ctrl+クリックと中クリックは、ローカルの Markdown と（ファイルを開いている文書の）見出しへのリンクを新しいウィンドウで開く（`App::OpenInNewWindow`）。別ファイルへの遷移（リンク、履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
 
 ```cpp
 struct LinkClickResult {

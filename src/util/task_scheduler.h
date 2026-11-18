@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -29,12 +30,13 @@ constexpr int LayoutWorkerCount(unsigned int cores) noexcept
         cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
 }
 
-// ワーカーは初回 Post まで起動しない (小さい文書だけのセッションでスレッドを作らない)。Post() はスレッドセーフ。
+// ワーカーは Post で要るときに要る本数だけ起動する (小さい文書だけのセッションでスレッドを作らない)。Post() はスレッドセーフ。
 // COM を初期化せずに起動するので、COM を使うタスクは EnsureWorkerCom を呼ぶ。Shutdown() は UI スレッドから呼ぶ。
 class TaskScheduler {
 public:
     // Shutdown した後は使い直せない。
-    explicit TaskScheduler(int thread_count) noexcept;
+    // below_normal ならワーカーの優先度を UI のスレッドより下げる。
+    explicit TaskScheduler(int thread_count, bool below_normal = false) noexcept;
     ~TaskScheduler();
 
     TaskScheduler(const TaskScheduler&) = delete;
@@ -53,6 +55,9 @@ public:
     }
 
     void Shutdown();
+    // ワーカーがみな待っているだけなら終わらせ、スレッドのスタックと thread_local の資源を返す。次の Post で作り直す。
+    // 仕事中のワーカーか待ちのタスクがあれば何もせず false。Shutdown と同じく UI スレッドから呼ぶ。
+    bool ReleaseIdleWorkers();
 
     // ワーカー上ならそのスレッドを一度だけ MTA に入れる (ほかでは何もしない)。WIC など COM を使う処理の直前で呼ぶ。
     // 起動時に全ワーカーで初期化すると、COM を使わない preload のパースまでプロセス初回の COM 初期化を待つ。
@@ -69,15 +74,21 @@ private:
     bool PostImpl(std::move_only_function<void()> task, bool front);
     // mutex_ を保持して呼ぶ。
     void StartWorkersLocked();
-    void WorkerLoop();
+    // generation が generation_ と違ったら (ReleaseIdleWorkers で畳まれたら) 終わる。
+    void WorkerLoop(uint64_t generation);
 
     std::atomic<size_t> thread_count_;
+    const bool below_normal_;
     std::vector<std::thread> workers_;
     std::deque<std::move_only_function<void()>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
     // 読み書きはすべて mutex_ の下で行う。
     bool shutdown_ = false;
+    // タスクを動かしている今の世代のワーカーの数と、ワーカーの世代。mutex_ の下で読み書きする。仕事中の数だけを数えるので、
+    // 畳まれたワーカーと起動中のワーカーは数に触れず、畳んでいる間の Post も空いているワーカーの数を正しく見る。
+    size_t busy_ = 0;
+    uint64_t generation_ = 0;
 };
 
 // obj を worker で破棄する。投函できなければ (Shutdown 後・確保の失敗) ここで破棄する。

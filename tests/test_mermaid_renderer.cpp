@@ -105,7 +105,7 @@ public:
         ++log_.loading;
         has_drawing_ = false;
     }
-    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing) override
+    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList>) override
     {
         has_drawing_ = true;
         log_.drawings.push_back(std::move(drawing));
@@ -255,30 +255,91 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(file_cache_.Find(d.WidthFreeHash(), 0, kMaxWidth, false).has_value());
 }
 
-// 画面外へ出てコマンドリストを捨てた図は、覚えている描画命令から同期で記録し直し、描き直しもディスクの読み込みもしない。
-TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
+// 画面外へ出て絵と描画命令を捨てた図は、覚えている結果からも外し、戻ったらディスクから読み直す (描き直さない)。
+// ディスクの描画命令を別の図のものに置き換えておき、読み直したことを見分ける。
+TEST_F(MermaidRendererTest, ReleasedDrawingIsReadBackFromDisk)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(alpha, entry));
+    const DiagramDoc beta(kBeta);
+    DiagramEntry other;
+    ASSERT_TRUE(RenderUntilSettled(beta, other));
+    // 書き込み中の同じキーは 2 本目を出さないので、alpha の書き込みを終えてから置き換える。
+    ASSERT_TRUE(DrainScheduler(file_scheduler_));
+    StoreDrawingAs(other, alpha.WidthFreeHash());
+    const float width = entry.width;
+    const float height = entry.height;
+
+    renderer_.ReleaseDrawing(entry);
+    EXPECT_FALSE(entry.HasImage());
+    EXPECT_EQ(entry.drawing, nullptr);
+    EXPECT_TRUE(entry.NeedsRender());
+    EXPECT_EQ(entry.width, width) << "寸法は残す";
+    EXPECT_EQ(entry.height, height);
+
+    EXPECT_FALSE(Request(alpha, entry)) << "覚えている結果からも外す";
+    ASSERT_TRUE(RenderUntilSettled(alpha, entry));
+    EXPECT_TRUE(SvgOf(entry).contains("Beta")) << "ディスクから読む";
+}
+
+// テーマを切り替えて置き換わった結果のコマンドリストは、覚えている結果からも外す。描画命令は残し、テーマを戻したら
+// 描き直さずに、worker で文字を組んでから記録し直す。
+TEST_F(MermaidRendererTest, ReplacedResultDropsItsCommandsAndKeepsDrawing)
 {
     const DiagramDoc d(kAlpha);
     DiagramEntry entry;
     ASSERT_TRUE(RenderUntilSettled(d, entry));
-    const auto drawing = entry.drawing;
-    const float width = entry.width;
-    const float height = entry.height;
-    const ComPtr<ID2D1CommandList> released = entry.commands;
+    const auto light = entry.drawing;
+    const ComPtr<ID2D1CommandList> light_commands = entry.commands;
 
-    renderer_.ReleaseCommands(entry);
-    EXPECT_FALSE(entry.HasImage());
-    EXPECT_TRUE(entry.NeedsRender());
-    EXPECT_EQ(entry.width, width) << "寸法は残す";
+    entry.MarkStale();
+    ASSERT_TRUE(Await([&] { return renderer_.RequestRender(d.node(), entry, kMaxWidth, /*dark_mode=*/true); }));
+    EXPECT_NE(entry.drawing, light);
+    EXPECT_EQ(renderer_.CachedCommandLists(), 1u) << "明るいテーマのコマンドリストは外す";
 
-    const int updates = updates_;
-    EXPECT_TRUE(Request(d, entry));
-    ASSERT_TRUE(entry.HasImage());
-    EXPECT_NE(entry.commands, released) << "捨てたものは使わない";
-    EXPECT_EQ(entry.drawing, drawing);
-    EXPECT_EQ(entry.width, width);
-    EXPECT_EQ(entry.height, height);
-    EXPECT_EQ(updates_, updates) << "描き直さない";
+    entry.MarkStale();
+    EXPECT_FALSE(Request(d, entry)) << "UI では文字を組まない";
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    EXPECT_EQ(entry.drawing, light) << "描き直さない";
+    EXPECT_NE(entry.commands, light_commands);
+    EXPECT_EQ(renderer_.CachedCommandLists(), 1u);
+}
+
+// 文書を切り替えたら、覚えている結果のコマンドリストを全部外す。描画命令は残し、また開いたら描き直さずに記録し直す。
+TEST_F(MermaidRendererTest, ReleaseCachedCommandsKeepsDrawings)
+{
+    const DiagramDoc d(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    ASSERT_EQ(renderer_.CachedCommandLists(), 1u);
+
+    renderer_.ReleaseCachedCommands();
+    EXPECT_EQ(renderer_.CachedCommandLists(), 0u);
+    DiagramEntry reopened;
+    EXPECT_FALSE(Request(d, reopened));
+    ASSERT_TRUE(RenderUntilSettled(d, reopened));
+    EXPECT_EQ(reopened.drawing, entry.drawing) << "描き直さない";
+}
+
+// 幅の上限より広い図は、別の幅で描き直した pele の SVG が同じなら、どの幅でも使える結果として幅なしのキーに置く。
+// 3 つ目の幅では描き直さずにキャッシュから出す。
+TEST_F(MermaidRendererTest, WideDiagramWithSameSvgAtTwoWidthsIsReusedAtAnyWidth)
+{
+    const DiagramDoc d(kWide);
+    DiagramEntry first;
+    ASSERT_TRUE(RenderUntilSettled(d, first, 200.0f));
+    ASSERT_GT(first.width, 200.0f) << "幅の上限より広い図";
+    EXPECT_FALSE(first.any_width) << "1 つの幅で描いただけでは分からない";
+
+    DiagramEntry second;
+    ASSERT_TRUE(RenderUntilSettled(d, second, 300.0f));
+    EXPECT_TRUE(second.any_width);
+
+    DiagramEntry third;
+    EXPECT_TRUE(Request(d, third, 420.0f)) << "描き直さない";
+    EXPECT_TRUE(third.any_width);
+    EXPECT_EQ(third.drawing, second.drawing);
 }
 
 // 描いた図のエラーは描き直しても同じなので確定させ、ディスクには置かない。
@@ -366,6 +427,40 @@ TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsMath)
     ASSERT_TRUE(RenderUntilSettled(beta, eb));
     EXPECT_TRUE(ea.HasImage());
     EXPECT_TRUE(eb.HasImage());
+}
+
+// 見えている図から順に頼み直す回 (BeginRequestPass) では、待ちの表示用の要求をその回に頼まれた順へ並べ直す。新しい要求も
+// その回の分の後ろに入り、前の回に頼んだだけの図はその後ろで待つ。数式の要求は図より先に描く。
+TEST_F(MermaidRendererTest, WaitingRequestsFollowRequestPassAndMathGoesFirst)
+{
+    const DiagramDoc alpha(kAlpha);
+    const DiagramDoc beta(kBeta);
+    const DiagramDoc gamma(kGamma);
+    const DiagramDoc wide(kWide);
+    const DiagramDoc broken(kBroken);
+    DiagramEntry ea;
+    DiagramEntry eb;
+    DiagramEntry eg;
+    DiagramEntry ew;
+    DiagramEntry ex;
+    WorkerGate gate(scheduler_, 2);
+    ASSERT_TRUE(gate.ready());
+    // alpha は同時に描く枠 (1 つ) を使い、残りが待つ。
+    EXPECT_FALSE(Request(alpha, ea));
+    EXPECT_FALSE(Request(beta, eb));
+    EXPECT_FALSE(Request(gamma, eg));
+    EXPECT_FALSE(Request(wide, ew));
+    ASSERT_EQ(renderer_.WaitingRequests(), (std::vector{ beta.RequestHash(), gamma.RequestHash(), wide.RequestHash() }));
+
+    renderer_.BeginRequestPass();
+    EXPECT_FALSE(Request(wide, ew));
+    EXPECT_FALSE(Request(gamma, eg));
+    EXPECT_FALSE(Request(broken, ex));
+    EXPECT_EQ(renderer_.WaitingRequests(), (std::vector{ wide.RequestHash(), gamma.RequestHash(), broken.RequestHash(), beta.RequestHash() }));
+
+    renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [](InlineMathBatchResult) {});
+    EXPECT_EQ(renderer_.WaitingRequests(),
+              (std::vector<uint64_t>{ 0, wide.RequestHash(), gamma.RequestHash(), broken.RequestHash(), beta.RequestHash() }));
 }
 
 // インライン数式は要求と同じ順で返し、描けない数式は描画命令も寸法も空。

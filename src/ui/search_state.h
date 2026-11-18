@@ -19,7 +19,11 @@ struct SearchMatch {
     int table_col = -1;
     uint32_t start_w = 0;
     uint32_t length_w = 0;
-    uint32_t next_length_w = 0;
+    uint32_t next_length_w : 31 = 0;
+    // 両端がクラスタの境目にあると分かっている (描くときに ExpandToClusters で広げなくてよい)。ASCII だけのマッチで、
+    // 直後も ASCII か末尾、ノード (表) に数式も画像も無いとき。ASCII は本文とコードのフォントで 1 文字 1 クラスタ
+    // (合字が無い) で、結合文字や異体字セレクタは直後に来たときだけ前の文字のクラスタに付く。
+    uint32_t on_cluster_bounds : 1 = 0;
 };
 
 // matches[first] がノード node の最初のマッチ (無ければ node より後ろの最初のマッチ) のとき、
@@ -113,10 +117,10 @@ private:
     // query は case-insensitive (fold) 時は ASCII 小文字化済み。text の from バイト目から探す。
     // next は text に改行を挟まずつながる続きのノードのテキスト (無ければ空) で、継ぎ目をまたぐマッチも拾う。
     // 戻り値はまたいだマッチが next の先頭から使ったバイト数。next はそこから探す。
-    size_t FindTextMatches(std::string_view text, std::string_view next, size_t from, std::string_view query, bool fold, int node_index);
+    size_t FindTextMatches(const Node& node, std::string_view next, size_t from, std::string_view query, bool fold, int node_index);
     // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
     // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
-    void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
+    void FindTableMatches(const Node& node, std::string_view query, bool fold, int node_index);
 
     // 検索を止め、前回の結果を残す。
     void StopSearch() noexcept

@@ -10,6 +10,9 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # ---- MSVCビルド最適化 ----
 # /MP: マルチプロセッサコンパイル（各ターゲット内で並列コンパイル）
 add_compile_options(/MP)
+# /GR-: RTTI を使わない (dynamic_cast も typeid も無い) ので型情報を exe に載せない。テストとベンチの依存も同じに組み、
+#   多態のクラスの vtable を /GR と /GR- の翻訳単位で取り違えないようにする。
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/GR->)
 
 # /GL: プログラム全体の最適化（コンパイル時にLTCGを有効化）
 # /Gy: 関数レベルリンク（リンカが未使用関数を除去可能にする）

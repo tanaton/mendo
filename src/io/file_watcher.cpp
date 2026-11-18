@@ -111,11 +111,12 @@ DirectoryChangeRead::Poll DirectoryChangeRead::Take(std::span<const std::byte>& 
     }
     DWORD bytes_returned = 0;
     if (!GetOverlappedResult(dir.get(), &overlapped, &bytes_returned, FALSE)) {
-        if (GetLastError() == ERROR_IO_INCOMPLETE) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_IO_INCOMPLETE) {
             return Poll::Waiting;
         }
         pending = false;
-        return Poll::Failed;
+        return error == ERROR_OPERATION_ABORTED && Begin() ? Poll::Waiting : Poll::Failed;
     }
     pending = false;
     notified = std::as_bytes(std::span{ buf, bytes_returned });

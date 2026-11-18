@@ -1198,24 +1198,29 @@ TEST(SyntaxResume, StatelessLanguages)
     ExpectResumableAtLineStarts(SyntaxLanguage::Cpp, "#include <a>\nint f() { return 1; } // c\n/* block\n   comment */ #define X\nconst char* s = \"a\";\n");
 }
 
-// IsLineLocalLanguage の言語は、行の頭で区切ったコードの並びを前から解析せずに済ませる (AnnotateCodeChunkLeads)。
-// トークンが改行をまたがず、どの行の頭から状態なしで始めても同じ結果になること。言語を足したら断片も見直す。
-TEST(SyntaxResume, LineLocalLanguagesNeedNoState)
+// 行をまたぐトークンを始める並びが無いテキスト (MayHaveMultilineToken が偽) は、行の頭で区切ったコードの並びを前から解析せずに
+// 済ませる (AnnotateCodeChunkLeads)。トークンが改行をまたがず、どの行の頭から状態なしで始めても同じ結果になること。
+// 断片は行をまたぐトークンの開きの片割れや似た並びを多めにし、偶然そろった開きを含むテキストは判定が真になるので飛ばす。
+TEST(SyntaxResume, TextsWithoutMultilineTokenStartsNeedNoState)
 {
     constexpr std::string_view kPieces[] = {
-        "[", "]", "=", ":", ";", "#", "\"", "'", " ", " ", "\t", "\n", "\n", "\n", "key", "1.5", "true", "\\", "値",
+        "[", "]", "=", ":", ";", "#", "\"", "'", " ", " ", "\t", "\n", "\n", "\n", "\r\n", "key", "1.5", "true", "\\", "値",
+        "/", "*", "<", ">", "@", "$", "R", "`", "(", ")", "-", "--", "//", "::", "rem ", "#define x", "begin", "x", "int", "\"\"", "''",
+        "\\\\", "\\\"", "a(", "{", "}", "+", "%", ",",
     };
     for (int l = 0; l <= kLastLanguage; ++l) {
         const auto language = static_cast<SyntaxLanguage>(l);
-        if (!IsLineLocalLanguage(language)) {
-            continue;
-        }
-        for (uint32_t seed = 0; seed < 200; ++seed) {
+        int checked = 0;
+        for (uint32_t seed = 0; seed < 400; ++seed) {
             std::mt19937 rng(seed);
             std::string text;
-            for (size_t i = rng() % 200; i > 0; --i) {
+            for (size_t i = rng() % 60; i > 0; --i) {
                 text += kPieces[rng() % std::size(kPieces)];
             }
+            if (MayHaveMultilineToken(language, text)) {
+                continue;
+            }
+            ++checked;
             const auto full = Tokenize(text, language);
             for (const auto& t : full) {
                 ASSERT_FALSE(GetTokenText(text, t).contains('\n')) << std::format("language={} seed={} text={}", l, seed, utf8_fuzz::HexEscape(text));
@@ -1226,6 +1231,10 @@ TEST(SyntaxResume, LineLocalLanguagesNeedNoState)
                 ASSERT_TRUE(resumed == TokensFrom(full, newline + 1))
                     << std::format("language={} seed={} begin={} text={}", l, seed, newline + 1, utf8_fuzz::HexEscape(text));
             }
+        }
+        // 判定が使える言語 (行をまたがないテキストで偽になる言語) は、十分な数のテキストで確かめる。
+        if (!MayHaveMultilineToken(language, "x\ny")) {
+            EXPECT_GT(checked, 100) << "language=" << l;
         }
     }
 }

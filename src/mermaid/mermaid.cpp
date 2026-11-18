@@ -6,7 +6,6 @@
 #include "i18n.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
-#include "string_convert.h"
 #include "task_scheduler.h"
 #include "win32_util.h"
 #include <d3d11.h>
@@ -35,7 +34,9 @@ MermaidRenderer::~MermaidRenderer()
 void MermaidRenderer::Shutdown()
 {
     // 取り消した要求のコールバックは呼ばない (結果を待つ側も終わるところなので)。
-    render_waiting_.clear();
+    math_waiting_.clear();
+    display_waiting_.clear();
+    pass_count_ = 0;
     inflight_.clear();
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
     if (pele_) {
@@ -93,33 +94,65 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
 }
 
-DiagramResult* MermaidRenderer::FindCached(uint64_t request_hash, uint64_t width_free_hash, float max_width)
+DiagramResult* MermaidRenderer::FindCached(DisplayTarget& target, float max_width)
 {
-    auto* free = cache_.Find(width_free_hash);
-    return free && mermaid_util::IsWidthFree(free->width, max_width) ? free : cache_.Find(request_hash);
+    auto* free = cache_.Find(target.width_free_hash);
+    target.width_free = free && mermaid_util::UsableAtWidth(free->width, free->any_width, max_width);
+    target.any_width = target.width_free && free->any_width;
+    return target.width_free ? free : cache_.Find(target.request_hash);
 }
 
 void MermaidRenderer::DropQueued()
 {
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
     // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
-    std::erase_if(render_waiting_, [this](const RenderRequest& r) {
-        const auto* display = std::get_if<DisplayTarget>(&r.target);
-        if (!display) {
-            return false;
-        }
-        inflight_.erase(display->request_hash);
-        return true;
-    });
+    for (const RenderRequest& r : display_waiting_) {
+        inflight_.erase(std::get<DisplayTarget>(r.target).request_hash);
+    }
+    display_waiting_.clear();
+    pass_count_ = 0;
 }
 
-void MermaidRenderer::ReleaseCommands(DiagramEntry& diagram_entry)
+void MermaidRenderer::BeginRequestPass()
+{
+    pass_count_ = 0;
+}
+
+void MermaidRenderer::PromoteWaiting(uint64_t request_hash)
+{
+    const auto front = display_waiting_.begin() + static_cast<ptrdiff_t>(pass_count_);
+    const auto it = std::find_if(front, display_waiting_.end(), [request_hash](const RenderRequest& r) {
+        return std::get<DisplayTarget>(r.target).request_hash == request_hash;
+    });
+    if (it != display_waiting_.end()) {
+        std::rotate(front, it, it + 1);
+        ++pass_count_;
+    }
+}
+
+std::vector<uint64_t> MermaidRenderer::WaitingRequests() const
+{
+    std::vector<uint64_t> hashes(math_waiting_.size(), 0);
+    for (const RenderRequest& r : display_waiting_) {
+        hashes.push_back(std::get<DisplayTarget>(r.target).request_hash);
+    }
+    return hashes;
+}
+
+void MermaidRenderer::ReleaseDrawing(DiagramEntry& diagram_entry)
 {
     // 外し終えるまで同じアドレスが別の図に使われないよう、参照を持っておく。
-    const Microsoft::WRL::ComPtr<ID2D1CommandList> commands = diagram_entry.commands;
-    if (!diagram_entry.ReleaseCommands()) {
+    const auto drawing = diagram_entry.drawing;
+    if (!diagram_entry.ReleaseImage()) {
         return;
     }
+    // 画面外の図のメモリが見た範囲に比例しないよう、描画命令ごと手放す。戻ったらディスクから読み直す (外れていれば JS で
+    // 描き直す) が、図の多い文書でメモリを返すほうをユーザーが選んだ。
+    cache_.EraseIf([&drawing](const DiagramResult& r) { return r.drawing == drawing; });
+}
+
+void MermaidRenderer::ForgetCommands(const Microsoft::WRL::ComPtr<ID2D1CommandList>& commands)
+{
     cache_.ForEach([&commands](DiagramResult& r) {
         if (r.commands == commands) {
             r.commands = nullptr;
@@ -127,9 +160,21 @@ void MermaidRenderer::ReleaseCommands(DiagramEntry& diagram_entry)
     });
 }
 
+void MermaidRenderer::ReleaseCachedCommands()
+{
+    cache_.ForEach([](DiagramResult& r) { r.commands = nullptr; });
+}
+
+size_t MermaidRenderer::CachedCommandLists()
+{
+    size_t count = 0;
+    cache_.ForEach([&count](const DiagramResult& r) { count += r.commands != nullptr; });
+    return count;
+}
+
 void MermaidRenderer::DropQueuedMath()
 {
-    std::erase_if(render_waiting_, [](const RenderRequest& r) { return std::holds_alternative<MathRequest>(r.target); });
+    math_waiting_.clear();
 }
 
 bool MermaidRenderer::RequestRender(
@@ -137,32 +182,45 @@ bool MermaidRenderer::RequestRender(
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode)
 {
-    auto* result = FindOrRequest(node.GetText(), max_width, dark_mode);
+    const std::string_view code = node.GetText();
+    DisplayTarget hit;
+    auto* result = FindOrRequest(code, max_width, dark_mode, &hit);
     if (!result) {
         return false;
     }
-    // 画面外へ出たときに捨てたコマンドリストを、描画命令から記録し直す (worker で組んだ文字は記録時に捨てたので、ここで組む)。
-    // デバイスを作り直している間は記録できないので、次の要求まで待たせる。
+    // 外したコマンドリスト (置き換わった結果を、テーマや幅を戻して使う・文書を切り替えた) を、描画命令から記録し直す。
+    // worker で組んだ文字は記録時に捨てたので、初めて描いたときと同じく worker で組み直してから記録する。
+    // 届くまではプレースホルダーを同じ寸法で出す。
     if (result->drawing && !result->commands) {
-        result->commands = RecordDrawing(*result->drawing, nullptr);
-        if (!result->commands) {
-            return false;
+        if (inflight_.insert(hit.request_hash).second) {
+            StartRelayout(RenderRequest{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = hit }, result->drawing);
         }
+        return false;
+    }
+    // 置き換わる結果 (前のコード・幅・テーマ) のコマンドリストは、どの図も持たなくなるので覚えている結果からも外す。
+    // 描画命令は残し、テーマや幅を戻したら記録し直す。
+    if (diagram_entry.commands && diagram_entry.commands != result->commands) {
+        const Microsoft::WRL::ComPtr<ID2D1CommandList> replaced = std::move(diagram_entry.commands);
+        ForgetCommands(replaced);
     }
     // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
     diagram_entry.SetResult(*result);
     return true;
 }
 
-DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode)
+DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key)
 {
     const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
     const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
     const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
-    if (auto* cached = FindCached(hash, width_free_hash, max_width)) {
+    if (DisplayTarget key{ .request_hash = hash, .width_free_hash = width_free_hash }; auto* cached = FindCached(key, max_width)) {
+        if (cached_key) {
+            *cached_key = key;
+        }
         return cached;
     }
     if (!inflight_.insert(hash).second) {
+        PromoteWaiting(hash);
         return nullptr;
     }
 
@@ -172,7 +230,10 @@ DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_w
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
-        .target = DisplayTarget{ .request_hash = hash, .width_free_hash = width_free_hash, .width_free = hit && hit->key == width_free_hash },
+        .target = DisplayTarget{ .request_hash = hash,
+                                 .width_free_hash = width_free_hash,
+                                 .width_free = hit && hit->key == width_free_hash,
+                                 .any_width = hit && hit->key == width_free_hash && hit->entry.any_width },
     };
     if (hit) {
         StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
@@ -186,10 +247,10 @@ DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_w
 template <typename Work>
 void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
 {
-    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind }, work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
+    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind, .drop_gen = drop_gen_.load(std::memory_order_relaxed) }, work = std::move(work),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && drop_gen != drop_gen_.load(std::memory_order_relaxed);
+        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && job.drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
@@ -212,7 +273,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     if (data.empty()) {
         return JobUnreadable{ read_error };
     }
-    auto drawing = mermaid_util::ParseDrawing(string_convert::Utf8ToWide({ reinterpret_cast<const char*>(data.data()), data.size() }));
+    auto drawing = mermaid_util::ParseDrawing({ reinterpret_cast<const char*>(data.data()), data.size() });
     if (!drawing) {
         return JobUnreadable{};
     }
@@ -220,6 +281,15 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
     read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
     return read;
+}
+
+void MermaidRenderer::StartRelayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)
+{
+    PostJob(std::move(req), JobWork::Relayout, [this, drawing = std::move(drawing)](Job&) mutable -> JobOutcome {
+        JobDrawing laid_out{ .drawing = std::move(drawing) };
+        laid_out.texts = LayoutDiagramTexts(dw_factory_.Get(), *laid_out.drawing, i18n::TextLocale());
+        return laid_out;
+    });
 }
 
 Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts)
@@ -311,8 +381,16 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             }
             if (rendered) {
                 display.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
-                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes));
+                if (!display.width_free && mermaid_util::IsFlowchartCode(r.req.code)) {
+                    // 幅の上限より広いフローチャートは、前に別の幅で描いた SVG と同じなら幅で出力が変わらない。
+                    const DrawnSvg* drawn = drawn_svgs_.Find(display.width_free_hash);
+                    display.any_width = drawn && drawn->svg_hash == d.svg_hash && drawn->max_width != r.req.max_width;
+                    display.width_free = display.any_width;
+                    drawn_svgs_.Insert(display.width_free_hash, { r.req.max_width, d.svg_hash });
+                }
+                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes), display.any_width);
             }
+            result.any_width = display.any_width;
             result.drawing = std::move(d.drawing);
             InsertCache(display.CacheKey(), std::move(result));
             inflight_.erase(display.request_hash);
@@ -356,7 +434,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     }
     if (used_pele) {
         // 描き終えて待ちが空になったらランタイムを 1 個まで返す (すぐ次が来ると作り直すが、早く返すほうをユーザーが選んだ)。
-        if (renders_running_ == 0 && render_waiting_.empty()) {
+        if (renders_running_ == 0 && math_waiting_.empty() && display_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }
         SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
@@ -384,7 +462,13 @@ void MermaidRenderer::EnsurePele()
 void MermaidRenderer::StartRender(RenderRequest req)
 {
     EnsurePele();
-    render_waiting_.push_back(std::move(req));
+    if (std::holds_alternative<MathRequest>(req.target)) {
+        math_waiting_.push_back(std::move(req));
+    }
+    else {
+        display_waiting_.insert(display_waiting_.begin() + static_cast<ptrdiff_t>(pass_count_), std::move(req));
+        ++pass_count_;
+    }
     PumpRenders();
 }
 
@@ -393,10 +477,15 @@ void MermaidRenderer::PumpRenders()
     // bg のワーカーを 1 本残し、配置の重い図が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
     // 同時に描く数はランタイムの数、つまりメモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
-    while (renders_running_ < limit && !render_waiting_.empty()) {
+    while (renders_running_ < limit && !(math_waiting_.empty() && display_waiting_.empty())) {
         ++renders_running_;
-        auto req = std::move(render_waiting_.front());
-        render_waiting_.pop_front();
+        // 数式は行の高さを決めるので、表示用の図より先に描く。
+        auto& waiting = math_waiting_.empty() ? display_waiting_ : math_waiting_;
+        if (&waiting == &display_waiting_ && pass_count_ > 0) {
+            --pass_count_;
+        }
+        auto req = std::move(waiting.front());
+        waiting.pop_front();
         PostJob(std::move(req), JobWork::Render, [this](Job& j) { return RenderJob(j); });
     }
 }
@@ -411,7 +500,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
         }) | std::ranges::to<std::vector>();
         return JobMaths{ pele_->RenderMaths(sources) };
     }
-    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width);
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, { &drop_gen_, job.drop_gen });
     switch (out.status) {
     case Status::Cancelled:
         return JobDropped{};
@@ -425,7 +514,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
         break;
     }
     // ディスクキャッシュには UTF-8 で置く
-    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
+    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing), .svg_hash = out.svg_hash };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
     drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());
     return drawn;
@@ -514,7 +603,9 @@ void MermaidRenderer::RequestViewerDrawing(float max_width, bool dark_mode)
     }
     viewer_.pending = false;
     if (result->drawing) {
-        viewer_.view->SetDrawing(result->drawing);
+        // 外したコマンドリスト (置き換わった結果・前の文書) は、窓が自分で記録する (ここで記録して cache_ に入れると、どの図も持たない
+        // コマンドリストが cache_ に残る)。
+        viewer_.view->SetDrawing(result->drawing, result->commands);
     }
     // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
     else if (!viewer_.view->HasDrawing()) {

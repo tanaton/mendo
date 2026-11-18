@@ -164,12 +164,14 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, std:
         prev_offset = offset;
 
         // 区切ったノードの並びは前後のフラグが対になり、同じ種別・同じ入れ子に収まり、空のノードを含まない。
+        // loose list の項目が吸った段落の続きだけは段落 (記号を増やさない)。
         if (node.continues_prev() != (i > 0 && nodes[i - 1].continues_next())) {
             sink.Add("node {}: continues_prev {} does not pair with previous continues_next", i, node.continues_prev());
         }
         if (node.continues_prev()) {
             const auto& prev = nodes[i - 1];
-            if (prev.type != node.type || prev.indent_level != node.indent_level || prev.blockquote_group != node.blockquote_group ||
+            const bool same_type = prev.type == node.type || (IsLooseListItem(prev) && node.type == NodeType::Paragraph);
+            if (!same_type || prev.indent_level != node.indent_level || prev.blockquote_group != node.blockquote_group ||
                 prev.code_language != node.code_language) {
                 sink.Add("node {}: continuation differs from previous node in type or nesting", i);
             }

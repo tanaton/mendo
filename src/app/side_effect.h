@@ -14,11 +14,6 @@ namespace effect {
 struct InvalidateWindow {};
 struct SetCapture {};
 struct ReleaseCapture {};
-// text は Document 由来の UTF-8。書き込み側で CF_UNICODETEXT 用に wstring 変換する。html があれば CF_HTML にも載せる。
-struct ClipboardWrite {
-    std::string text;
-    std::string html;
-};
 // 出ているツールチップを隠し、text を表示待ちにする (遅れて出す)。空なら隠すだけ。
 struct SetTooltip {
     std::wstring text;
@@ -43,7 +38,6 @@ struct ApplyDpi {
     RECT suggested;
 };
 struct ApplyZoom {};
-struct ToggleDarkMode {};
 // リサイズ・スプリッタやスクロールバーのドラッグの終わり・ペインの開閉の後に、表示位置を落ち着かせる。
 // App の後始末 (FinishLayout) が ScheduleResourceManage (または遅延レイアウト) も呼ぶので、ResourceManage を併せて積まない。
 struct SettleViewport {};
@@ -56,13 +50,6 @@ struct RendererResize {
 
 struct LoadFile {
     std::wstring path;
-};
-struct ReloadFile {};
-struct OpenFileDialog {};
-// path が空なら引数なしで起動する。anchor (UTF-8) は --anchor で渡す。
-struct LaunchNewWindow {
-    std::wstring path;
-    std::string anchor;
 };
 // 表示中の文書とは別のファイルのロードを取り消す。同じファイルの再読み込みは止めない。
 struct CancelOtherFileLoad {};
@@ -86,7 +73,6 @@ using SideEffect = std::variant<
     effect::InvalidateWindow,
     effect::SetCapture,
     effect::ReleaseCapture,
-    effect::ClipboardWrite,
     effect::SetTooltip,
     effect::ShowContextMenu,
     effect::Beep,
@@ -94,15 +80,11 @@ using SideEffect = std::variant<
     effect::SearchFocus,
     effect::SearchUnfocus,
     effect::ApplyZoom,
-    effect::ToggleDarkMode,
     effect::SettleViewport,
     effect::RendererResize,
     effect::ApplyDpi,
     // Navigation
     effect::LoadFile,
-    effect::ReloadFile,
-    effect::OpenFileDialog,
-    effect::LaunchNewWindow,
     effect::CancelOtherFileLoad,
     // Layout
     effect::ResourceManage,

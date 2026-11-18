@@ -100,6 +100,9 @@ struct ParseContext : NodeStorage {
     // 表の全セルの本文 (NodeTableData::concat_text) を組む置き場。表を閉じたら、小さな表は arena へ写し、大きな表は
     // 写さずに arena へ引き取らせて取り直す。
     ReservedArray<char> table_text;
+    // 表の全セルの run (NodeTableData::all_runs) を組む置き場。表を閉じたら table_text と同じく arena へ写すか引き取らせる
+    // (KeepTableBuffer)。
+    ReservedArray<TextRun> table_runs;
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
 
@@ -124,17 +127,50 @@ struct ParseContext : NodeStorage {
     // &current_text 以外を指すのはテーブルセル内 (table_text) のときだけ。
     ReservedArray<char>* active_text_buffer = nullptr;
 
-    // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
-    std::vector<std::string_view> current_link_urls;
-    // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
-    // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
-    static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::unordered_map<std::string_view, int16_t, StringTransparentHash> link_url_lookup;
+    // 1 ノードの URL (リンク先か画像の src) の並び。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ
+    // arena へコピーする。数は典型的に 8 個以下で、そこではハッシュマップより線形 memcmp の方が速い。数が増えたノード
+    // (表は全セルで 1 ノードのため数万 URL になりうる) だけ索引に切り替え、O(n^2) になるのを防ぐ。
+    struct UrlList {
+        static constexpr size_t kLinearScanMax = 8;
+        std::vector<std::string_view> urls;
+        std::unordered_map<std::string_view, uint32_t, StringTransparentHash> lookup;
+
+        std::optional<size_t> Find(std::string_view url)
+        {
+            const size_t n = urls.size();
+            if (n <= kLinearScanMax) {
+                const auto it = std::ranges::find(urls, url);
+                return it != urls.end() ? std::optional<size_t>{ static_cast<size_t>(it - urls.begin()) } : std::nullopt;
+            }
+            if (lookup.empty()) {
+                for (size_t i = 0; i < n; ++i) {
+                    lookup.emplace(urls[i], static_cast<uint32_t>(i));
+                }
+            }
+            const auto it = lookup.find(url);
+            return it != lookup.end() ? std::optional<size_t>{ it->second } : std::nullopt;
+        }
+        // url は Find で見つからなかったもの (InternUrl 済み)。番号を返す。
+        size_t Add(std::string_view url)
+        {
+            urls.push_back(url);
+            if (!lookup.empty()) {
+                lookup.emplace(url, static_cast<uint32_t>(urls.size() - 1));
+            }
+            return urls.size() - 1;
+        }
+        void Clear() noexcept
+        {
+            urls.clear();
+            lookup.clear();
+        }
+    };
+    UrlList current_link_urls;
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;
     // 現在ノードの画像の src (image_slot の順)。FinalizeCurrentNode でリンク URL の後ろに続けて arena へコピーする。
-    std::vector<std::string_view> current_image_srcs;
+    UrlList current_image_srcs;
     // 開いている最外側の画像の image_slot と、その範囲の始まり (active_text_buffer での位置)。
     // 画像の範囲は current_run_flags の kImage で示す。
     uint8_t current_image_slot = 0;
@@ -165,26 +201,24 @@ struct ParseContext : NodeStorage {
                 current_node->SetText(raw == current_text ? raw : arena.CopyText(current_text));
                 current_node->line_count = static_cast<int32_t>(std::ranges::count(current_text, '\n'));
             }
-            if (!current_runs.empty()) {
-                current_node->SetRuns(arena.Copy(current_runs));
-                if (std::ranges::any_of(current_runs, &TextRun::math)) {
-                    indices.math_indices.push_back(CurrentNodeIndex());
-                }
+            if (std::ranges::any_of(current_runs, &TextRun::math)) {
+                indices.math_indices.push_back(CurrentNodeIndex());
             }
-            if (!current_image_srcs.empty()) {
+            if (!current_image_srcs.urls.empty()) {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
-            if (!current_link_urls.empty() || !current_image_srcs.empty()) {
-                const size_t link_count = current_link_urls.size();
-                current_link_urls.append_range(current_image_srcs);
-                current_node->SetLinkUrlsAndImageSrcs(arena.Copy(current_link_urls), link_count);
+            if (!current_runs.empty() || !current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
+                auto& urls = current_link_urls.urls;
+                const size_t link_count = urls.size();
+                urls.append_range(current_image_srcs.urls);
+                const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, current_runs);
+                current_node->SetRefs(kept_urls, link_count, kept_runs);
             }
         }
         current_text.clear();
         current_runs.clear();
-        current_link_urls.clear();
-        current_image_srcs.clear();
-        link_url_lookup.clear();
+        current_link_urls.Clear();
+        current_image_srcs.Clear();
     }
 
     // ノードを追加するのは BeginNode だけなので、最後に始めたノードは常に末尾にある。
@@ -204,7 +238,8 @@ struct ParseContext : NodeStorage {
     void BeginNode(NodeType type)
     {
         // UL/OL/QUOTE の進入はノードを閉じないので、LI の中の最初の子ブロックが始まる時点ではまだ LI が開いている。
-        if (current_node && IsListItem(*current_node)) {
+        // テキストを持つ LI (tight な項目の入れ子のリストなど) には立てない (立つのは loose の項目と空の枠だけ)。
+        if (current_node && IsListItem(*current_node) && current_text.empty()) {
             current_node->set_has_child_blocks();
         }
         FinalizeCurrentNode();
@@ -232,6 +267,10 @@ struct ParseContext : NodeStorage {
         switch (current_node->type) {
         case NodeType::Paragraph:
             return true;
+        // loose の項目は吸った段落を区切る。続きは段落にするので記号は増えない。tight な項目は余白が段落と違うので区切らない。
+        case NodeType::ListItem:
+        case NodeType::TaskListItem:
+            return current_node->has_child_blocks();
         case NodeType::CodeBlock:
             return !IsDiagramLanguage(current_node->code_language) && current_node->code_language != SyntaxLanguage::LatexMath;
         default:
@@ -249,7 +288,7 @@ struct ParseContext : NodeStorage {
             split_code_runs.push_back(CurrentNodeIndex());
         }
         current_node->set_continues_next();
-        BeginNode(type);
+        BeginNode(IsListItem(*current_node) ? NodeType::Paragraph : type);
         current_node->code_language = language;
         current_node->set_continues_prev(newline_before);
         ResolveLinkUrlIndex(link_url);
@@ -456,7 +495,7 @@ struct ParseContext : NodeStorage {
     // ノードを閉じても続きのノードへ登録し直せるよう、開いているリンクの URL を返す。無ければ空。
     std::string_view OpenLinkUrl() const noexcept
     {
-        return current_link_url_index >= 0 ? std::string_view{ current_link_urls[static_cast<size_t>(current_link_url_index)] } : std::string_view{};
+        return current_link_url_index >= 0 ? std::string_view{ current_link_urls.urls[static_cast<size_t>(current_link_url_index)] } : std::string_view{};
     }
 
     // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
@@ -466,35 +505,15 @@ struct ParseContext : NodeStorage {
         current_link_url_index = !url.empty() ? FindOrAddLinkUrl(url) : int16_t{ -1 };
     }
 
-    // 1 ノードあたりの URL 数は典型的に < 8 で、そこではハッシュマップより線形 memcmp の方が速い。
-    // 数が増えたノードだけ link_url_lookup に切り替え、テーブル等で O(n^2) になるのを防ぐ。
     int16_t FindOrAddLinkUrl(std::string_view url)
     {
-        const size_t n = current_link_urls.size();
-        if (n <= kLinkUrlLinearScanMax) {
-            if (const auto it = std::ranges::find(current_link_urls, url); it != current_link_urls.end()) {
-                return static_cast<int16_t>(it - current_link_urls.begin());
-            }
+        if (const auto found = current_link_urls.Find(url)) {
+            return static_cast<int16_t>(*found);
         }
-        else {
-            if (link_url_lookup.empty()) {
-                for (size_t i = 0; i < n; ++i) {
-                    link_url_lookup.emplace(current_link_urls[i], static_cast<int16_t>(i));
-                }
-            }
-            if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
-                return it->second;
-            }
-        }
-        if (n >= kMaxLinkUrls) {
+        if (current_link_urls.urls.size() >= kMaxLinkUrls) {
             return -1;
         }
-        const auto new_index = static_cast<int16_t>(n);
-        current_link_urls.push_back(InternUrl(url));
-        if (!link_url_lookup.empty()) {
-            link_url_lookup.emplace(current_link_urls.back(), new_index);
-        }
-        return new_index;
+        return static_cast<int16_t>(current_link_urls.Add(InternUrl(url)));
     }
 
     // md4c の href / 画像 src は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
@@ -507,14 +526,13 @@ struct ParseContext : NodeStorage {
     // 同じ src は 1 つの image_slot にまとめる (表のアイコンなど)。kMaxImageSlots を超えたら nullopt。
     std::optional<uint8_t> FindOrAddImageSrc(std::string_view src)
     {
-        if (const auto it = std::ranges::find(current_image_srcs, src); it != current_image_srcs.end()) {
-            return static_cast<uint8_t>(it - current_image_srcs.begin());
+        if (const auto found = current_image_srcs.Find(src)) {
+            return static_cast<uint8_t>(*found);
         }
-        if (current_image_srcs.size() >= kMaxImageSlots) {
+        if (current_image_srcs.urls.size() >= kMaxImageSlots) {
             return std::nullopt;
         }
-        current_image_srcs.push_back(InternUrl(src));
-        return static_cast<uint8_t>(current_image_srcs.size() - 1);
+        return static_cast<uint8_t>(current_image_srcs.Add(InternUrl(src)));
     }
 
     // 最外側の画像に入る。中の文字 (alt) を画像の範囲にする。src が空か登録できない画像は alt を文字のまま出す。
@@ -619,8 +637,8 @@ struct ParseContext : NodeStorage {
                     if (tbl->cell_run_starts.empty()) {
                         StartCellRunStarts(*tbl);
                     }
-                    if (tbl->all_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
-                        tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
+                    if (table_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
+                        table_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
                     }
                 }
             }
@@ -652,6 +670,23 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
     }
 }
 
+// 表を閉じたときに、組んだ本文か run の置き場 buf を arena に残す。小さな表は arena に詰めて写して置き場を空にする (表ごとに
+// ページ単位でコミットすると、小さな表の多い文書で commit が増える)。大きな表は写さずに引き取らせ、使わない末尾のコミットを外す
+// (伸びるたびに写すと最後の倍の余りを持ち続け、終わりに写すと表の終わりで倍を持つ)。置き場は reserve 個で取り直す。
+template <class T>
+std::span<const T> KeepTableBuffer(TextArena& arena, ReservedArray<T>& buf, size_t reserve)
+{
+    constexpr size_t kOwnTableBytes = 1024 * 1024;
+    if (buf.size() * sizeof(T) <= kOwnTableBytes) {
+        const std::span<const T> copied = arena.Copy(buf);
+        buf.clear();
+        return copied;
+    }
+    buf.shrink_to_fit();
+    const auto kept = arena.Adopt(std::exchange(buf, ReservedArray<T>(reserve)));
+    return { kept.data(), kept.size() };
+}
+
 void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
 {
     ctx->BeginNode(NodeType::Table);
@@ -661,7 +696,6 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     ctx->current_node->set_table_data(tbl);
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので、table_text (入力の長さまで予約してある) に組む。
-    ctx->table_text.clear();
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
     // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
     tbl->col_count = static_cast<uint16_t>(detail->col_count);
@@ -688,7 +722,7 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
     }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(ctx->table_text.size()));
     if (!tbl->cell_run_starts.empty()) {
-        tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+        tbl->cell_run_starts.push_back(static_cast<uint32_t>(ctx->table_runs.size()));
     }
     ctx->active_text_buffer = &ctx->table_text;
 
@@ -699,12 +733,12 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 }
 
 // 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
-void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size)
+void FinalizeTableOffsets(NodeTableData& tbl, size_t text_size, size_t run_count)
 {
     assert(tbl.cell_text_starts.size() == tbl.CellCount());
     tbl.cell_text_starts.push_back(static_cast<uint32_t>(text_size));
     if (!tbl.cell_run_starts.empty()) {
-        tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
+        tbl.cell_run_starts.push_back(static_cast<uint32_t>(run_count));
     }
 }
 
@@ -763,11 +797,11 @@ void AppendFootnoteBackrefs(std::span<Node> nodes, TextArena& arena, std::span<c
             });
         }
         node.SetText(arena.CopyText(text));
-        node.SetRuns(arena.Copy(runs));
         // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
         const size_t link_count = urls.size();
         urls.append_range(node.image_srcs());
-        node.SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
+        const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, runs);
+        node.SetRefs(kept_urls, link_count, kept_runs);
     }
 }
 
@@ -887,7 +921,9 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     node.SetText(arena.CopyText(new_text));
     node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
-    node.SetRuns(arena.Copy(new_runs));
+    const size_t link_count = node.view_link_urls().size();
+    const auto [kept_urls, kept_runs] = arena.CopyRefs(node.link_urls_and_image_srcs(), new_runs);
+    node.SetRefs(kept_urls, link_count, kept_runs);
     node.alert_type = type;
     node.set_has_alert_label();
 }
@@ -937,6 +973,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
 
     case MD_BLOCK_P:
+        // loose list の項目の最初の段落は LI 自身が受け持つ (IsLooseListItem)。2 つ目からの段落は今までどおり別のノード。
+        // 吸うのは段落が LI の直下 (LI と同じ indent_level) にあるときだけ。LI の中の引用 (md4c は tight なリストでも引用の中は
+        // 段落で包む) の段落は吸わない。LI の indent_level は int8_t で頭打ちになるが、そこまで深ければ吸わずに別のノードにする。
+        if (ctx->current_node && IsListItem(*ctx->current_node) && ctx->current_text.empty() && ctx->indent_level == ctx->current_node->indent_level) {
+            ctx->current_node->set_has_child_blocks();
+            break;
+        }
         ctx->BeginNode(NodeType::Paragraph);
         break;
 
@@ -1047,22 +1090,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* const cn = ctx->current_node;
         assert(cn && cn->has_table());
         auto* const tbl = cn->table_data();
-        auto& text = ctx->table_text;
-        FinalizeTableOffsets(*tbl, text.size());
+        FinalizeTableOffsets(*tbl, ctx->table_text.size(), ctx->table_runs.size());
+        // 引き取らせた置き場は、残りの入力の長さで取り直す。
+        const size_t rest = ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size());
+        const auto text = KeepTableBuffer(ctx->arena, ctx->table_text, rest + 64);
+        tbl->concat_text = { text.data(), text.size() };
+        tbl->all_runs = KeepTableBuffer(ctx->arena, ctx->table_runs, rest / 4 + 64);
         if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
             ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
-        }
-        // 本文を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、小さな表の多い文書で commit が増える)。
-        // 大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す (std::string で組んでいた頃は伸びるたびに写し、
-        // 最後の倍の余りを持ち続けた)。置き場は残りの入力の長さで取り直す。
-        constexpr size_t kOwnTableTextBytes = 1024 * 1024;
-        if (text.size() <= kOwnTableTextBytes) {
-            tbl->concat_text = ctx->arena.CopyText(text);
-        }
-        else {
-            text.shrink_to_fit();
-            tbl->concat_text = ctx->arena.Adopt(
-                std::exchange(text, ReservedArray<char>(ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size()) + 64)));
         }
         cn->SetText(tbl->concat_text);
         ctx->EndNode();
@@ -1278,6 +1313,8 @@ void ReserveForInput(ParseContext& ctx)
 {
     ctx.current_text = ReservedArray<char>(ctx.markdown.size() + 64);
     ctx.table_text = ReservedArray<char>(ctx.markdown.size() + 64);
+    // run は装飾の記号を伴うので、入力 4 byte に 1 個を超えない (超えたら予約し直す)。
+    ctx.table_runs = ReservedArray<TextRun>(ctx.markdown.size() / 4 + 64);
     ctx.nodes = ReservedArray<Node>(ctx.markdown.size() / kInputBytesPerNode + 64);
     ctx.list_counter.reserve(8);
 }

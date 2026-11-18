@@ -8,11 +8,13 @@
 #include <string_view>
 
 class Document;
+struct TextSelection;
 namespace mermaid_util {
 struct DiagramDrawing;
 }
 
-// MD ペインのオーバーレイボタンから発火する 3 つのクリップボード操作を集約する。
+// クリップボードの操作を集約する。
+//   - 選択範囲のテキストコピー (Ctrl+C・メニュー)
 //   - コードブロックのテキストコピー
 //   - Mermaid ダイアグラムの PNG 保存 (ファイルダイアログ経由)
 //   - Mermaid ダイアグラムのクリップボードコピー (image/svg+xml + 画像 (CF_DIB))
@@ -24,6 +26,8 @@ public:
     // show_toast は必ず渡す。Init を呼び忘れてもガードが要らないよう既定は no-op。wic はアプリ共有のファクトリ (非所有)。
     void Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
 
+    // formatted なら HTML (書式付き) も載せる。
+    void CopySelection(const Document& doc, const TextSelection& selection, bool formatted, bool dark) const;
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
     // drawing は図の描画命令 (DiagramEntry::drawing)。null なら何もしない。md_width は本文の幅 (DIP) で、収まらない図は
     // 本文と同じくその幅まで縮めた大きさの画像にする。画像は保存先を選んだ後に描く (取り消したら描かない)。

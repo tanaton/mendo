@@ -9,8 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <memory_resource>
@@ -21,6 +23,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include "async_load_coordinator.h"
 #include "block_h_scroll.h"
 #include "command_generator.h"
 #include "d2d_util.h"
@@ -155,6 +158,17 @@ void BM_FromMarkdown(benchmark::State& state)
     }
 }
 BENCHMARK(BM_FromMarkdown)->UseManualTime()->Unit(benchmark::kMicrosecond);
+
+// 行ごとに違う画像を置いた 1 万行の表。表は 1 ノードなので、同じ src を探す相手が 1 ノードの画像の数 (上限 256) まで増える。
+void BM_ParseImageTable(benchmark::State& state)
+{
+    std::string src = "| icon | name |\n|---|---|\n";
+    for (int i = 0; i < 10000; ++i) {
+        std::format_to(std::back_inserter(src), "| ![r{0}](images/icon-{0}.png) | item {0} |\n", i);
+    }
+    RunParse(state, src);
+}
+BENCHMARK(BM_ParseImageTable)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // 時間はパースだけ。破棄の時間とパースで増えたメモリはカウンタに出す。
 // メモリは最初の反復だけ測る (2 回目以降は解放済み領域の再利用で小さく出る)。
@@ -606,7 +620,71 @@ void BM_InlineMathLayout(benchmark::State& state)
 }
 BENCHMARK(BM_InlineMathLayout)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
-// 文書を開く・読み直す・ズームのたびに UI スレッドで作る、インライン数式の組。
+// 数式の多い文書を開いてから全部の数式が揃うまでに、組が届くたびに待つ段落を戻して、見ている範囲と先読み (5 画面) を
+// 組み直す手間の合計。組は App と同じく、計測が頼んだ数式を含む組を頼んだ順に 1 つずつ届ける。affected が true なら、
+// 届いた組の数式を待つ段落だけを戻す。remeasured は組み直した段落の延べ数。
+void BM_InlineMathArrival(benchmark::State& state, bool affected)
+{
+    const auto opened = OpenDoc(state, InlineMathMd(2000), 8);
+    if (!opened) {
+        return;
+    }
+    auto& [doc, l] = *opened;
+    const auto nodes = doc.GetNodes();
+    InlineMathPlan plan;
+    plan.Build(nodes, doc.GetMathNodeIndices(), l.theme);
+    constexpr float kWidth = 1100.0f;
+    constexpr float kRange = 950.0f * 5.0f;
+    size_t remeasured = 0;
+    for (auto _ : state) {
+        InlineMathTable table;
+        l.measurer.SetInlineMath(&table);
+        LayoutCache cache(nodes.size());
+        ComputeLayout(l.engine, nodes, cache, kWidth, 0.0f, kRange);
+        std::deque<size_t> queue;
+        std::vector<bool> asked(plan.Chunks().size());
+        const auto ask = [&] {
+            for (const uint64_t key : table.TakeRequests()) {
+                if (const auto c = plan.ChunkOf(key); c && !asked[*c]) {
+                    asked[*c] = true;
+                    table.MarkRequested(plan.Chunks()[*c].items);
+                    queue.push_back(*c);
+                }
+            }
+        };
+        ask();
+        double seconds = 0.0;
+        remeasured = 0;
+        while (!queue.empty()) {
+            std::vector<uint64_t> keys;
+            for (const auto& item : plan.Chunks()[queue.front()].items) {
+                table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
+                keys.push_back(item.key);
+            }
+            queue.pop_front();
+            std::ranges::sort(keys);
+            const size_t before = CountDirty(cache);
+            std::function<bool(size_t)> pred;
+            if (affected) {
+                pred = [&](size_t i) { return HasInlineMathKey(nodes[i], l.theme, keys); };
+            }
+            bool invalidated = false;
+            seconds += SecondsOf([&] { invalidated = cache.InvalidatePendingInlineLayouts(doc.GetTableNodeIndices(), true, pred); });
+            remeasured += CountDirty(cache) - before;
+            if (invalidated) {
+                seconds += SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kWidth, 0.0f, kRange); });
+            }
+            ask();
+        }
+        state.SetIterationTime(seconds);
+        l.measurer.SetInlineMath(nullptr);
+    }
+    state.counters["remeasured"] = static_cast<double>(remeasured);
+}
+BENCHMARK_CAPTURE(BM_InlineMathArrival, all_pending, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_InlineMathArrival, affected, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+
+// 文書を開く・読み直すたびに UI スレッドで作る、インライン数式の組。
 void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
 {
     auto md = math ? InlineMathMd(2000) : bytes ? RepeatTestMd(state, 0, bytes) : RepeatTestMd(state, 8);
@@ -1420,8 +1498,8 @@ struct DiagramBench {
 };
 
 // test.md の図を pele で描き、SVG を解いて描画命令にする。ランタイムとバイトコードの用意は小さな図 1 個で済ませて測らない。
-// resolve は 2 回目以降 (テーマの切り替え。覚えた SVG を解き直すだけで JS を走らせない)。
-void BM_DiagramRender(benchmark::State& state, bool resolve)
+// テーマの切り替えも同じ手間 (pele の出力は覚えない)。
+void BM_DiagramRender(benchmark::State& state)
 {
     const auto assets = PeleTestAssets::Load();
     if (!assets.ok() || !SharedDWriteFactory()) {
@@ -1429,32 +1507,21 @@ void BM_DiagramRender(benchmark::State& state, bool resolve)
         return;
     }
     const auto codes = TestMdDiagramCodes(state);
-    auto engine = assets.NewEngine(SharedDWriteFactory());
-    if (resolve) {
-        for (const auto& code : codes) {
-            engine->Render(code, false, kDiagramMaxWidth);
-        }
-    }
     size_t drawn = 0;
-    bool dark = false;
     for (auto _ : state) {
-        if (!resolve) {
-            engine = assets.NewEngine(SharedDWriteFactory());
-            engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
-        }
-        dark = !dark;
+        const auto engine = assets.NewEngine(SharedDWriteFactory());
+        engine->Render("flowchart LR\n  A --> B", false, kDiagramMaxWidth);
         drawn = 0;
         state.SetIterationTime(SecondsOf([&] {
             for (const auto& code : codes) {
-                drawn += engine->Render(code, resolve && dark, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
+                drawn += engine->Render(code, false, kDiagramMaxWidth).status == PeleOutcome::Status::Drawn;
             }
         }));
     }
     state.counters["diagrams"] = static_cast<double>(codes.size());
     state.counters["drawn"] = static_cast<double>(drawn);
 }
-BENCHMARK_CAPTURE(BM_DiagramRender, first, false)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_DiagramRender, resolve, true)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_DiagramRender)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
 // prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。
@@ -1493,6 +1560,36 @@ void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
+
+// ディスクキャッシュの描画命令を書く・読む (読むのは図をディスクから引くワーカーの仕事)。test.md の図をすべて。
+void BM_DiagramDiskFormat(benchmark::State& state, bool parse)
+{
+    DiagramBench bench;
+    if (!bench.Init(state)) {
+        return;
+    }
+    std::vector<std::string> serialized;
+    size_t bytes = 0;
+    for (const auto& d : bench.drawings) {
+        bytes += serialized.emplace_back(mermaid_util::SerializeDrawing(*d)).size();
+    }
+    for (auto _ : state) {
+        if (parse) {
+            for (const auto& s : serialized) {
+                benchmark::DoNotOptimize(mermaid_util::ParseDrawing(s));
+            }
+        }
+        else {
+            for (const auto& d : bench.drawings) {
+                benchmark::DoNotOptimize(mermaid_util::SerializeDrawing(*d));
+            }
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(bench.drawings.size());
+    state.counters["KB"] = static_cast<double>(bytes) / 1024.0;
+}
+BENCHMARK_CAPTURE(BM_DiagramDiskFormat, serialize, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DiagramDiskFormat, parse, true)->Unit(benchmark::kMicrosecond);
 
 
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
@@ -1558,7 +1655,7 @@ BENCHMARK_CAPTURE(BM_DiagramScrollDraw, vector, false)->Unit(benchmark::kMillise
 BENCHMARK_CAPTURE(BM_DiagramScrollDraw, bitmap, true)->Unit(benchmark::kMillisecond);
 
 // 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
-// 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
+// 描き直す回 (見出しと本文の同じ式。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
 // HTML の合計は約 1.5MB で、PeleEngine が覚える上限 (4MB) に収まる。
 void BM_MathRender(benchmark::State& state, bool resized)
 {
@@ -1657,7 +1754,7 @@ BENCHMARK_DEFINE_F(TableMeasure, RestoreScreen)(benchmark::State& state)
 }
 BENCHMARK_REGISTER_F(TableMeasure, RestoreScreen)->UseManualTime()->Iterations(TableMeasure::kRestores)->Unit(benchmark::kMicrosecond);
 
-// あちこちを復元したあとに幅を変えたときの、先頭 1 画面の計測。
+// あちこちを復元したあとに、列幅の変わる幅 (500) へ変えたときの、先頭 1 画面の計測。
 BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
 {
     for (auto _ : state) {
@@ -1667,12 +1764,13 @@ BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
             RestoreScreen(entry, k);
         }
         entry.layout_dirty = true;
-        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, nullptr); }));
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 500.0f, nullptr); }));
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Resize)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
 
-// 大きな表の上下 8 画面分の行が残っている状態で幅を変えたときの、可視範囲のレイアウト。
+// 大きな表の上下 8 画面分の行が残っている状態で幅を変えたときの、可視範囲のレイアウト。表は 900 以上の幅に収まるので、
+// 列幅が変わるのは 500 だけ。
 BENCHMARK_DEFINE_F(TableMeasure, ResizeViewport)(benchmark::State& state)
 {
     constexpr float kScreen = 1000.0f;
@@ -1694,6 +1792,7 @@ BENCHMARK_REGISTER_F(TableMeasure, ResizeViewport)
     ->Arg(1000)
     ->Arg(1200)
     ->Arg(900)
+    ->Arg(500)
     ->UseManualTime()
     ->Iterations(3)
     ->Unit(benchmark::kMicrosecond);
@@ -1915,8 +2014,12 @@ protected:
 
 BENCHMARK_DEFINE_F(Reload, FindUnchangedEnds)(benchmark::State& state)
 {
+    // アプリと同じく、差分の位置はリロードの判定で先に求めてある。
+    const std::string_view old_raw = old_doc_->GetRawText();
+    const std::string_view new_raw = new_doc_->GetRawText();
+    const RawCommonPrefix prefix{ old_raw, new_raw, FindFirstDifference(old_raw, new_raw) };
     for (auto _ : state) {
-        benchmark::DoNotOptimize(FindUnchangedEnds(old_doc_->GetNodes(), new_doc_->GetNodes()));
+        benchmark::DoNotOptimize(FindUnchangedEnds(old_doc_->GetNodes(), new_doc_->GetNodes(), prefix));
     }
 }
 BENCHMARK_REGISTER_F(Reload, FindUnchangedEnds)->Iterations(50)->Unit(benchmark::kMillisecond);

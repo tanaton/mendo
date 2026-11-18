@@ -46,6 +46,12 @@ void AccumulateTops(std::span<const Node> nodes, LayoutCache& cache, const Theme
     }
 }
 
+// 余白を決めるブロックの種類。loose の LI は吸った段落と同じ余白にする (IsLooseListItem)。
+NodeType SpacingType(const Node& node) noexcept
+{
+    return IsLooseListItem(node) ? NodeType::Paragraph : node.type;
+}
+
 // node_start を超える最初の source offset。見つからなければ fallback。
 size_t NextSourceOffset(std::span<const Node> nodes, size_t node_start, size_t fallback) noexcept
 {
@@ -59,7 +65,7 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     if (node.continues_prev()) {
         return 0.0f;
     }
-    switch (node.type) {
+    switch (SpacingType(node)) {
     case NodeType::Heading:
         return theme.heading_spacing_above;
     case NodeType::CodeBlock:
@@ -67,10 +73,10 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
         return theme.code_block_spacing_above;
     case NodeType::Paragraph:
         return node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
-    case NodeType::HorizontalRule:
     case NodeType::ListItem:
-    case NodeType::Table:
     case NodeType::TaskListItem:
+    case NodeType::HorizontalRule:
+    case NodeType::Table:
         return 0.0f;
     }
     std::unreachable();
@@ -81,7 +87,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     if (node.continues_next()) {
         return 0.0f;
     }
-    switch (node.type) {
+    switch (SpacingType(node)) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
         return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
@@ -100,26 +106,65 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width)
+namespace {
+
+// 列幅を列の順に visit(列, 幅) へ渡す。visit が false を返したらそこで止めて false を返す。列幅を配列に書かずに前の列幅と
+// 比べられるようにし、幅を変えるたびに表ごとの配列を作らない (TableMeasure/ResizeViewport の列幅の変わらない幅で 2.4 → 2.0µs)。
+template <class Visit>
+bool VisitColumnWidths(std::span<const float> natural_widths, std::span<const float> min_widths, float available_width, Visit&& visit)
 {
-    out.resize(natural_widths.size());
+    const auto visit_all = [&](auto&& width_of) {
+        for (size_t c = 0; c < natural_widths.size(); ++c) {
+            if (!visit(c, width_of(c))) {
+                return false;
+            }
+        }
+        return true;
+    };
     // GitHub (Chrome の自動の表組み、width: max-content; max-width: 100%) と同じく、収まる表は広げずに自然幅で並べる。
     const float total_natural = std::ranges::fold_left(natural_widths, 0.0f, std::plus{});
     if (total_natural <= available_width) {
-        std::ranges::copy(natural_widths, out.begin());
-        return;
+        return visit_all([&](size_t c) { return natural_widths[c]; });
     }
     // 収まらなければ各列を最小幅 (最も長い単語) までは縮め、余りを (自然幅 - 最小幅) に比例して配る。番号のような狭い列は
     // 自然幅のまま残り、長い文の列が折り返す。最小幅でも収まらなければ最小幅で横スクロールに任せる。
     const float total_min = std::ranges::fold_left(min_widths, 0.0f, std::plus{});
     if (total_min >= available_width) {
-        std::ranges::copy(min_widths, out.begin());
-        return;
+        return visit_all([&](size_t c) { return min_widths[c]; });
     }
     const float ratio = (available_width - total_min) / (total_natural - total_min);
-    for (auto [w, nw, mw] : std::views::zip(out, natural_widths, min_widths)) {
-        w = mw + (nw - mw) * ratio;
-    }
+    return visit_all([&](size_t c) { return min_widths[c] + (natural_widths[c] - min_widths[c]) * ratio; });
+}
+
+// 表を max_width (罫線とパディングを含む表の幅の上限) で組むときに、列に配る幅。
+float TableColumnsWidth(const TableLayoutData& tl, float max_width) noexcept
+{
+    const float borders_width = (static_cast<float>(tl.col_count) + 1.0f) * TABLE_BORDER_WIDTH;
+    const float paddings_width = static_cast<float>(tl.col_count) * TABLE_CELL_PADDING * 2.0f;
+    return max_width - borders_width - paddings_width;
+}
+
+} // namespace
+
+void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, std::span<const float> min_widths, float available_width)
+{
+    out.resize(natural_widths.size());
+    VisitColumnWidths(natural_widths, min_widths, available_width, [&](size_t c, float w) {
+        out[c] = w;
+        return true;
+    });
+}
+
+void ComputeTableColumnWidths(TableLayoutData& tl, float max_width)
+{
+    ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, tl.min_col_widths, TableColumnsWidth(tl, max_width));
+}
+
+bool TableColumnWidthsChange(const TableLayoutData& tl, float max_width) noexcept
+{
+    assert(tl.col_widths.size() == tl.natural_col_widths.size());
+    return !VisitColumnWidths(tl.natural_col_widths, tl.min_col_widths, TableColumnsWidth(tl, max_width),
+                              [&](size_t c, float w) { return w == tl.col_widths[c]; });
 }
 
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept
@@ -228,8 +273,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
         return;
     }
     // 同じ幅で実測していれば、height は実測値かそれ以上なので推定は要らない。
-    constexpr float kCachedWidthEpsilon = 0.5f;
-    if (entry.is_measured() && std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon) {
+    if (entry.measured_at(NodeLayoutWidth(node, node_width))) {
         return;
     }
     // テーブルや折り返しの多い段落は推定値が実測値を大きく下回り、縮めると後続ノードと重なるので既存値より小さくしない。
