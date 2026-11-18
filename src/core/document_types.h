@@ -182,11 +182,11 @@ inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 struct Node {
     // テキスト・runs・リンク URL・画像 src はノード自身では持たず、DocumentData::raw (原文をそのまま使えるもの)
     // か TextArena (加工したテキスト・runs・URL の配列) を指す。テーブルは Document が所有する NodeTableData を指す。
-    // どれも Document と寿命が同じ。長さと件数は 4 バイト領域にまとめて Node を 64B に収める。
+    // どれも Document と寿命が同じ。長さと件数は 4 バイト領域にまとめて Node を 56B に収める。
     const char* text_ = nullptr;
-    const TextRun* runs_ = nullptr;
-    // `runs()` の link_url_index で引く URL の配列。
-    const std::string_view* link_urls_ = nullptr;
+    // リンク URL と画像の src (string_view) の配列と、その直後に続く TextRun の配列の頭 (TextArena::CopyRefs で 1 つの塊に置く)。
+    // 2 本のポインタを 1 本にして、大きな文書でノード 1 個あたり 8 バイト減らす。
+    const void* refs_ = nullptr;
 
     // ノード種別ごとのデータ。どれを使うかは type (list_number は flags_) で決まる。
     union Payload {
@@ -257,16 +257,9 @@ struct Node {
         text_size_ = static_cast<uint32_t>(text.size());
     }
 
-    constexpr std::span<const TextRun> runs() const noexcept
+    std::span<const TextRun> runs() const noexcept
     {
-        return { runs_, run_count_ };
-    }
-
-    // runs も SetText と同じく、ノードより長く生きる領域を指すこと。
-    constexpr void SetRuns(std::span<const TextRun> runs_value) noexcept
-    {
-        runs_ = runs_value.data();
-        run_count_ = static_cast<uint32_t>(runs_value.size());
+        return { reinterpret_cast<const TextRun*>(urls() + link_url_count_ + image_src_count_), run_count_ };
     }
 
     // 種別が違えば nullptr。Table ノードは必ず表を持つ。
@@ -283,15 +276,15 @@ struct Node {
     }
     // kImage の run の画像の記述どおりのパス。src はリンク URL の配列の後ろに続けて置く (Node を 64B に収める)。
     // 読み込んだ画像の寸法はパース結果ではないので持たない (InlineImageTable が持つ)。
-    constexpr std::string_view image_src(const TextRun& run) const noexcept
+    std::string_view image_src(const TextRun& run) const noexcept
     {
         assert(run.image() && run.image_slot < image_src_count_);
-        return link_urls_[link_url_count_ + run.image_slot];
+        return urls()[link_url_count_ + run.image_slot];
     }
     // 画像の src を image_slot の順に重複なく (表はセル全体の分)。
-    constexpr std::span<const std::string_view> image_srcs() const noexcept
+    std::span<const std::string_view> image_srcs() const noexcept
     {
-        return { link_urls_ + link_url_count_, image_src_count_ };
+        return { urls() + link_url_count_, image_src_count_ };
     }
     constexpr bool has_images() const noexcept
     {
@@ -405,22 +398,34 @@ struct Node {
         flags_ |= kHasCodeLead;
     }
 
-    constexpr std::span<const std::string_view> view_link_urls() const noexcept
+    std::span<const std::string_view> view_link_urls() const noexcept
     {
-        return { link_urls_, link_url_count_ };
+        return { urls(), link_url_count_ };
+    }
+    // リンク URL と、その後ろに続く画像の src。
+    std::span<const std::string_view> link_urls_and_image_srcs() const noexcept
+    {
+        return { urls(), size_t{ link_url_count_ } + image_src_count_ };
     }
 
-    // 先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。urls も各文字列も、SetText と同じくノードより
-    // 長く生きる領域を指すこと。
-    constexpr void SetLinkUrlsAndImageSrcs(std::span<const std::string_view> urls, size_t link_count) noexcept
+    // urls は先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。runs は urls の直後に続くこと
+    // (TextArena::CopyRefs。urls が空なら runs の頭を持つ)。どれも各文字列も、SetText と同じくノードより長く生きる領域を指すこと。
+    void SetRefs(std::span<const std::string_view> urls_value, size_t link_count, std::span<const TextRun> runs_value) noexcept
     {
-        assert(link_count <= kMaxLinkUrls && link_count <= urls.size() && urls.size() - link_count <= kMaxImageSlots);
-        link_urls_ = urls.data();
+        assert(link_count <= kMaxLinkUrls && link_count <= urls_value.size() && urls_value.size() - link_count <= kMaxImageSlots);
+        assert(urls_value.empty() || runs_value.empty() || static_cast<const void*>(urls_value.data() + urls_value.size()) == runs_value.data());
+        refs_ = urls_value.empty() ? static_cast<const void*>(runs_value.data()) : urls_value.data();
         link_url_count_ = static_cast<uint16_t>(link_count);
-        image_src_count_ = static_cast<uint8_t>(urls.size() - link_count);
+        image_src_count_ = static_cast<uint8_t>(urls_value.size() - link_count);
+        run_count_ = static_cast<uint32_t>(runs_value.size());
     }
 
 private:
+    const std::string_view* urls() const noexcept
+    {
+        return static_cast<const std::string_view*>(refs_);
+    }
+
     static constexpr uint8_t kListOrdered = 1u << 0;
     static constexpr uint8_t kTaskChecked = 1u << 1;    // TaskListItem のときのみ意味を持つ
     static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。loose list の項目か、最初の子ブロックが段落でない項目
@@ -432,7 +437,7 @@ private:
 };
 
 // 超過したら /d1reportSingleClassLayoutNode で並びを確認し、payload か末尾の 1 バイト領域に寄せる。
-static_assert(sizeof(Node) == 64, "Node size regression: expected 64 bytes");
+static_assert(sizeof(Node) == 56, "Node size regression: expected 56 bytes");
 static_assert(std::is_trivially_copyable_v<Node>, "Node must stay a trivially copyable view");
 
 // i を含む、区切ったノードの並びの先頭と末尾。区切っていなければ i。

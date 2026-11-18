@@ -200,20 +200,18 @@ struct ParseContext : NodeStorage {
                 current_node->SetText(raw == current_text ? raw : arena.CopyText(current_text));
                 current_node->line_count = static_cast<int32_t>(std::ranges::count(current_text, '\n'));
             }
-            if (!current_runs.empty()) {
-                current_node->SetRuns(arena.Copy(current_runs));
-                if (std::ranges::any_of(current_runs, &TextRun::math)) {
-                    indices.math_indices.push_back(CurrentNodeIndex());
-                }
+            if (std::ranges::any_of(current_runs, &TextRun::math)) {
+                indices.math_indices.push_back(CurrentNodeIndex());
             }
             if (!current_image_srcs.urls.empty()) {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
-            if (!current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
+            if (!current_runs.empty() || !current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
                 auto& urls = current_link_urls.urls;
                 const size_t link_count = urls.size();
                 urls.append_range(current_image_srcs.urls);
-                current_node->SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
+                const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, current_runs);
+                current_node->SetRefs(kept_urls, link_count, kept_runs);
             }
         }
         current_text.clear();
@@ -782,11 +780,11 @@ void AppendFootnoteBackrefs(std::span<Node> nodes, TextArena& arena, std::span<c
             });
         }
         node.SetText(arena.CopyText(text));
-        node.SetRuns(arena.Copy(runs));
         // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
         const size_t link_count = urls.size();
         urls.append_range(node.image_srcs());
-        node.SetLinkUrlsAndImageSrcs(arena.Copy(urls), link_count);
+        const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, runs);
+        node.SetRefs(kept_urls, link_count, kept_runs);
     }
 }
 
@@ -906,7 +904,9 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     node.SetText(arena.CopyText(new_text));
     node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
-    node.SetRuns(arena.Copy(new_runs));
+    const size_t link_count = node.view_link_urls().size();
+    const auto [kept_urls, kept_runs] = arena.CopyRefs(node.link_urls_and_image_srcs(), new_runs);
+    node.SetRefs(kept_urls, link_count, kept_runs);
     node.alert_type = type;
     node.set_has_alert_label();
 }
