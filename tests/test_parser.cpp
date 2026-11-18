@@ -217,19 +217,59 @@ TEST(Parser, HorizontalRuleWithAsterisks)
     EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
 }
 
-// loose list は md4c が LI 中身を MD_BLOCK_P に外出しするため LI 自体は空 (issue#237 の原因)。
-TEST(Parser, UnorderedListLooseProducesParagraphChildren)
+// loose list は md4c が LI 中身を MD_BLOCK_P で包むが、最初の段落は LI 自身が持ち、2 つ目からの段落は別のノードにする。
+TEST(Parser, LooseListItemAbsorbsFirstParagraph)
 {
-    auto nodes = ParseNodes("- a\n\n- b");
-    ASSERT_EQ(nodes.size(), 4u);
+    auto nodes = ParseNodes("- a\n\n  a2\n\n- b");
+    ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    EXPECT_FALSE(nodes[0].HasText());
+    EXPECT_EQ(nodes[0].GetText(), "a");
+    EXPECT_TRUE(IsLooseListItem(nodes[0]));
     EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[1].GetText(), "a");
+    EXPECT_EQ(nodes[1].GetText(), "a2");
     EXPECT_EQ(nodes[2].type, NodeType::ListItem);
-    EXPECT_FALSE(nodes[2].HasText());
-    EXPECT_EQ(nodes[3].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[3].GetText(), "b");
+    EXPECT_EQ(nodes[2].GetText(), "b");
+    EXPECT_TRUE(IsLooseListItem(nodes[2]));
+    EXPECT_FALSE(IsLooseListItem(ParseNodes("- a\n- b")[0])) << "tight";
+    EXPECT_FALSE(IsLooseListItem(ParseNodes("- a\n  - b")[0])) << "入れ子のリストを持つ tight な項目";
+}
+
+// LI の中の引用の段落は、tight なリストでも md4c が段落で包むが、LI の直下ではないので吸わずに引用の段落のままにする。
+TEST(Parser, ListItemDoesNotAbsorbQuotedParagraph)
+{
+    constexpr std::string_view kQuoted = "- > quoted";
+    const auto quoted = ParseNodes(kQuoted);
+    ASSERT_EQ(quoted.size(), 2u);
+    EXPECT_EQ(quoted[0].type, NodeType::ListItem);
+    EXPECT_FALSE(quoted[0].HasText());
+    EXPECT_FALSE(IsLooseListItem(quoted[0]));
+    EXPECT_EQ(quoted[1].type, NodeType::Paragraph);
+    EXPECT_EQ(quoted[1].GetText(), "quoted");
+    EXPECT_EQ(quoted[1].quote_depth, 1);
+    EXPECT_TRUE(ParseInvariantsHold(kQuoted, quoted));
+
+    const auto alert = ParseNodes("1. > [!NOTE]\n   > body");
+    ASSERT_EQ(alert.size(), 2u);
+    EXPECT_EQ(alert[1].alert_type, AlertType::Note);
+}
+
+// loose の項目の段落も段落と同じく長いと区切り、続きは段落にする (記号は 1 つ)。
+TEST(Parser, LooseListItemSplitsLongParagraphIntoParagraphs)
+{
+    std::string md = "- a\n\n- ";
+    for (int i = 0; i < 4000; ++i) {
+        md += "word ";
+    }
+    md += "\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(IsLooseListItem(nodes[1]));
+    EXPECT_TRUE(nodes[1].continues_next());
+    for (size_t i = 2; i < nodes.size(); ++i) {
+        EXPECT_EQ(nodes[i].type, NodeType::Paragraph);
+        EXPECT_TRUE(nodes[i].continues_prev());
+    }
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
 // 装飾 run は 1 テキストあたり 4096 個で打ち切る (DirectWrite の書式設定が二乗で遅くなるため)。
@@ -271,13 +311,18 @@ TEST(Parser, StyledRunCapIsPerTableCell)
     EXPECT_EQ(tbl->GetCellRuns(1, 1).size(), 4096u);
 }
 
-// 中身を子ブロックに持つ LI だけが高さ 0 の枠になる。本当に空の LI は枠扱いしない。
+// 最初の子ブロックが段落でない LI だけが高さ 0 の枠になる。本当に空の LI と、段落を吸った loose の LI は枠扱いしない。
 TEST(Parser, EmptyListItemContainerRequiresChildBlocks)
 {
     const auto loose = ParseNodes("- a\n\n- b");
-    ASSERT_EQ(loose.size(), 4u);
-    EXPECT_TRUE(IsEmptyListItemContainer(loose[0]));
-    EXPECT_TRUE(IsEmptyListItemContainer(loose[2]));
+    ASSERT_EQ(loose.size(), 2u);
+    EXPECT_FALSE(IsEmptyListItemContainer(loose[0]));
+    EXPECT_FALSE(IsEmptyListItemContainer(loose[1]));
+
+    const auto code_first = ParseNodes("- ```\n  x\n  ```\n\n- b");
+    ASSERT_EQ(code_first.size(), 3u);
+    EXPECT_TRUE(IsEmptyListItemContainer(code_first[0]));
+    EXPECT_EQ(code_first[1].type, NodeType::CodeBlock);
 
     const auto nested = ParseNodes("-\n  - b");
     ASSERT_EQ(nested.size(), 2u);

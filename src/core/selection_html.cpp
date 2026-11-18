@@ -682,11 +682,21 @@ std::string ExtractSelectedTextAsHtml(std::span<const Node> nodes, const TextSel
             }
             break;
         case NodeType::ListItem:
-            wrap_inline("<li>", "");
+        case NodeType::TaskListItem: {
+            const std::string_view head = node.type == NodeType::ListItem ? "<li>"
+                                          : node.task_checked()          ? "<li><input type=\"checkbox\" checked disabled> "
+                                                                         : "<li><input type=\"checkbox\" disabled> ";
+            if (!IsLooseListItem(node)) {
+                wrap_inline(head, "");
+                break;
+            }
+            // loose の項目は吸った段落を段落と同じに包む (引用の中の段落は <blockquote>)。
+            const bool quoted = node.quote_depth > 0;
+            std::string open{ head };
+            open += quoted ? "<blockquote>" : "<p>";
+            wrap_inline(open, quoted ? "</blockquote>" : "</p>");
             break;
-        case NodeType::TaskListItem:
-            wrap_inline(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ", "");
-            break;
+        }
         case NodeType::HorizontalRule:
             out.append("<hr>");
             break;

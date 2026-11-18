@@ -204,7 +204,8 @@ struct ParseContext : NodeStorage {
     void BeginNode(NodeType type)
     {
         // UL/OL/QUOTE の進入はノードを閉じないので、LI の中の最初の子ブロックが始まる時点ではまだ LI が開いている。
-        if (current_node && IsListItem(*current_node)) {
+        // テキストを持つ LI (tight な項目の入れ子のリストなど) には立てない (立つのは loose の項目と空の枠だけ)。
+        if (current_node && IsListItem(*current_node) && current_text.empty()) {
             current_node->set_has_child_blocks();
         }
         FinalizeCurrentNode();
@@ -232,6 +233,10 @@ struct ParseContext : NodeStorage {
         switch (current_node->type) {
         case NodeType::Paragraph:
             return true;
+        // loose の項目は吸った段落を区切る。続きは段落にするので記号は増えない。tight な項目は余白が段落と違うので区切らない。
+        case NodeType::ListItem:
+        case NodeType::TaskListItem:
+            return current_node->has_child_blocks();
         case NodeType::CodeBlock:
             return !IsDiagramLanguage(current_node->code_language) && current_node->code_language != SyntaxLanguage::LatexMath;
         default:
@@ -249,7 +254,7 @@ struct ParseContext : NodeStorage {
             split_code_runs.push_back(CurrentNodeIndex());
         }
         current_node->set_continues_next();
-        BeginNode(type);
+        BeginNode(IsListItem(*current_node) ? NodeType::Paragraph : type);
         current_node->code_language = language;
         current_node->set_continues_prev(newline_before);
         ResolveLinkUrlIndex(link_url);
@@ -937,6 +942,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
 
     case MD_BLOCK_P:
+        // loose list の項目の最初の段落は LI 自身が受け持つ (IsLooseListItem)。2 つ目からの段落は今までどおり別のノード。
+        // 吸うのは段落が LI の直下 (LI と同じ indent_level) にあるときだけ。LI の中の引用 (md4c は tight なリストでも引用の中は
+        // 段落で包む) の段落は吸わない。LI の indent_level は int8_t で頭打ちになるが、そこまで深ければ吸わずに別のノードにする。
+        if (ctx->current_node && IsListItem(*ctx->current_node) && ctx->current_text.empty() && ctx->indent_level == ctx->current_node->indent_level) {
+            ctx->current_node->set_has_child_blocks();
+            break;
+        }
         ctx->BeginNode(NodeType::Paragraph);
         break;
 

@@ -474,13 +474,15 @@ TEST(ExtractSelectedTextAsHtml, OrderedListStartBoundaries)
     EXPECT_EQ(ExtractSelectedTextAsHtml(mid, from_second, false), "<ol start=\"2\"><li>b</li><li>c</li></ol>");
 }
 
-// loose list の段落の途中から選んでも、後続の項目の番号は start に出る。
+// loose list の項目の 2 つ目の段落から選んでも、後続の項目の番号は start に出る。最初の段落は項目と一緒に <li><p> で包む。
 TEST(ExtractSelectedTextAsHtml, LooseOrderedListFromParagraphKeepsNextStart)
 {
-    auto nodes = ParseNodes("1. a\n\n2. b");
-    ASSERT_EQ(nodes.size(), 4u);
-    const auto sel = TextSelection::MakeOrdered(1, 0, 3, 1);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>a</p><ol start=\"2\"><li><p>b</p></li></ol>");
+    auto nodes = ParseNodes("1. a\n\n   a2\n\n2. b");
+    ASSERT_EQ(nodes.size(), 3u);
+    const auto sel = TextSelection::MakeOrdered(1, 0, 2, 1);
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>a2</p><ol start=\"2\"><li><p>b</p></li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 2, 1), false),
+              "<ol><li><p>a</p><p>a2</p></li><li><p>b</p></li></ol>");
 }
 
 // 一度も描画していないコードブロックはコピー時にトークン化する。diff の追加/削除色も対応表から引けること

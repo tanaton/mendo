@@ -35,6 +35,10 @@ constexpr std::string_view CULL_DOC_MD = R"(# Heading one
 
 - b
 
+- ```
+  code in a loose item
+  ```
+
 - [ ] task a
 
 - [x] task b
@@ -237,7 +241,7 @@ TEST_F(CullingParityTest, ViewportCullingMatchesUnculledRendering)
     const auto pl = ParseAndLayout(CULL_DOC_MD, PANE_W);
     const size_t n = pl.nodes.size();
     ASSERT_GT(n, 10u);
-    // 前提: 高さ 0 の空 LI (loose list) を含む。
+    // 前提: 高さ 0 の空 LI (最初の子ブロックがコードの項目) を含む。
     ASSERT_TRUE(std::ranges::any_of(std::views::iota(size_t{ 0 }, n), [&](size_t i) {
         return IsEmptyListItemContainer(pl.nodes[i]) && pl.cache[i].height == 0.0f;
     }));

@@ -418,7 +418,7 @@ struct Node {
 private:
     static constexpr uint8_t kListOrdered = 1u << 0;
     static constexpr uint8_t kTaskChecked = 1u << 1;    // TaskListItem のときのみ意味を持つ
-    static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
+    static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。loose list の項目か、最初の子ブロックが段落でない項目
     static constexpr uint8_t kHasAlertLabel = 1u << 3;
     static constexpr uint8_t kContinuesPrev = 1u << 4;
     static constexpr uint8_t kContinuesNext = 1u << 5;
@@ -480,11 +480,18 @@ constexpr bool IsListItem(const Node& node) noexcept
     return node.type == NodeType::ListItem || node.type == NodeType::TaskListItem;
 }
 
-// loose list の LI (md4c が中身を MD_BLOCK_P に外出しするのでテキストを持たない枠)。
+// 最初の子ブロックが段落でない LI (コードブロック・入れ子のリストなど)。中身は後ろのノードにあり、自分はテキストを持たない枠。
 // 高さ 0 にすると空の "1." の繰り返しが全部同じ Y に重なり、可視判定で間引けず毎フレーム全件描く。
 constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
 {
     return IsListItem(node) && !node.HasText() && node.has_child_blocks();
+}
+
+// loose list (項目の間に空行がある) の LI。md4c は中身を MD_BLOCK_P で包むが、パーサが最初の段落を LI 自身に吸わせて
+// 1 ノードにする (空の枠と段落の 2 ノードにすると、項目ごとにノードとレイアウトの分のメモリが倍になる)。余白は段落と同じ。
+constexpr bool IsLooseListItem(const Node& node) noexcept
+{
+    return IsListItem(node) && node.HasText() && node.has_child_blocks();
 }
 
 // 目次は文書順の見出しの列 (パーサが見出しの終わりで積む)。段は見出しのノードから取る。

@@ -67,10 +67,12 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
         return theme.code_block_spacing_above;
     case NodeType::Paragraph:
         return node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
-    case NodeType::HorizontalRule:
     case NodeType::ListItem:
-    case NodeType::Table:
     case NodeType::TaskListItem:
+        // loose の項目は吸った段落と同じ余白。
+        return IsLooseListItem(node) && node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
+    case NodeType::HorizontalRule:
+    case NodeType::Table:
         return 0.0f;
     }
     std::unreachable();
@@ -90,7 +92,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        return IsEmptyListItemContainer(node) ? 0.0f : theme.list_item_spacing;
+        return IsEmptyListItemContainer(node) ? 0.0f : IsLooseListItem(node) ? theme.paragraph_spacing : theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;
     case NodeType::Table:
