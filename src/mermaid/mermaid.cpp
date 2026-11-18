@@ -36,6 +36,7 @@ void MermaidRenderer::Shutdown()
 {
     // 取り消した要求のコールバックは呼ばない (結果を待つ側も終わるところなので)。
     render_waiting_.clear();
+    pass_count_ = 0;
     inflight_.clear();
     drop_gen_.fetch_add(1, std::memory_order_relaxed);
     if (pele_) {
@@ -113,6 +114,39 @@ void MermaidRenderer::DropQueued()
         inflight_.erase(display->request_hash);
         return true;
     });
+    pass_count_ = 0;
+}
+
+void MermaidRenderer::BeginRequestPass()
+{
+    pass_count_ = 0;
+}
+
+size_t MermaidRenderer::WaitingMathCount() const
+{
+    return static_cast<size_t>(std::ranges::find_if(render_waiting_, [](const RenderRequest& r) { return !std::holds_alternative<MathRequest>(r.target); }) -
+                               render_waiting_.begin());
+}
+
+void MermaidRenderer::PromoteWaiting(uint64_t request_hash)
+{
+    const auto front = render_waiting_.begin() + static_cast<ptrdiff_t>(WaitingMathCount() + pass_count_);
+    const auto it = std::find_if(front, render_waiting_.end(), [request_hash](const RenderRequest& r) {
+        const auto* display = std::get_if<DisplayTarget>(&r.target);
+        return display && display->request_hash == request_hash;
+    });
+    if (it != render_waiting_.end()) {
+        std::rotate(front, it, it + 1);
+        ++pass_count_;
+    }
+}
+
+std::vector<uint64_t> MermaidRenderer::WaitingRequests() const
+{
+    return render_waiting_ | std::views::transform([](const RenderRequest& r) {
+        const auto* display = std::get_if<DisplayTarget>(&r.target);
+        return display ? display->request_hash : uint64_t{ 0 };
+    }) | std::ranges::to<std::vector>();
 }
 
 void MermaidRenderer::ReleaseDrawing(DiagramEntry& diagram_entry)
@@ -196,6 +230,7 @@ DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_w
         return cached;
     }
     if (!inflight_.insert(hash).second) {
+        PromoteWaiting(hash);
         return nullptr;
     }
 
@@ -222,10 +257,10 @@ DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_w
 template <typename Work>
 void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
 {
-    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind }, work = std::move(work), drop_gen = drop_gen_.load(std::memory_order_relaxed),
+    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind, .drop_gen = drop_gen_.load(std::memory_order_relaxed) }, work = std::move(work),
                          guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && drop_gen != drop_gen_.load(std::memory_order_relaxed);
+        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && job.drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
@@ -437,7 +472,14 @@ void MermaidRenderer::EnsurePele()
 void MermaidRenderer::StartRender(RenderRequest req)
 {
     EnsurePele();
-    render_waiting_.push_back(std::move(req));
+    const auto front = render_waiting_.begin() + static_cast<ptrdiff_t>(WaitingMathCount());
+    if (std::holds_alternative<MathRequest>(req.target)) {
+        render_waiting_.insert(front, std::move(req));
+    }
+    else {
+        render_waiting_.insert(front + static_cast<ptrdiff_t>(pass_count_), std::move(req));
+        ++pass_count_;
+    }
     PumpRenders();
 }
 
@@ -450,6 +492,9 @@ void MermaidRenderer::PumpRenders()
         ++renders_running_;
         auto req = std::move(render_waiting_.front());
         render_waiting_.pop_front();
+        if (pass_count_ > 0 && std::holds_alternative<DisplayTarget>(req.target)) {
+            --pass_count_;
+        }
         PostJob(std::move(req), JobWork::Render, [this](Job& j) { return RenderJob(j); });
     }
 }
@@ -464,7 +509,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
         }) | std::ranges::to<std::vector>();
         return JobMaths{ pele_->RenderMaths(sources) };
     }
-    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width);
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, { &drop_gen_, job.drop_gen });
     switch (out.status) {
     case Status::Cancelled:
         return JobDropped{};

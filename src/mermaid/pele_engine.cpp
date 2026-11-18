@@ -159,6 +159,10 @@ struct PeleSvg {
 
 struct PeleContext {
     PeleEngine* engine = nullptr;
+    // PeleEngine::Cancel で立つ。
+    const std::atomic<bool>* cancel = nullptr;
+    // 図を描く JS を動かす間だけ持つ。
+    PeleEngine::StaleWhen stale;
     // rt の確保はすべてここから取る (kJsHeapFunctions)。
     HANDLE heap = nullptr;
     JSRuntime* rt = nullptr;
@@ -172,6 +176,12 @@ struct PeleContext {
     std::optional<DiagramTextMeasurer> measurer;
     // 描いている図のラベルの数式。pele の math オプションが足し、DrawingFromPeleSvg が読む。
     std::vector<PeleMathLabel> labels;
+
+    // 終了で取り消したか、描いている図が古くなった。
+    bool Stopped() const noexcept
+    {
+        return cancel->load(std::memory_order_relaxed) || (stale.generation && stale.generation->load(std::memory_order_relaxed) != stale.value);
+    }
 
     PeleContext() = default;
     PeleContext(const PeleContext&) = delete;
@@ -253,9 +263,10 @@ JSValue MathLabel(JSContext* ctx, JSValueConst, int, JSValueConst* argv)
     return out;
 }
 
-int CheckCancel(JSContext*, void* cancel)
+// JS が一定の命令を進めるごとに呼ばれ、1 を返すと止める。
+int CheckCancel(JSContext*, void* context)
 {
-    return static_cast<const std::atomic<bool>*>(cancel)->load(std::memory_order_relaxed) ? 1 : 0;
+    return static_cast<const PeleContext*>(context)->Stopped() ? 1 : 0;
 }
 
 // 評価の結果を確かめる。モジュールの評価は Promise を返すので、ジョブを流して確定させる (pele も KaTeX も最上位に await が無い)。
@@ -298,6 +309,7 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
     }
     auto context = std::make_unique<PeleContext>();
     context->engine = this;
+    context->cancel = &cancel_;
     context->fonts = &FontsFor(locale_);
     return context;
 }
@@ -319,7 +331,7 @@ bool PeleEngine::EnsureRuntime(PeleContext& context)
         }
         JS_SetMaxStackSize(context.rt, JsStackBudget());
         JS_SetMemoryLimit(context.rt, kJsMemoryBytes);
-        JS_SetInterruptHandler(context.rt, CheckCancel, &cancel_);
+        JS_SetInterruptHandler(context.rt, CheckCancel, &context);
     }
     context.ctx = JS_NewContext(context.rt);
     if (!context.ctx) {
@@ -573,7 +585,7 @@ bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
     return true;
 }
 
-PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width)
+PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
     if (Cancelled()) {
@@ -584,7 +596,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         context->measurer.emplace(dw_, locale_);
     }
     PeleOutcome out;
-    if (auto svg = RenderSvg(*context, code, max_width); !svg) {
+    if (auto svg = RenderSvg(*context, code, max_width, stale); !svg) {
         out = std::move(svg.error());
     }
     else {
@@ -599,7 +611,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
     return out;
 }
 
-std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width)
+std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
     if (!EnsurePele(context)) {
@@ -613,14 +625,19 @@ std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, 
         NewString(ctx, context.fonts->mono),
         code.contains("$$") && EnsureKatex(context) ? JS_DupValue(ctx, context.katex) : JS_UNDEFINED,
     };
+    // バイトコードの読み込み (EnsurePele) は止めない (途中で止めるとランタイムを使えなくなる)。
+    context.stale = stale;
     JSValue svg = JS_Call(ctx, context.render, JS_UNDEFINED, 5, args);
+    const bool stopped = context.Stopped();
+    context.stale = {};
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
     std::expected<PeleSvg, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
-        if (Cancelled()) {
+        // 止めた図はコードの誤りではないので、エラーとして確定させない。
+        if (stopped) {
             out.error().status = Status::Cancelled;
         }
         else {

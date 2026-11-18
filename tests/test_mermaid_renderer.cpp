@@ -429,6 +429,40 @@ TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsMath)
     EXPECT_TRUE(eb.HasImage());
 }
 
+// 見えている図から順に頼み直す回 (BeginRequestPass) では、待ちの表示用の要求をその回に頼まれた順へ並べ直す。新しい要求も
+// その回の分の後ろに入り、前の回に頼んだだけの図はその後ろで待つ。数式の要求は図より先に描く。
+TEST_F(MermaidRendererTest, WaitingRequestsFollowRequestPassAndMathGoesFirst)
+{
+    const DiagramDoc alpha(kAlpha);
+    const DiagramDoc beta(kBeta);
+    const DiagramDoc gamma(kGamma);
+    const DiagramDoc wide(kWide);
+    const DiagramDoc broken(kBroken);
+    DiagramEntry ea;
+    DiagramEntry eb;
+    DiagramEntry eg;
+    DiagramEntry ew;
+    DiagramEntry ex;
+    WorkerGate gate(scheduler_, 2);
+    ASSERT_TRUE(gate.ready());
+    // alpha は同時に描く枠 (1 つ) を使い、残りが待つ。
+    EXPECT_FALSE(Request(alpha, ea));
+    EXPECT_FALSE(Request(beta, eb));
+    EXPECT_FALSE(Request(gamma, eg));
+    EXPECT_FALSE(Request(wide, ew));
+    ASSERT_EQ(renderer_.WaitingRequests(), (std::vector{ beta.RequestHash(), gamma.RequestHash(), wide.RequestHash() }));
+
+    renderer_.BeginRequestPass();
+    EXPECT_FALSE(Request(wide, ew));
+    EXPECT_FALSE(Request(gamma, eg));
+    EXPECT_FALSE(Request(broken, ex));
+    EXPECT_EQ(renderer_.WaitingRequests(), (std::vector{ wide.RequestHash(), gamma.RequestHash(), broken.RequestHash(), beta.RequestHash() }));
+
+    renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [](InlineMathBatchResult) {});
+    EXPECT_EQ(renderer_.WaitingRequests(),
+              (std::vector<uint64_t>{ 0, wide.RequestHash(), gamma.RequestHash(), broken.RequestHash(), beta.RequestHash() }));
+}
+
 // インライン数式は要求と同じ順で返し、描けない数式は描画命令も寸法も空。
 TEST_F(MermaidRendererTest, RendersMathBatchInRequestOrder)
 {

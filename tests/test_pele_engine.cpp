@@ -14,6 +14,7 @@
 #include <process.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -429,6 +430,17 @@ TEST_F(PeleEngineTest, WideDiagramKeepsNaturalSizeWithoutBakedScale)
         }
     }
     EXPECT_EQ(texts, 4u);
+}
+
+// 描く前から古くなっていた図は、JS を止めて Cancelled で返し、エラーにしない。ランタイムはそのまま次の図に使える。
+TEST_F(PeleEngineTest, StaleRenderIsCancelledAndRuntimeStaysUsable)
+{
+    constexpr std::string_view kCode = "flowchart LR\n  A[開始] --> B[終了]";
+    const std::atomic<uint32_t> generation{ 1 };
+    const auto stale = engine_->Render(kCode, false, 600.0f, { &generation, 0 });
+    EXPECT_EQ(stale.status, Status::Cancelled);
+    EXPECT_TRUE(stale.error.empty());
+    EXPECT_EQ(engine_->Render(kCode, false, 600.0f, { &generation, 1 }).status, Status::Drawn);
 }
 
 // 幅の上限に収まる図は、上限が変わっても同じ描画命令になる (幅に縛られない結果のキャッシュの前提)。

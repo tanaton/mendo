@@ -87,11 +87,14 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
+    void BeginRequestPass() override;
     void ReleaseDrawing(DiagramEntry& diagram_entry) override;
     // 覚えている結果のコマンドリストを全部外す (描画命令は残す)。文書を切り替えたら、前の文書の図のものはどの図も持たない。
     void ReleaseCachedCommands();
     // 覚えている結果のうち、コマンドリストを持つものの数 (テスト用)。
     size_t CachedCommandLists();
+    // 描画の待ちの順。表示用は要求のキー、数式は 0 (テスト用)。
+    std::vector<uint64_t> WaitingRequests() const;
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
@@ -204,6 +207,8 @@ private:
         // 既定値を置かない (Render だと指定し忘れた仕事も描画の枠を返す)。
         JobWork work;
         JobOutcome outcome;
+        // 投入したときの drop_gen_。表示用の仕事は、これと違えば描かずに返し、描いている途中でも止める。
+        uint32_t drop_gen = 0;
         // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
         bool used_pele = false;
     };
@@ -233,6 +238,10 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
+    // 待ちの先頭に並ぶ数式の要求の数。数式は行の高さを決めるので、表示用の図より先に描く。
+    size_t WaitingMathCount() const;
+    // 待ちの表示用の要求を、この回に頼まれた分の後ろへ移す (BeginRequestPass)。
+    void PromoteWaiting(uint64_t request_hash);
     // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す
     template <typename Work>
     void PostJob(RenderRequest req, JobWork kind, Work work);
@@ -293,7 +302,9 @@ private:
 
     PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
+    // 数式の要求、この回 (BeginRequestPass) に頼まれた表示用の要求 (pass_count_ 個)、それより前の回の表示用の要求の順に並ぶ。
     std::deque<RenderRequest> render_waiting_;
+    size_t pass_count_ = 0;
     int renders_running_ = 0;
 
     Microsoft::WRL::ComPtr<ID2D1DeviceContext5> record_dc_;

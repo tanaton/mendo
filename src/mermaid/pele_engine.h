@@ -52,7 +52,13 @@ public:
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
     // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG) はテーマに依らないが覚えない。テーマを切り替えるたびに JS で
     // 描き直すが、切り替えのためだけにプロセスの間ずっと最大 4MB を持つより手放すほうをユーザーが選んだ。
-    PeleOutcome Render(std::string_view code, bool dark, float max_width);
+    // stale があれば、JS を動かしている間に *generation が value から変わったら止めて Cancelled で返す (幅・テーマ・位置が
+    // 変わって古くなった表示用の描画に、ワーカーを使い続けない)。
+    struct StaleWhen {
+        const std::atomic<uint32_t>* generation = nullptr;
+        uint32_t value = 0;
+    };
+    PeleOutcome Render(std::string_view code, bool dark, float max_width, StaleWhen stale = {});
 
     struct MathSource {
         std::string_view tex;
@@ -91,7 +97,7 @@ private:
     bool EnsurePele(PeleContext& context);
     bool EnsureKatex(PeleContext& context);
     KatexAssets* Assets();
-    std::expected<PeleSvg, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width);
+    std::expected<PeleSvg, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale);
     // 覚えていなければ nullopt。KaTeX が描けなかった TeX は null を覚えている。
     std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
     void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);
