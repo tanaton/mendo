@@ -381,7 +381,9 @@ private:
     std::wstring toast_message_;
 
     Renderer renderer_;
-    TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()) };
+    // 図・数式・画像のデコード・読み込みのワーカーは、UI より優先度を下げる。CPU が埋まると図が揃うまでが延びるが、キーから
+    // 画面が変わるまでを 1 フレーム待たせないほうをユーザーが選んだ。
+    TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()), /*below_normal=*/true };
     // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
     TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
     MermaidFileCache file_cache_;        // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）

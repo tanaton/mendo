@@ -17,8 +17,8 @@ thread_local WorkerCom t_worker_com = WorkerCom::NotWorker;
 
 } // namespace
 
-TaskScheduler::TaskScheduler(int thread_count) noexcept
-    : thread_count_(static_cast<size_t>(std::max(thread_count, 0)))
+TaskScheduler::TaskScheduler(int thread_count, bool below_normal) noexcept
+    : thread_count_(static_cast<size_t>(std::max(thread_count, 0))), below_normal_(below_normal)
 {
 }
 
@@ -90,6 +90,9 @@ void TaskScheduler::EnsureWorkerCom() noexcept
 void TaskScheduler::WorkerLoop()
 {
     t_worker_com = WorkerCom::Uninitialized;
+    if (below_normal_) {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
 
     while (true) {
         std::move_only_function<void()> task;

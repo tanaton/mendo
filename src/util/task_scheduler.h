@@ -34,7 +34,8 @@ constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 class TaskScheduler {
 public:
     // Shutdown した後は使い直せない。
-    explicit TaskScheduler(int thread_count) noexcept;
+    // below_normal ならワーカーの優先度を UI のスレッドより下げる。
+    explicit TaskScheduler(int thread_count, bool below_normal = false) noexcept;
     ~TaskScheduler();
 
     TaskScheduler(const TaskScheduler&) = delete;
@@ -72,6 +73,7 @@ private:
     void WorkerLoop();
 
     std::atomic<size_t> thread_count_;
+    const bool below_normal_;
     std::vector<std::thread> workers_;
     std::deque<std::move_only_function<void()>> queue_;
     std::mutex mutex_;

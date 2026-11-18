@@ -28,6 +28,18 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     sch.Shutdown();
 }
 
+// below_normal の scheduler のワーカーは UI より低い優先度で動き、指定しなければ普通の優先度のまま。
+TEST(TaskScheduler, BelowNormalLowersWorkerPriority)
+{
+    for (const bool below_normal : { false, true }) {
+        TaskScheduler sch{ 1, below_normal };
+        std::promise<int> priority;
+        sch.Post([&] { priority.set_value(GetThreadPriority(GetCurrentThread())); });
+        EXPECT_EQ(priority.get_future().get(), below_normal ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_NORMAL);
+        sch.Shutdown();
+    }
+}
+
 TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 {
     TaskScheduler sch{ 1 };
