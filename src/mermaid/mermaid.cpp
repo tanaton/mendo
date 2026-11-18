@@ -219,7 +219,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::fi
     if (data.empty()) {
         return JobUnreadable{ read_error };
     }
-    auto drawing = mermaid_util::ParseDrawing(string_convert::Utf8ToWide({ reinterpret_cast<const char*>(data.data()), data.size() }));
+    auto drawing = mermaid_util::ParseDrawing({ reinterpret_cast<const char*>(data.data()), data.size() });
     if (!drawing) {
         return JobUnreadable{};
     }

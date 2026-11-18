@@ -145,7 +145,7 @@ TEST_F(PeleEngineTest, SerializedDrawingParsesBackAndResolvesMaths)
 {
     auto out = engine_->Render("flowchart TD\n  A[\"$$x^2$$\"] --> B[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> C((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
-    auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(out.drawing)));
+    auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(out.drawing));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
     engine_->ResolveMaths(*back);

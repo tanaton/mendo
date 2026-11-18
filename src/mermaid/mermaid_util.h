@@ -105,7 +105,7 @@ struct DiagramDrawing {
 // 並びは "<置き方>,<太さ>,<斜体 0/1>,<線のビット 0〜3 (kTextUnderline | kTextLineThrough)>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
 // 長さは UTF-16 の単位。ファイルが壊れていて欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
-std::optional<DiagramDrawing> ParseDrawing(std::wstring_view payload);
+std::optional<DiagramDrawing> ParseDrawing(std::string_view payload);
 // ParseDrawing が読む形の UTF-8。描画命令をディスクキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);
 // メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。

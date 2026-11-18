@@ -1572,6 +1572,36 @@ BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(ben
 BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
 
+// ディスクキャッシュの描画命令を書く・読む (読むのは図をディスクから引くワーカーの仕事)。test.md の図をすべて。
+void BM_DiagramDiskFormat(benchmark::State& state, bool parse)
+{
+    DiagramBench bench;
+    if (!bench.Init(state)) {
+        return;
+    }
+    std::vector<std::string> serialized;
+    size_t bytes = 0;
+    for (const auto& d : bench.drawings) {
+        bytes += serialized.emplace_back(mermaid_util::SerializeDrawing(*d)).size();
+    }
+    for (auto _ : state) {
+        if (parse) {
+            for (const auto& s : serialized) {
+                benchmark::DoNotOptimize(mermaid_util::ParseDrawing(s));
+            }
+        }
+        else {
+            for (const auto& d : bench.drawings) {
+                benchmark::DoNotOptimize(mermaid_util::SerializeDrawing(*d));
+            }
+        }
+    }
+    state.counters["diagrams"] = static_cast<double>(bench.drawings.size());
+    state.counters["KB"] = static_cast<double>(bytes) / 1024.0;
+}
+BENCHMARK_CAPTURE(BM_DiagramDiskFormat, serialize, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DiagramDiskFormat, parse, true)->Unit(benchmark::kMicrosecond);
+
 
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
 void BM_DiagramFrameDraw(benchmark::State& state)

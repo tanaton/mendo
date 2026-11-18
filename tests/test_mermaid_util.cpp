@@ -41,12 +41,12 @@ TEST(QuantizeWidth, RoundsUpToMultipleOf32)
 TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
 {
     const auto d = mermaid_util::ParseDrawing(
-        L"400:300.5:2039583:8:<g>い</g>2:"
-        L"12:<svg>あ</svg>2:"
-        L"1,0,0,1,10.5,20,3,4.25,16,16711680,0.5,700,1,0:10:Segoe UI,x5:a:b,c"
-        L"0,1,-1,0,0,0,0,0,12,0,1,400,0,3:0:0:"
-        L"1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
-        L"0:0:0:"sv);
+        "400:300.5:2039583:10:<g>い</g>2:"
+        "14:<svg>あ</svg>2:"
+        "1,0,0,1,10.5,20,3,4.25,16,16711680,0.5,700,1,0:10:Segoe UI,x5:a:b,c"
+        "0,1,-1,0,0,0,0,0,12,0,1,400,0,3:0:0:"
+        "1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
+        "0:0:0:"sv);
     ASSERT_TRUE(d.has_value());
     EXPECT_EQ(d->width, 400.0f);
     EXPECT_EQ(d->height, 300.5f);
@@ -85,7 +85,7 @@ TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
     EXPECT_TRUE(d->layers[1].maths.empty());
 }
 
-// 数式も書いた形のまま読み戻せる (TeX の BMP 外の文字は UTF-16 で 2 単位に数える)。
+// 数式も書いた形のまま読み戻せる (長さは UTF-8 のバイト数で、BMP 外の文字は 4 バイト)。
 TEST(ParseDrawing, SerializedMathsParseBack)
 {
     mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF, .defs = "<linearGradient id=\"g0\"/>" };
@@ -96,7 +96,7 @@ TEST(ParseDrawing, SerializedMathsParseBack)
                                                     .rgb = 0x123456,
                                                     .alpha = 1.0f },
                                             .tex = "\\mathcal{A}\xF0\x9D\x91\xA5" } } });
-    const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(drawing)));
+    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(drawing));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, drawing);
 }
@@ -109,7 +109,7 @@ TEST(ParseDrawing, LongFamilyAndTexParseBack)
         .texts = { { .at = { .font_size = 16.0f }, .family = std::wstring(2000, L'a'), .text = L"x" } },
         .maths = { { .at = { .font_size = 16.0f }, .tex = std::string(70000, 'x') } },
     });
-    const auto back = mermaid_util::ParseDrawing(string_convert::Utf8ToWide(mermaid_util::SerializeDrawing(drawing)));
+    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(drawing));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, drawing);
 }
@@ -117,43 +117,43 @@ TEST(ParseDrawing, LongFamilyAndTexParseBack)
 // ファイルは壊れていることがあるので、欠け・余り・ありえない値は全体を捨てる。
 TEST(ParseDrawing, RejectsMalformedPayloads)
 {
-    constexpr std::wstring_view kRun = L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:1:a"sv;
-    const auto with_run = [&](std::wstring_view run) { return std::wstring{ L"10:20:0:0:1:0:1:" } + std::wstring{ run } + L"0:"; };
-    const auto with_math = [&](std::wstring_view math) { return std::wstring{ L"10:20:0:0:1:0:0:1:" } + std::wstring{ math }; };
+    constexpr std::string_view kRun = "1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:1:a"sv;
+    const auto with_run = [&](std::string_view run) { return std::string{ "10:20:0:0:1:0:1:" } + std::string{ run } + "0:"; };
+    const auto with_math = [&](std::string_view math) { return std::string{ "10:20:0:0:1:0:0:1:" } + std::string{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
-    EXPECT_TRUE(mermaid_util::ParseDrawing(with_math(L"1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
-    const std::wstring kBad[] = {
-        L"",
-        L"10:x",                          // 高さが無い
-        L"nan:20:0:0:1:0:0:0:",             // 幅が数でない
-        L"inf:20:0:0:1:0:0:0:",           // 幅が有限でない
-        L"0:20:0:0:1:0:0:0:",             // 幅が 0
-        L"10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
-        L"10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
-        L"10:20:0:1:0:0:0:",              // defs が無い
-        L"10:20:0:0:1:9:<svg>0:0:",       // SVG の長さが足りない
-        L"10:20:0:0:1:0:0:0:x",           // 余り
-        L"10:20:0:0:2:0:0:0:",            // 層が足りない
-        L"10:20:0:0:1:0:0:",              // 数式の数が無い
-        L"10:20:0:0:1:0:2:" + std::wstring{ kRun } + L"0:", // 並びが足りない
-        with_math(L""),                                  // 数式が足りない
-        with_math(L"1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
-        with_math(L"1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
-        with_math(L"inf,0,0,1,0,0,0,0,16,0,1:1:x"),       // 数式の変換が有限でない
-        with_math(L"1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
-        with_math(L"1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
-        with_run(L"1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
-        with_run(L"1,0,0,1,0,0,0,0,0,0,1,400,0,0:0:1:a"),       // 大きさが 0
-        with_run(L"1,0,0,1,0,0,0,0,1001,0,1,400,0,0:0:1:a"),    // 大きさが上限を超える
-        with_run(L"1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
-        with_run(L"1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない
-        with_run(L"1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:2:a"),      // 文字の長さが足りない
-        with_run(L"1,0,0,1,0,0,0,0,16,0,1,400,0,0:-1:1:a"),     // 長さが数字でない
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_math("1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
+    const std::string kBad[] = {
+        "",
+        "10:x",                          // 高さが無い
+        "nan:20:0:0:1:0:0:0:",             // 幅が数でない
+        "inf:20:0:0:1:0:0:0:",           // 幅が有限でない
+        "0:20:0:0:1:0:0:0:",             // 幅が 0
+        "10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
+        "10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
+        "10:20:0:1:0:0:0:",              // defs が無い
+        "10:20:0:0:1:9:<svg>0:0:",       // SVG の長さが足りない
+        "10:20:0:0:1:0:0:0:x",           // 余り
+        "10:20:0:0:2:0:0:0:",            // 層が足りない
+        "10:20:0:0:1:0:0:",              // 数式の数が無い
+        "10:20:0:0:1:0:2:" + std::string{ kRun } + "0:", // 並びが足りない
+        with_math(""),                                  // 数式が足りない
+        with_math("1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
+        with_math("1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
+        with_math("inf,0,0,1,0,0,0,0,16,0,1:1:x"),       // 数式の変換が有限でない
+        with_math("1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
+        with_math("1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
+        with_run("1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
+        with_run("1,0,0,1,0,0,0,0,0,0,1,400,0,0:0:1:a"),       // 大きさが 0
+        with_run("1,0,0,1,0,0,0,0,1001,0,1,400,0,0:0:1:a"),    // 大きさが上限を超える
+        with_run("1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
+        with_run("1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
+        with_run("1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
+        with_run("1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
+        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
+        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない
+        with_run("1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
+        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:2:a"),      // 文字の長さが足りない
+        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,0:-1:1:a"),     // 長さが数字でない
     };
     for (const auto& payload : kBad) {
         SCOPED_TRACE(::testing::PrintToString(payload));
