@@ -1,4 +1,4 @@
-// TextLayoutCache の捨て方 (上限超過・書式ごと・全部) とフォールバックの区別、それを使うタイトルバーのタイトルの収まり。
+// TextLayoutCache の捨て方 (上限超過・書式ごと・非アクティブ) とフォールバックの区別、それを使うタイトルバーのタイトルの収まり。
 // 実 DirectWrite でレイアウトを作るため DWriteTestBase を使う。
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
@@ -94,18 +94,19 @@ TEST_F(TextLayoutCacheTest, ForgetDropsOnlyLayoutsOfTheFormat)
     EXPECT_EQ(cache_.TextOf(kept), Item(1));
 }
 
-// 非アクティブの間に手放すときは、直前のフレームで使ったものも含めて全部捨て、次に頼まれたら作り直す。
-TEST_F(TextLayoutCacheTest, ClearDropsEverything)
+// 非アクティブの間に手放すときは、上限以下でも直前のフレームで使わなかったものを捨て、使ったものは作り直さない。
+TEST_F(TextLayoutCacheTest, KeepLastFrameDropsUnusedEvenBelowLimit)
 {
     cache_.BeginFrame();
-    const auto layouts = FillOverLimit();
-    cache_.Clear();
+    auto* const unused = cache_.Get(fmt_.Get(), Item(0), kBox);
+    cache_.BeginFrame();
+    auto* const used = cache_.Get(fmt_.Get(), Item(1), kBox);
+    cache_.KeepLastFrame();
 
-    EXPECT_TRUE(cache_.TextOf(layouts[0]).empty());
-    EXPECT_TRUE(cache_.TextOf(layouts[kOverLimit - 1]).empty());
-    auto* const again = cache_.Get(fmt_.Get(), Item(0), kBox);
-    ASSERT_NE(again, nullptr);
-    EXPECT_EQ(cache_.TextOf(again), Item(0));
+    EXPECT_TRUE(cache_.TextOf(unused).empty());
+    EXPECT_EQ(cache_.TextOf(used), Item(1));
+    cache_.BeginFrame();
+    EXPECT_EQ(cache_.Get(fmt_.Get(), Item(1), kBox), used);
 }
 
 // 同じ書式でも、フォントを明示したレイアウトとしていないレイアウトを取り違えない。
