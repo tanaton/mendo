@@ -534,6 +534,7 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         }
     }
     if (svg) {
+        out.svg_hash = RapidHash(svg->svg);
         auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
         if (drawing) {

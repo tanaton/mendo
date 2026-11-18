@@ -28,6 +28,11 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 
 int QuantizeWidth(float max_width) noexcept;
 
+// 図のコードがフローチャート (flowchart / graph) か。先頭の空行・%% のコメント・--- の前置き (frontmatter) は読み飛ばす。
+// pele のフローチャートは幅の上限を見ないが、シーケンス図やガントなどは上限に収まらないと compact に切り替えるので、
+// 2 つの幅で同じ SVG になっても、上限に収まる幅では違う絵になりうる。
+bool IsFlowchartCode(std::string_view code) noexcept;
+
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 

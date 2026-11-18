@@ -32,6 +32,8 @@ struct PeleOutcome {
     Status status = Status::Error;
     mermaid_util::DiagramDrawing drawing;
     std::wstring error;
+    // 描けたときの pele の SVG のハッシュ。同じ図を別の幅で描いて同じなら、幅で出力が変わらない図と分かる。
+    uint64_t svg_hash = 0;
 };
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で

@@ -282,6 +282,26 @@ TEST_F(MermaidRendererTest, RerecordsReleasedCommandsFromCachedDrawing)
     EXPECT_EQ(entry.height, height);
 }
 
+// 幅の上限より広い図は、別の幅で描き直した pele の SVG が同じなら、どの幅でも使える結果として幅なしのキーに置く。
+// 3 つ目の幅では描き直さずにキャッシュから出す。
+TEST_F(MermaidRendererTest, WideDiagramWithSameSvgAtTwoWidthsIsReusedAtAnyWidth)
+{
+    const DiagramDoc d(kWide);
+    DiagramEntry first;
+    ASSERT_TRUE(RenderUntilSettled(d, first, 200.0f));
+    ASSERT_GT(first.width, 200.0f) << "幅の上限より広い図";
+    EXPECT_FALSE(first.any_width) << "1 つの幅で描いただけでは分からない";
+
+    DiagramEntry second;
+    ASSERT_TRUE(RenderUntilSettled(d, second, 300.0f));
+    EXPECT_TRUE(second.any_width);
+
+    DiagramEntry third;
+    EXPECT_TRUE(Request(d, third, 420.0f)) << "描き直さない";
+    EXPECT_TRUE(third.any_width);
+    EXPECT_EQ(third.drawing, second.drawing);
+}
+
 // 描いた図のエラーは描き直しても同じなので確定させ、ディスクには置かない。
 TEST_F(MermaidRendererTest, SettlesRenderError)
 {

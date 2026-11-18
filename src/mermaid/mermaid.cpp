@@ -96,7 +96,8 @@ void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
 DiagramResult* MermaidRenderer::FindCached(DisplayTarget& target, float max_width)
 {
     auto* free = cache_.Find(target.width_free_hash);
-    target.width_free = free && mermaid_util::IsWidthFree(free->width, max_width);
+    target.width_free = free && (free->any_width || mermaid_util::IsWidthFree(free->width, max_width));
+    target.any_width = target.width_free && free->any_width;
     return target.width_free ? free : cache_.Find(target.request_hash);
 }
 
@@ -179,7 +180,10 @@ DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_w
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
-        .target = DisplayTarget{ .request_hash = hash, .width_free_hash = width_free_hash, .width_free = hit && hit->key == width_free_hash },
+        .target = DisplayTarget{ .request_hash = hash,
+                                 .width_free_hash = width_free_hash,
+                                 .width_free = hit && hit->key == width_free_hash,
+                                 .any_width = hit && hit->key == width_free_hash && hit->entry.any_width },
     };
     if (hit) {
         StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
@@ -327,8 +331,16 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             }
             if (rendered) {
                 display.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
-                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes));
+                if (!display.width_free && mermaid_util::IsFlowchartCode(r.req.code)) {
+                    // 幅の上限より広いフローチャートは、前に別の幅で描いた SVG と同じなら幅で出力が変わらない。
+                    auto& drawn = drawn_svgs_[display.width_free_hash];
+                    display.any_width = drawn.svg_hash == d.svg_hash && drawn.max_width != r.req.max_width;
+                    display.width_free = display.any_width;
+                    drawn = { r.req.max_width, d.svg_hash };
+                }
+                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes), display.any_width);
             }
+            result.any_width = display.any_width;
             result.drawing = std::move(d.drawing);
             InsertCache(display.CacheKey(), std::move(result));
             inflight_.erase(display.request_hash);
@@ -441,7 +453,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
         break;
     }
     // ディスクキャッシュには UTF-8 で置く
-    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing) };
+    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing), .svg_hash = out.svg_hash };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
     drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());
     return drawn;

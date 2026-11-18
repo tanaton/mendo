@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -130,8 +131,10 @@ private:
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t request_hash = 0;
         uint64_t width_free_hash = 0;
-        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かったか、どの幅でも使える。
         bool width_free = false;
+        // どの幅でも使える (DiagramResult::any_width)。width_free も立つ。
+        bool any_width = false;
         uint64_t CacheKey() const noexcept
         {
             return width_free ? width_free_hash : request_hash;
@@ -174,6 +177,8 @@ private:
         DiagramTextLayouts texts;
         // 描いたときだけ、ディスクキャッシュに書く描画命令 (UTF-8)。
         std::string bytes;
+        // 描いたときだけ、pele の SVG のハッシュ (PeleOutcome::svg_hash)。
+        uint64_t svg_hash = 0;
     };
     // PeleEngine で描けなかった。描き直しても同じ。
     struct JobFailed {
@@ -265,6 +270,13 @@ private:
     std::move_only_function<void()> on_update_;
 
     std::unordered_set<uint64_t> inflight_;
+    // 図のコードとテーマ (幅なしのキー) ごとに、最後に描いた幅と pele の SVG のハッシュ。別の幅で描き直して SVG が同じなら、
+    // 幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに置く (追加の JS は要らない)。
+    struct DrawnSvg {
+        float max_width = 0.0f;
+        uint64_t svg_hash = 0;
+    };
+    std::unordered_map<uint64_t, DrawnSvg> drawn_svgs_;
 
     TranspositionCache<uint64_t, DiagramResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;

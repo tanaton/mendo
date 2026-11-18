@@ -166,6 +166,36 @@ std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::string_view& s)
 
 } // namespace
 
+bool mermaid_util::IsFlowchartCode(std::string_view code) noexcept
+{
+    bool in_frontmatter = false;
+    bool first_line = true;
+    while (!code.empty()) {
+        const size_t eol = code.find('\n');
+        std::string_view line = code.substr(0, eol);
+        code = eol == std::string_view::npos ? std::string_view{} : code.substr(eol + 1);
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.remove_prefix(1);
+        }
+        while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {
+            line.remove_suffix(1);
+        }
+        const bool fence = line == "---";
+        if ((first_line && fence) || (in_frontmatter && fence)) {
+            in_frontmatter = !in_frontmatter;
+            first_line = false;
+            continue;
+        }
+        first_line = false;
+        if (in_frontmatter || line.empty() || line.starts_with("%%")) {
+            continue;
+        }
+        const std::string_view keyword = line.substr(0, line.find_first_of(" \t;"));
+        return keyword == "flowchart" || keyword == "graph" || keyword == "flowchart-elk";
+    }
+    return false;
+}
+
 bool mermaid_util::IsStorable(const DrawingPlacement& p) noexcept
 {
     return std::ranges::all_of(p.transform, [](float v) static { return std::isfinite(v); }) && std::isfinite(p.x) && std::isfinite(p.y) &&

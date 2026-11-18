@@ -507,6 +507,8 @@ struct DiagramResult {
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。失敗は再リクエストを止め、
     // コードの書き換え・幅変更・テーマ変更・デバイスロストでクリアされて再試行の契機になる。
     DiagramError error;
+    // 幅の上限より広い図でも、pele がどの幅でも同じに描く (別の幅で描き直した SVG が同じだった)。幅が変わっても描き直さない。
+    bool any_width = false;
 };
 
 struct DiagramEntry : DiagramResult {

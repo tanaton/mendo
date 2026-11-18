@@ -161,6 +161,18 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
     }
 }
 
+// どの幅でも使える結果にしてよいのはフローチャートだけ。前置き・コメント・空行は読み飛ばす。
+TEST(IsFlowchartCode, DetectsFlowchartAfterPreamble)
+{
+    EXPECT_TRUE(mermaid_util::IsFlowchartCode("flowchart LR\n  A --> B\n"));
+    EXPECT_TRUE(mermaid_util::IsFlowchartCode("graph TD;A-->B"));
+    EXPECT_TRUE(mermaid_util::IsFlowchartCode("---\ntitle: x\n---\n%% comment\n\n  flowchart TB\n"));
+    EXPECT_FALSE(mermaid_util::IsFlowchartCode("sequenceDiagram\n  A->>B: hi\n"));
+    EXPECT_FALSE(mermaid_util::IsFlowchartCode("gantt\n  title flowchart\n"));
+    EXPECT_FALSE(mermaid_util::IsFlowchartCode("---\nflowchart: x\n---\nclassDiagram\n"));
+    EXPECT_FALSE(mermaid_util::IsFlowchartCode(""));
+}
+
 TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
 {
     struct Case {
