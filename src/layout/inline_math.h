@@ -43,10 +43,13 @@ std::optional<std::string_view> InlineMathTex(std::string_view text, const TextR
 
 // 数式は文字の大きさごとに描くので、キーに大きさも混ぜる。
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
-// 数式を置く場所の文字の大きさ。計画と計測はこれでキーを揃える。見出しは見出しの大きさ、表の見出し行は h4、ほかは本文。
+// 数式を置く場所の文字の大きさ。見出しは見出しの大きさ、表の見出し行は h4、ほかは本文。
 // コードの大きさは当たらない (数式はインラインコードと重ならず、コードブロックに数式は無い)。
 float MathFontSize(const Theme& theme, const Node& node) noexcept;
 float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept;
+// 文字の大きさ text_size の場所に置く数式を組む大きさ。ズームはテーマの全寸法を一様に掛けるだけなので、数式はズーム前の
+// 大きさで組み、置くときに倍率を掛ける。計画と計測はこれでキーを揃える。
+float MathLayoutSize(const Theme& theme, float text_size) noexcept;
 // node (表でないもの) のインライン数式に、sorted_keys (昇順) のキーがあるか。届いた数式の組を待つノードを選ぶのに使う。
 bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys);
 

@@ -474,11 +474,13 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
         if (!tex) {
             continue;
         }
-        const uint64_t key = InlineMathKey(*tex, format.font_size);
+        const uint64_t key = InlineMathKey(*tex, MathLayoutSize(*theme_, format.font_size));
         if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
+                // ズーム前の大きさで組んであるので、倍率を掛けて置く。
+                const float zoom = theme_->zoom;
                 const float fit_width = format.math_fit_width;
-                const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
+                const float scale = zoom * (fit_width > 0.0f && metrics->width * zoom > fit_width ? fit_width / (metrics->width * zoom) : 1.0f);
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
                 placed_block_math = fit_width > 0.0f;
             }

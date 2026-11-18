@@ -1175,8 +1175,8 @@ void App::ApplyZoom()
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
     measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
-    // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
-    ForgetInlineMath();
+    // 数式はズーム前の大きさで組んであるので、捨てずに倍率を掛けて置き直す。分数線などの 1px の下限もズームと一緒に太る・
+    // 細る (ブラウザのズームと同じ) が、ズームのたびに組み直して行の高さが揺れるより、こちらをユーザーが選んだ。
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     UpdateTitleBar();
     session::SaveZoomLevel(config_, state_.view.viewport.Zoom());

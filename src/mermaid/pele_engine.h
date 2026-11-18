@@ -102,8 +102,8 @@ private:
     std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
     void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);
 
-    // KaTeX の HTML を覚える上限。溢れると全部捨てるのでズームに効かなくなる。2MB では根号や行列の多い式が約 840 個で
-    // 溢れるので、メモリは増えるが 4MB (同じ式で約 1700 個) をユーザーが選んだ。
+    // KaTeX の HTML を覚える上限。溢れると全部捨てるので効かなくなる。2MB では根号や行列の多い式が約 840 個で溢れるので、
+    // メモリは増えるが 4MB (同じ式で約 1700 個) をユーザーが選んだ (選んだときはズームのたびにここから組み直していた)。
     static constexpr size_t kMaxHtmlBytes = 4u * 1024 * 1024;
     // 表の節・文字列の本体・共有の管理ブロックの見込み。描けない TeX (HTML なし) だけでも表が膨らみ続けないように数える。
     static constexpr size_t kHtmlEntryBytes = 128;
@@ -118,8 +118,8 @@ private:
     std::unique_ptr<KatexAssets> assets_;
     std::mutex mutex_;
     std::vector<std::unique_ptr<PeleContext>> idle_;
-    // TeX のハッシュ → KaTeX の HTML。KaTeX に渡すのは TeX だけで、文字の大きさは配置にしか使わないので、ズームや
-    // 見出しと本文の同じ式では JS を走らせずに配置だけをやり直す (根号や行列の多い 707 式で 650 → 32ms。BM_MathRender)。
+    // TeX のハッシュ → KaTeX の HTML。KaTeX に渡すのは TeX だけで、文字の大きさは配置にしか使わないので、見出しと本文の
+    // 同じ式や、文書を開き直したときは JS を走らせずに配置だけをやり直す (根号や行列の多い 707 式で 650 → 32ms。BM_MathRender)。
     std::mutex html_mutex_;
     std::unordered_map<uint64_t, std::shared_ptr<const std::string>> htmls_;
     size_t html_bytes_ = 0;

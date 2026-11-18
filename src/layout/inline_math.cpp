@@ -33,9 +33,14 @@ float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) n
     return table.IsHeaderRow(row) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
 }
 
+float MathLayoutSize(const Theme& theme, float text_size) noexcept
+{
+    return text_size / theme.zoom;
+}
+
 bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys)
 {
-    const float font_size = MathFontSize(theme, node);
+    const float font_size = MathLayoutSize(theme, MathFontSize(theme, node));
     const std::string_view text = node.GetText();
     return std::ranges::any_of(node.runs(), [&](const TextRun& r) {
         if (!r.math()) {
@@ -84,14 +89,14 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
         const Node& node = nodes[i];
         if (const auto* tbl = node.table_data()) {
             for (size_t r = 0; r < tbl->row_count; ++r) {
-                const float size = MathFontSize(theme, *tbl, r);
+                const float size = MathLayoutSize(theme, MathFontSize(theme, *tbl, r));
                 for (size_t c = 0; c < tbl->col_count; ++c) {
                     add_runs(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), size);
                 }
             }
             continue;
         }
-        add_runs(node.GetText(), node.runs(), MathFontSize(theme, node));
+        add_runs(node.GetText(), node.runs(), MathLayoutSize(theme, MathFontSize(theme, node)));
     }
     close();
 }
