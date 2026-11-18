@@ -237,8 +237,7 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
         return;
     }
     // 同じ幅で実測していれば、height は実測値かそれ以上なので推定は要らない。
-    constexpr float kCachedWidthEpsilon = 0.5f;
-    if (entry.is_measured() && std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon) {
+    if (entry.measured_at(NodeLayoutWidth(node, node_width))) {
         return;
     }
     // テーブルや折り返しの多い段落は推定値が実測値を大きく下回り、縮めると後続ノードと重なるので既存値より小さくしない。

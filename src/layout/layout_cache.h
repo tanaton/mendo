@@ -303,25 +303,39 @@ constexpr YRange BufferedRange(float scroll_y, float height, float screens) noex
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
-    // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避ける。
-    // 未計測は kUnmeasuredWidth (負値)。全ノード分並ぶので optional<float> にせず、判定は is_measured() にまとめる。
-    static constexpr float kUnmeasuredWidth = -1.0f;
-    float cached_width = kUnmeasuredWidth;
-    constexpr bool is_measured() const noexcept
-    {
-        return cached_width > 0.0f;
-    }
     bool layout_dirty = true;
     // 寸法がまだ無いインライン数式か画像を仮に組んだ。寸法が出たら組み直す (LayoutCache::InvalidatePendingInlineLayouts)。
     // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_inline = false;
 
+    // 未計測のときの cached_width()。
+    static constexpr float kUnmeasuredWidth = -1.0f;
+    constexpr bool is_measured() const noexcept
+    {
+        return cached_width_ != 0;
+    }
+    // width (NodeLayoutWidth) で組んだか。0.5 DIP 刻みで比べる。
+    bool measured_at(float width) const noexcept
+    {
+        return cached_width_ != 0 && cached_width_ == WidthUnits(width);
+    }
+    // 直近に組んだ幅 (0.5 DIP 刻み)。未計測なら kUnmeasuredWidth。折り返さない幅 (コードブロック) は 32767.5 になる。
+    constexpr float cached_width() const noexcept
+    {
+        return cached_width_ == 0 ? kUnmeasuredWidth : static_cast<float>(cached_width_) * 0.5f;
+    }
+    // 組んだ幅を覚え直す。0 以下なら未計測に戻す。
+    void set_cached_width(float width) noexcept
+    {
+        cached_width_ = WidthUnits(width);
+    }
+
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。
-    constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
+    void CommitMeasured(float layout_width, float measured_height) noexcept
     {
         height = measured_height;
         layout_dirty = false;
-        cached_width = layout_width;
+        set_cached_width(layout_width);
     }
 
     // 以降は計測・描画したノードでしか使わないので aux_ に置き、全ノード分は持たない。
@@ -462,11 +476,27 @@ private:
         }
     }
 
+    // 0.5 DIP 刻みの幅。0 は未計測、kNoWrapWidthUnits は 32767.5 DIP 以上 (折り返さないコードブロックの幅)。
+    static constexpr uint16_t kNoWrapWidthUnits = 0xFFFF;
+    static uint16_t WidthUnits(float width) noexcept
+    {
+        if (!(width > 0.0f)) {
+            return 0;
+        }
+        const float units = width * 2.0f + 0.5f;
+        return units >= static_cast<float>(kNoWrapWidthUnits) ? kNoWrapWidthUnits : static_cast<uint16_t>(std::max(units, 1.0f));
+    }
+
+    // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避け、MeasureNode が同じ幅で
+    // 組んだ layout を組み直さないのに使う。全ノード分並ぶので 0.5 DIP 刻みの 2 バイトにしてエントリを 16B に収める。
+    // 0.5 DIP 未満の幅の違いは同じ幅とみなして前の layout を使い (折り返しが 1 画素未満ずれうる)、全ノード分のメモリを減らす
+    // ほうをユーザーが選んだ。
+    uint16_t cached_width_ = 0;
     std::unique_ptr<Aux> aux_;
 };
 
 // 全ノード分並ぶので、計測・描画したノードでしか使わないフィールドは Aux に置いて増やさない。
-static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
+static_assert(sizeof(NodeLayoutEntry) <= 16, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
 
 // 図を描けなかった理由。言語で変わる文言は描くときに引き、言語を切り替えても前の言語の文言を残さない。
 struct DiagramError {

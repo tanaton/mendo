@@ -168,8 +168,9 @@ protected:
             if (cache_[i].layout_dirty) {
                 continue;
             }
-            const float drift = std::abs(cache_[i].cached_width - layout::NodeLayoutWidth(nodes_[i], NodeWidth(i)));
-            if (drift > 2.0f * kWidthHysteresis + 0.01f) {
+            // 組んだ幅は 0.5 DIP 刻みで持つので、丸めの 0.25 DIP も許す。
+            const float drift = std::abs(cache_[i].cached_width() - layout::NodeLayoutWidth(nodes_[i], NodeWidth(i)));
+            if (nodes_[i].type != NodeType::CodeBlock && drift > 2.0f * kWidthHysteresis + 0.26f) {
                 return ::testing::AssertionFailure() << "i=" << i << " は古い幅のまま残っている (ずれ " << drift << "px)";
             }
         }
@@ -348,7 +349,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_FALSE(cache_[i].layout_dirty) << "i=" << i;
             NodeLayoutEntry remeasured{};
             remeasured.height = cache_[i].height;
-            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, cache_.FindDiagram(i));
+            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width(), cache_.FindDiagram(i));
             ASSERT_FLOAT_EQ(cache_[i].height, remeasured.height) << "i=" << i;
         }
 

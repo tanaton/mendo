@@ -524,7 +524,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(const Node& node, NodeLayou
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
         // 同じ幅で組んだ text_layout が残っていれば、高さも行もインラインコードの背景も変わらない。
-        if (entry.cached_width == layout_width) {
+        if (entry.measured_at(layout_width)) {
             return metrics.height;
         }
         // 画像は行の幅に縮めるので、縮めずに置けない幅になったときだけ組み直す

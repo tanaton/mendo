@@ -14,7 +14,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
     const std::vector<Node> nodes(3);
     for (size_t i = 0; i < 3; ++i) {
         cache[i].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
-        cache[i].cached_width = 600.0f;
+        cache[i].set_cached_width(600.0f);
         cache[i].height = 500.0f;
         cache.SetTop(i, 100.0f + static_cast<float>(i) * 50.0f);
     }
@@ -33,6 +33,27 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
     // 空のキャッシュでも落ちない
     LayoutCache empty(0);
     empty.InvalidateAllLayouts({});
+}
+
+// 組んだ幅は 0.5 DIP 刻みで持ち、0.25 DIP 未満の違いは同じ幅とみなす。折り返さない幅 (コードブロック) も覚える。
+TEST(NodeLayoutEntryTest, CachedWidthIsHalfDipUnits)
+{
+    NodeLayoutEntry entry;
+    EXPECT_FALSE(entry.is_measured());
+    EXPECT_FALSE(entry.measured_at(600.0f));
+    entry.CommitMeasured(600.2f, 10.0f);
+    EXPECT_TRUE(entry.measured_at(600.0f));
+    EXPECT_TRUE(entry.measured_at(600.24f));
+    EXPECT_FALSE(entry.measured_at(600.5f));
+    EXPECT_FLOAT_EQ(entry.cached_width(), 600.0f);
+
+    entry.CommitMeasured(layout::kNoWrapLayoutWidth, 10.0f);
+    EXPECT_TRUE(entry.measured_at(layout::kNoWrapLayoutWidth));
+    EXPECT_FALSE(entry.measured_at(600.0f));
+
+    entry.set_cached_width(NodeLayoutEntry::kUnmeasuredWidth);
+    EXPECT_FALSE(entry.is_measured());
+    EXPECT_FLOAT_EQ(entry.cached_width(), NodeLayoutEntry::kUnmeasuredWidth);
 }
 
 // 図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
@@ -321,7 +342,7 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateUnlessMeasuredAtSameWidth)
         SCOPED_TRACE(c.label);
         NodeLayoutEntry entry;
         entry.height = c.height;
-        entry.cached_width = c.cached_width;
+        entry.set_cached_width(c.cached_width);
         EstimateInvisibleNodeHeight(c.node, entry, theme, c.node_width);
         EXPECT_FLOAT_EQ(entry.height, c.expected.value_or(EstimateNodeHeight(c.node, theme, 0.0f)));
     }
@@ -332,7 +353,7 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     auto node = MakeTwoByTwoTableNode();
     NodeLayoutEntry entry;
     entry.height = 200.0f;
-    entry.cached_width = 300.0f;
+    entry.set_cached_width(300.0f);
     auto& tl = entry.set_table_layout(std::make_unique<TableLayoutData>(0, 2, false));
     tl.col_widths = { 100.0f, 200.0f };
     tl.CommitGeometry(300.0f);
