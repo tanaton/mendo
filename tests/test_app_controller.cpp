@@ -8,28 +8,31 @@
 #include "tooltip.h"
 #include <optional>
 #include <utility>
+#include <vector>
 #include <windows.h>
 
 namespace {
 
 // 同じ alternative であることに加え、payload を持つものは中身まで比較する。nullopt は割り当ての無いキー。
-void ExpectSameAction(const std::optional<AppAction>& actual_opt, const std::optional<AppAction>& expected_opt)
+void ExpectSameBinding(const std::optional<AppBinding>& actual_opt, const std::optional<AppBinding>& expected_opt)
 {
     ASSERT_EQ(actual_opt.has_value(), expected_opt.has_value());
     if (!expected_opt) {
         return;
     }
-    const AppAction& actual = *actual_opt;
-    const AppAction& expected = *expected_opt;
+    ASSERT_EQ(actual_opt->index(), expected_opt->index());
+    if (const auto* command = std::get_if<AppCommand>(&*expected_opt)) {
+        EXPECT_EQ(std::get<AppCommand>(*actual_opt), *command);
+        return;
+    }
+    const AppAction& actual = std::get<AppAction>(*actual_opt);
+    const AppAction& expected = std::get<AppAction>(*expected_opt);
     ASSERT_EQ(actual.index(), expected.index());
     if (const auto* step = std::get_if<SearchStepAction>(&expected)) {
         EXPECT_EQ(std::get<SearchStepAction>(actual).forward, step->forward);
     }
     if (const auto* nav = std::get_if<NavigateHistoryAction>(&expected)) {
         EXPECT_EQ(std::get<NavigateHistoryAction>(actual).forward, nav->forward);
-    }
-    if (const auto* copy = std::get_if<CopyAction>(&expected)) {
-        EXPECT_EQ(std::get<CopyAction>(actual).formatted, copy->formatted);
     }
     if (const auto* scroll = std::get_if<KeyScrollAction>(&expected)) {
         EXPECT_EQ(std::get<KeyScrollAction>(actual).type, scroll->type);
@@ -47,7 +50,7 @@ void ExpectSameAction(const std::optional<AppAction>& actual_opt, const std::opt
 struct KeyCase {
     const char* name;
     KeyDownEvent ev;
-    std::optional<AppAction> expected;
+    std::optional<AppBinding> expected;
 };
 
 } // namespace
@@ -63,14 +66,14 @@ TEST(AppControllerTest, HandleKeyDown)
         { "End", { .key = VK_END }, KeyScrollAction{ ScrollType::End } },
 
         { "F1", { .key = VK_F1 }, ShowHelpAction{} },
-        { "F5", { .key = VK_F5 }, ReloadFileAction{} },
+        { "F5", { .key = VK_F5 }, AppCommand::Reload },
         { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },
 
-        { "Ctrl+C", { .key = 'C', .ctrl = true }, CopyAction{} },
-        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, CopyAction{ .formatted = true } },
+        { "Ctrl+C", { .key = 'C', .ctrl = true }, AppCommand::Copy },
+        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, AppCommand::CopyFormatted },
         { "Ctrl+A", { .key = 'A', .ctrl = true }, SelectAllAction{} },
-        { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
-        { "Ctrl+N", { .key = 'N', .ctrl = true }, NewWindowAction{} },
+        { "Ctrl+O", { .key = 'O', .ctrl = true }, AppCommand::OpenFile },
+        { "Ctrl+N", { .key = 'N', .ctrl = true }, AppCommand::NewWindow },
         { "Ctrl+N repeat", { .key = 'N', .ctrl = true, .repeat = true }, std::nullopt },
         { "N without Ctrl", { .key = 'N' }, std::nullopt },
         { "Ctrl+1", { .key = '1', .ctrl = true }, TogglePaneAction{ PaneTarget::File } },
@@ -103,22 +106,22 @@ TEST(AppControllerTest, HandleKeyDown)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        ExpectSameAction(app_controller::HandleKeyDown(c.ev), c.expected);
+        ExpectSameBinding(app_controller::HandleKeyDown(c.ev), c.expected);
     }
 }
 
-// タイトルバーのボタンはキーと同じアクションにする。ウィンドウの操作と設定ダイアログは App が直接行う。
-TEST(AppControllerTest, TitleBarClickAction)
+// タイトルバーのボタンはキーと同じ割り当てにする。ウィンドウの操作と設定ダイアログは App が直接行う。
+TEST(AppControllerTest, TitleBarClickBinding)
 {
     struct Case {
         TitleBarHitZone zone;
-        std::optional<AppAction> expected;
+        std::optional<AppBinding> expected;
     };
     const Case kCases[]{
-        { TitleBarHitZone::OpenFile, OpenFileAction{} },
+        { TitleBarHitZone::OpenFile, AppCommand::OpenFile },
         { TitleBarHitZone::Help, ShowHelpAction{} },
         { TitleBarHitZone::Search, OpenSearchBarAction{} },
-        { TitleBarHitZone::ThemeToggle, ToggleDarkModeAction{} },
+        { TitleBarHitZone::ThemeToggle, AppCommand::ToggleDarkMode },
         { TitleBarHitZone::FileToggle, TogglePaneAction{ PaneTarget::File } },
         { TitleBarHitZone::TocToggle, TogglePaneAction{ PaneTarget::Toc } },
         { TitleBarHitZone::Settings, std::nullopt },
@@ -129,7 +132,7 @@ TEST(AppControllerTest, TitleBarClickAction)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(static_cast<int>(c.zone));
-        ExpectSameAction(app_controller::TitleBarClickAction(c.zone), c.expected);
+        ExpectSameBinding(app_controller::TitleBarClickBinding(c.zone), c.expected);
     }
 }
 
@@ -139,7 +142,7 @@ TEST(AppControllerTest, HandleSearchEditKeyDown)
     const KeyCase kCases[] = {
         { "Enter", { .key = VK_RETURN }, SearchStepAction{ .forward = true } },
         { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchStepAction{ .forward = false } },
-        { "Ctrl+A", { .key = 'A', .ctrl = true }, SearchSelectAllAction{} },
+        { "Ctrl+A", { .key = 'A', .ctrl = true }, AppCommand::SearchSelectAll },
 
         { "Left", { .key = VK_LEFT }, std::nullopt },
         { "Shift+Right", { .key = VK_RIGHT, .shift = true }, std::nullopt },
@@ -164,9 +167,9 @@ TEST(AppControllerTest, HandleSearchEditKeyDown)
         { "Ctrl+F", { .key = 'F', .ctrl = true }, OpenSearchBarAction{} },
         { "F3", { .key = VK_F3 }, SearchStepAction{ .forward = true } },
         { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchStepAction{ .forward = false } },
-        { "F5", { .key = VK_F5 }, ReloadFileAction{} },
-        { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
-        { "Ctrl+N", { .key = 'N', .ctrl = true }, NewWindowAction{} },
+        { "F5", { .key = VK_F5 }, AppCommand::Reload },
+        { "Ctrl+O", { .key = 'O', .ctrl = true }, AppCommand::OpenFile },
+        { "Ctrl+N", { .key = 'N', .ctrl = true }, AppCommand::NewWindow },
         { "Down", { .key = VK_DOWN }, KeyScrollAction{ ScrollType::LineDown } },
         { "PageUp", { .key = VK_PRIOR }, KeyScrollAction{ ScrollType::PageUp } },
         { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateHistoryAction{ .forward = false } },
@@ -174,7 +177,40 @@ TEST(AppControllerTest, HandleSearchEditKeyDown)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        ExpectSameAction(app_controller::HandleSearchEditKeyDown(c.ev), c.expected);
+        ExpectSameBinding(app_controller::HandleSearchEditKeyDown(c.ev), c.expected);
+    }
+}
+
+// 新しいウィンドウに渡す引数。開く先が無ければ表示中の文書、ヘルプのようにファイルが無ければファイル一覧のフォルダを渡す。
+// リンクの Ctrl+クリック・中クリックは、見出しも --anchor で渡す。
+TEST(AppControllerTest, NewWindowArgs)
+{
+    using Args = std::vector<std::wstring_view>;
+    struct Case {
+        const char* name;
+        std::wstring_view doc_path;
+        std::wstring_view pane_dir;
+        std::wstring_view path;
+        std::wstring_view anchor;
+        Args expected;
+    };
+    const Case kCases[] = {
+        { "ExplicitPath", L"C:\\docs\\a.md", L"C:\\pane", L"C:\\docs\\b.md", L"", { L"C:\\docs\\b.md" } },
+        { "CurrentFile", L"C:\\docs\\a.md", L"C:\\pane", L"", L"", { L"C:\\docs\\a.md" } },
+        { "HelpUsesPaneDirectory", HELP_PATH, L"C:\\pane", L"", L"", { L"C:\\pane" } },
+        { "NoFileUsesPaneDirectory", L"", L"C:\\pane", L"", L"", { L"C:\\pane" } },
+        // 開くものが無ければ引数なしで起動する。
+        { "NothingToOpen", L"", L"", L"", L"", {} },
+        { "LinkToOtherFile", L"C:\\docs\\a.md", L"C:\\pane", L"C:\\docs\\b.md", L"使い方", { L"C:\\docs\\b.md", L"--anchor", L"使い方" } },
+        // 表示中の文書の見出しへのリンク。
+        { "LinkToHeading", L"C:\\docs\\a.md", L"C:\\pane", L"C:\\docs\\a.md", L"usage", { L"C:\\docs\\a.md", L"--anchor", L"usage" } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        AppState state;
+        state.file_explorer.SetDirectory(c.pane_dir);
+        SetDocument(state, "Hello", c.doc_path);
+        EXPECT_EQ(app_controller::NewWindowArgs(state, c.path, c.anchor), c.expected);
     }
 }
 

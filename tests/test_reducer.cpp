@@ -524,58 +524,6 @@ TEST_F(ReducerTest, PointerHover_LinkStatusFollowsHoveredLink)
     EXPECT_TRUE(state.view.hover.link.StatusText().empty());
 }
 
-// 状態を見ずに実行側へ渡すだけのコマンドは、対応する副作用を 1 つだけ出す。
-TEST_F(ReducerTest, CommandActionEmitsSingleEffect)
-{
-    struct Case {
-        const char* name;
-        AppAction action;
-        bool (*has_effect)(const SideEffectList&) noexcept;
-    };
-    const Case kCases[] = {
-        { "ReloadFile", ReloadFileAction{}, &HasEffect<effect::ReloadFile> },
-        { "OpenFile", OpenFileAction{}, &HasEffect<effect::OpenFileDialog> },
-        { "ToggleDarkMode", ToggleDarkModeAction{}, &HasEffect<effect::ToggleDarkMode> },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        const auto effects = Reduce(state, c.action);
-        EXPECT_EQ(effects.size(), 1u);
-        EXPECT_TRUE(c.has_effect(effects));
-    }
-}
-
-// 開く先が無ければ表示中の文書、ヘルプのようにファイルが無ければファイル一覧のフォルダを渡す。
-TEST_F(ReducerTest, NewWindowAction_ChoosesPathToOpen)
-{
-    struct Case {
-        const char* name;
-        std::wstring_view doc_path;
-        std::wstring_view action_path;
-        std::wstring_view expected;
-        std::string_view anchor = {};
-    };
-    constexpr Case kCases[] = {
-        { "ExplicitPath", L"C:\\docs\\a.md", L"C:\\docs\\b.md", L"C:\\docs\\b.md" },
-        { "CurrentFile", L"C:\\docs\\a.md", L"", L"C:\\docs\\a.md" },
-        { "HelpUsesPaneDirectory", HELP_PATH, L"", L"C:\\pane" },
-        { "NoFileUsesPaneDirectory", L"", L"", L"C:\\pane" },
-        // リンクを新しいウィンドウで開くときは、見出しも渡す。
-        { "Anchor", L"C:\\docs\\a.md", L"C:\\docs\\b.md", L"C:\\docs\\b.md", "usage" },
-    };
-    state.file_explorer.SetDirectory(L"C:\\pane");
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        SetDocument(state, "Hello", c.doc_path);
-        auto effects = Reduce(state, NewWindowAction{ std::wstring{ c.action_path }, std::string{ c.anchor } });
-        EXPECT_EQ(effects.size(), 1u);
-        const auto* launch = FindEffect<effect::LaunchNewWindow>(effects);
-        ASSERT_NE(launch, nullptr);
-        EXPECT_EQ(launch->path, c.expected);
-        EXPECT_EQ(launch->anchor, c.anchor);
-    }
-}
-
 // 隠したペインを再び表示したとき、隠す前のホバー強調が残らない。
 TEST_F(ReducerTest, TogglePane_ClearsThatPaneHover)
 {
@@ -983,15 +931,6 @@ TEST_F(ReducerTest, LeftDragEnded_KeepsCaptureDuringGesture)
     const auto effects = Reduce(state, LeftDragEndedAction{});
     EXPECT_FALSE(state.view.IsDragging());
     EXPECT_FALSE(HasEffect<effect::ReleaseCapture>(effects));
-}
-
-TEST_F(ReducerTest, SearchSelectAll_FocusesWholeInput)
-{
-    const auto effects = Reduce(state, SearchSelectAllAction{});
-    const auto* focus = FindEffect<effect::SearchFocus>(effects);
-    ASSERT_NE(focus, nullptr);
-    EXPECT_EQ(focus->anchor, 0);
-    EXPECT_EQ(focus->caret, -1);
 }
 
 TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsSearchFocus)

@@ -1,6 +1,7 @@
 #include "app_controller.h"
 #include "document_utils.h"
 #include "i18n.h"
+#include "startup_plan.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -51,17 +52,17 @@ constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
 
 } // namespace
 
-std::optional<AppAction> TitleBarClickAction(TitleBarHitZone zone)
+std::optional<AppBinding> TitleBarClickBinding(TitleBarHitZone zone)
 {
     switch (zone) {
     case TitleBarHitZone::OpenFile:
-        return OpenFileAction{};
+        return AppCommand::OpenFile;
     case TitleBarHitZone::Help:
         return ShowHelpAction{};
     case TitleBarHitZone::Search:
         return OpenSearchBarAction{};
     case TitleBarHitZone::ThemeToggle:
-        return ToggleDarkModeAction{};
+        return AppCommand::ToggleDarkMode;
     case TitleBarHitZone::FileToggle:
         return TogglePaneAction{ PaneTarget::File };
     case TitleBarHitZone::TocToggle:
@@ -71,7 +72,7 @@ std::optional<AppAction> TitleBarClickAction(TitleBarHitZone zone)
     }
 }
 
-std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
+std::optional<AppBinding> HandleKeyDown(const KeyDownEvent& event)
 {
     // AltGr は Ctrl+Alt として届く。ドイツ語配列の AltGr+0 (}) などを検索欄で打つとズームが動くので、
     // Ctrl+Alt にはショートカットを割り当てない。
@@ -91,17 +92,17 @@ std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
     if (event.ctrl) {
         switch (event.key) {
         case 'C':
-            return CopyAction{ .formatted = event.shift };
+            return event.shift ? AppCommand::CopyFormatted : AppCommand::Copy;
         case 'A':
             return SelectAllAction{};
         case 'O':
-            return OpenFileAction{};
+            return AppCommand::OpenFile;
         case 'N':
             // 押し続けるとリピートの数だけプロセスが立ち上がる。
             if (event.repeat) {
                 return std::nullopt;
             }
-            return NewWindowAction{};
+            return AppCommand::NewWindow;
         case 'F':
             return OpenSearchBarAction{};
         case 'G':
@@ -141,7 +142,7 @@ std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
     case VK_F3:
         return SearchStepAction{ .forward = !event.shift };
     case VK_F5:
-        return ReloadFileAction{};
+        return AppCommand::Reload;
     case VK_ESCAPE:
         return ClearSelectionAction{};
     }
@@ -149,19 +150,28 @@ std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
     return std::nullopt;
 }
 
-std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event)
+std::optional<AppBinding> HandleSearchEditKeyDown(const KeyDownEvent& event)
 {
     if (!event.ctrl && !event.alt && event.key == VK_RETURN) {
         return SearchStepAction{ .forward = !event.shift };
     }
     if (event.ctrl && !event.alt && event.key == 'A') {
-        return SearchSelectAllAction{};
+        return AppCommand::SearchSelectAll;
     }
     if (IsSearchEditOwnKey(event)) {
         return std::nullopt;
     }
     // Esc と Ctrl+F は、本体の割り当てでも検索欄が開いていれば閉じる。
     return HandleKeyDown(event);
+}
+
+std::vector<std::wstring_view> NewWindowArgs(const AppState& state, std::wstring_view path, std::wstring_view anchor)
+{
+    if (path.empty()) {
+        const auto& doc = state.document.doc;
+        path = doc.HasBackingFile() ? doc.GetFilePath() : state.file_explorer.GetDirectory();
+    }
+    return BuildStartupArgs(path, anchor);
 }
 
 namespace {

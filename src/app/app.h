@@ -192,7 +192,9 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
-    bool DispatchKeyAction(const std::optional<AppAction>& action);
+    // アクションは reducer へ渡し、コマンドはその場で行う。割り当てが無ければ false。
+    bool RunBinding(const std::optional<AppBinding>& binding);
+    void RunCommand(AppCommand command);
     void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
@@ -211,6 +213,8 @@ private:
     // 変更の通知は reload_ に渡す。
     void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
+    // path が空なら表示中の文書 (app_controller::NewWindowArgs)。anchor (UTF-8) は新しいウィンドウで飛ぶ見出し。
+    void OpenInNewWindow(std::wstring_view path, std::string_view anchor = {});
 
     bool IsRenderReady() const noexcept
     {

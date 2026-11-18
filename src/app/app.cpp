@@ -1,7 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
 #include "ascii_util.h"
-#include "clipboard_util.h"
 #include "document_utils.h"
 #include "file_io.h"
 #include "i18n.h"
@@ -13,7 +12,6 @@
 #include "settings_dialog.h"
 #include "profiler.h"
 #include "resource.h"
-#include "startup_plan.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -526,21 +524,56 @@ void App::OnFileListed()
 
 bool App::OnKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key, flags)));
+    return RunBinding(app_controller::HandleKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
 bool App::OnSearchEditKeyDown(WPARAM key, LPARAM flags)
 {
-    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key, flags)));
+    return RunBinding(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key, flags)));
 }
 
-bool App::DispatchKeyAction(const std::optional<AppAction>& action)
+bool App::RunBinding(const std::optional<AppBinding>& binding)
 {
-    if (!action) {
+    if (!binding) {
         return false;
     }
-    Dispatch(*action);
+    if (const auto* command = std::get_if<AppCommand>(&*binding)) {
+        RunCommand(*command);
+    }
+    else {
+        Dispatch(std::get<AppAction>(*binding));
+    }
     return true;
+}
+
+void App::RunCommand(AppCommand command)
+{
+    switch (command) {
+    case AppCommand::OpenFile:
+        OpenFileDialog();
+        return;
+    case AppCommand::Reload:
+        if (state_.document.doc.HasBackingFile()) {
+            RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
+        }
+        return;
+    case AppCommand::NewWindow:
+        OpenInNewWindow({});
+        return;
+    case AppCommand::ToggleDarkMode:
+        ToggleDarkMode();
+        return;
+    case AppCommand::Copy:
+    case AppCommand::CopyFormatted:
+        if (const auto& selection = state_.view.viewport.GetSelection(); selection.active()) {
+            clipboard_manager_.CopySelection(state_.document.doc, selection, command == AppCommand::CopyFormatted, theme_service_.IsDarkMode());
+        }
+        return;
+    case AppCommand::SearchSelectAll:
+        window_.FocusSearchEdit(0, -1);
+        return;
+    }
+    std::unreachable();
 }
 
 void App::Dispatch(const AppAction& action)
@@ -1000,6 +1033,14 @@ void App::OpenFileDialog()
     }
 }
 
+void App::OpenInNewWindow(std::wstring_view path, std::string_view anchor)
+{
+    const std::wstring wide_anchor = string_convert::Utf8ToWide(anchor);
+    const auto args = app_controller::NewWindowArgs(state_, path, wide_anchor);
+    // 元のウィンドウのタイトルバーが隠れないだけずらす。
+    LaunchSelfInNewWindow(hwnd_, args, DipToPixel(TitleBar::BASE_HEIGHT, state_.window.cached_dpi_scale));
+}
+
 void App::Execute(const SideEffect& effect)
 {
     // clang-format off
@@ -1017,7 +1058,6 @@ void App::Execute(const SideEffect& effect)
                 ::ReleaseCapture();
             }
         },
-        [this](const effect::ClipboardWrite& ev) { WriteClipboardHtml(hwnd_, ev.html, ev.text); },
         [this](const effect::SetTooltip& ev) {
             tooltip_.Arm(ev.text);
         },
@@ -1037,9 +1077,6 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ApplyZoom&) {
             ApplyZoom();
         },
-        [this](const effect::ToggleDarkMode&) {
-            ToggleDarkMode();
-        },
         [this](const effect::SettleViewport&) {
             state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
             FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
@@ -1055,19 +1092,6 @@ void App::Execute(const SideEffect& effect)
         // ---- Navigation ----
         [this](const effect::LoadFile& ev) {
             LoadMarkdownFile(ev.path);
-        },
-        [this](const effect::ReloadFile&) {
-            if (state_.document.doc.HasBackingFile()) {
-                RunReloadCommand(reload_.OnReloadRequested(state_.view.IsSelectingText()));
-            }
-        },
-        [this](const effect::OpenFileDialog&) {
-            OpenFileDialog();
-        },
-        [this](const effect::LaunchNewWindow& e) {
-            // 元のウィンドウのタイトルバーが隠れないだけずらす。
-            const std::wstring anchor = string_convert::Utf8ToWide(e.anchor);
-            LaunchSelfInNewWindow(hwnd_, BuildStartupArgs(e.path, anchor), static_cast<int>(TitleBar::BASE_HEIGHT * state_.window.cached_dpi_scale));
         },
         [this](const effect::CancelOtherFileLoad&) {
             CancelOtherFileLoad();
@@ -1232,7 +1256,7 @@ void App::OnMButtonDown(int px, int py)
 {
     const auto dip = PixelToDip(px, py);
     if (const FileEntry* entry = FileEntryAt(dip.x, dip.y)) {
-        Dispatch(NewWindowAction{ entry->full_path });
+        OpenInNewWindow(entry->full_path);
         return;
     }
     // 本文のリンクも、ブラウザと同じく中クリックで新しいウィンドウに開く。
@@ -1335,7 +1359,7 @@ void App::HandleLinkClick(std::string_view url, bool new_window)
     case LinkClickResult::Type::Anchor:
         // 埋め込みの文書は引数で開けないので、新しいウィンドウにせずその場で飛ぶ。
         if (new_window && doc.HasBackingFile()) {
-            Dispatch(NewWindowAction{ doc.GetFilePath(), std::move(result.target) });
+            OpenInNewWindow(doc.GetFilePath(), result.target);
             return;
         }
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
@@ -1348,7 +1372,7 @@ void App::HandleLinkClick(std::string_view url, bool new_window)
         return;
     case LinkClickResult::Type::LocalFile:
         if (new_window) {
-            Dispatch(NewWindowAction{ std::move(result.path), std::move(result.target) });
+            OpenInNewWindow(result.path, result.target);
             return;
         }
         Dispatch(OpenPathAction{ std::move(result.path), std::move(result.target) });
@@ -1364,8 +1388,7 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     }
 
     const TitleBarHitZone zone = state_.window.titlebar.HitTest(dip_x, dip_y);
-    if (const auto action = app_controller::TitleBarClickAction(zone)) {
-        Dispatch(*action);
+    if (RunBinding(app_controller::TitleBarClickBinding(zone))) {
         return true;
     }
     switch (zone) {
@@ -1393,7 +1416,7 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
     switch (zone) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            Dispatch(SearchSelectAllAction{});
+            RunCommand(AppCommand::SearchSelectAll);
         }
         return;
     case SearchBarHitZone::Up:
@@ -1517,7 +1540,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
 {
     // ブラウザのリンクと同じく Ctrl+クリックは新しいウィンドウ。
     if (IsKeyDown(VK_CONTROL)) {
-        Dispatch(NewWindowAction{ entry.full_path });
+        OpenInNewWindow(entry.full_path);
         return;
     }
     if (entry.is_directory) {
@@ -1647,7 +1670,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     switch (const int cmd = ContextMenu::Show(hwnd_, params); cmd) {
     case IDM_NEW_WINDOW:
         // 項目の外なら空のまま渡し、表示中の文書を開かせる。
-        Dispatch(NewWindowAction{ std::move(entry_path) });
+        OpenInNewWindow(entry_path);
         break;
     case IDM_NAV_BACK:
     case IDM_NAV_FORWARD:
@@ -1663,10 +1686,10 @@ void App::OnContextMenu(int screen_x, int screen_y)
     }
     case IDM_COPY:
     case IDM_COPY_FORMATTED:
-        Dispatch(CopyAction{ .formatted = cmd == IDM_COPY_FORMATTED });
+        RunCommand(cmd == IDM_COPY_FORMATTED ? AppCommand::CopyFormatted : AppCommand::Copy);
         break;
     case IDM_TOGGLE_DARK_MODE:
-        Dispatch(ToggleDarkModeAction{});
+        RunCommand(AppCommand::ToggleDarkMode);
         break;
     case IDM_TOGGLE_FILE_PANE:
         Dispatch(TogglePaneAction{ PaneTarget::File });
