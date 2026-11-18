@@ -188,7 +188,7 @@ void LayoutCache::InvalidateAllLayouts(std::span<const Node> nodes) noexcept
         ReleaseEntryLayouts(e, released_layouts_);
         // ズーム変更で計測条件が変わるので、測れなかったノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.layout_dirty = true;
-        e.set_cached_width(NodeLayoutEntry::kUnmeasuredWidth);
+        e.forget_measured();
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
         // 図のノードの高さは図の寸法で決まるので残す。

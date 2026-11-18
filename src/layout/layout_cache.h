@@ -308,8 +308,6 @@ struct NodeLayoutEntry {
     // 表はセルを並列に作るので std::atomic_ref で書く。
     bool pending_inline = false;
 
-    // 未計測のときの cached_width()。
-    static constexpr float kUnmeasuredWidth = -1.0f;
     constexpr bool is_measured() const noexcept
     {
         return cached_width_ != 0;
@@ -319,15 +317,19 @@ struct NodeLayoutEntry {
     {
         return cached_width_ != 0 && cached_width_ == WidthUnits(width);
     }
-    // 直近に組んだ幅 (0.5 DIP 刻み)。未計測なら kUnmeasuredWidth。折り返さない幅 (コードブロック) は 32767.5 になる。
+    // 直近に組んだ幅 (0.5 DIP 刻み)。未計測なら 0。折り返さない幅 (コードブロック) は 32767.5 になる。
     constexpr float cached_width() const noexcept
     {
-        return cached_width_ == 0 ? kUnmeasuredWidth : static_cast<float>(cached_width_) * 0.5f;
+        return static_cast<float>(cached_width_) * 0.5f;
     }
     // 組んだ幅を覚え直す。0 以下なら未計測に戻す。
     void set_cached_width(float width) noexcept
     {
         cached_width_ = WidthUnits(width);
+    }
+    void forget_measured() noexcept
+    {
+        cached_width_ = 0;
     }
 
     // 計測した高さを確定する。layout_width は組んだ幅 (NodeLayoutWidth)。

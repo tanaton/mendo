@@ -255,7 +255,7 @@ std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_
     auto& index = Index();
     uint64_t key = width_free_key;
     auto it = index.entries.find(key);
-    if (it == index.entries.end() || !(it->second.any_width || mermaid_util::IsWidthFree(it->second.css_width, max_width))) {
+    if (it == index.entries.end() || !mermaid_util::UsableAtWidth(it->second.css_width, it->second.any_width, max_width)) {
         key = sized_key;
         it = index.entries.find(key);
         if (it == index.entries.end()) {

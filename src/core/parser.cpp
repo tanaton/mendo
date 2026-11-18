@@ -100,7 +100,8 @@ struct ParseContext : NodeStorage {
     // 表の全セルの本文 (NodeTableData::concat_text) を組む置き場。表を閉じたら、小さな表は arena へ写し、大きな表は
     // 写さずに arena へ引き取らせて取り直す。
     ReservedArray<char> table_text;
-    // 表の全セルの run (NodeTableData::all_runs) を組む置き場。表を閉じたら table_text と同じく arena へ写すか引き取らせる。
+    // 表の全セルの run (NodeTableData::all_runs) を組む置き場。表を閉じたら table_text と同じく arena へ写すか引き取らせる
+    // (KeepTableBuffer)。
     ReservedArray<TextRun> table_runs;
     // 文字参照を解いた href / src (AttributeText)。
     std::string attr_scratch;
@@ -669,6 +670,23 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
     }
 }
 
+// 表を閉じたときに、組んだ本文か run の置き場 buf を arena に残す。小さな表は arena に詰めて写して置き場を空にする (表ごとに
+// ページ単位でコミットすると、小さな表の多い文書で commit が増える)。大きな表は写さずに引き取らせ、使わない末尾のコミットを外す
+// (伸びるたびに写すと最後の倍の余りを持ち続け、終わりに写すと表の終わりで倍を持つ)。置き場は reserve 個で取り直す。
+template <class T>
+std::span<const T> KeepTableBuffer(TextArena& arena, ReservedArray<T>& buf, size_t reserve)
+{
+    constexpr size_t kOwnTableBytes = 1024 * 1024;
+    if (buf.size() * sizeof(T) <= kOwnTableBytes) {
+        const std::span<const T> copied = arena.Copy(buf);
+        buf.clear();
+        return copied;
+    }
+    buf.shrink_to_fit();
+    const auto kept = arena.Adopt(std::exchange(buf, ReservedArray<T>(reserve)));
+    return { kept.data(), kept.size() };
+}
+
 void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
 {
     ctx->BeginNode(NodeType::Table);
@@ -678,7 +696,6 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     ctx->current_node->set_table_data(tbl);
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので、table_text (入力の長さまで予約してある) に組む。
-    ctx->table_text.clear();
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
     // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
     tbl->col_count = static_cast<uint16_t>(detail->col_count);
@@ -1073,29 +1090,12 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* const cn = ctx->current_node;
         assert(cn && cn->has_table());
         auto* const tbl = cn->table_data();
-        auto& text = ctx->table_text;
-        auto& runs = ctx->table_runs;
-        FinalizeTableOffsets(*tbl, text.size(), runs.size());
-        // 本文と run を置く。小さな表は arena に詰めて写す (表ごとにページ単位でコミットすると、小さな表の多い文書で commit が増える)。
-        // 大きな表は組んだ置き場を写さずに渡し、使わない末尾のコミットを外す (伸びるたびに写すと最後の倍の余りを持ち続け、
-        // 終わりに写すと表の終わりで倍を持つ)。置き場は残りの入力の長さで取り直す。
-        constexpr size_t kOwnTableBytes = 1024 * 1024;
+        FinalizeTableOffsets(*tbl, ctx->table_text.size(), ctx->table_runs.size());
+        // 引き取らせた置き場は、残りの入力の長さで取り直す。
         const size_t rest = ctx->markdown.size() - std::min(ctx->last_source_offset, ctx->markdown.size());
-        if (text.size() <= kOwnTableBytes) {
-            tbl->concat_text = ctx->arena.CopyText(text);
-        }
-        else {
-            text.shrink_to_fit();
-            tbl->concat_text = ctx->arena.Adopt(std::exchange(text, ReservedArray<char>(rest + 64)));
-        }
-        if (runs.size() * sizeof(TextRun) <= kOwnTableBytes) {
-            tbl->all_runs = ctx->arena.Copy(runs);
-            runs.clear();
-        }
-        else {
-            runs.shrink_to_fit();
-            tbl->all_runs = ctx->arena.Adopt(std::exchange(runs, ReservedArray<TextRun>(rest / 4 + 64)));
-        }
+        const auto text = KeepTableBuffer(ctx->arena, ctx->table_text, rest + 64);
+        tbl->concat_text = { text.data(), text.size() };
+        tbl->all_runs = KeepTableBuffer(ctx->arena, ctx->table_runs, rest / 4 + 64);
         if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
             ctx->indices.math_indices.push_back(ctx->CurrentNodeIndex());
         }

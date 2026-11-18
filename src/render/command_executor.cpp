@@ -55,9 +55,8 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// 1 つのレイアウトの単色のグリフランを、書体・大きさ・ブラシ・測り方の組ごとに 1 本にまとめて描く。DrawGlyphRun は 1 回ごとの
-// 固定費が大きく、行や装飾の切れ目ごとに呼ぶとフレームの多くを占める (BM_DocFrameDraw)。行の違いは字形のずらし
-// (ascenderOffset) で、行の頭へ戻るのは前の字形の送り幅で付ける。右から左と縦のランはまとめない。
+// 1 つのレイアウトの単色のグリフランを、書体・大きさ・ブラシ・測り方の組ごとに 1 本にまとめて描く (GlyphRunMerger)。DrawGlyphRun は
+// 1 回ごとの固定費が大きく、行や装飾の切れ目ごとに呼ぶとフレームの多くを占める (BM_DocFrameDraw)。右から左と縦のランはまとめない。
 // 1 回に描く字形が多いほど D2D が手元に残す領域も増える (送り続けても頭打ち。ずらしや描く時機では増えない) が、描画の CPU を
 // 減らすほうをユーザーが選んだ。
 class GlyphRunBatch {
@@ -67,57 +66,14 @@ public:
         if ((run.bidiLevel & 1) != 0 || run.isSideways || !run.glyphAdvances || run.glyphCount == 0) {
             return false;
         }
-        const auto used = std::span{ groups_ }.first(used_);
-        const auto it = std::ranges::find_if(used, [&](const Group& g) {
-            return g.face == run.fontFace && g.size == run.fontEmSize && g.brush == brush && g.mode == mode;
-        });
-        Group* g = it != used.end() ? std::to_address(it) : nullptr;
-        if (!g) {
-            if (used_ == groups_.size()) {
-                groups_.emplace_back();
-            }
-            g = &groups_[used_++];
-            g->face = run.fontFace;
-            g->size = run.fontEmSize;
-            g->brush = brush;
-            g->mode = mode;
-            g->origin = D2D1::Point2F(x, y);
-            g->glyphs.clear();
-            g->advances.clear();
-            g->offsets.clear();
-        }
-        // 前のランの最後の字形の送りで、ペンをこのランの頭まで進める (行の頭へ戻るときは負になる)。
-        if (!g->advances.empty()) {
-            g->advances.back() += x - g->pen;
-        }
-        const std::span glyphs{ run.glyphIndices, run.glyphCount };
-        const std::span advances{ run.glyphAdvances, run.glyphCount };
-        g->glyphs.append_range(glyphs);
-        g->advances.append_range(advances);
-        const float rise = g->origin.y - y;
-        for (UINT32 i = 0; i < run.glyphCount; ++i) {
-            const DWRITE_GLYPH_OFFSET o = run.glyphOffsets ? run.glyphOffsets[i] : DWRITE_GLYPH_OFFSET{};
-            g->offsets.push_back({ .advanceOffset = o.advanceOffset, .ascenderOffset = o.ascenderOffset + rise });
-        }
-        g->pen = std::ranges::fold_left(advances, x, std::plus{});
+        glyphs_.Add(x, y, run, brush, mode);
         return true;
     }
 
     // 貯めたランを描き、続けて貯めた線 (下線・取り消し線) を描く (今までどおり線が字形の上に重なる)。
     void Flush(ID2D1RenderTarget* rt)
     {
-        for (const Group& g : std::span{ groups_ }.first(used_)) {
-            const DWRITE_GLYPH_RUN run{
-                .fontFace = g.face,
-                .fontEmSize = g.size,
-                .glyphCount = static_cast<UINT32>(g.glyphs.size()),
-                .glyphIndices = g.glyphs.data(),
-                .glyphAdvances = g.advances.data(),
-                .glyphOffsets = g.offsets.data(),
-            };
-            rt->DrawGlyphRun(g.origin, &run, g.brush, g.mode);
-        }
-        used_ = 0;
+        glyphs_.Flush(rt);
         for (const auto& [rect, brush] : lines_) {
             rt->FillRectangle(rect, brush);
         }
@@ -130,24 +86,12 @@ public:
     }
 
 private:
-    struct Group {
-        IDWriteFontFace* face = nullptr;
-        float size = 0.0f;
-        ID2D1Brush* brush = nullptr;
-        DWRITE_MEASURING_MODE mode = DWRITE_MEASURING_MODE_NATURAL;
-        D2D1_POINT_2F origin{};
-        float pen = 0.0f;
-        std::vector<UINT16> glyphs;
-        std::vector<FLOAT> advances;
-        std::vector<DWRITE_GLYPH_OFFSET> offsets;
-    };
     struct Line {
         D2D1_RECT_F rect;
         ID2D1Brush* brush;
     };
     // コマンドごとに確保し直さないよう、配列を残して使い回す (UI スレッドの 1 つだけ)。
-    std::vector<Group> groups_;
-    size_t used_ = 0;
+    GlyphRunMerger glyphs_;
     std::vector<Line> lines_;
 };
 

@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <cstdint>
+#include <vector>
 
 // テキスト書式の作り方。描画・計測・ポップアップで共有する。
 struct TextFormatSpec {
@@ -152,6 +153,31 @@ protected:
 
 // layout を brush の単色で描く。絵文字は ::DrawColorGlyphRun で描く。
 void DrawTextLayoutWithColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, IDWriteTextLayout* layout, ID2D1Brush* brush) noexcept;
+
+// 単色のグリフランを、書体・大きさ・ブラシ・測り方の組ごとに 1 本にまとめて描く (DrawGlyphRun は 1 回ごとの固定費が大きい)。
+// ベースラインの違いは字形のずらし (ascenderOffset) で、前のランの頭へ戻るのは前の字形の送り幅で付ける。本文 (command_executor) と
+// 数式 (DrawMath) で使う。配列は残して使い回す。
+class GlyphRunMerger {
+public:
+    // (x, y) はランのベースラインの頭。run は送り幅を持つ左から右の横書きのランであること。
+    void Add(float x, float y, const DWRITE_GLYPH_RUN& run, ID2D1Brush* brush, DWRITE_MEASURING_MODE mode);
+    void Flush(ID2D1RenderTarget* rt);
+
+private:
+    struct Group {
+        IDWriteFontFace* face = nullptr;
+        float size = 0.0f;
+        ID2D1Brush* brush = nullptr;
+        DWRITE_MEASURING_MODE mode = DWRITE_MEASURING_MODE_NATURAL;
+        D2D1_POINT_2F origin{};
+        float pen = 0.0f;
+        std::vector<UINT16> glyphs;
+        std::vector<FLOAT> advances;
+        std::vector<DWRITE_GLYPH_OFFSET> offsets;
+    };
+    std::vector<Group> groups_;
+    size_t used_ = 0;
+};
 
 struct ID3D11Device;
 struct IDXGISwapChain1;

@@ -465,7 +465,7 @@ void ResourceManager::InvalidateDiagramsForRequestChange(float content_width, bo
             }
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
             if (dark_changed ||
-                !(diagram->HasImage() && diagram->width > 0 && (diagram->any_width || mermaid_util::IsWidthFree(diagram->width, min_width)))) {
+                !(diagram->HasImage() && diagram->width > 0 && mermaid_util::UsableAtWidth(diagram->width, diagram->any_width, min_width))) {
                 diagram->MarkStale();
             }
         }

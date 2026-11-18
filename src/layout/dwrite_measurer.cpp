@@ -478,9 +478,8 @@ DWriteTextMeasurer::RunFormatResult DWriteTextMeasurer::ApplyRunFormatting(IDWri
         if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
                 // ズーム前の大きさで組んであるので、倍率を掛けて置く。
-                const float zoom = theme_->zoom;
                 const float fit_width = format.math_fit_width;
-                const float scale = zoom * (fit_width > 0.0f && metrics->width * zoom > fit_width ? fit_width / (metrics->width * zoom) : 1.0f);
+                const float scale = fit_width > 0.0f ? std::min(theme_->zoom, fit_width / metrics->width) : theme_->zoom;
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
                 placed_block_math = fit_width > 0.0f;
             }
@@ -726,8 +725,7 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
     // 列幅が前に組んだときと同じなら、セルの layout も行の高さも累積位置も変わらないので、組んだ幅だけ進める。
     // 収まる表と最小幅でも収まらない表は、どの幅でも自然幅か最小幅を写すだけなので、ここを通る。
     std::vector<float> col_widths;
-    layout::ComputeTableColumnWidths(col_widths, tl, max_width);
-    if (tl.HasGeometry() && col_widths == tl.col_widths) {
+    if (!layout::ComputeTableColumnWidths(col_widths, tl, max_width) && tl.HasGeometry()) {
         tl.last_applied_max_width = max_width;
         return tl.TotalHeight();
     }

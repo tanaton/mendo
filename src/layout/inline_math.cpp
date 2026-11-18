@@ -38,17 +38,28 @@ float MathLayoutSize(const Theme& theme, float text_size) noexcept
     return text_size / theme.zoom;
 }
 
+namespace {
+
+// text の数式の run ごとに、TeX と計測 (DWriteMeasurer) と同じキーで visit(key, tex) を呼ぶ。visit が true を返したら
+// そこで止めて true を返す。計画と届いた組の絞り込みで、キーの求め方をここにそろえる。
+template <class Visit>
+bool VisitMathRuns(std::string_view text, std::span<const TextRun> runs, float layout_size, Visit&& visit)
+{
+    for (const auto& r : runs) {
+        const auto tex = r.math() ? InlineMathTex(text, r) : std::nullopt;
+        if (tex && visit(InlineMathKey(*tex, layout_size), *tex)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint64_t> sorted_keys)
 {
-    const float font_size = MathLayoutSize(theme, MathFontSize(theme, node));
-    const std::string_view text = node.GetText();
-    return std::ranges::any_of(node.runs(), [&](const TextRun& r) {
-        if (!r.math()) {
-            return false;
-        }
-        const auto tex = InlineMathTex(text, r);
-        return tex && std::ranges::binary_search(sorted_keys, InlineMathKey(*tex, font_size));
-    });
+    return VisitMathRuns(node.GetText(), node.runs(), MathLayoutSize(theme, MathFontSize(theme, node)),
+                         [&](uint64_t key, std::string_view) { return std::ranges::binary_search(sorted_keys, key); });
 }
 
 void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
@@ -65,25 +76,17 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
         current = {};
     };
     const auto add_runs = [&](std::string_view text, std::span<const TextRun> runs, float font_size) {
-        for (const auto& r : runs) {
-            if (!r.math()) {
-                continue;
-            }
-            const auto tex = InlineMathTex(text, r);
-            if (!tex) {
-                continue;
-            }
-            const uint64_t key = InlineMathKey(*tex, font_size);
+        VisitMathRuns(text, runs, font_size, [&](uint64_t key, std::string_view tex) {
             const auto [chunk, added] = chunk_of_.TryEmplace(key);
-            if (!added) {
-                continue;
+            if (added) {
+                *chunk = static_cast<uint32_t>(chunks_.size());
+                current.items.push_back({ key, std::string{ tex }, font_size });
+                if (current.items.size() >= (chunks_.empty() ? kInlineMathFirstChunk : kInlineMathPerChunk)) {
+                    close();
+                }
             }
-            *chunk = static_cast<uint32_t>(chunks_.size());
-            current.items.push_back({ key, std::string{ *tex }, font_size });
-            if (current.items.size() >= (chunks_.empty() ? kInlineMathFirstChunk : kInlineMathPerChunk)) {
-                close();
-            }
-        }
+            return false;
+        });
     };
     for (const size_t i : math_nodes) {
         const Node& node = nodes[i];

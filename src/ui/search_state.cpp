@@ -130,20 +130,20 @@ constexpr bool IsAsciiByte(char c) noexcept
 }
 
 // ASCII だけのクエリのマッチが、text の end バイト目で終わるときに両端がクラスタの境目にあるか (SearchMatch::on_cluster_bounds)。
-// plain はノードに数式も画像も無いことで、最初のマッチで 1 回だけ調べる。
+// plain はクエリが ASCII だけでノードに数式も画像も無いことで、マッチの無いノードでは調べないよう最初のマッチで 1 回だけ調べる。
 class ClusterBoundsCheck {
 public:
     ClusterBoundsCheck(const Node& node, std::span<const TextRun> runs, std::string_view query) noexcept
-        : node_(node), runs_(runs), ascii_query_(std::ranges::all_of(query, IsAsciiByte))
+        : node_(node), runs_(runs), query_(query)
     {
     }
     bool operator()(std::string_view text, size_t end) noexcept
     {
-        if (!ascii_query_ || (end < text.size() && !IsAsciiByte(text[end]))) {
+        if (end < text.size() && !IsAsciiByte(text[end])) {
             return false;
         }
         if (!plain_) {
-            plain_ = !node_.has_images() && std::ranges::none_of(runs_, &TextRun::math);
+            plain_ = std::ranges::all_of(query_, IsAsciiByte) && !node_.has_images() && std::ranges::none_of(runs_, &TextRun::math);
         }
         return *plain_;
     }
@@ -151,7 +151,7 @@ public:
 private:
     const Node& node_;
     std::span<const TextRun> runs_;
-    bool ascii_query_;
+    std::string_view query_;
     std::optional<bool> plain_;
 };
 

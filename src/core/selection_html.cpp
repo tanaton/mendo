@@ -564,6 +564,13 @@ void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
     }
 }
 
+// 段落を包むタグ (開き, 閉じ)。引用の中の段落は <blockquote>。loose の LI も吸った段落をこれで包む。
+std::pair<std::string_view, std::string_view> ParagraphTags(const Node& node) noexcept
+{
+    return node.quote_depth > 0 ? std::pair<std::string_view, std::string_view>{ "<blockquote>", "</blockquote>" }
+                                : std::pair<std::string_view, std::string_view>{ "<p>", "</p>" };
+}
+
 } // namespace
 
 std::string ExtractSelectedText(std::span<const Node> nodes, const TextSelection& selection)
@@ -658,14 +665,11 @@ std::string ExtractSelectedTextAsHtml(std::span<const Node> nodes, const TextSel
             std::format_to(std::back_inserter(out), "</h{}>", level);
             break;
         }
-        case NodeType::Paragraph:
-            if (node.quote_depth > 0) {
-                wrap_inline("<blockquote>", "</blockquote>");
-            }
-            else {
-                wrap_inline("<p>", "</p>");
-            }
+        case NodeType::Paragraph: {
+            const auto [open, close] = ParagraphTags(node);
+            wrap_inline(open, close);
             break;
+        }
         case NodeType::CodeBlock:
         case NodeType::Diagram:
             if (opens) {
@@ -690,11 +694,9 @@ std::string ExtractSelectedTextAsHtml(std::span<const Node> nodes, const TextSel
                 wrap_inline(head, "");
                 break;
             }
-            // loose の項目は吸った段落を段落と同じに包む (引用の中の段落は <blockquote>)。
-            const bool quoted = node.quote_depth > 0;
-            std::string open{ head };
-            open += quoted ? "<blockquote>" : "<p>";
-            wrap_inline(open, quoted ? "</blockquote>" : "</p>");
+            // loose の項目は吸った段落を段落と同じに包む。
+            const auto [open, close] = ParagraphTags(node);
+            wrap_inline(std::string{ head }.append(open), close);
             break;
         }
         case NodeType::HorizontalRule:

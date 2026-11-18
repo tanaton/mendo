@@ -51,9 +51,9 @@ TEST(NodeLayoutEntryTest, CachedWidthIsHalfDipUnits)
     EXPECT_TRUE(entry.measured_at(layout::kNoWrapLayoutWidth));
     EXPECT_FALSE(entry.measured_at(600.0f));
 
-    entry.set_cached_width(NodeLayoutEntry::kUnmeasuredWidth);
+    entry.forget_measured();
     EXPECT_FALSE(entry.is_measured());
-    EXPECT_FLOAT_EQ(entry.cached_width(), NodeLayoutEntry::kUnmeasuredWidth);
+    EXPECT_FLOAT_EQ(entry.cached_width(), 0.0f);
 }
 
 // 図の高さと寸法 (DiagramEntry) は無効化で捨てない (ズーム→復帰で Mermaid 図が消える問題の再発防止)。
@@ -329,7 +329,7 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateUnlessMeasuredAtSameWidth)
         float node_width;
         std::optional<float> expected; // 無ければ推定 (EstimateNodeHeight)
     };
-    constexpr float kUnmeasured = NodeLayoutEntry::kUnmeasuredWidth;
+    constexpr float kUnmeasured = 0.0f;
     const Case kCases[] = {
         { "DiagramLanguageSkipped", MakeCodeBlockNode(SyntaxLanguage::Mermaid), 5.0f, kUnmeasured, 200.0f, 5.0f },
         { "DoesNotShrinkBelowExisting", MakeParagraphNode(/*line_count=*/0), 9999.0f, kUnmeasured, 400.0f, 9999.0f },

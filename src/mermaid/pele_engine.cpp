@@ -159,8 +159,6 @@ struct PeleSvg {
 
 struct PeleContext {
     PeleEngine* engine = nullptr;
-    // PeleEngine::Cancel で立つ。
-    const std::atomic<bool>* cancel = nullptr;
     // 図を描く JS を動かす間だけ持つ。
     PeleEngine::StaleWhen stale;
     // rt の確保はすべてここから取る (kJsHeapFunctions)。
@@ -180,7 +178,7 @@ struct PeleContext {
     // 終了で取り消したか、描いている図が古くなった。
     bool Stopped() const noexcept
     {
-        return cancel->load(std::memory_order_relaxed) || (stale.generation && stale.generation->load(std::memory_order_relaxed) != stale.value);
+        return engine->Cancelled() || (stale.generation && stale.generation->load(std::memory_order_relaxed) != stale.value);
     }
 
     PeleContext() = default;
@@ -309,12 +307,11 @@ std::unique_ptr<PeleContext> PeleEngine::Acquire()
     }
     auto context = std::make_unique<PeleContext>();
     context->engine = this;
-    context->cancel = &cancel_;
     context->fonts = &FontsFor(locale_);
     return context;
 }
 
-// HTML を覚えた数式 (ズームや同じ式) は配置しか使わないので、ランタイムは JS を動かすときに作る。
+// HTML を覚えた数式 (見出しと本文の同じ式・開き直した文書の式) は配置しか使わないので、ランタイムは JS を動かすときに作る。
 bool PeleEngine::EnsureRuntime(PeleContext& context)
 {
     if (context.ctx) {

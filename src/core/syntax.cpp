@@ -3120,81 +3120,63 @@ bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage l
     });
 }
 
-// Cfg の言語で、行をまたぎうるトークンを始める並びが text にあるか。TokenizeRange に行をまたぐトークンを足したらここにも足す
-// (SyntaxResume.TextsWithoutMultilineTokenStartsNeedNoState で確かめる)。行の頭でしか効かない =begin なども、位置を問わず数える。
+// 行をまたぎうるトークンを始める並び (行末の \ を除く) のうち、Cfg の言語で有効なもの。TokenizeRange に行をまたぐトークンを
+// 足したらここにも足す (SyntaxResume.TextsWithoutMultilineTokenStartsNeedNoState で確かめる)。行の頭でしか効かない =begin なども、
+// 位置を問わず数える。
+struct TokenStarts {
+    std::array<std::string_view, 11> list{};
+    size_t count = 0;
+
+    constexpr void Add(bool enabled, std::string_view start) noexcept
+    {
+        if (enabled) {
+            list[count++] = start;
+        }
+    }
+};
+template <LexerConfig Cfg>
+constexpr TokenStarts kMultilineTokenStarts = [] {
+    constexpr bool triple = Cfg.triple_quote != TripleQuote::None;
+    TokenStarts t;
+    t.Add(Cfg.block_comment, "/*");
+    t.Add(Cfg.angle_block_comment, "<#");
+    t.Add(Cfg.lua_long_bracket, "[[");
+    t.Add(Cfg.lua_long_bracket, "[=");
+    t.Add(Cfg.ruby_block_comment, "=begin");
+    t.Add(Cfg.verbatim_at_string, "@\"");
+    t.Add(Cfg.verbatim_at_string, "@$\"");
+    t.Add(triple, "\"\"\"");
+    t.Add(triple, "'''");
+    t.Add(Cfg.backtick_string, "`");
+    t.Add(Cfg.raw_string, "R\"");
+    return t;
+}();
+
+// Cfg の言語で、行をまたぎうるトークンを始める並びが text にあるか。
 template <LexerConfig Cfg>
 bool HasMultilineTokenStart(std::string_view text) noexcept
 {
+    constexpr const TokenStarts& starts = kMultilineTokenStarts<Cfg>;
     // 文字列の \ は次の文字を飛ばすので、行末の \ で文字列が次の行へ続く。プリプロセッサの行も行末の \ (後ろの空白は許す) で続く。
-    constexpr CharSet kStarts{ [](char c) static noexcept {
-        constexpr std::pair<bool, char> rules[] = {
-            { true,                                    '\\' },
-            { Cfg.block_comment,                       '/'  },
-            { Cfg.angle_block_comment,                 '<'  },
-            { Cfg.lua_long_bracket,                    '['  },
-            { Cfg.ruby_block_comment,                  '='  },
-            { Cfg.verbatim_at_string,                  '@'  },
-            { Cfg.triple_quote != TripleQuote::None,   '"'  },
-            { Cfg.triple_quote != TripleQuote::None,   '\'' },
-            { Cfg.backtick_string,                     '`'  },
-            { Cfg.raw_string,                          'R'  },
-        };
-        return std::ranges::contains(rules, std::pair{ true, c });
+    constexpr CharSet kHeads{ [](char c) static noexcept {
+        const TokenStarts& t = kMultilineTokenStarts<Cfg>;
+        return c == '\\' || std::ranges::any_of(t.list.data(), t.list.data() + t.count, [c](std::string_view start) { return start.front() == c; });
     } };
     for (size_t i = 0; i < text.size(); ++i) {
-        if (!kStarts.contains(text[i])) {
+        if (!kHeads.contains(text[i])) {
             continue;
         }
-        const std::string_view rest = text.substr(i);
-        switch (text[i]) {
-        case '\\':
+        if (text[i] == '\\') {
             if (const size_t eol = SkipChars(text, i + 1, " \t\r"); eol == text.size() || text[eol] == '\n') {
                 return true;
             }
-            break;
-        case '/':
-            if (rest.starts_with("/*")) {
+            continue;
+        }
+        const std::string_view rest = text.substr(i);
+        for (size_t k = 0; k < starts.count; ++k) {
+            if (rest.starts_with(starts.list[k])) {
                 return true;
             }
-            break;
-        case '<':
-            if (rest.starts_with("<#")) {
-                return true;
-            }
-            break;
-        case '[':
-            if (rest.starts_with("[[") || rest.starts_with("[=")) {
-                return true;
-            }
-            break;
-        case '=':
-            if (rest.starts_with("=begin")) {
-                return true;
-            }
-            break;
-        case '@':
-            if (rest.starts_with("@\"") || rest.starts_with("@$\"")) {
-                return true;
-            }
-            break;
-        case '"':
-            if (rest.starts_with("\"\"\"")) {
-                return true;
-            }
-            break;
-        case '\'':
-            if (rest.starts_with("'''")) {
-                return true;
-            }
-            break;
-        case 'R':
-            if (rest.starts_with("R\"")) {
-                return true;
-            }
-            break;
-        default:
-            // バッククォートは 1 文字で始まる。
-            return true;
         }
     }
     return false;

@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <functional>
+#include <memory>
+#include <span>
 
 using Microsoft::WRL::ComPtr;
 
@@ -316,4 +319,63 @@ void WindowSwapTarget::Reset() noexcept
     }
     dc_.Reset();
     swap_chain_.Reset();
+}
+
+void GlyphRunMerger::Add(float x, float y, const DWRITE_GLYPH_RUN& run, ID2D1Brush* brush, DWRITE_MEASURING_MODE mode)
+{
+    if (run.glyphCount == 0) {
+        return;
+    }
+    const auto used = std::span{ groups_ }.first(used_);
+    const auto it = std::ranges::find_if(used, [&](const Group& g) {
+        return g.face == run.fontFace && g.size == run.fontEmSize && g.brush == brush && g.mode == mode;
+    });
+    Group* g = it != used.end() ? std::to_address(it) : nullptr;
+    if (!g) {
+        if (used_ == groups_.size()) {
+            groups_.emplace_back();
+        }
+        g = &groups_[used_++];
+        g->face = run.fontFace;
+        g->size = run.fontEmSize;
+        g->brush = brush;
+        g->mode = mode;
+        g->origin = D2D1::Point2F(x, y);
+        g->glyphs.clear();
+        g->advances.clear();
+        g->offsets.clear();
+    }
+    // 前のランの最後の字形の送りで、ペンをこのランの頭まで進める (行の頭へ戻るときは負になる)。
+    if (!g->advances.empty()) {
+        g->advances.back() += x - g->pen;
+    }
+    const std::span advances{ run.glyphAdvances, run.glyphCount };
+    g->glyphs.append_range(std::span{ run.glyphIndices, run.glyphCount });
+    g->advances.append_range(advances);
+    const float rise = g->origin.y - y;
+    if (run.glyphOffsets) {
+        for (const DWRITE_GLYPH_OFFSET& o : std::span{ run.glyphOffsets, run.glyphCount }) {
+            g->offsets.push_back({ .advanceOffset = o.advanceOffset, .ascenderOffset = o.ascenderOffset + rise });
+        }
+    }
+    else {
+        g->offsets.insert(g->offsets.end(), run.glyphCount, { .advanceOffset = 0.0f, .ascenderOffset = rise });
+    }
+    g->pen = std::ranges::fold_left(advances, x, std::plus{});
+}
+
+void GlyphRunMerger::Flush(ID2D1RenderTarget* rt)
+{
+    for (const Group& g : std::span{ groups_ }.first(used_)) {
+        const DWRITE_GLYPH_RUN run{
+            .fontFace = g.face,
+            .fontEmSize = g.size,
+            .glyphCount = static_cast<UINT32>(g.glyphs.size()),
+            .glyphIndices = g.glyphs.data(),
+            .glyphAdvances = g.advances.data(),
+            .glyphOffsets = g.offsets.data(),
+        };
+        rt->DrawGlyphRun(g.origin, &run, g.brush, g.mode);
+    }
+    used_ = 0;
 }

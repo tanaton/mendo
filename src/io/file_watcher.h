@@ -29,10 +29,11 @@ struct DirectoryChangeRead {
     // 次の読み取りを発行する。発行できなければ false。
     bool Begin() noexcept;
     // 発行した読み取りの結果を待たずに確かめる。Ready なら届いた通知列を notified に入れる (次の Begin まで有効。空なら
-    // バッファ溢れ)。Failed・Aborted・Ready の後は読み取りが発行されていないので、続けるなら Begin を呼ぶ。
-    // Aborted は発行したスレッドが終わって取り消された (worker で発行した最初の読み取りは、ワーカーを畳むと取り消される)。
-    // 変更はハンドルに貯まっているので、発行し直せば取りこぼさない。
-    enum class Poll { Waiting, Failed, Aborted, Ready };
+    // バッファ溢れ)。Failed・Ready の後は読み取りが発行されていないので、続けるなら Begin を呼ぶ。
+    // 発行したスレッドが終わって取り消された読み取り (worker で発行した最初の読み取りは、ワーカーを畳むと取り消される) は、
+    // ここで発行し直して Waiting を返す (発行できなければ Failed)。変更はハンドルに貯まっているので取りこぼさず、
+    // Take は UI スレッドで呼ぶので発行し直した読み取りはもう取り消されない。
+    enum class Poll { Waiting, Failed, Ready };
     Poll Take(std::span<const std::byte>& notified) noexcept;
 
     UniqueHandle dir;

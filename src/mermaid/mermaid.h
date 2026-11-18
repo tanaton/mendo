@@ -23,7 +23,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -172,7 +171,7 @@ private:
         Render,
         // ディスクキャッシュの描画命令を読む。表示用の要求だけ。
         DiskLoad,
-        // キャッシュにある描画命令の文字を組む。画面外でコマンドリストを捨てた図を記録し直す前に行う。表示用の要求だけ。
+        // キャッシュにある描画命令の文字を組む。コマンドリストを外した結果を記録し直す前に行う。表示用の要求だけ。
         Relayout,
     };
     // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
@@ -219,7 +218,8 @@ private:
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // 数えるのは描画命令だけで、より大きい CommandList は数えない。CommandList は表示中の結果の分を DiagramEntry と共有し、
-    // 置き換わった結果と画面外へ出た図のものは外す。CommandList も数える案は効きが小さいので見送った (ユーザーの判断)。
+    // 置き換わった結果と前の文書のものは外し、画面外へ出た図は描画命令ごと手放す (ReleaseDrawing)。CommandList も数える案は
+    // 効きが小さいので見送った (ユーザーの判断)。
     // 1 回に届く結果より小さい上限にすると、描き直しが回り続ける。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
@@ -238,8 +238,6 @@ private:
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
-    // 待ちの先頭に並ぶ数式の要求の数。数式は行の高さを決めるので、表示用の図より先に描く。
-    size_t WaitingMathCount() const;
     // 待ちの表示用の要求を、この回に頼まれた分の後ろへ移す (BeginRequestPass)。
     void PromoteWaiting(uint64_t request_hash);
     // req から Job を作って bg で work(job) し、その結果を outcome に入れて job_results_ に返す
@@ -287,11 +285,12 @@ private:
     std::unordered_set<uint64_t> inflight_;
     // 図のコードとテーマ (幅なしのキー) ごとに、最後に描いた幅と pele の SVG のハッシュ。別の幅で描き直して SVG が同じなら、
     // 幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに置く (追加の JS は要らない)。
+    // 保存のたびにコードが変わって増え続けないよう、cache_ と同じ件数で古いものから捨てる。
     struct DrawnSvg {
         float max_width = 0.0f;
         uint64_t svg_hash = 0;
     };
-    std::unordered_map<uint64_t, DrawnSvg> drawn_svgs_;
+    TranspositionCache<uint64_t, DrawnSvg, MAX_CACHE_ENTRIES> drawn_svgs_;
 
     TranspositionCache<uint64_t, DiagramResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
@@ -302,8 +301,10 @@ private:
 
     PeleFactory make_pele_ = nullptr;
     std::unique_ptr<PeleEngine> pele_;
-    // 数式の要求、この回 (BeginRequestPass) に頼まれた表示用の要求 (pass_count_ 個)、それより前の回の表示用の要求の順に並ぶ。
-    std::deque<RenderRequest> render_waiting_;
+    // 描画の待ち。数式の要求は表示用の図より先に描く (PumpRenders)。表示用の要求は、この回 (BeginRequestPass) に頼まれた
+    // もの (先頭の pass_count_ 個)、それより前の回のものの順に並ぶ。
+    std::deque<RenderRequest> math_waiting_;
+    std::deque<RenderRequest> display_waiting_;
     size_t pass_count_ = 0;
     int renders_running_ = 0;
 

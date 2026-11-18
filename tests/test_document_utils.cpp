@@ -1511,8 +1511,7 @@ TEST(FindUnchangedEnds, RawCommonPrefixGivesSameEnds)
     const auto new_doc = Document::FromMarkdown(base + "tail new\n\nadded\n", L"a.md");
     const std::string_view old_raw = old_doc.GetRawText();
     const std::string_view new_raw = new_doc.GetRawText();
-    const auto diff = static_cast<size_t>(std::ranges::mismatch(old_raw, new_raw).in1 - old_raw.begin());
-    const auto hinted = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes(), { old_raw, new_raw, diff });
+    const auto hinted = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes(), { old_raw, new_raw, FindFirstDifference(old_raw, new_raw) });
     const auto plain = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes());
     EXPECT_EQ(hinted.head, 50u);
     EXPECT_EQ(hinted.head, plain.head);

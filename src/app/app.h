@@ -296,9 +296,9 @@ private:
     bool InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
     // InvalidatePendingInline で捨てた分を組み直す。
     void RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
-    // 描いた数式の描画命令と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
+    // 描いた数式の描画命令と寸法を捨て、計画を作り直す。別の文書を開いたときに呼ぶ。
     void ForgetInlineMath();
-    // 文書か文字の大きさが変わったら作り直す。
+    // 文書が変わったら作り直す (キーはズーム前の大きさなので、ズームでは作り直さない)。
     void RebuildInlineMathPlan();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトをワーカーで解放する。

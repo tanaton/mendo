@@ -293,8 +293,7 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
         std::vector<float> col_widths;
         for (const size_t i : doc.GetTableNodeIndices()) {
             if (const auto* tl = cache[i].table_layout()) {
-                layout::ComputeTableColumnWidths(col_widths, *tl, NodeContentWidth(nodes[i], theme, content_width));
-                if (col_widths != tl->col_widths) {
+                if (layout::ComputeTableColumnWidths(col_widths, *tl, NodeContentWidth(nodes[i], theme, content_width))) {
                     changed.push_back(i);
                 }
             }

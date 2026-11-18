@@ -46,6 +46,12 @@ void AccumulateTops(std::span<const Node> nodes, LayoutCache& cache, const Theme
     }
 }
 
+// 余白を決めるブロックの種類。loose の LI は吸った段落と同じ余白にする (IsLooseListItem)。
+NodeType SpacingType(const Node& node) noexcept
+{
+    return IsLooseListItem(node) ? NodeType::Paragraph : node.type;
+}
+
 // node_start を超える最初の source offset。見つからなければ fallback。
 size_t NextSourceOffset(std::span<const Node> nodes, size_t node_start, size_t fallback) noexcept
 {
@@ -59,7 +65,7 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     if (node.continues_prev()) {
         return 0.0f;
     }
-    switch (node.type) {
+    switch (SpacingType(node)) {
     case NodeType::Heading:
         return theme.heading_spacing_above;
     case NodeType::CodeBlock:
@@ -69,8 +75,6 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
         return node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        // loose の項目は吸った段落と同じ余白。
-        return IsLooseListItem(node) && node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
     case NodeType::HorizontalRule:
     case NodeType::Table:
         return 0.0f;
@@ -83,7 +87,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     if (node.continues_next()) {
         return 0.0f;
     }
-    switch (node.type) {
+    switch (SpacingType(node)) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
         return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
@@ -92,7 +96,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        return IsEmptyListItemContainer(node) ? 0.0f : IsLooseListItem(node) ? theme.paragraph_spacing : theme.list_item_spacing;
+        return IsEmptyListItemContainer(node) ? 0.0f : theme.list_item_spacing;
     case NodeType::HorizontalRule:
         return 0.0f;
     case NodeType::Table:
@@ -124,11 +128,12 @@ void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural
     }
 }
 
-void ComputeTableColumnWidths(std::vector<float>& out, const TableLayoutData& tl, float max_width)
+bool ComputeTableColumnWidths(std::vector<float>& out, const TableLayoutData& tl, float max_width)
 {
     const float borders_width = (static_cast<float>(tl.col_count) + 1.0f) * TABLE_BORDER_WIDTH;
     const float paddings_width = static_cast<float>(tl.col_count) * TABLE_CELL_PADDING * 2.0f;
     ComputeColumnWidths(out, tl.natural_col_widths, tl.min_col_widths, max_width - borders_width - paddings_width);
+    return out != tl.col_widths;
 }
 
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept

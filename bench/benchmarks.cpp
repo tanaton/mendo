@@ -23,6 +23,7 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include "async_load_coordinator.h"
 #include "block_h_scroll.h"
 #include "command_generator.h"
 #include "d2d_util.h"
@@ -651,7 +652,6 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
                 }
             }
         };
-        const auto dirty_count = [&] { return std::ranges::count_if(std::views::iota(size_t{ 0 }, nodes.size()), [&](size_t i) { return cache[i].layout_dirty; }); };
         ask();
         double seconds = 0.0;
         remeasured = 0;
@@ -663,14 +663,14 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
             }
             queue.pop_front();
             std::ranges::sort(keys);
-            const auto before = dirty_count();
+            const size_t before = CountDirty(cache);
             std::function<bool(size_t)> pred;
             if (affected) {
                 pred = [&](size_t i) { return HasInlineMathKey(nodes[i], l.theme, keys); };
             }
             bool invalidated = false;
             seconds += SecondsOf([&] { invalidated = cache.InvalidatePendingInlineLayouts(doc.GetTableNodeIndices(), true, pred); });
-            remeasured += static_cast<size_t>(dirty_count() - before);
+            remeasured += CountDirty(cache) - before;
             if (invalidated) {
                 seconds += SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kWidth, 0.0f, kRange); });
             }
@@ -684,7 +684,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
 BENCHMARK_CAPTURE(BM_InlineMathArrival, all_pending, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_InlineMathArrival, affected, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
-// 文書を開く・読み直す・ズームのたびに UI スレッドで作る、インライン数式の組。
+// 文書を開く・読み直すたびに UI スレッドで作る、インライン数式の組。
 void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
 {
     auto md = math ? InlineMathMd(2000) : bytes ? RepeatTestMd(state, 0, bytes) : RepeatTestMd(state, 8);
@@ -1655,7 +1655,7 @@ BENCHMARK_CAPTURE(BM_DiagramScrollDraw, vector, false)->Unit(benchmark::kMillise
 BENCHMARK_CAPTURE(BM_DiagramScrollDraw, bitmap, true)->Unit(benchmark::kMillisecond);
 
 // 数式 707 個 (組 12 個ぶん) をエンジンだけで描く。first は初めての式 (KaTeX を走らせる)、resized は同じ式を別の大きさで
-// 描き直す回 (ズーム。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
+// 描き直す回 (見出しと本文の同じ式。HTML を覚えていれば配置だけ)。ランタイムと書体の用意は測らない。
 // HTML の合計は約 1.5MB で、PeleEngine が覚える上限 (4MB) に収まる。
 void BM_MathRender(benchmark::State& state, bool resized)
 {
@@ -2017,7 +2017,7 @@ BENCHMARK_DEFINE_F(Reload, FindUnchangedEnds)(benchmark::State& state)
     // アプリと同じく、差分の位置はリロードの判定で先に求めてある。
     const std::string_view old_raw = old_doc_->GetRawText();
     const std::string_view new_raw = new_doc_->GetRawText();
-    const RawCommonPrefix prefix{ old_raw, new_raw, static_cast<size_t>(std::ranges::mismatch(old_raw, new_raw).in1 - old_raw.begin()) };
+    const RawCommonPrefix prefix{ old_raw, new_raw, FindFirstDifference(old_raw, new_raw) };
     for (auto _ : state) {
         benchmark::DoNotOptimize(FindUnchangedEnds(old_doc_->GetNodes(), new_doc_->GetNodes(), prefix));
     }

@@ -77,6 +77,10 @@ public:
     {
         cancel_.store(true, std::memory_order_relaxed);
     }
+    bool Cancelled() const noexcept
+    {
+        return cancel_.load(std::memory_order_relaxed);
+    }
     // 使っていないランタイムを keep 個まで捨てる。残すのは読んだモジュールの多いもので、捨てたものは次にバイトコードから
     // 作り直す。捨てる処理は全オブジェクトをたどって重いので、
     // scheduler があればその worker で行う。
@@ -85,10 +89,6 @@ public:
     size_t IdleRuntimes();
 
 private:
-    bool Cancelled() const noexcept
-    {
-        return cancel_.load(std::memory_order_relaxed);
-    }
     // context で KaTeX を動かし、数式 1 つを配置する。KaTeX は JS のスタックを深く使うので、pele の配置の途中では呼ばない。
     std::shared_ptr<const MathDrawing> LayoutMath(PeleContext& context, std::string_view tex, float font_size);
     std::unique_ptr<PeleContext> Acquire();

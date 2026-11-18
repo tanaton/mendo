@@ -30,7 +30,7 @@ struct InlineMathMetrics {
     }
 };
 
-// 描く数式 1 つ。font_size は数式を置く場所の文字の大きさ (DIP)。
+// 描く数式 1 つ。font_size は数式を組む大きさ (MathLayoutSize、ズーム前の DIP)。
 struct InlineMathItem {
     uint64_t key = 0;
     std::string tex;
@@ -90,7 +90,7 @@ public:
 private:
     std::vector<InlineMathChunk> chunks_;
     uint64_t generation_ = 0;
-    // 開く・読み直す・ズームのたびに数式の数だけ足すので、要素ごとに確保しない
+    // 開く・読み直すたびに数式の数だけ足すので、要素ごとに確保しない
     // (BM_InlineMathPlanBuild/math_12000 が 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
 };

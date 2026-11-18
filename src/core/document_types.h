@@ -222,7 +222,7 @@ struct Node {
     int8_t heading_level = 0;
     SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
-    // link_urls_ のリンク URL の後ろに続く画像の src の数。
+    // refs_ のリンク URL の後ろに続く画像の src の数。
     uint8_t image_src_count_ = 0;
 
     // DocumentData::raw 起算の UTF-8 byte オフセット。文書順で単調非減少で、本文の位置を持たないノード
@@ -274,7 +274,7 @@ struct Node {
     {
         return type == NodeType::Table;
     }
-    // kImage の run の画像の記述どおりのパス。src はリンク URL の配列の後ろに続けて置く (Node を 64B に収める)。
+    // kImage の run の画像の記述どおりのパス。src はリンク URL の配列の後ろに続けて置く (Node を 56B に収める)。
     // 読み込んだ画像の寸法はパース結果ではないので持たない (InlineImageTable が持つ)。
     std::string_view image_src(const TextRun& run) const noexcept
     {
