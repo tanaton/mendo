@@ -2,9 +2,7 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "diagram_raster.h"
-#include "file_io.h"
 #include "i18n.h"
-#include "mermaid_file_cache.h"
 #include "resource.h"
 #include "task_scheduler.h"
 #include "win32_util.h"
@@ -15,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ranges>
+#include <span>
 #include <utility>
 
 namespace {
@@ -22,7 +21,155 @@ namespace {
 // 保存・コピーの画像の 1 枚の画素数の上限。
 constexpr double MAX_EXPORT_PIXELS = 64.0 * 1024 * 1024;
 
+// 描いた図のラベルの数式の描画命令を、層と数式の順に集める。
+std::vector<std::shared_ptr<const MathDrawing>> LabelMaths(const mermaid_util::DiagramDrawing& drawing)
+{
+    std::vector<std::shared_ptr<const MathDrawing>> maths;
+    for (const auto& layer : drawing.layers) {
+        for (const auto& math : layer.maths) {
+            maths.push_back(math.drawing);
+        }
+    }
+    return maths;
+}
+
+// 直列化した形から解いた描画命令 (数式は TeX だけ) に、LabelMaths で集めた描画命令を同じ順で差し込む。数が合わなければ false。
+bool SetLabelMaths(mermaid_util::DiagramDrawing& drawing, std::span<const std::shared_ptr<const MathDrawing>> maths)
+{
+    size_t i = 0;
+    for (auto& layer : drawing.layers) {
+        for (auto& math : layer.maths) {
+            if (i == maths.size()) {
+                return false;
+            }
+            math.drawing = maths[i++];
+        }
+    }
+    return i == maths.size();
+}
+
+// 幅なしの項目を max_width で使えるならそれを、使えなければ幅つきの項目を指す。どちらも無ければ end。
+template <class Slots>
+auto FindUsable(Slots& slots, uint64_t width_free_key, uint64_t sized_key, float max_width)
+{
+    const auto it = slots.find(width_free_key);
+    if (it != slots.end() && mermaid_util::UsableAtWidth(it->second.item.result.width, it->second.item.result.any_width, max_width)) {
+        return it;
+    }
+    return slots.find(sized_key);
+}
+
 } // namespace
+
+DiagramCache::Hit DiagramCache::Find(uint64_t width_free_key, uint64_t sized_key, float max_width)
+{
+    const auto it = FindUsable(slots_, width_free_key, sized_key, max_width);
+    if (it == slots_.end()) {
+        return {};
+    }
+    it->second.last_used = ++lru_seq_;
+    return { .key = it->first, .item = &it->second.item };
+}
+
+const DiagramCache::Item* DiagramCache::Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const
+{
+    const auto it = FindUsable(slots_, width_free_key, sized_key, max_width);
+    return it == slots_.end() ? nullptr : &it->second.item;
+}
+
+const DiagramCache::Item* DiagramCache::Peek(uint64_t key) const
+{
+    const auto it = slots_.find(key);
+    return it == slots_.end() ? nullptr : &it->second.item;
+}
+
+void DiagramCache::Put(uint64_t key, Item item)
+{
+    const auto cost_of = [](const Item& i) noexcept {
+        return ITEM_BYTES + (i.bytes ? i.bytes->size() : 0) + i.maths.size() * LABEL_MATH_BYTES + i.result.error.message.size() * sizeof(wchar_t);
+    };
+    // ほかを全部捨てても入らない図は、表示している間だけ持つ (手放したら JS で描き直す)。
+    if (item.bytes && cost_of(item) > max_bytes_) {
+        item.bytes = nullptr;
+        item.maths.clear();
+    }
+    // 置くものが無ければ、同じキーの項目 (同じ要求の結果) を残す。
+    if (!item.bytes && item.result.error.empty() && !item.result.drawing) {
+        return;
+    }
+    Erase(key);
+    const size_t cost = cost_of(item);
+    total_bytes_ += cost;
+    slots_.emplace(key, Slot{ .item = std::move(item), .cost = cost, .last_used = ++lru_seq_ });
+}
+
+void DiagramCache::Erase(uint64_t key)
+{
+    if (const auto it = slots_.find(key); it != slots_.end()) {
+        Erase(it);
+    }
+}
+
+void DiagramCache::ReleaseIdleDrawings()
+{
+    for (auto it = slots_.begin(); it != slots_.end();) {
+        DiagramResult& result = it->second.item.result;
+        // 持ち主を増やすのは UI スレッドだけなので、1 と読めたら持ち主はこの表だけ (worker が手放す途中なら多めに読み、次の回に外す)。
+        if (!result.drawing || result.drawing.use_count() > 1) {
+            ++it;
+            continue;
+        }
+        result.drawing = nullptr;
+        result.commands = nullptr;
+        // 手放した時を使った時とし、画面を離れたばかりの図を後まで残す。直列化した形の無い (上限より大きい) 図は項目ごと捨てる。
+        it->second.last_used = ++lru_seq_;
+        it = it->second.item.bytes ? std::next(it) : Erase(it);
+    }
+    Trim();
+}
+
+void DiagramCache::ResetDevice()
+{
+    for (auto it = slots_.begin(); it != slots_.end();) {
+        DiagramResult& result = it->second.item.result;
+        result.commands = nullptr;
+        it = result.error.empty() ? std::next(it) : Erase(it);
+    }
+}
+
+size_t DiagramCache::CommandLists() const noexcept
+{
+    return static_cast<size_t>(std::ranges::count_if(slots_, [](const auto& kv) static noexcept { return kv.second.item.result.commands != nullptr; }));
+}
+
+DiagramCache::Slots::iterator DiagramCache::Erase(Slots::iterator it) noexcept
+{
+    total_bytes_ -= it->second.cost;
+    return slots_.erase(it);
+}
+
+void DiagramCache::Trim()
+{
+    if (total_bytes_ <= max_bytes_) {
+        return;
+    }
+    // 解いた描画命令を持つ項目は、手放した後も持ち主がいる (表示中か worker が読んでいる) ので捨てない。それだけで上限を
+    // 超えるなら超えたままにする。候補は 1 回だけ集めて古い順に取り出す (1 件ごとに表を探し直すと、大きな図を手放して
+    // 小さな項目をまとめて捨てるときに件数の 2 乗かかる)。
+    std::vector<std::pair<uint64_t, Slots::iterator>> candidates;
+    for (auto it = slots_.begin(); it != slots_.end(); ++it) {
+        if (!it->second.item.result.drawing) {
+            candidates.emplace_back(it->second.last_used, it);
+        }
+    }
+    const auto newer = [](const auto& a, const auto& b) static noexcept { return a.first > b.first; };
+    std::ranges::make_heap(candidates, newer);
+    while (total_bytes_ > max_bytes_ && !candidates.empty()) {
+        std::ranges::pop_heap(candidates, newer);
+        Erase(candidates.back().second);
+        candidates.pop_back();
+    }
+}
 
 MermaidRenderer::MermaidRenderer() = default;
 
@@ -50,13 +197,11 @@ void MermaidRenderer::Shutdown()
     CloseViewer();
 }
 
-void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, MermaidFileCache& file_cache, TaskScheduler& bg_scheduler,
-                           PeleFactory make_pele, ViewerFactory open_viewer, std::move_only_function<void()> on_update,
-                           std::move_only_function<void()> on_viewer_failed)
+void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
+                           ViewerFactory open_viewer, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
 {
     open_viewer_ = open_viewer;
     hwnd_ = hwnd;
-    file_cache_ = &file_cache;
     d2d_factory_ = d2d;
     wic_factory_ = wic;
     dw_factory_ = dw;
@@ -80,26 +225,12 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11De
     render_target_ = render_target;
     d3d_device_ = d3d;
     d2d_device_ = device;
-    // 旧デバイスで記録できなかったエラーも捨てて再試行させる。
-    cache_.Clear();
+    // 旧デバイスで記録できなかったエラーも捨てて再試行させる。解いた描画命令は残し、記録し直す。
+    cache_.ResetDevice();
     record_dc_ = CreateRecordContext(render_target);
     if (ViewerOpen()) {
         viewer_.view->SetDevice(d3d, device);
     }
-}
-
-void MermaidRenderer::InsertCache(uint64_t hash, DiagramResult result)
-{
-    cache_.Insert(hash, std::move(result));
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const DiagramResult& c) static noexcept { return c.drawing ? mermaid_util::DrawingBytes(*c.drawing) : 0; });
-}
-
-DiagramResult* MermaidRenderer::FindCached(DisplayTarget& target, float max_width)
-{
-    auto* free = cache_.Find(target.width_free_hash);
-    target.width_free = free && mermaid_util::UsableAtWidth(free->width, free->any_width, max_width);
-    target.any_width = target.width_free && free->any_width;
-    return target.width_free ? free : cache_.Find(target.request_hash);
 }
 
 void MermaidRenderer::DropQueued()
@@ -139,37 +270,11 @@ std::vector<uint64_t> MermaidRenderer::WaitingRequests() const
     return hashes;
 }
 
-void MermaidRenderer::ReleaseDrawing(DiagramEntry& diagram_entry)
+void MermaidRenderer::ReleaseIdleDrawings()
 {
-    // 外し終えるまで同じアドレスが別の図に使われないよう、参照を持っておく。
-    const auto drawing = diagram_entry.drawing;
-    if (!diagram_entry.ReleaseImage()) {
-        return;
-    }
-    // 画面外の図のメモリが見た範囲に比例しないよう、描画命令ごと手放す。戻ったらディスクから読み直す (外れていれば JS で
-    // 描き直す) が、図の多い文書でメモリを返すほうをユーザーが選んだ。
-    cache_.EraseIf([&drawing](const DiagramResult& r) { return r.drawing == drawing; });
-}
-
-void MermaidRenderer::ForgetCommands(const Microsoft::WRL::ComPtr<ID2D1CommandList>& commands)
-{
-    cache_.ForEach([&commands](DiagramResult& r) {
-        if (r.commands == commands) {
-            r.commands = nullptr;
-        }
-    });
-}
-
-void MermaidRenderer::ReleaseCachedCommands()
-{
-    cache_.ForEach([](DiagramResult& r) { r.commands = nullptr; });
-}
-
-size_t MermaidRenderer::CachedCommandLists()
-{
-    size_t count = 0;
-    cache_.ForEach([&count](const DiagramResult& r) { count += r.commands != nullptr; });
-    return count;
+    // 画面外の図のメモリが見た範囲に比例しないよう、描画命令ごと手放す。戻ったらキャッシュの直列化した形から解き直す (外れていれば
+    // JS で描き直す) が、図の多い文書でメモリを返すほうをユーザーが選んだ。
+    cache_.ReleaseIdleDrawings();
 }
 
 void MermaidRenderer::DropQueuedMath()
@@ -184,59 +289,58 @@ bool MermaidRenderer::RequestRender(
 {
     const std::string_view code = node.GetText();
     DisplayTarget hit;
-    auto* result = FindOrRequest(code, max_width, dark_mode, &hit);
-    if (!result) {
+    auto* item = FindOrRequest(code, max_width, dark_mode, &hit);
+    if (!item) {
         return false;
     }
-    // 外したコマンドリスト (置き換わった結果を、テーマや幅を戻して使う・文書を切り替えた) を、描画命令から記録し直す。
-    // worker で組んだ文字は記録時に捨てたので、初めて描いたときと同じく worker で組み直してから記録する。
-    // 届くまではプレースホルダーを同じ寸法で出す。
-    if (result->drawing && !result->commands) {
+    // デバイスが変わって外したコマンドリストを、描画命令から記録し直す。worker で組んだ文字は記録時に捨てたので、
+    // 初めて描いたときと同じく worker で組み直してから記録する。届くまではプレースホルダーを同じ寸法で出す。
+    if (item->result.drawing && !item->result.commands) {
         if (inflight_.insert(hit.request_hash).second) {
-            StartRelayout(RenderRequest{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = hit }, result->drawing);
+            StartLoad(RenderRequest{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = hit }, *item);
         }
         return false;
     }
-    // 置き換わる結果 (前のコード・幅・テーマ) のコマンドリストは、どの図も持たなくなるので覚えている結果からも外す。
-    // 描画命令は残し、テーマや幅を戻したら記録し直す。
-    if (diagram_entry.commands && diagram_entry.commands != result->commands) {
-        const Microsoft::WRL::ComPtr<ID2D1CommandList> replaced = std::move(diagram_entry.commands);
-        ForgetCommands(replaced);
-    }
-    // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
-    diagram_entry.SetResult(*result);
+    // エラーの結果は絵を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。置き換わる結果 (前のコード・幅・テーマ) は
+    // 持ち主がいなくなれば、この要求の回の終わりの ReleaseIdleDrawings でキャッシュからも解いた形を外す。
+    diagram_entry.SetResult(item->result);
     return true;
 }
 
-DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key)
+std::optional<mermaid_util::DiagramSize> MermaidRenderer::KnownSize(const Node& node, float max_width, bool dark_mode) const
 {
-    const uint64_t code_hash = mermaid_util::DiagramCodeHash(code);
-    const uint64_t hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode);
-    const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode);
-    if (DisplayTarget key{ .request_hash = hash, .width_free_hash = width_free_hash }; auto* cached = FindCached(key, max_width)) {
+    const auto key = DisplayTarget::Of(mermaid_util::DiagramCodeHash(node), max_width, dark_mode);
+    const auto* item = cache_.Peek(key.width_free_hash, key.request_hash, max_width);
+    // エラーの結果は寸法を持たない。
+    if (!item || !(item->result.width > 0.0f)) {
+        return std::nullopt;
+    }
+    return mermaid_util::DiagramSize{ item->result.width, item->result.height };
+}
+
+DiagramCache::Item* MermaidRenderer::FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key)
+{
+    auto key = DisplayTarget::Of(mermaid_util::DiagramCodeHash(code), max_width, dark_mode);
+    // 幅を混ぜないキーの結果 (いまの幅の上限より狭いか、どの幅でも使えるときだけ) を先に、無ければ幅つきのキーで引く。
+    const auto hit = cache_.Find(key.width_free_hash, key.request_hash, max_width);
+    key.width_free = hit.item && hit.key == key.width_free_hash;
+    key.any_width = key.width_free && hit.item->result.any_width;
+    auto* item = hit.item;
+    // 解いた描画命令かエラーがあれば結果が出ている。直列化した形だけなら worker で解く。
+    if (item && (item->result.drawing || !item->result.error.empty())) {
         if (cached_key) {
             *cached_key = key;
         }
-        return cached;
+        return item;
     }
-    if (!inflight_.insert(hash).second) {
-        PromoteWaiting(hash);
+    if (!inflight_.insert(key.request_hash).second) {
+        PromoteWaiting(key.request_hash);
         return nullptr;
     }
-
-    const auto hit = file_cache_->Find(width_free_hash, hash, max_width, /*touch=*/true);
-    // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
-    RenderRequest req{
-        .code = std::string{ code },
-        .max_width = max_width,
-        .dark_mode = dark_mode,
-        .target = DisplayTarget{ .request_hash = hash,
-                                 .width_free_hash = width_free_hash,
-                                 .width_free = hit && hit->key == width_free_hash,
-                                 .any_width = hit && hit->key == width_free_hash && hit->entry.any_width },
-    };
-    if (hit) {
-        StartDiskLoad(std::move(req), file_cache_->FilePath(hit->key));
+    // 描画命令を解けなかったときは描画し直すので、キャッシュに当たってもコードを持たせる。
+    RenderRequest req{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = key };
+    if (item && item->bytes) {
+        StartLoad(std::move(req), *item);
     }
     else {
         StartRender(std::move(req));
@@ -258,37 +362,22 @@ void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
     });
 }
 
-void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path path)
+void MermaidRenderer::StartLoad(RenderRequest req, const DiagramCache::Item& item)
 {
-    // 描画命令の図のラベルの数式を組み直すのに使う。
-    EnsurePele();
-    // ファイル読み込みと解析は worker で行う (UI では時間予算なしに積み上がる)。
-    PostJob(std::move(req), JobWork::DiskLoad, [this, path = std::move(path)](Job& job) { return LoadDiskJob(job, path); });
-}
-
-MermaidRenderer::JobOutcome MermaidRenderer::LoadDiskJob(Job& job, const std::filesystem::path& path)
-{
-    DWORD read_error = 0;
-    const auto data = ReadAllBytes(path.c_str(), &read_error);
-    if (data.empty()) {
-        return JobUnreadable{ read_error };
-    }
-    auto drawing = mermaid_util::ParseDrawing({ reinterpret_cast<const char*>(data.data()), data.size() });
-    if (!drawing) {
-        return JobUnreadable{};
-    }
-    job.used_pele = pele_->ResolveMaths(*drawing);
-    JobDrawing read{ .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*drawing)) };
-    read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
-    return read;
-}
-
-void MermaidRenderer::StartRelayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)
-{
-    PostJob(std::move(req), JobWork::Relayout, [this, drawing = std::move(drawing)](Job&) mutable -> JobOutcome {
-        JobDrawing laid_out{ .drawing = std::move(drawing) };
-        laid_out.texts = LayoutDiagramTexts(dw_factory_.Get(), *laid_out.drawing, i18n::TextLocale());
-        return laid_out;
+    // 解くのと文字を組むのは worker で行う (UI では時間予算なしに積み上がる)。ラベルの数式は覚えた描画命令を差し込むので、
+    // KaTeX も pele も動かさない。
+    PostJob(std::move(req), JobWork::Load,
+            [this, drawing = item.result.drawing, bytes = item.bytes, maths = item.maths](Job&) mutable -> JobOutcome {
+        if (!drawing) {
+            auto parsed = mermaid_util::ParseDrawing(*bytes);
+            if (!parsed || !SetLabelMaths(*parsed, maths)) {
+                return JobUnreadable{};
+            }
+            drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(*parsed));
+        }
+        JobDrawing read{ .drawing = std::move(drawing), .bytes = std::move(bytes), .maths = std::move(maths) };
+        read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
+        return read;
     });
 }
 
@@ -346,9 +435,7 @@ bool MermaidRenderer::SettleDisplayError(const DisplayTarget& display, const Dia
     // 枠に収まらない分は描くときに省略記号で切る (placeholder_text の書式)。pele の文言は長さに上限が無いので、
     // キャッシュと TextLayoutCache のキーに丸ごと持つ量だけをここで抑える。
     constexpr size_t MAX_ERROR_LEN = 1024;
-    InsertCache(display.request_hash, DiagramResult{
-                                          .error = { error.kind, mermaid_util::SanitizeErrorMessage(error.message, MAX_ERROR_LEN) }
-    });
+    cache_.Put(display.request_hash, { .result = { .error = { error.kind, mermaid_util::SanitizeErrorMessage(error.message, MAX_ERROR_LEN) } } });
     inflight_.erase(display.request_hash);
     return true;
 }
@@ -382,27 +469,30 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             if (rendered) {
                 display.width_free = mermaid_util::IsWidthFree(result.width, r.req.max_width);
                 if (!display.width_free && mermaid_util::IsFlowchartCode(r.req.code)) {
-                    // 幅の上限より広いフローチャートは、前に別の幅で描いた SVG と同じなら幅で出力が変わらない。
-                    const DrawnSvg* drawn = drawn_svgs_.Find(display.width_free_hash);
-                    display.any_width = drawn && drawn->svg_hash == d.svg_hash && drawn->max_width != r.req.max_width;
+                    // 幅の上限より広いフローチャートは、前に別の幅で描いた描画命令と同じなら幅で出力が変わらない。
+                    const auto [last, added] = last_drawn_.TryEmplaceBounded(display.width_free_hash, MAX_LAST_DRAWN);
+                    display.any_width = !added && last->request_hash != display.request_hash && last->drawing_hash == d.drawing_hash;
+                    // 前の幅の結果は、どの幅でも当たる幅なしのキーの結果と同じなので、もう引かれない。
+                    if (display.any_width) {
+                        cache_.Erase(last->request_hash);
+                    }
                     display.width_free = display.any_width;
-                    drawn_svgs_.Insert(display.width_free_hash, { r.req.max_width, d.svg_hash });
+                    *last = { .request_hash = display.request_hash, .drawing_hash = d.drawing_hash };
                 }
-                file_cache_->StoreAsync(display.CacheKey(), result.width, result.height, std::move(d.bytes), display.any_width);
             }
             result.any_width = display.any_width;
             result.drawing = std::move(d.drawing);
-            InsertCache(display.CacheKey(), std::move(result));
+            cache_.Put(display.CacheKey(), { .result = std::move(result), .bytes = std::move(d.bytes), .maths = std::move(d.maths) });
             inflight_.erase(display.request_hash);
             return true;
         },
         [&](const JobFailed& f) {
             return SettleDisplayError(display, f.error);
         },
-        [&](const JobUnreadable& u) {
-            if (u.read_error) {
-                file_cache_->OnReadFailed(display.CacheKey(), u.read_error);
-            }
+        // 解けない直列化した形は捨てて描き直す (描いた結果が別のキーに置かれても、解けない項目を引き続けない)。描画命令は
+        // 読み戻せるものだけを作る (DrawingFromPeleSvg) ので、描き直した結果は解ける。
+        [&](const JobUnreadable&) {
+            cache_.Erase(display.CacheKey());
             StartRender(std::move(r.req));
             return false;
         },
@@ -418,21 +508,19 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     if (!render_target_) {
         return;
     }
+    // 置いた結果の解いた形は、ここでは手放さない。通知 (on_update_) の中の要求の回で図が受け取り、受け取らなかったもの
+    // (届く前に画面外へ出た図) と置き換わった結果は、その回の終わりの ReleaseIdleDrawings で手放す。
     bool resolved = false;
     bool render_done = false;
-    bool used_pele = false;
     job_results_.Drain(deadline, [&](Job& r) {
         if (r.work == JobWork::Render) {
             --renders_running_;
             render_done = true;
         }
-        used_pele |= r.used_pele;
         resolved |= ApplyJobResult(r);
     });
     if (render_done) {
         PumpRenders();
-    }
-    if (used_pele) {
         // 描き終えて待ちが空になったらランタイムを 1 個まで返す (すぐ次が来ると作り直すが、早く返すほうをユーザーが選んだ)。
         if (renders_running_ == 0 && math_waiting_.empty() && display_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
@@ -474,7 +562,7 @@ void MermaidRenderer::StartRender(RenderRequest req)
 
 void MermaidRenderer::PumpRenders()
 {
-    // bg のワーカーを 1 本残し、配置の重い図が画像のデコードとディスクキャッシュの読み込みを待たせないようにする。
+    // bg のワーカーを 1 本残し、配置の重い図が画像のデコードとキャッシュの直列化した形の読み込みを待たせないようにする。
     // 同時に描く数はランタイムの数、つまりメモリの上限にもなる。
     const int limit = std::max(1, static_cast<int>(bg_scheduler_->WorkerCount()) - 1);
     while (renders_running_ < limit && !(math_waiting_.empty() && display_waiting_.empty())) {
@@ -493,7 +581,6 @@ void MermaidRenderer::PumpRenders()
 MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
 {
     using Status = PeleOutcome::Status;
-    job.used_pele = true;
     if (std::holds_alternative<MathRequest>(job.req.target)) {
         const auto sources = std::get<MathRequest>(job.req.target).items | std::views::transform([](const auto& item) static noexcept {
             return PeleEngine::MathSource{ item.tex, item.font_size };
@@ -513,8 +600,15 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
     case Status::Drawn:
         break;
     }
-    // ディスクキャッシュには UTF-8 で置く
-    JobDrawing drawn{ .bytes = mermaid_util::SerializeDrawing(out.drawing), .svg_hash = out.svg_hash };
+    // キャッシュには直列化した形で置く。置いている間、書き足しで伸ばした余りを持たない。
+    std::string bytes = mermaid_util::SerializeDrawing(out.drawing);
+    bytes.shrink_to_fit();
+    const uint64_t drawing_hash = RapidHash(bytes);
+    JobDrawing drawn{
+        .bytes = std::make_shared<const std::string>(std::move(bytes)),
+        .maths = LabelMaths(out.drawing),
+        .drawing_hash = drawing_hash,
+    };
     drawn.drawing = std::make_shared<const mermaid_util::DiagramDrawing>(std::move(out.drawing));
     drawn.texts = LayoutDiagramTexts(dw_factory_.Get(), *drawn.drawing, i18n::TextLocale());
     return drawn;
@@ -597,15 +691,15 @@ void MermaidRenderer::RequestViewerDrawing(float max_width, bool dark_mode)
     if (!viewer_.pending || !ViewerOpen()) {
         return;
     }
-    const auto* result = FindOrRequest(viewer_.code, max_width, dark_mode);
-    if (!result) {
+    const auto* item = FindOrRequest(viewer_.code, max_width, dark_mode);
+    if (!item) {
         return;
     }
     viewer_.pending = false;
-    if (result->drawing) {
-        // 外したコマンドリスト (置き換わった結果・前の文書) は、窓が自分で記録する (ここで記録して cache_ に入れると、どの図も持たない
-        // コマンドリストが cache_ に残る)。
-        viewer_.view->SetDrawing(result->drawing, result->commands);
+    if (const DiagramResult& result = item->result; result.drawing) {
+        // デバイスが変わって外したコマンドリストは、窓が自分で記録する (ここで記録してキャッシュに入れると、本文の図が
+        // 表示していなくても残る)。
+        viewer_.view->SetDrawing(result.drawing, result.commands);
     }
     // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
     else if (!viewer_.view->HasDrawing()) {

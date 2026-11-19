@@ -3,20 +3,16 @@
 #include "popup_window.h"
 #include "ui_types.h"
 #include <array>
-#include <cstdint>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <windows.h>
 
 struct SettingsDialogParams {
     PopupEnv env;
-    uint64_t diagram_cache_bytes = 0;
-    // 削除ボタンを押せる。大きさに数えない物も消すので、diagram_cache_bytes が 0 でも押せることがある。
-    bool can_clear_cache = false;
     // 言語を選んだ。nullptr は OS に合わせる。呼んだ後にダイアログ自身の文言も選んだ言語で組み直す。
     std::function<void(const i18n::Strings*)> on_language;
-    std::function<void()> on_clear_cache;
 };
 
 namespace settings_dialog_constants {
@@ -28,19 +24,12 @@ inline constexpr float HEADING_HEIGHT = 24.0f;
 inline constexpr float ROW_HEIGHT = 28.0f;
 inline constexpr float CHECK_WIDTH = 24.0f;
 inline constexpr float HOVER_MARGIN_X = 8.0f;
-inline constexpr float SECTION_GAP = 10.0f;
-inline constexpr float BUTTON_PAD_X = 14.0f;
-inline constexpr float BUTTON_MIN_WIDTH = 72.0f;
-inline constexpr float BUTTON_GAP = 16.0f;
 inline constexpr float BOTTOM_PAD = 14.0f;
 inline constexpr float ICON_FONT_SIZE = 12.0f;
 
 // 言語の一覧の行。先頭は OS に合わせる (nullptr)、残りは i18n::kAllStrings の並び。
 inline constexpr size_t kLanguageRowCount = std::size(i18n::kAllStrings) + 1;
 } // namespace settings_dialog_constants
-
-// "0 B" / "512 KB" / "12.3 MB" の形にする。
-std::wstring FormatByteSize(uint64_t bytes);
 
 // 本体と同じ色で描くため自前描画。開くたびに作る。テストはウィンドウを作らずに各段階を直接呼ぶ。
 struct SettingsDialog : PopupWindow<SettingsDialog> {
@@ -49,26 +38,10 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
     // 閉じるまで戻らない (入力はダイアログが取る)。
     static void Show(HWND owner_hwnd, const SettingsDialogParams& params);
 
-    enum class HitKind : uint8_t {
-        None,
-        Language,
-        ClearCache,
-    };
-    struct Hit {
-        HitKind kind = HitKind::None;
-        // Language のときの行。
-        size_t row = 0;
-        bool operator==(const Hit&) const = default;
-    };
-
     // 大きさは PopupWindow::width / height。
     struct Layout {
         DipRect language_heading{};
         std::array<DipRect, settings_dialog_constants::kLanguageRowCount> languages{};
-        float separator_y = 0.0f;
-        DipRect cache_heading{};
-        DipRect cache_size{};
-        DipRect clear{};
     };
 
     static constexpr const i18n::Strings* LanguageOfRow(size_t row) noexcept
@@ -91,23 +64,20 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
     void Rebuild();
     void CreateTextFormats();
     void ComputeLayout();
-    Hit HitTest(float x, float y) const noexcept;
-    void Activate(const Hit& hit);
+    // 押せるのは言語の行だけなので、当たった行を返す。
+    std::optional<size_t> HitTest(float x, float y) const noexcept;
+    void Activate(size_t row);
 
     // PopupWindow から呼ばれる。
     void PaintContent();
     bool UpdateHover(float x, float y);
     void OnPress(UINT msg, float x, float y);
 
-    Hit hovered{};
-    uint64_t cache_bytes = 0;
-    bool can_clear = false;
+    std::optional<size_t> hovered;
     std::function<void(const i18n::Strings*)> on_language;
-    std::function<void()> on_clear_cache;
 
     // 「OS の設定に合わせる (日本語)」のように、今 OS に合わせると何語になるかを添える。
     std::wstring system_language_text;
-    std::wstring cache_size_text;
     Layout layout{};
 
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_title;

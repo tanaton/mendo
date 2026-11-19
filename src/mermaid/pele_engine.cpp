@@ -562,28 +562,6 @@ std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::spa
     return out;
 }
 
-bool PeleEngine::ResolveMaths(mermaid_util::DiagramDrawing& drawing)
-{
-    std::vector<mermaid_util::DrawingMath*> pending;
-    std::vector<MathSource> sources;
-    for (auto& layer : drawing.layers) {
-        for (auto& math : layer.maths) {
-            if (!math.drawing) {
-                pending.push_back(&math);
-                sources.push_back({ math.tex, math.at.font_size });
-            }
-        }
-    }
-    if (pending.empty()) {
-        return false;
-    }
-    auto drawings = RenderMaths(sources);
-    for (size_t i = 0; i < pending.size(); ++i) {
-        pending[i]->drawing = std::move(drawings[i]);
-    }
-    return true;
-}
-
 PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
@@ -599,7 +577,6 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         out = std::move(svg.error());
     }
     else {
-        out.svg_hash = RapidHash(svg->svg);
         auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
         if (drawing) {

@@ -19,7 +19,6 @@ class DeliveredImages;
 class ImageLoader;
 class IMermaidRenderer;
 class InlineImageTable;
-class MermaidFileCache;
 
 // ResourceManager が App に頼むこと。通知は取り込み (FlushPendingResources・LoadImages) の中から届くので、
 // 組み直しと描き直しだけをさせ、取り込みに入り直させない。
@@ -54,10 +53,10 @@ public:
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
-    ResourceManager(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache,
-                    InlineImageTable& inline_images, InlineDrawings& inline_drawings, ResourceManagerHost& host) noexcept
-        : state_(state), image_loader_(image_loader), mermaid_(mermaid), mermaid_file_cache_(mermaid_file_cache),
-          inline_images_(inline_images), inline_drawings_(inline_drawings), host_(host)
+    ResourceManager(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, InlineImageTable& inline_images,
+                    InlineDrawings& inline_drawings, ResourceManagerHost& host) noexcept
+        : state_(state), image_loader_(image_loader), mermaid_(mermaid), inline_images_(inline_images), inline_drawings_(inline_drawings),
+          host_(host)
     {}
 
     bool ApplyCachedImageSizes(IndexRange range);
@@ -92,7 +91,7 @@ public:
     void OnImageReloadTimer();
 
 private:
-    // range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする
+    // range のノードの図の推定高さを、前に描いた図の寸法 (IMermaidRenderer::KnownSize) で上書きする
     bool ApplyMermaidCacheHeights(IndexRange range);
     // 本文中の画像の表の変わり方
     struct InlineImageUpdate {
@@ -128,7 +127,6 @@ private:
     AppState& state_;
     ImageLoader& image_loader_;
     IMermaidRenderer& mermaid_;
-    MermaidFileCache& mermaid_file_cache_;
     InlineImageTable& inline_images_;
     InlineDrawings& inline_drawings_;
     ResourceManagerHost& host_;

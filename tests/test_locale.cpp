@@ -66,8 +66,6 @@ constexpr std::wstring_view i18n::Strings::* kStringFields[] = {
     &i18n::Strings::settings_title,
     &i18n::Strings::settings_language,
     &i18n::Strings::settings_language_system,
-    &i18n::Strings::settings_diagram_cache,
-    &i18n::Strings::settings_clear_cache,
     &i18n::Strings::lang_key,
     &i18n::Strings::lang_name,
 };

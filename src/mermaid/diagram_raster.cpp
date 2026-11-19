@@ -2152,7 +2152,7 @@ bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         else if (const uint16_t relative = RelativeWeight(value, parent.weight)) {
             s.weight = relative;
         }
-        else if (TakeNumber(rest, w) && rest.empty() && w >= 1.0 && w <= 1000.0) {
+        else if (TakeNumber(rest, w) && rest.empty() && w >= mermaid_util::kMinFontWeight && w <= mermaid_util::kMaxFontWeight) {
             s.weight = static_cast<uint16_t>(w);
         }
         else {
@@ -2669,7 +2669,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .rgb = ToRgb(*color),
             .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
         };
-        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとディスクキャッシュから読み戻せず、開くたびに描き直す。
+        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとキャッシュの直列化した形から読み戻せず、画面に戻るたびに描き直す。
         if (!mermaid_util::IsStorable(at)) {
             continue;
         }
@@ -2719,7 +2719,7 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
         .rgb = ToRgb(s.color),
         .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
     };
-    // 文字と同じく、ディスクキャッシュに書けない数式は描かない。
+    // 文字と同じく、キャッシュの直列化した形に書けない数式は描かない。
     if (!mermaid_util::IsStorable(at)) {
         return true;
     }
@@ -2801,12 +2801,14 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
     const Style& rs = root_style_;
     const auto attr_w = AttrLength(root, "width", rs.font_size);
     const auto attr_h = AttrLength(root, "height", rs.font_size);
-    if (!(attr_w.value_or(0.0f) > 0.0f && attr_h.value_or(0.0f) > 0.0f)) {
+    // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る
+    const float w = std::floor(attr_w.value_or(0.0f) * 64.0f) / 64.0f;
+    const float h = std::floor(attr_h.value_or(0.0f) * 64.0f) / 64.0f;
+    // 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない。描くとキャッシュの直列化した形から
+    // 読み戻せず、画面に戻るたびに JS で描き直す (切り上げても書けるかは変わらない)。
+    if (!mermaid_util::IsStorableSize(w, h)) {
         return std::nullopt;
     }
-    // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る
-    const float w = std::floor(*attr_w * 64.0f) / 64.0f;
-    const float h = std::floor(*attr_h * 64.0f) / 64.0f;
     Mat root_ctm;
     if (!ViewportTransform(root, 0.0, 0.0, w, h, root_ctm)) {
         return std::nullopt;

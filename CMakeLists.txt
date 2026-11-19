@@ -145,7 +145,6 @@ add_library(mendo_core STATIC
     src/io/file_watcher.cpp
     src/mermaid/mermaid.cpp
     src/mermaid/mermaid_util.cpp
-    src/mermaid/mermaid_file_cache.cpp
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
     src/mermaid/diagram_view.cpp

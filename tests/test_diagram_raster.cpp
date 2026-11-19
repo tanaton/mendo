@@ -573,8 +573,8 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
     EXPECT_NE(drawing->layers[0].shapes.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes;
 }
 
-// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。書くとディスクキャッシュから読み戻せず、
-// 開くたびに描き直す。
+// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。書くとキャッシュの直列化した形から読み戻せず、
+// 画面に戻るたびに描き直す。
 TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
 {
     const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:0">a</text><text x="0" y="40">b</text>)svg"
@@ -585,7 +585,7 @@ TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
     EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
-// 大きすぎる文字はディスクキャッシュが読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
+// 大きすぎる文字はキャッシュの直列化した形が読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
 // float に収まらない百分率は読めない値として親の大きさを継ぐ。
 TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
 {
@@ -599,6 +599,34 @@ TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
     EXPECT_FLOAT_EQ(texts[1].at.font_size, mermaid_util::kMaxFontSize * 0.5f);
     EXPECT_FLOAT_EQ(texts[2].at.font_size, 16.0f);
     EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
+}
+
+// 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない。描くとキャッシュの直列化した形から
+// 読み戻せず、画面に戻るたびに JS で描き直す。
+TEST_F(PeleSvgTest, RejectsSizeThatDoesNotParseBack)
+{
+    for (const std::string_view size : { R"svg(width="1e38" height="10")svg", R"svg(width="20" height="1e38")svg", R"svg(width="0.01" height="10")svg" }) {
+        SCOPED_TRACE(size);
+        EXPECT_FALSE(ResolveRaw(std::format(R"svg(<svg xmlns="http://www.w3.org/2000/svg" {}><rect x="0" y="0" width="10" height="10"/></svg>)svg", size)));
+    }
+    const auto drawing = ResolveRaw(R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="0.02" height="1e36"><rect x="0" y="0" width="1" height="1"/></svg>)svg");
+    ASSERT_TRUE(drawing);
+    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
+}
+
+// 文字は UTF-8 の不正な並び (符号化したサロゲート) を U+FFFD にして作るので、読み戻しても同じ文字になる (画面外から戻った
+// 図の文字が変わらない)。サロゲートの対で表す文字はそのまま。
+TEST_F(PeleSvgTest, LabelTextParsesBackUnchanged)
+{
+    const auto drawing = Resolve("<text x=\"0\" y=\"20\">a\xED\xA0\x80" "b\xF0\x9F\x98\x80</text>");
+    ASSERT_TRUE(drawing);
+    ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
+    const std::wstring& text = drawing->layers[0].texts[0].text;
+    EXPECT_TRUE(text.starts_with(L"a�")) << string_convert::WideToUtf8(text);
+    EXPECT_TRUE(text.ends_with(L"b\U0001F600")) << string_convert::WideToUtf8(text);
+    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing));
+    ASSERT_TRUE(back);
+    EXPECT_EQ(*back, *drawing);
 }
 
 // 読めない長さは前の値を残す (float に収まらない値で inf を書き出さない)。

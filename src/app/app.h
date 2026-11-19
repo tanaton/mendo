@@ -9,7 +9,6 @@
 #include "image_loader.h"
 #include "layout.h"
 #include "mermaid.h"
-#include "mermaid_file_cache.h"
 #include "reducer.h"
 #include "document_utils.h"
 #include "dwrite_measurer.h"
@@ -390,7 +389,6 @@ private:
     TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()), /*below_normal=*/true };
     // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
     TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
-    MermaidFileCache file_cache_;        // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     ClipboardManager clipboard_manager_;
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
@@ -440,5 +438,5 @@ private:
     TableMeasureJobs table_jobs_{ layout_scheduler_, measurer_ };
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, file_cache_, inline_images_, inline_drawings_, *this };
+    ResourceManager resource_manager_{ state_, image_loader_, mermaid_renderer_, inline_images_, inline_drawings_, *this };
 };

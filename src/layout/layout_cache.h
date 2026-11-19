@@ -539,7 +539,7 @@ struct DiagramResult {
     // レンダリング失敗の理由。非空なら絵は持たず、プレースホルダにその文言を表示する。失敗は再リクエストを止め、
     // コードの書き換え・幅変更・テーマ変更・デバイスロストでクリアされて再試行の契機になる。
     DiagramError error;
-    // 幅の上限より広い図でも、pele がどの幅でも同じに描く (別の幅で描き直した SVG が同じだった)。幅が変わっても描き直さない。
+    // 幅の上限より広い図でも、pele がどの幅でも同じに描く (別の幅で描き直した描画命令が同じだった)。幅が変わっても描き直さない。
     bool any_width = false;
 };
 
@@ -578,14 +578,13 @@ struct DiagramEntry : DiagramResult {
     }
 
     // 画面外へ出た図のコマンドリストと描画命令を捨てる。寸法は残し、戻ったら読み直させる (NeedsRender)。
-    // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
-    bool ReleaseImage() noexcept
+    // 仮表示中の絵も捨てる。保持範囲の外では見えず、先読み範囲に入れば描き直しを頼み、届くまでは同じ高さのプレースホルダーで
+    // 足りる。残すと、テーマや幅を変えたときに先読み範囲の外にいた図が、頼まれないまま前の結果を持ち続ける。
+    void ReleaseImage() noexcept
     {
-        if (!drawing || stale) {
-            return false;
+        if (drawing) {
+            SetResult({ .width = width, .height = height });
         }
-        SetResult({ .width = width, .height = height });
-        return true;
     }
 
     // 仮表示として残せる結果 (描いた絵か、画面外へ出て絵を捨てた図の寸法) があるか。

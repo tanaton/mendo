@@ -3,7 +3,6 @@
 #include "parser.h"
 #include "string_convert.h"
 #include "test_nodes.h"
-#include "utility.h"
 #include <algorithm>
 #include <vector>
 
@@ -121,6 +120,9 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
     const auto with_run = [&](std::string_view run) { return std::string{ "10:20:0:0:1:0:1:" } + std::string{ run } + "0:"; };
     const auto with_math = [&](std::string_view math) { return std::string{ "10:20:0:0:1:0:0:1:" } + std::string{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
+    // 太さは図を作る側 (CSS の font-weight) と同じ値域の両端まで読む。
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1,0,0:0:1:a")).has_value());
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1000,0,0:0:1:a")).has_value());
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_math("1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
     const std::string kBad[] = {
         "",
@@ -148,6 +150,7 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         with_run("1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
         with_run("1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
         with_run("1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
+        with_run("1,0,0,1,0,0,0,0,16,0,1,1001,0,0:0:1:a"),     // 太さが上限を超える
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない
@@ -234,15 +237,6 @@ TEST(DiagramRequestHash, SameWidthBucketSharesHash)
     EXPECT_EQ(RequestHash(a, 590.0f, false), RequestHash(a, 605.0f, false));
 }
 
-// ディスクキャッシュのファイル名になる。式を変えたら MermaidFileCache::VERSION を上げる。
-TEST(DiagramRequestHash, KeepsPersistedFormula)
-{
-    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
-    // 幅 600 は 608 に量子化される。
-    EXPECT_EQ(RequestHash(a, 600.0f, true), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64) ^ 2654435761ULL);
-    EXPECT_EQ(RequestHash(a, 600.0f, false), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64));
-}
-
 // 幅の上限に収まる図の大きさはそのまま。収まらない図は幅を上限に合わせ、ブラウザのレイアウトと同じく 1/64 px に切り捨てて
 // から切り上げる (保存・コピーの画像の大きさ)。
 TEST(FittedDiagramSize, KeepsFittingSizeAndFloorsShrunkSizeTo64ths)
@@ -262,13 +256,12 @@ TEST(FittedDiagramSize, KeepsFittingSizeAndFloorsShrunkSizeTo64ths)
     EXPECT_EQ(fractional.height, 257.0f);
 }
 
-// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。式を変えたら MermaidFileCache::VERSION を上げる。
-TEST(DiagramWidthFreeHash, DistinctFromWidthKeysAndKeepsFormula)
+// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。
+TEST(DiagramWidthFreeHash, DistinctFromWidthKeys)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     const uint64_t code = mermaid_util::DiagramCodeHash(a);
     const uint64_t free_light = mermaid_util::DiagramWidthFreeHash(code, false);
-    EXPECT_EQ(free_light, RapidHash(a.GetText()) ^ kGoldenRatio64);
     EXPECT_NE(mermaid_util::DiagramWidthFreeHash(code, true), free_light);
     for (const float w : { 0.0f, 1.0f, 32.0f, 600.0f, 4000.0f }) {
         EXPECT_NE(mermaid_util::DiagramRequestHash(code, w, false), free_light) << w;

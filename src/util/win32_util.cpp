@@ -61,11 +61,7 @@ std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 {
     std::erase_if(g_pending_launches, [now](const PendingLaunch& p) { return now - p.tick > kPendingLaunchMs; });
     auto origins = g_pending_launches | std::views::transform(&PendingLaunch::origin) | std::ranges::to<std::vector>();
-    wchar_t cls[256];
-    if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
-        return origins;
-    }
-    for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) {
+    for (const HWND h : SameClassWindows(origin)) {
         RECT r;
         if (!IsIconic(h) && !IsZoomed(h) && GetWindowRect(h, &r)) {
             origins.push_back({ r.left, r.top });
@@ -75,6 +71,20 @@ std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 }
 
 } // namespace
+
+std::vector<HWND> SameClassWindows(HWND origin)
+{
+    std::vector<HWND> windows;
+    // クラス名は最長 256 文字と終端。
+    wchar_t cls[257];
+    if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
+        return windows;
+    }
+    for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) {
+        windows.push_back(h);
+    }
+    return windows;
+}
 
 RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept
 {

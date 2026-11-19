@@ -9,7 +9,6 @@
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
-#include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "reducer_harness.h"
@@ -62,20 +61,25 @@ public:
         return true;
     }
 
+    std::optional<mermaid_util::DiagramSize> KnownSize(const Node&, float, bool) const override
+    {
+        return std::nullopt;
+    }
+
     void DropQueued() override
     {
         drop_queued_count++;
     }
     int drop_queued_count = 0;
 
-    void ReleaseDrawing(DiagramEntry& diagram_entry) override
+    void ReleaseIdleDrawings() override
     {
-        ID2D1CommandList* const commands = diagram_entry.commands.Get();
-        if (diagram_entry.ReleaseImage()) {
-            released_commands.push_back(commands);
-        }
+        release_idle_count++;
+        requested_before_release = requested.size();
     }
-    std::vector<ID2D1CommandList*> released_commands;
+    int release_idle_count = 0;
+    // 最後に ReleaseIdleDrawings が呼ばれたときまでに頼まれた図の数。
+    size_t requested_before_release = 0;
 
     void RequestViewerDrawing(float max_width, bool dark_mode) override
     {
@@ -148,9 +152,6 @@ protected:
     void SetUp() override
     {
         InitReducerState(state_, theme_);
-        // Init しないので図のキャッシュは索引を引くだけで書かない。無いフォルダなら空の索引になるので、作らずに済む。
-        // 既定の空パスのままだと作業フォルダの index.bin を読む。
-        file_cache_.SetCacheDir(std::filesystem::temp_directory_path() / L"mendo_test_absent" / L"mermaid");
         theme_.indent_width = 20.0f;
         state_.view.panes.SetSidePaneVisible(PaneTarget::File, false);
         state_.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
@@ -205,7 +206,6 @@ protected:
 
     Theme theme_{};
     AppState state_;
-    MermaidFileCache file_cache_;
     Document& doc_ = state_.document.doc;
     LayoutCache& cache_ = state_.document.layout_cache;
     ViewportManager& viewport_ = state_.view.viewport;
@@ -215,7 +215,7 @@ protected:
     TestResourceManagerHost host_;
     InlineImageTable inline_images_;
     InlineDrawings inline_drawings_;
-    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, file_cache_, inline_images_, inline_drawings_, host_ };
+    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, inline_images_, inline_drawings_, host_ };
 };
 
 // ---- 画像経路 ----
@@ -272,7 +272,7 @@ protected:
             0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF,
             0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         };
-        ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng), false));
+        ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng)));
     }
 
     // LoadImageTable の image 枚目の画像。
@@ -519,7 +519,7 @@ TEST_F(ResourceManagerImageFileTest, UpdatedImageFileIsReloaded)
         0xC0, 0x00, 0x41, 0x50, 0xEA, 0x3F, 0x03, 0x03, 0x00, 0x41, 0xD2, 0x05, 0xFB, 0x25, 0xD1, 0x7C, 0x26, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
         0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     };
-    ASSERT_TRUE(WriteAllBytes(path, kWidePng, sizeof(kWidePng), false));
+    ASSERT_TRUE(WriteAllBytes(path, kWidePng, sizeof(kWidePng)));
     ASSERT_TRUE(WaitForImageReloadTimer()) << "更新の通知でタイマーが掛からない";
     rm_.LoadImages();
     ASSERT_TRUE(DrainScheduler(scheduler_));
@@ -839,8 +839,8 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 
 // ---- Mermaid 経路 ----
 
-// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。
-// 仮表示中の図は描き直しが届くまでの代わりなので残す。
+// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。仮表示中の図も、見えない
+// 所では代わりの絵が要らないので捨てる。覚えている結果から外させるのは、続く要求の回の終わり。
 TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
@@ -864,12 +864,22 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
     EXPECT_EQ(released.width, 100.0f);
     EXPECT_EQ(released.height, 50.0f);
     EXPECT_TRUE(released.NeedsRender());
-    EXPECT_TRUE(stale_far.HasImage());
-    EXPECT_EQ(mock_mermaid_.released_commands, std::vector<ID2D1CommandList*>{ &SharedStubCommandList() });
+    EXPECT_FALSE(stale_far.HasImage());
+    EXPECT_EQ(stale_far.drawing, nullptr);
+    EXPECT_EQ(stale_far.height, 50.0f) << "描き直しが届くまで同じ高さで出す";
+    EXPECT_TRUE(stale_far.NeedsRender());
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 0);
+}
 
-    // 捨てた後の図は、もう一度捨てない。
-    rm_.EvictOffscreenResources();
-    EXPECT_EQ(mock_mermaid_.released_commands.size(), 1u);
+// 要求の回の終わりに、どの図も持たなくなった解いた形を覚えている結果から外させる。この回で受け取って置き換わった結果も
+// 外せるよう、図を頼んだ後に呼ぶ。
+TEST_F(ResourceManagerTest, RequestMermaidRendersReleasesIdleDrawingsAfterRequests)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n");
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(mock_mermaid_.requested.size(), 2u);
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 1);
+    EXPECT_EQ(mock_mermaid_.requested_before_release, 2u);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)
@@ -1018,7 +1028,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 
-// 複数の図がディスクキャッシュにヒットしても、再レイアウトは per-figure ではなく
+// 複数の図がキャッシュにヒットしても、再レイアウトは per-figure ではなく
 // ループ後にまとめて 1 回しか発火しないことを保証する (issue: 初回ロードで N 回フルスイープ)。
 TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits)
 {

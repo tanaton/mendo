@@ -186,9 +186,8 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
 }
 
-// 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
-[[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
-                                      DWORD share_mode = FILE_SHARE_READ,
+// 失敗時と空ファイルは空を返す。読めなかった理由が要るときは OpenFileForReadShared を使う。
+[[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD share_mode = FILE_SHARE_READ,
                                       LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 
 // size バイトを ReadFile の DWORD 上限ごとに分けて読み切る。EOF・パイプ切断 (bytes_read == 0) は失敗として false。
@@ -211,16 +210,13 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
 // BOM の 3 バイトのずれ等を吸収するため 16 バイトの許容範囲を持たせる。
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 
-// flush_buffers: true の場合、close 前に FlushFileBuffers でデータブロックを
-// ディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
-[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers = false);
+// close 前に FlushFileBuffers でデータブロックをディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
+[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // tmp へ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換え、成功したかを返す。false なら原本は変わっていない。
 // rename が失敗 (クロスボリューム等) したら tmp を消す。CREATE_ALWAYS は原本を切り詰めてから失敗しうるので直書きしない。
 // tmp は `<path>.tmp` 固定なので、同じ path への並行呼び出しは呼び出し側で排他する (プロセス間は InterProcessFileLock)。
-// durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられるキャッシュ向け
-// (同期書き込みで終了を遅らせない)。
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // 利用者が選んだ保存先を AtomicWriteAllBytes と同じく置き換える。一時ファイルは固定の `<path>.tmp` でなく、
 // 既存のファイルと重ならない名前で新しく作る。固定の名前では、同じ名前の利用者のファイルを切り詰めたうえ置き換えで消してしまう。

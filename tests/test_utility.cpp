@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "utility.h"
 
-// 図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら
-// MermaidFileCache::VERSION を上げる。長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
+// InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら、旧版と同時に動く間だけロックが互いを排他しない。
+// 長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
 TEST(RapidHash, KeepsPersistedValues)
 {
     const std::string x200(200, 'x');
@@ -49,6 +49,24 @@ TEST(FlatHashMap, TryEmplaceKeepsExistingValue)
     EXPECT_FALSE(added_again);
     EXPECT_EQ(*again, 7);
     EXPECT_EQ(map.size(), 1u);
+}
+
+// 上限に達していても、あるキーは上書きできて表を捨てない。無いキーを足すときだけ全部捨てる。
+TEST(FlatHashMap, TryEmplaceBoundedClearsOnlyForNewKeyAtLimit)
+{
+    FlatHashMap<int> map;
+    *map.TryEmplaceBounded(1, 2).first = 10;
+    *map.TryEmplaceBounded(2, 2).first = 20;
+    const auto [existing, added] = map.TryEmplaceBounded(2, 2);
+    EXPECT_FALSE(added);
+    EXPECT_EQ(*existing, 20);
+    EXPECT_EQ(map.size(), 2u);
+
+    const auto [fresh, added_fresh] = map.TryEmplaceBounded(3, 2);
+    EXPECT_TRUE(added_fresh);
+    EXPECT_EQ(*fresh, 0);
+    EXPECT_EQ(map.size(), 1u);
+    EXPECT_EQ(map.Find(1), nullptr);
 }
 
 // 配列を広げても全部の要素が残る。連番のキーと、下位のビットがそろったキーの両方で確かめる。

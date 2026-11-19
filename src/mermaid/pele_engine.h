@@ -31,8 +31,6 @@ struct PeleOutcome {
     Status status = Status::Error;
     mermaid_util::DiagramDrawing drawing;
     std::wstring error;
-    // 描けたときの pele の SVG のハッシュ。同じ図を別の幅で描いて同じなら、幅で出力が変わらない図と分かる。
-    uint64_t svg_hash = 0;
 };
 
 // pele と KaTeX を QuickJS-ng で動かす。図は pele の SVG を DrawingFromPeleSvg で、数式は KaTeX の HTML を LayoutKatexHtml で
@@ -66,9 +64,6 @@ public:
     };
     // インライン数式をまとめて描く。同じ順で返し、KaTeX が描けない数式 (TeX の誤り) と取り消した後の数式は null。
     std::vector<std::shared_ptr<const MathDrawing>> RenderMaths(std::span<const MathSource> maths);
-    // ディスクキャッシュから読んだ図の描画命令には TeX だけがあるので、ラベルの数式を組み直す。組めない数式は null のまま。
-    // 組み直す数式があって、ランタイムを使ったら true。
-    bool ResolveMaths(mermaid_util::DiagramDrawing& drawing);
     // KaTeX の HTML を配置する。JS を動かさないので、pele の配置の途中 (math オプション) からも呼べる。
     std::shared_ptr<const MathDrawing> LayoutHtml(std::string_view html, float font_size);
 
