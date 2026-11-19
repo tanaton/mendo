@@ -39,42 +39,6 @@ public:
         entries_.insert(entries_.begin(), Entry{ key, std::move(value) });
     }
 
-    // 件数上限だけでは大きな値 (図の描画命令・SVG) でメモリが青天井になるため、cost 合計が
-    // budget 以下になるまで末尾 (最も使われていない側) から捨てる。先頭 1 件は常に残す。
-    template <class CostFn>
-    void TrimToBudget(size_t budget, CostFn cost)
-    {
-        size_t total = 0;
-        for (const auto& e : entries_) {
-            total += cost(e.value);
-        }
-        while (entries_.size() > 1 && total > budget) {
-            total -= cost(entries_.back().value);
-            entries_.pop_back();
-        }
-    }
-
-    void Clear()
-    {
-        entries_.clear();
-    }
-
-    // pred(値) が真のものを、並び順を変えずに捨てる。
-    template <class Pred>
-    void EraseIf(Pred&& pred)
-    {
-        std::erase_if(entries_, [&pred](Entry& e) { return pred(e.value); });
-    }
-
-    // 並び順を変えずに全部の値を渡す。
-    template <class Fn>
-    void ForEach(Fn&& fn)
-    {
-        for (auto& e : entries_) {
-            fn(e.value);
-        }
-    }
-
     size_t Size() const noexcept
     {
         return entries_.size();

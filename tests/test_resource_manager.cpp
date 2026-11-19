@@ -67,14 +67,11 @@ public:
     }
     int drop_queued_count = 0;
 
-    void ReleaseDrawing(DiagramEntry& diagram_entry) override
+    void ReleaseIdleDrawings() override
     {
-        ID2D1CommandList* const commands = diagram_entry.commands.Get();
-        if (diagram_entry.ReleaseImage()) {
-            released_commands.push_back(commands);
-        }
+        release_idle_count++;
     }
-    std::vector<ID2D1CommandList*> released_commands;
+    int release_idle_count = 0;
 
     void RequestViewerDrawing(float max_width, bool dark_mode) override
     {
@@ -835,7 +832,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 // ---- Mermaid 経路 ----
 
 // 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。
-// 仮表示中の図は描き直しが届くまでの代わりなので残す。
+// 仮表示中の図は描き直しが届くまでの代わりなので残す。図から外した描画命令は、覚えている結果からも外させる。
 TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
@@ -860,11 +857,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
     EXPECT_EQ(released.height, 50.0f);
     EXPECT_TRUE(released.NeedsRender());
     EXPECT_TRUE(stale_far.HasImage());
-    EXPECT_EQ(mock_mermaid_.released_commands, std::vector<ID2D1CommandList*>{ &SharedStubCommandList() });
-
-    // 捨てた後の図は、もう一度捨てない。
-    rm_.EvictOffscreenResources();
-    EXPECT_EQ(mock_mermaid_.released_commands.size(), 1u);
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 1);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)

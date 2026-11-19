@@ -45,8 +45,9 @@ using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult res
 
 // 図の結果のキャッシュ。キーは DiagramRequestHash か DiagramWidthFreeHash。UI スレッドから使う。
 // 描けた図は直列化した描画命令 (SerializeDrawing) とラベルの数式の描画命令を持ち、表示している間だけ解いた描画命令と
-// コマンドリストも持つ。画面外へ出た・置き換わった・前の文書の図は解いた形を手放し (ReleaseDrawing)、戻ったら worker で
-// 解き直す (JS は動かさない)。解いた形は直列化した形より大きいので、表示中の図の分だけにする (ユーザーが選んだ)。
+// コマンドリストも持つ。画面外へ出た・置き換わった・前の文書の図など、どの図も拡大表示も持たなくなった解いた形は手放し
+// (ReleaseIdleDrawings)、戻ったら worker で解き直す (JS は動かさない)。解いた形は直列化した形より大きいので、表示中の図の
+// 分だけにする (ユーザーが選んだ)。表示中かどうかは持ち主の数で決め、表示が終わる経路ごとに知らせてもらわない。
 // 設定ファイルのほかにファイルを書かないよう、ディスクには置かず RAM だけに持つ (ユーザーが選んだ)。起動し直すと空から始まる。
 class DiagramCache {
 public:
@@ -79,22 +80,18 @@ public:
     Hit Find(uint64_t width_free_key, uint64_t sized_key, float max_width);
     // Find と同じく引くが、寸法を見るだけなので捨てる順を変えない。
     const Item* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
-    // 同じキーは置き換える。上限を超えたら、表示していない項目を使っていない順に捨てる。上限より大きい図は直列化した形を持たない。
+    // key の項目を、捨てる順を変えずに見る。
+    const Item* Peek(uint64_t key) const;
+    // 同じキーは置き換える。上限より大きい図は直列化した形を持たない。上限を超えても置くときには捨てず、次の
+    // ReleaseIdleDrawings で捨てる。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、
+    // 同じ図を JS で描き直し続けてしまう。
     void Put(uint64_t key, Item item);
-    // drawing を表示していた項目から、解いた描画命令とコマンドリストを外す。直列化した形もエラーも無い項目は捨てる。
-    void ReleaseDrawing(const std::shared_ptr<const mermaid_util::DiagramDrawing>& drawing);
-    // key の項目から、解いた描画命令とコマンドリストを外す。
-    void ReleaseDrawingAt(uint64_t key);
-    // すべての項目から解いた描画命令とコマンドリストを外す。文書を切り替えたら、前の文書の図はどれも表示しない。
-    void ReleaseDrawings();
+    void Erase(uint64_t key);
+    // どの図も拡大表示も worker の仕事も持たなくなった (この表だけが持つ) 解いた描画命令とコマンドリストを外し、直列化した形も
+    // エラーも無くなった項目は捨てる。その後、上限を超えていれば、表示していない項目を使っていない順に捨てる。
+    void ReleaseIdleDrawings();
     // 描画デバイスが変わった。旧デバイスのコマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
     void ResetDevice();
-    // 結果を取り込む回の始まり。この回に置いた項目と引いた項目は、上限を超えても捨てない。表示中の図だけで上限を超えて
-    // いると、置いたばかりのエラーを図が受け取る前に捨て、同じ図を JS で描き直し続けてしまう。
-    void BeginBatch() noexcept
-    {
-        protect_after_ = lru_seq_;
-    }
 
     size_t EntryCount() const noexcept
     {
@@ -115,17 +112,14 @@ private:
         uint64_t last_used = 0;
     };
     using Slots = std::unordered_map<uint64_t, Slot>;
-    void Erase(Slots::iterator it) noexcept;
-    // 外した項目を、直列化した形もエラーも無ければ捨てる。
-    void DropDrawing(Slots::iterator it) noexcept;
+    // 次の項目を返す。
+    Slots::iterator Erase(Slots::iterator it) noexcept;
     void Trim();
 
     // 捨てるのは上限を超えたときだけなので、順序の構造を持たず last_used の線形走査で最古を探す。
     Slots slots_;
     size_t total_bytes_ = 0;
     uint64_t lru_seq_ = 0;
-    // last_used がこれより大きい項目は捨てない (BeginBatch)。呼ぶまではどれも捨てられる。
-    uint64_t protect_after_ = UINT64_MAX;
     size_t max_bytes_;
 };
 
@@ -173,10 +167,7 @@ public:
     void Shutdown();
     void DropQueued() override;
     void BeginRequestPass() override;
-    void ReleaseDrawing(DiagramEntry& diagram_entry) override;
-    // 覚えている結果から解いた描画命令とコマンドリストを全部外す (直列化した形は残す)。文書を切り替えたら、前の文書の図は
-    // どれも表示しない。
-    void ReleaseCachedDrawings();
+    void ReleaseIdleDrawings() override;
     // 描画の待ちの順。表示用は要求のキー、数式は 0 (テスト用)。
     std::vector<uint64_t> WaitingRequests() const;
     // 図の結果のキャッシュ (テストが中を見て、置いて読ませる)。
@@ -231,6 +222,11 @@ private:
         bool width_free = false;
         // どの幅でも使える (DiagramResult::any_width)。width_free も立つ。
         bool any_width = false;
+        static DisplayTarget Of(uint64_t code_hash, float max_width, bool dark_mode) noexcept
+        {
+            return { .request_hash = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode),
+                     .width_free_hash = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode) };
+        }
         uint64_t CacheKey() const noexcept
         {
             return width_free ? width_free_hash : request_hash;
@@ -259,10 +255,8 @@ private:
     enum class JobWork : uint8_t {
         // PeleEngine で描く。同時に描く数の枠を 1 つ使い、結果を受け取ったときに返す (PumpRenders)。
         Render,
-        // キャッシュにある直列化した描画命令を解く。表示用の要求だけ。
+        // キャッシュにある描画命令の文字を組む (解いた形が無ければ直列化した形から解く)。表示用の要求だけ。
         Load,
-        // キャッシュにある描画命令の文字を組む。デバイスが変わってコマンドリストを外した結果を記録し直す前に行う。表示用の要求だけ。
-        Relayout,
     };
     // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
     struct JobDropped {};
@@ -271,8 +265,8 @@ private:
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
         // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
         DiagramTextLayouts texts;
-        // キャッシュに置く直列化した描画命令とラベルの数式 (DiagramCache::Item)。描いたときは worker で作り、読んだときと
-        // 文字を組み直したときはキャッシュにあったものを引き継ぐ。
+        // キャッシュに置く直列化した描画命令とラベルの数式 (DiagramCache::Item)。描いたときは worker で作り、読んだときは
+        // キャッシュにあったものを引き継ぐ。
         std::shared_ptr<const std::string> bytes;
         std::vector<std::shared_ptr<const MathDrawing>> maths;
     };
@@ -296,8 +290,6 @@ private:
         JobOutcome outcome;
         // 投入したときの drop_gen_。表示用の仕事は、これと違えば描かずに返し、描いている途中でも止める。
         uint32_t drop_gen = 0;
-        // PeleEngine のランタイムを使った (使っていないランタイムを捨てさせる)。
-        bool used_pele = false;
     };
 
     // 待ちが空になって 1 個まで減らしたランタイムの最後の 1 個を、この時間使わなければ捨てる (読み進める間の切れ目では
@@ -330,10 +322,9 @@ private:
     // worker で呼ぶ。
     JobOutcome RenderJob(Job& job);
 
-    // item の直列化した描画命令を worker で解き、ラベルの数式を差し込んで文字を組む。
+    // item の描画命令の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
+    // 解いた形が無ければ、先に直列化した形を解いてラベルの数式を差し込む。
     void StartLoad(RenderRequest req, const DiagramCache::Item& item);
-    // 描画命令の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
-    void StartRelayout(RenderRequest req, const DiagramCache::Item& item);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
     bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
@@ -341,9 +332,6 @@ private:
 
     // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
     Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
-    // 幅を混ぜないキーの結果 (いまの幅の上限より狭いときだけ使える) を先に、無ければ幅つきのキーで引く。
-    // target.width_free には、幅なしのキーで当たったかを書く。
-    DiagramCache::Item* FindCached(DisplayTarget& target, float max_width);
     // 結果 (解いた描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
     // cached_key があれば、当たった結果のキーを書く。
     DiagramCache::Item* FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key = nullptr);
@@ -363,24 +351,12 @@ private:
     std::move_only_function<void()> on_update_;
 
     std::unordered_set<uint64_t> inflight_;
-    // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた幅とその要求のキー。別の幅で描き直して
+    // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む)。別の幅で描き直して
     // 描画命令がキャッシュにある前の結果と同じなら、幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに置く
     // (追加の JS は要らない)。
-    struct LastDrawn {
-        float max_width = 0.0f;
-        uint64_t request_hash = 0;
-    };
-    TranspositionCache<uint64_t, LastDrawn, MAX_LAST_DRAWN> last_drawn_;
+    TranspositionCache<uint64_t, uint64_t, MAX_LAST_DRAWN> last_drawn_;
 
     DiagramCache cache_;
-    // ProcessJobResults で置いた結果のうち、まだ図や拡大表示が受け取っていないもの (FindOrRequest が外す)。batch は置いた回。
-    struct Unclaimed {
-        uint64_t key = 0;
-        uint32_t batch = 0;
-    };
-    std::vector<Unclaimed> unclaimed_;
-    // ProcessJobResults の回の番号。
-    uint32_t batch_ = 0;
 
     TaskScheduler* bg_scheduler_ = nullptr;
     PostedInbox<Job> job_results_;

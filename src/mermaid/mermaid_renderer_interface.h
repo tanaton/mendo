@@ -31,9 +31,10 @@ public:
     // 先に頼んだ図の後ろで、見えている図を待たせない)。
     virtual void BeginRequestPass()
     {}
-    // 画面外へ出た図のコマンドリストと描画命令を、diagram_entry と覚えている結果の両方から外す (片方だけ外してもメモリは
-    // 返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。仮表示中の図は外さない。
-    virtual void ReleaseDrawing(DiagramEntry& diagram_entry) = 0;
+    // どの図 (DiagramEntry) も拡大表示も持たなくなった描画命令とコマンドリストを、覚えている結果からも外す (図から外しただけでは
+    // メモリが返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。
+    virtual void ReleaseIdleDrawings()
+    {}
     // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。待っていなければ何もしない。
     // 本文の図と同じ所から呼ぶ (頼んでよいかの判断と、本文と同じ要求になる幅を 1 か所で決める)。
     virtual void RequestViewerDrawing(float /*max_width*/, bool /*dark_mode*/)

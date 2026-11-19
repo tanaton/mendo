@@ -155,10 +155,11 @@ void ResourceManager::EvictOffscreenResources()
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
         for (const size_t i : part) {
             if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
-                mermaid_.ReleaseDrawing(*diagram);
+                diagram->ReleaseImage();
             }
         }
     }
+    mermaid_.ReleaseIdleDrawings();
 
     // 本文中の画像のビットマップも保持範囲の画像の分だけ残す。寸法は表に残すので、戻ってきても組み直さない。
     if (inline_drawings_.images.size() == 0) {

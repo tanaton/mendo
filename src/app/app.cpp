@@ -951,7 +951,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 拡大表示は開いた文書の図なので一緒に閉じる
     mermaid_renderer_.CloseViewer();
     // 前の文書の図はどれも表示しなくなったので、解いた描画命令とコマンドリストを手放す (直列化した形は残す)
-    mermaid_renderer_.ReleaseCachedDrawings();
+    mermaid_renderer_.ReleaseIdleDrawings();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();

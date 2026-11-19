@@ -25,8 +25,8 @@ void ExpectTailClimbsToFront(Promote promote)
 
 } // namespace
 
-// 作った直後は空。満杯でなくても無いキーは null。Find の値は書き換えられる。Clear 後は前のキーを引かず、続けて使える。
-TEST(TranspositionCache, InsertFindAndClear)
+// 作った直後は空。満杯でなくても無いキーは null。Find の値は書き換えられる。
+TEST(TranspositionCache, InsertAndFind)
 {
     TranspositionCache<int, std::string, 3> cache;
     EXPECT_EQ(cache.Size(), 0u);
@@ -40,14 +40,6 @@ TEST(TranspositionCache, InsertFindAndClear)
     EXPECT_EQ(*v, "one");
     *v = "modified";
     EXPECT_EQ(*cache.Find(1), "modified");
-
-    cache.Clear();
-    EXPECT_EQ(cache.Size(), 0u);
-    cache.Insert(4, "four");
-    EXPECT_EQ(cache.Size(), 1u);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_EQ(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(4), nullptr);
 }
 
 TEST(TranspositionCache, InsertExistingKeyUpdatesValueAndPromotes)
@@ -114,33 +106,4 @@ TEST(TranspositionCache, RepeatedFindClimbsToFront)
 TEST(TranspositionCache, RepeatedInsertExistingKeyClimbsToFront)
 {
     ExpectTailClimbsToFront([](auto& cache, int i) { cache.Insert(1, 100 + i); });
-}
-
-TEST(TranspositionCache, TrimToBudgetEvictsFromTail)
-{
-    TranspositionCache<int, int, 5> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    cache.Insert(3, 30);
-    // 内部 [3, 2, 1]、cost 合計 60
-
-    cache.TrimToBudget(50, [](int v) static { return static_cast<size_t>(v); });
-    EXPECT_EQ(cache.Size(), 2u);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_NE(cache.Find(3), nullptr);
-
-    cache.Insert(4, 1);
-    EXPECT_NE(cache.Find(4), nullptr);
-    EXPECT_EQ(cache.Size(), 3u);
-}
-
-TEST(TranspositionCache, TrimToBudgetKeepsMostRecentEvenIfOverBudget)
-{
-    TranspositionCache<int, int, 3> cache;
-    cache.Insert(1, 100);
-    cache.Insert(2, 200);
-
-    cache.TrimToBudget(10, [](int v) static { return static_cast<size_t>(v); });
-    EXPECT_EQ(cache.Size(), 1u);
-    EXPECT_NE(cache.Find(2), nullptr);
 }
