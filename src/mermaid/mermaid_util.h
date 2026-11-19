@@ -25,8 +25,8 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 {
     return css_width + 1.0f < max_width;
 }
-// 幅なしのキーで引いた結果を幅の上限 max_width で使えるか。any_width (別の幅で描いても SVG が同じだった
-// フローチャート) はどの幅でも使える。メモリ・ディスクのキャッシュと幅の変化の判定でそろえる。
+// 幅なしのキーで引いた結果を幅の上限 max_width で使えるか。any_width (別の幅で描いても描画命令が同じだった
+// フローチャート) はどの幅でも使える。図の結果のキャッシュと、幅の変化の判定でそろえる。
 constexpr bool UsableAtWidth(float css_width, bool any_width, float max_width) noexcept
 {
     return any_width || IsWidthFree(css_width, max_width);
@@ -36,7 +36,7 @@ int QuantizeWidth(float max_width) noexcept;
 
 // 図のコードがフローチャート (flowchart / graph) か。先頭の空行・%% のコメント・--- の前置き (frontmatter) は読み飛ばす。
 // pele のフローチャートは幅の上限を見ないが、シーケンス図やガントなどは上限に収まらないと compact に切り替えるので、
-// 2 つの幅で同じ SVG になっても、上限に収まる幅では違う絵になりうる。
+// 2 つの幅で同じ描画命令になっても、上限に収まる幅では違う絵になりうる。
 bool IsFlowchartCode(std::string_view code) noexcept;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
@@ -59,9 +59,9 @@ struct DrawingPlacement {
 
     bool operator==(const DrawingPlacement&) const = default;
 };
-// ディスクキャッシュに書ける置き方か。変換と位置が有限で、大きさが 0 より大きく kMaxFontSize 以下、色が 24 ビット、
+// 図の結果のキャッシュ (DiagramCache) に書ける置き方か。変換と位置が有限で、大きさが 0 より大きく kMaxFontSize 以下、色が 24 ビット、
 // 不透明度が 0〜1。図を作る側は満たさない文字と数式を描かず、読む側は満たさないものを壊れた値として読まない。
-// 両側の値域をここでそろえる (外れたものを書くと読み戻せず、開くたびに描き直す)。
+// 両側の値域をここでそろえる (外れたものを書くと読み戻せず、画面に戻るたびに描き直す)。
 bool IsStorable(const DrawingPlacement& p) noexcept;
 // 図の文字の線 (CSS の text-decoration) のビット。overline は DirectWrite に無いので描かない。
 inline constexpr uint8_t kTextUnderline = 1;
@@ -81,7 +81,7 @@ struct DrawingText {
 // 図のラベルの数式 ($$...$$)。KaTeX で組んだ描画命令を、文字の色で置く。
 struct DrawingMath {
     DrawingPlacement at;
-    std::string tex; // UTF-8。ディスクキャッシュには描画命令でなくこれを置き、読んだときに組み直す
+    std::string tex; // UTF-8。直列化した形には数式の描画命令でなくこれを置く (読み直すときは覚えた描画命令を差し込む)
     // 組めなかった (読んだ後にまだ組んでいない) なら null。比べない。
     std::shared_ptr<const MathDrawing> drawing;
 
@@ -109,18 +109,16 @@ struct DiagramDrawing {
 
     bool operator==(const DiagramDrawing&) const = default;
 };
-// ディスクキャッシュに置く描画命令の書式。
+// 図の結果のキャッシュ (DiagramCache) に置く書式。
 // "<幅>:<高さ>:<背景 (10 進)>:<defs の長さ>:<defs><層の数>:" に続けて、層ごとに "<図形の長さ>:<図形><文字の並びの数>:" と並び、
 // "<数式の数>:" と数式を置く。
 // 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
 // 並びは "<置き方>,<太さ>,<斜体 0/1>,<線のビット 0〜3 (kTextUnderline | kTextLineThrough)>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
 // 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-8 のバイト数。ファイルが壊れていて欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
+// 長さは UTF-8 のバイト数。欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
 std::optional<DiagramDrawing> ParseDrawing(std::string_view payload);
-// ParseDrawing が読む形の UTF-8。描画命令をディスクキャッシュに置くのに使う。
+// ParseDrawing が読む形の UTF-8。描画命令をキャッシュに置くのに使う。
 std::string SerializeDrawing(const DiagramDrawing& drawing);
-// メモリのキャッシュの上限に数える、描画命令のおおよその大きさ (バイト)。
-size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
 
 // 図を描く大きさ (CSS px)。
 struct DiagramSize {

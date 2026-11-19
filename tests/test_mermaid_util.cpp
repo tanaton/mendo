@@ -3,7 +3,6 @@
 #include "parser.h"
 #include "string_convert.h"
 #include "test_nodes.h"
-#include "utility.h"
 #include <algorithm>
 #include <vector>
 
@@ -234,15 +233,6 @@ TEST(DiagramRequestHash, SameWidthBucketSharesHash)
     EXPECT_EQ(RequestHash(a, 590.0f, false), RequestHash(a, 605.0f, false));
 }
 
-// ディスクキャッシュのファイル名になる。式を変えたら MermaidFileCache::VERSION を上げる。
-TEST(DiagramRequestHash, KeepsPersistedFormula)
-{
-    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
-    // 幅 600 は 608 に量子化される。
-    EXPECT_EQ(RequestHash(a, 600.0f, true), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64) ^ 2654435761ULL);
-    EXPECT_EQ(RequestHash(a, 600.0f, false), RapidHash(a.GetText()) ^ (uint64_t{ 608 } * kGoldenRatio64));
-}
-
 // 幅の上限に収まる図の大きさはそのまま。収まらない図は幅を上限に合わせ、ブラウザのレイアウトと同じく 1/64 px に切り捨てて
 // から切り上げる (保存・コピーの画像の大きさ)。
 TEST(FittedDiagramSize, KeepsFittingSizeAndFloorsShrunkSizeTo64ths)
@@ -262,13 +252,12 @@ TEST(FittedDiagramSize, KeepsFittingSizeAndFloorsShrunkSizeTo64ths)
     EXPECT_EQ(fractional.height, 257.0f);
 }
 
-// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。式を変えたら MermaidFileCache::VERSION を上げる。
-TEST(DiagramWidthFreeHash, DistinctFromWidthKeysAndKeepsFormula)
+// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。
+TEST(DiagramWidthFreeHash, DistinctFromWidthKeys)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     const uint64_t code = mermaid_util::DiagramCodeHash(a);
     const uint64_t free_light = mermaid_util::DiagramWidthFreeHash(code, false);
-    EXPECT_EQ(free_light, RapidHash(a.GetText()) ^ kGoldenRatio64);
     EXPECT_NE(mermaid_util::DiagramWidthFreeHash(code, true), free_light);
     for (const float w : { 0.0f, 1.0f, 32.0f, 600.0f, 4000.0f }) {
         EXPECT_NE(mermaid_util::DiagramRequestHash(code, w, false), free_light) << w;

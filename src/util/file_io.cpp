@@ -26,9 +26,9 @@ std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* pa
     return OpenedFile{ std::move(hFile), static_cast<size_t>(file_size.QuadPart) };
 }
 
-ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
+ByteBuffer ReadAllBytes(const wchar_t* path, DWORD share_mode, LONGLONG max_size)
 {
-    auto r = OpenFileForReadShared(path, share_mode, max_size, out_error);
+    auto r = OpenFileForReadShared(path, share_mode, max_size);
     if (!r || r->size == 0) {
         return {};
     }
@@ -70,10 +70,9 @@ bool WriteToHandle(HANDLE file, const void* data, size_t size, bool flush_buffer
 }
 
 // 書き終えた tmp_path で path を置き換える。置き換えられなければ tmp_path を消す。
-bool ReplaceWithTmp(const std::filesystem::path& tmp_path, const std::filesystem::path& path, bool durable) noexcept
+bool ReplaceWithTmp(const std::filesystem::path& tmp_path, const std::filesystem::path& path) noexcept
 {
-    const DWORD move_flags = MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0);
-    if (MoveFileExW(tmp_path.c_str(), path.c_str(), move_flags)) {
+    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return true;
     }
     DeleteFileW(tmp_path.c_str());
@@ -91,19 +90,19 @@ bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t s
     return hFile && WriteToHandle(hFile.get(), data, size, flush_buffers);
 }
 
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable)
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
 {
     std::filesystem::path tmp_path = path;
     tmp_path += L".tmp";
 
     // tmp のデータブロックを flush してから write-through で rename する。rename のメタデータだけが先にディスクへ
     // コミットされると、電源断で対象ファイルが 0 バイトになり旧内容を戻せない。
-    if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ durable)) {
+    if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ true)) {
         // 書き込みの途中で失敗しても CREATE_ALWAYS で tmp はできているので、部分書き込みの孤児 tmp を残さないよう消す。
         DeleteFileW(tmp_path.c_str());
         return false;
     }
-    return ReplaceWithTmp(tmp_path, path, durable);
+    return ReplaceWithTmp(tmp_path, path);
 }
 
 bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, size_t size)
@@ -132,7 +131,7 @@ bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, si
         DeleteFileW(tmp_path.c_str());
         return false;
     }
-    return ReplaceWithTmp(tmp_path, path, /* durable = */ true);
+    return ReplaceWithTmp(tmp_path, path);
 }
 
 InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path)

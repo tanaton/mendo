@@ -89,8 +89,6 @@ struct Strings {
     std::wstring_view settings_title;
     std::wstring_view settings_language;
     std::wstring_view settings_language_system;
-    std::wstring_view settings_diagram_cache;
-    std::wstring_view settings_clear_cache;
 
     UINT help_resource_id;
 
@@ -159,8 +157,6 @@ inline constexpr Strings kJa = {
     .settings_title = L"設定",
     .settings_language = L"言語",
     .settings_language_system = L"OS の設定に合わせる",
-    .settings_diagram_cache = L"図のキャッシュ",
-    .settings_clear_cache = L"削除",
     .help_resource_id = IDR_HELP_MD,
     .lang_key = L"ja",
     .lang_name = L"日本語",
@@ -224,8 +220,6 @@ inline constexpr Strings kEn = {
     .settings_title = L"Settings",
     .settings_language = L"Language",
     .settings_language_system = L"Use system setting",
-    .settings_diagram_cache = L"Diagram cache",
-    .settings_clear_cache = L"Clear",
     .help_resource_id = IDR_HELP_EN_MD,
     .lang_key = L"en",
     .lang_name = L"English",
@@ -289,8 +283,6 @@ inline constexpr Strings kZh = {
     .settings_title = L"设置",
     .settings_language = L"语言",
     .settings_language_system = L"跟随系统设置",
-    .settings_diagram_cache = L"图表缓存",
-    .settings_clear_cache = L"清除",
     .help_resource_id = IDR_HELP_ZH_MD,
     .lang_key = L"zh",
     .lang_name = L"简体中文",
@@ -354,8 +346,6 @@ inline constexpr Strings kZhHant = {
     .settings_title = L"設定",
     .settings_language = L"語言",
     .settings_language_system = L"依照系統設定",
-    .settings_diagram_cache = L"圖表快取",
-    .settings_clear_cache = L"清除",
     .help_resource_id = IDR_HELP_ZH_HANT_MD,
     .lang_key = L"zh-hant",
     .lang_name = L"繁體中文",
@@ -419,8 +409,6 @@ inline constexpr Strings kKo = {
     .settings_title = L"설정",
     .settings_language = L"언어",
     .settings_language_system = L"시스템 설정 사용",
-    .settings_diagram_cache = L"다이어그램 캐시",
-    .settings_clear_cache = L"삭제",
     .help_resource_id = IDR_HELP_KO_MD,
     .lang_key = L"ko",
     .lang_name = L"한국어",

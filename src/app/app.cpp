@@ -49,6 +49,26 @@ ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
     return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
 }
 
+// 前の版が設定フォルダに残した図のディスクキャッシュと WebView2 のデータを、起動時に黙って消す (ユーザーが選んだ)。
+// 有るときだけ worker を起こし、図の無いセッションでスレッドを作らない。ファイルが多いので UI では消さない。
+void RemoveLegacyFolders(const ConfigService& config, TaskScheduler& scheduler)
+{
+    std::vector<std::filesystem::path> dirs;
+    for (const std::wstring_view name : { L"MermaidCache", L"WebView2Data" }) {
+        if (auto dir = config.GetConfigPath(name); GetFileAttributesW(dir.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            dirs.push_back(std::move(dir));
+        }
+    }
+    if (!dirs.empty()) {
+        scheduler.Post([dirs = std::move(dirs)] {
+            for (const auto& dir : dirs) {
+                std::error_code ec;
+                std::filesystem::remove_all(dir, ec);
+            }
+        });
+    }
+}
+
 } // namespace
 
 bool App::Init(HWND hwnd)
@@ -78,12 +98,11 @@ bool App::Init(HWND hwnd)
     // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
-    file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
-    file_cache_.Init(scheduler_);
+    RemoveLegacyFolders(config_, scheduler_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), file_cache_, scheduler_,
+    mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), scheduler_,
                            &MermaidRenderer::CreateBundledPele, &DiagramView::Open, [this]() {
         // 結果を待っていた図と、拡大表示に出す図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
@@ -931,8 +950,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     resource_manager_.DropQueues();
     // 拡大表示は開いた文書の図なので一緒に閉じる
     mermaid_renderer_.CloseViewer();
-    // 前の文書の図のコマンドリストはどの図も持たなくなった
-    mermaid_renderer_.ReleaseCachedCommands();
+    // 前の文書の図はどれも表示しなくなったので、解いた描画命令とコマンドリストを手放す (直列化した形は残す)
+    mermaid_renderer_.ReleaseCachedDrawings();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
@@ -972,7 +991,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
 
-    // 図の推定高さを実測値 (file_cache_) で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする
+    // 図の推定高さを前に描いた寸法で上書きし、CalcScrollYForDiff の Y 計算がずれないようにする
     const bool applied = resource_manager_.ApplyCachedHeights({ ends.head, ends.NewTailBegin() });
     if (applied || carried > 0) {
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
@@ -1151,8 +1170,6 @@ void App::OnDestroy()
     image_loader_.CancelPending();
     load_coordinator_.Cancel();
     scheduler_.Shutdown();
-    file_cache_.Shutdown();
-    file_cache_.SaveIndex();
 }
 
 int App::SearchInputPosAt(float dip_x)
@@ -1717,18 +1734,9 @@ PopupEnv App::MakePopupEnv() const noexcept
 
 void App::ShowSettingsDialog()
 {
-    const uint64_t cache_bytes = file_cache_.TotalSize();
     const SettingsDialogParams params{
         .env = MakePopupEnv(),
-        .diagram_cache_bytes = cache_bytes,
-        // 前の版の WebView2 のデータは大きさに数えないが、図のキャッシュと一緒に消すので、それだけでも消せる。
-        .can_clear_cache = cache_bytes > 0 || file_cache_.HasLegacyData(),
         .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
-        .on_clear_cache =
-            [this] {
-        file_cache_.Clear();
-        file_cache_.RemoveLegacyDataAsync();
-    },
     };
     SettingsDialog::Show(hwnd_, params);
 }

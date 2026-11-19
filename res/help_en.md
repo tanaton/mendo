@@ -74,7 +74,7 @@ A lightweight, high-speed Markdown viewer.
 - **Diagram Save / Copy**: Hover over a Mermaid diagram and use the buttons that appear at its top-right to save it as PNG or copy it to the clipboard
 - **Diagram Viewer**: Use the same top-right buttons to open a diagram in its own window. Scroll with the wheel or by dragging, and zoom with the buttons at the window's top-right. The open diagram updates when you save the file
 - **Open in Editor**: Select "Open in Editor" from the right-click menu to open the current file in your default editor
-- **Settings**: Click the gear button in the title bar to switch the display language (applied immediately) or clear the diagram cache
+- **Settings**: Click the gear button in the title bar to switch the display language (applied immediately)
 - **Dark Mode**: Toggle from the title bar button or the right-click menu
 - **Per-Area Zoom**: The document, file pane, and TOC pane each have their own zoom level. You can also change it from the "Zoom" row (−, +, reset) in the right-click menu, which stays open while you adjust
 - **Pane Resizing**: Drag the pane border to resize

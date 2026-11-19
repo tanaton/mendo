@@ -6,7 +6,6 @@
 #include "image_loader.h"
 #include "inline_math.h"
 #include "layout_cache.h"
-#include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "theme.h"
@@ -89,13 +88,10 @@ bool ResourceManager::ApplyMermaidCacheHeights(IndexRange range)
     const auto& nodes = state_.document.doc.GetNodes();
     bool any_applied = false;
     for (size_t i : VisibleSlice(state_.document.doc.GetDiagramNodeIndices(), range)) {
-        const uint64_t code_hash = mermaid_util::DiagramCodeHash(nodes[i]);
-        if (const auto hit = mermaid_file_cache_.Find(mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode),
-                                                      mermaid_util::DiagramRequestHash(code_hash, content_width, dark_mode),
-                                                      content_width, /*touch=*/false)) {
+        if (const auto size = mermaid_.KnownSize(nodes[i], content_width, dark_mode)) {
             const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
             // 引き継いだ図は高さが変わらないので、Y の再計算を呼ばせない。
-            const float height = layout::DiagramDisplayHeight(hit->entry.css_width, hit->entry.css_height, node_width);
+            const float height = layout::DiagramDisplayHeight(size->width, size->height, node_width);
             any_applied |= std::exchange(state_.document.layout_cache[i].height, height) != height;
         }
     }

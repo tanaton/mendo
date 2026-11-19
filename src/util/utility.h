@@ -62,12 +62,11 @@ struct overloaded : Ts... {
     using Ts::operator()...;
 };
 
-// 2^64 / 黄金比。ハッシュに別の値を混ぜる定数。ディスクキャッシュのキーに入るので、変えたら MermaidFileCache::VERSION を上げる。
+// 2^64 / 黄金比。ハッシュに別の値を混ぜる定数。
 inline constexpr std::uint64_t kGoldenRatio64 = 0x9E3779B97F4A7C15ULL;
 
 // 表のセルの代表探しで数十バイトの文字列を大量に引くので、1 バイトずつ掛け算が連なる FNV-1a は使わない。
-// 値は図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる。rapidhash.h を替えて値が変わったら
-// MermaidFileCache::VERSION を上げる (ロックは旧版と同時に動く間だけ互いを排他しない)。
+// 値は InterProcessFileLock の名前になる。rapidhash.h を替えて値が変わると、旧版と同時に動く間だけロックが互いを排他しない。
 inline std::uint64_t RapidHash(std::string_view sv) noexcept
 {
     return rapidhash(sv.data(), sv.size());

@@ -175,23 +175,21 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
     EXPECT_TRUE(ReadAllBytes(path.c_str()).empty());
-
-    DWORD err = 0xDEADBEEF;
-    EXPECT_TRUE(ReadAllBytes(path.c_str(), &err).empty());
-    EXPECT_EQ(err, static_cast<DWORD>(ERROR_FILE_NOT_FOUND));
+    // 空ファイルは失敗と同じく空を返す。
+    EXPECT_TRUE(ReadAllBytes(WriteTempFile(L"empty.bin").c_str()).empty());
 }
 
-// 開けたときの err はクリアされる契約。空ファイルは失敗と同じく空を返す。
-TEST_F(FileIoTest, ErrorPointerResetOnSuccess)
+// 開けなければ err に理由を入れ、開けたら 0 に戻す契約。
+TEST_F(FileIoTest, OpenFileForReadSharedReportsErrorAndResetsOnSuccess)
 {
-    const auto empty = WriteTempFile(L"empty.bin");
+    const auto missing = temp_dir_ / L"does_not_exist.bin";
     DWORD err = 0xDEADBEEF;
-    EXPECT_TRUE(ReadAllBytes(empty.c_str(), &err).empty());
-    EXPECT_EQ(err, 0u);
+    EXPECT_FALSE(OpenFileForReadShared(missing.c_str(), FILE_SHARE_READ, 1024, &err));
+    EXPECT_EQ(err, static_cast<DWORD>(ERROR_FILE_NOT_FOUND));
 
     const auto one = WriteTempFile(L"reset.bin", "x");
     err = 0xDEADBEEF;
-    EXPECT_EQ(ReadAllBytes(one.c_str(), &err).size(), 1u);
+    EXPECT_TRUE(OpenFileForReadShared(one.c_str(), FILE_SHARE_READ, 1024, &err));
     EXPECT_EQ(err, 0u);
 }
 

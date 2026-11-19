@@ -140,24 +140,24 @@ TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
     EXPECT_NE(texts.find(L"\\frac{a}"), std::wstring::npos);
 }
 
-// C++ で作った描画命令はディスクキャッシュに書き、ParseDrawing で同じものに読み戻せる (下付き・太字・絵文字・円のノードも)。
-// ディスクキャッシュの描画命令は TeX だけを持つので、読んだ後に数式を組み直す。
-TEST_F(PeleEngineTest, SerializedDrawingParsesBackAndResolvesMaths)
+// C++ で作った描画命令はキャッシュに置く形に書き、ParseDrawing で同じものに読み戻せる (下付き・太字・絵文字・円のノードも)。
+// 直列化した形はラベルの数式の TeX だけを持ち、描画命令は持たない (キャッシュが覚えたものを差し込む)。
+TEST_F(PeleEngineTest, SerializedDrawingParsesBackWithMathTex)
 {
     auto out = engine_->Render("flowchart TD\n  A[\"$$x^2$$\"] --> B[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> C((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
     auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(out.drawing));
     ASSERT_TRUE(back);
     EXPECT_EQ(*back, out.drawing);
-    engine_->ResolveMaths(*back);
-    size_t resolved = 0;
+    size_t maths = 0;
     for (const auto& layer : back->layers) {
         for (const auto& m : layer.maths) {
-            ASSERT_NE(m.drawing, nullptr);
-            ++resolved;
+            EXPECT_EQ(m.tex, "x^2");
+            EXPECT_EQ(m.drawing, nullptr);
+            ++maths;
         }
     }
-    EXPECT_EQ(resolved, 1u);
+    EXPECT_EQ(maths, 1u);
 }
 
 // インライン数式は同じ順で返し、TeX の誤りは null。分数の線は矩形になる。

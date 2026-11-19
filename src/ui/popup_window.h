@@ -42,7 +42,7 @@ struct PopupWindow {
     // rt から作るので、rt と一緒に捨てる。
     struct Brushes {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> frame;
-        // 区切り線とボタンの枠。
+        // 区切り線。
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> border;
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> text;
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> sub;

@@ -31,7 +31,7 @@ std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const 
     if (const auto size = wic_util::ReadImageFileSizeFromMemory(wic, std::as_const(head)); size || head.size() == file->size) {
         return size;
     }
-    const auto bytes = ReadAllBytes(path.c_str(), nullptr, path_util::kFileShareRWDelete, max_size);
+    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, max_size);
     return wic_util::ReadImageFileSizeFromMemory(wic, bytes);
 }
 
@@ -205,7 +205,7 @@ ImageLoader::SizeRead ImageLoader::ReadSize(const std::wstring& path) const
 ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px) const
 {
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
-    const auto bytes = ReadAllBytes(path.c_str(), nullptr, path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
+    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
     const auto decoded = wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     if (!decoded) {
         return {};

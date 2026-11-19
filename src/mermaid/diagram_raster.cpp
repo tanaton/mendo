@@ -2669,7 +2669,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .rgb = ToRgb(*color),
             .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
         };
-        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとディスクキャッシュから読み戻せず、開くたびに描き直す。
+        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとキャッシュの直列化した形から読み戻せず、画面に戻るたびに描き直す。
         if (!mermaid_util::IsStorable(at)) {
             continue;
         }
@@ -2719,7 +2719,7 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
         .rgb = ToRgb(s.color),
         .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
     };
-    // 文字と同じく、ディスクキャッシュに書けない数式は描かない。
+    // 文字と同じく、キャッシュの直列化した形に書けない数式は描かない。
     if (!mermaid_util::IsStorable(at)) {
         return true;
     }

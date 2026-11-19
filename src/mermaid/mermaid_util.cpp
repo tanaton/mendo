@@ -227,22 +227,6 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
     return out;
 }
 
-size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
-{
-    size_t bytes = sizeof(drawing) + drawing.defs.size();
-    for (const auto& layer : drawing.layers) {
-        bytes += sizeof(layer) + layer.shapes.size();
-        for (const auto& t : layer.texts) {
-            bytes += sizeof(t) + (t.family.size() + t.text.size()) * sizeof(wchar_t);
-        }
-        // 数式の描画命令は数えず、1 つ 1KB と見積もる。
-        for (const auto& m : layer.maths) {
-            bytes += sizeof(m) + m.tex.size() + (m.drawing ? 1024 : 0);
-        }
-    }
-    return bytes;
-}
-
 mermaid_util::DiagramSize mermaid_util::FittedDiagramSize(const DiagramDrawing& drawing, float max_width) noexcept
 {
     float w = drawing.width;
@@ -360,12 +344,11 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 
 uint64_t mermaid_util::DiagramCodeHash(std::string_view code) noexcept
 {
-    // 描き方を変えたときは MermaidFileCache::VERSION を上げ、古い描き方のファイルをフォルダごと捨てる。
     return RapidHash(code);
 }
 
 namespace {
-// 幅と dark_mode は別の係数で xor mix する。ディスクキャッシュのファイル名になるので、変えたら MermaidFileCache::VERSION を上げる。
+// 幅と dark_mode は別の係数で xor mix する。
 constexpr uint64_t MixDiagramKey(uint64_t code_hash, uint64_t width_term, bool dark_mode) noexcept
 {
     return code_hash ^ (width_term * kGoldenRatio64) ^ (static_cast<uint64_t>(dark_mode) * 2654435761ULL); // Knuth multiplicative

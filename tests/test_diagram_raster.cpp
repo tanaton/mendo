@@ -573,8 +573,8 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
     EXPECT_NE(drawing->layers[0].shapes.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes;
 }
 
-// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。書くとディスクキャッシュから読み戻せず、
-// 開くたびに描き直す。
+// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。書くとキャッシュの直列化した形から読み戻せず、
+// 画面に戻るたびに描き直す。
 TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
 {
     const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:0">a</text><text x="0" y="40">b</text>)svg"
@@ -585,7 +585,7 @@ TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
     EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
-// 大きすぎる文字はディスクキャッシュが読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
+// 大きすぎる文字はキャッシュの直列化した形が読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
 // float に収まらない百分率は読めない値として親の大きさを継ぐ。
 TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
 {

@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "utility.h"
 
-// 図のディスクキャッシュのファイル名と InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら
-// MermaidFileCache::VERSION を上げる。長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
+// InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら、旧版と同時に動く間だけロックが互いを排他しない。
+// 長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
 TEST(RapidHash, KeepsPersistedValues)
 {
     const std::string x200(200, 'x');

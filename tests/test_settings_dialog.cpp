@@ -3,27 +3,12 @@
 #include "test_helpers.h"
 #include "theme.h"
 #include <dwrite.h>
+#include <optional>
 #include <string>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace settings_dialog_constants;
-using Hit = SettingsDialog::Hit;
-using HitKind = SettingsDialog::HitKind;
-
-TEST(FormatByteSizeTest, PicksUnitAndDigits)
-{
-    EXPECT_EQ(FormatByteSize(0), L"0 B");
-    EXPECT_EQ(FormatByteSize(1023), L"1023 B");
-    EXPECT_EQ(FormatByteSize(1024), L"1.0 KB");
-    EXPECT_EQ(FormatByteSize(1536), L"1.5 KB");
-    EXPECT_EQ(FormatByteSize(512ULL * 1024), L"512 KB");
-    EXPECT_EQ(FormatByteSize(12ULL * 1024 * 1024 + 300 * 1024), L"12.3 MB");
-    EXPECT_EQ(FormatByteSize(1024ULL * 1024 * 1024), L"1.0 GB");
-    // 単位と桁の境目は丸めた後の値で決める。
-    EXPECT_EQ(FormatByteSize(1024ULL * 1024 - 1), L"1.0 MB");
-    EXPECT_EQ(FormatByteSize(102399), L"100 KB");
-}
 
 TEST(SettingsDialogRowsTest, FirstRowFollowsOsThenAllLanguages)
 {
@@ -41,17 +26,14 @@ protected:
         dialog_.dwrite_factory = SharedDWriteFactory();
         ASSERT_NE(dialog_.dwrite_factory, nullptr);
         dialog_.theme = &theme_;
-        dialog_.cache_bytes = 1024 * 1024;
-        dialog_.can_clear = true;
         dialog_.on_language = [this](const i18n::Strings* chosen) {
             ++language_calls_;
             i18n::SetLanguage(chosen);
         };
-        dialog_.on_clear_cache = [this] { ++clear_calls_; };
         dialog_.Rebuild();
     }
 
-    Hit HitAt(const DipRect& rect) const
+    std::optional<size_t> HitAt(const DipRect& rect) const
     {
         const auto [x, y] = RectCenter(rect);
         return dialog_.HitTest(x, y);
@@ -62,7 +44,6 @@ protected:
     Theme theme_ = GetLightTheme();
     SettingsDialog dialog_;
     int language_calls_ = 0;
-    int clear_calls_ = 0;
 };
 
 TEST_F(SettingsDialogLayoutTest, RowsStackInsideDialog)
@@ -73,11 +54,7 @@ TEST_F(SettingsDialogLayoutTest, RowsStackInsideDialog)
     for (size_t row = 1; row < l.languages.size(); ++row) {
         EXPECT_FLOAT_EQ(l.languages[row].top, l.languages[row - 1].bottom);
     }
-    EXPECT_GT(l.separator_y, l.languages.back().bottom);
-    EXPECT_GT(l.cache_heading.top, l.separator_y);
-    EXPECT_LE(l.clear.right, dialog_.width - PAD_X);
-    EXPECT_LT(l.cache_size.right, l.clear.left);
-    EXPECT_LT(l.clear.bottom, dialog_.height);
+    EXPECT_LT(l.languages.back().bottom, dialog_.height);
 }
 
 TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
@@ -88,8 +65,6 @@ TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
         dialog_.Rebuild();
         const float system_w = dialog_.Measure(dialog_.system_language_text, dialog_.fmt_text.Get());
         EXPECT_LE(PAD_X + CHECK_WIDTH + system_w, dialog_.width - PAD_X + 0.5f);
-        const float button_w = dialog_.Measure(language->settings_clear_cache, dialog_.fmt_text.Get());
-        EXPECT_LE(button_w, dialog_.layout.clear.right - dialog_.layout.clear.left);
     }
 }
 
@@ -97,30 +72,11 @@ TEST_F(SettingsDialogLayoutTest, HitTestFindsEachControl)
 {
     const auto& l = dialog_.layout;
     // タイトル行に押せるものは無い (範囲外のクリックで閉じる)。
-    EXPECT_EQ(dialog_.HitTest(dialog_.width - 4.0f, 4.0f), Hit{});
+    EXPECT_EQ(dialog_.HitTest(dialog_.width - 4.0f, 4.0f), std::nullopt);
     for (size_t row = 0; row < l.languages.size(); ++row) {
-        EXPECT_EQ(HitAt(l.languages[row]), (Hit{ HitKind::Language, row }));
+        EXPECT_EQ(HitAt(l.languages[row]), row);
     }
-    EXPECT_EQ(HitAt(l.clear), (Hit{ HitKind::ClearCache }));
-    EXPECT_EQ(HitAt(l.language_heading), Hit{});
-    EXPECT_EQ(HitAt(l.cache_size), Hit{});
-}
-
-TEST_F(SettingsDialogLayoutTest, EmptyCacheCannotBeCleared)
-{
-    dialog_.cache_bytes = 0;
-    dialog_.can_clear = false;
-    EXPECT_EQ(HitAt(dialog_.layout.clear), Hit{});
-}
-
-// 図のキャッシュが空でも、大きさに数えない物 (前の版の WebView2 のデータ) が残っていれば消せる。消したら押せなくなる。
-TEST_F(SettingsDialogLayoutTest, CanClearWhenDiagramCacheIsEmpty)
-{
-    dialog_.cache_bytes = 0;
-    EXPECT_EQ(HitAt(dialog_.layout.clear), (Hit{ HitKind::ClearCache }));
-    dialog_.Activate({ HitKind::ClearCache });
-    EXPECT_EQ(clear_calls_, 1);
-    EXPECT_EQ(HitAt(dialog_.layout.clear), Hit{});
+    EXPECT_EQ(HitAt(l.language_heading), std::nullopt);
 }
 
 TEST_F(SettingsDialogLayoutTest, ChoosingLanguageSwitchesAndRelayouts)
@@ -128,26 +84,18 @@ TEST_F(SettingsDialogLayoutTest, ChoosingLanguageSwitchesAndRelayouts)
     const size_t ko_row = std::size(i18n::kAllStrings);
     ASSERT_EQ(SettingsDialog::LanguageOfRow(ko_row), &i18n::kKo);
 
-    dialog_.Activate({ HitKind::Language, ko_row });
+    dialog_.Activate(ko_row);
     EXPECT_EQ(language_calls_, 1);
     EXPECT_EQ(&i18n::S(), &i18n::kKo);
     EXPECT_TRUE(dialog_.system_language_text.starts_with(i18n::kKo.settings_language_system));
 
     // 選び済みの言語を押しても呼ばない。
-    dialog_.Activate({ HitKind::Language, ko_row });
+    dialog_.Activate(ko_row);
     EXPECT_EQ(language_calls_, 1);
 
-    dialog_.Activate({ HitKind::Language, 0 });
+    dialog_.Activate(0);
     EXPECT_EQ(language_calls_, 2);
     EXPECT_EQ(i18n::ChosenLanguage(), nullptr);
-}
-
-TEST_F(SettingsDialogLayoutTest, ClearingCacheDisablesButton)
-{
-    dialog_.Activate({ HitKind::ClearCache });
-    EXPECT_EQ(clear_calls_, 1);
-    EXPECT_EQ(dialog_.cache_size_text, L"0 B");
-    EXPECT_FALSE(dialog_.can_clear);
 }
 
 // 範囲外を押したら閉じる。中を押しても閉じない。

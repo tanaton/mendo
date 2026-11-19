@@ -9,7 +9,6 @@
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
-#include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "reducer_harness.h"
@@ -148,9 +147,6 @@ protected:
     void SetUp() override
     {
         InitReducerState(state_, theme_);
-        // Init しないので図のキャッシュは索引を引くだけで書かない。無いフォルダなら空の索引になるので、作らずに済む。
-        // 既定の空パスのままだと作業フォルダの index.bin を読む。
-        file_cache_.SetCacheDir(std::filesystem::temp_directory_path() / L"mendo_test_absent" / L"mermaid");
         theme_.indent_width = 20.0f;
         state_.view.panes.SetSidePaneVisible(PaneTarget::File, false);
         state_.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
@@ -205,7 +201,6 @@ protected:
 
     Theme theme_{};
     AppState state_;
-    MermaidFileCache file_cache_;
     Document& doc_ = state_.document.doc;
     LayoutCache& cache_ = state_.document.layout_cache;
     ViewportManager& viewport_ = state_.view.viewport;
@@ -215,7 +210,7 @@ protected:
     TestResourceManagerHost host_;
     InlineImageTable inline_images_;
     InlineDrawings inline_drawings_;
-    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, file_cache_, inline_images_, inline_drawings_, host_ };
+    ResourceManager rm_{ state_, image_loader_, mock_mermaid_, inline_images_, inline_drawings_, host_ };
 };
 
 // ---- 画像経路 ----
@@ -1018,7 +1013,7 @@ TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 
-// 複数の図がディスクキャッシュにヒットしても、再レイアウトは per-figure ではなく
+// 複数の図がキャッシュにヒットしても、再レイアウトは per-figure ではなく
 // ループ後にまとめて 1 回しか発火しないことを保証する (issue: 初回ロードで N 回フルスイープ)。
 TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits)
 {

@@ -5,23 +5,6 @@
 
 using namespace settings_dialog_constants;
 
-std::wstring FormatByteSize(uint64_t bytes)
-{
-    if (bytes < 1024) {
-        return std::format(L"{} B", bytes);
-    }
-    constexpr const wchar_t* kUnits[] = { L"KB", L"MB", L"GB", L"TB" };
-    double value = static_cast<double>(bytes) / 1024.0;
-    size_t unit = 0;
-    // 単位と桁は丸めた後の値で決める (1023.96 KB を「1024 KB」、99.96 KB を「100.0 KB」にしない)。
-    while (value >= 1023.5 && unit + 1 < std::size(kUnits)) {
-        value /= 1024.0;
-        ++unit;
-    }
-    // 桁が少ないときだけ小数を出す (「12.3 MB」「512 KB」)。
-    return value < 99.95 ? std::format(L"{:.1f} {}", value, kUnits[unit]) : std::format(L"{:.0f} {}", value, kUnits[unit]);
-}
-
 void SettingsDialog::CreateTextFormats()
 {
     const wchar_t* const family = theme->font_family.c_str();
@@ -41,7 +24,6 @@ void SettingsDialog::Rebuild()
 {
     const auto& ls = i18n::S();
     system_language_text = std::format(L"{} ({})", ls.settings_language_system, i18n::SystemStrings().lang_name);
-    cache_size_text = FormatByteSize(cache_bytes);
     CreateTextFormats();
     ComputeLayout();
 }
@@ -49,14 +31,7 @@ void SettingsDialog::Rebuild()
 void SettingsDialog::ComputeLayout()
 {
     const auto& ls = i18n::S();
-    const float button_w = std::max(BUTTON_MIN_WIDTH, Measure(ls.settings_clear_cache, fmt_text.Get()) + 2 * BUTTON_PAD_X);
-
-    float content_w = std::max({
-        Measure(ls.settings_title, fmt_title.Get()),
-        Measure(ls.settings_language, fmt_text.Get()),
-        Measure(ls.settings_diagram_cache, fmt_text.Get()),
-        Measure(cache_size_text, fmt_text.Get()) + BUTTON_GAP + button_w,
-    });
+    float content_w = std::max(Measure(ls.settings_title, fmt_title.Get()), Measure(ls.settings_language, fmt_text.Get()));
     for (size_t row = 0; row < kLanguageRowCount; ++row) {
         const auto [text, fmt] = LabelOfRow(row);
         content_w = std::max(content_w, CHECK_WIDTH + Measure(text, fmt));
@@ -73,62 +48,39 @@ void SettingsDialog::ComputeLayout()
         row = { 0.0f, y, w, y + ROW_HEIGHT };
         y += ROW_HEIGHT;
     }
-    y += SECTION_GAP;
-    l.separator_y = y;
-    y += SECTION_GAP;
-    l.cache_heading = { PAD_X, y, w - PAD_X, y + HEADING_HEIGHT };
-    y += HEADING_HEIGHT;
-    l.clear = { w - PAD_X - button_w, y, w - PAD_X, y + ROW_HEIGHT };
-    l.cache_size = { PAD_X, y, l.clear.left - BUTTON_GAP, y + ROW_HEIGHT };
-    height = y + ROW_HEIGHT + BOTTOM_PAD;
+    height = y + BOTTOM_PAD;
     layout = l;
 }
 
-SettingsDialog::Hit SettingsDialog::HitTest(float x, float y) const noexcept
+std::optional<size_t> SettingsDialog::HitTest(float x, float y) const noexcept
 {
     for (size_t row = 0; row < layout.languages.size(); ++row) {
         if (PointInRect(x, y, layout.languages[row])) {
-            return { HitKind::Language, row };
+            return row;
         }
     }
-    if (can_clear && PointInRect(x, y, layout.clear)) {
-        return { HitKind::ClearCache };
-    }
-    return {};
+    return std::nullopt;
 }
 
-void SettingsDialog::Activate(const Hit& hit)
+void SettingsDialog::Activate(size_t row)
 {
-    switch (hit.kind) {
-    case HitKind::None:
+    const i18n::Strings* const chosen = LanguageOfRow(row);
+    if (chosen == i18n::ChosenLanguage()) {
         return;
-    case HitKind::Language: {
-        const i18n::Strings* const chosen = LanguageOfRow(hit.row);
-        if (chosen == i18n::ChosenLanguage()) {
-            return;
-        }
-        on_language(chosen);
-        Rebuild();
-        // 言語で幅が変わるので、今の中心のまま大きさを合わせる。テストはウィンドウを作らずに呼ぶ。
-        if (hwnd) {
-            RECT rc{};
-            GetWindowRect(hwnd, &rc);
-            Place(CenteredIn(rc));
-        }
-        break;
     }
-    case HitKind::ClearCache:
-        on_clear_cache();
-        cache_bytes = 0;
-        can_clear = false;
-        cache_size_text = FormatByteSize(cache_bytes);
-        break;
+    on_language(chosen);
+    Rebuild();
+    // 言語で幅が変わるので、今の中心のまま大きさを合わせる。テストはウィンドウを作らずに呼ぶ。
+    if (hwnd) {
+        RECT rc{};
+        GetWindowRect(hwnd, &rc);
+        Place(CenteredIn(rc));
     }
 }
 
 bool SettingsDialog::UpdateHover(float x, float y)
 {
-    const Hit hit = HitTest(x, y);
+    const auto hit = HitTest(x, y);
     if (hit == hovered) {
         return false;
     }
@@ -138,8 +90,11 @@ bool SettingsDialog::UpdateHover(float x, float y)
 
 void SettingsDialog::OnPress(UINT msg, float x, float y)
 {
-    if (msg == WM_LBUTTONDOWN) {
-        Activate(HitTest(x, y));
+    if (msg != WM_LBUTTONDOWN) {
+        return;
+    }
+    if (const auto row = HitTest(x, y)) {
+        Activate(*row);
     }
 }
 
@@ -149,10 +104,7 @@ void SettingsDialog::Show(HWND owner_hwnd, const SettingsDialogParams& params)
     if (!s.Setup(params.env)) {
         return;
     }
-    s.cache_bytes = params.diagram_cache_bytes;
-    s.can_clear = params.can_clear_cache;
     s.on_language = params.on_language;
-    s.on_clear_cache = params.on_clear_cache;
     s.Rebuild();
     RECT owner_rc{};
     GetWindowRect(owner_hwnd, &owner_rc);
@@ -170,7 +122,7 @@ void SettingsDialog::PaintContent()
     const i18n::Strings* const chosen = i18n::ChosenLanguage();
     for (size_t row = 0; row < layout.languages.size(); ++row) {
         const DipRect& rect = layout.languages[row];
-        if (hovered == Hit{ HitKind::Language, row }) {
+        if (hovered == row) {
             FillHover({ HOVER_MARGIN_X, rect.top + 1.0f, w - HOVER_MARGIN_X, rect.bottom - 1.0f });
         }
         if (LanguageOfRow(row) == chosen) {
@@ -179,17 +131,4 @@ void SettingsDialog::PaintContent()
         const auto [text, fmt] = LabelOfRow(row);
         DrawLabel(text, fmt, { PAD_X + CHECK_WIDTH, rect.top, w - PAD_X, rect.bottom }, brushes.text.Get());
     }
-
-    rt->DrawLine({ PAD_X, layout.separator_y }, { w - PAD_X, layout.separator_y }, brushes.border.Get(), 1.0f);
-
-    DrawLabel(ls.settings_diagram_cache, fmt_text.Get(), layout.cache_heading, brushes.sub.Get());
-    DrawLabel(cache_size_text, fmt_text.Get(), layout.cache_size, brushes.text.Get());
-    // 押せないボタンには HitTest が当たらないので、ホバーは押せるときだけ出る。
-    if (hovered.kind == HitKind::ClearCache) {
-        FillHover(layout.clear);
-    }
-    // 枠はホバーの塗りと同じ角丸にする (ボタンのホバーが枠からはみ出さないように)。
-    const D2D1_RECT_F button_border{ layout.clear.left + 0.5f, layout.clear.top + 0.5f, layout.clear.right - 0.5f, layout.clear.bottom - 0.5f };
-    rt->DrawRoundedRectangle({ button_border, POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.border.Get(), 1.0f);
-    DrawLabel(ls.settings_clear_cache, fmt_text_center.Get(), layout.clear, can_clear ? brushes.text.Get() : brushes.gray.Get());
 }
