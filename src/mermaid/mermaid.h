@@ -4,7 +4,6 @@
 #include "diagram_view.h"
 #include "inline_math.h"
 #include "layout_cache.h"
-#include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "pele_engine.h"
@@ -80,9 +79,9 @@ public:
     Hit Find(uint64_t width_free_key, uint64_t sized_key, float max_width);
     // Find と同じく引くが、寸法を見るだけなので捨てる順を変えない。
     const Item* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
-    // key の項目を、捨てる順を変えずに見る。
+    // key の項目を、捨てる順を変えずに見る (テスト用)。
     const Item* Peek(uint64_t key) const;
-    // 同じキーは置き換える。上限より大きい図は直列化した形を持たない。上限を超えても置くときには捨てず、次の
+    // 同じキーは置き換える (置くものが無ければ残す)。上限より大きい図は直列化した形を持たない。上限を超えても置くときには捨てず、次の
     // ReleaseIdleDrawings で捨てる。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、
     // 同じ図を JS で描き直し続けてしまう。
     void Put(uint64_t key, Item item);
@@ -93,6 +92,7 @@ public:
     // 描画デバイスが変わった。旧デバイスのコマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
     void ResetDevice();
 
+    // ここから 3 つはテスト用。
     size_t EntryCount() const noexcept
     {
         return slots_.size();
@@ -116,7 +116,7 @@ private:
     Slots::iterator Erase(Slots::iterator it) noexcept;
     void Trim();
 
-    // 捨てるのは上限を超えたときだけなので、順序の構造を持たず last_used の線形走査で最古を探す。
+    // 捨てるのは上限を超えたときだけなので、順序の構造を持たず、捨てるときに last_used で古い順に並べる (Trim)。
     Slots slots_;
     size_t total_bytes_ = 0;
     uint64_t lru_seq_ = 0;
@@ -269,6 +269,8 @@ private:
         // キャッシュにあったものを引き継ぐ。
         std::shared_ptr<const std::string> bytes;
         std::vector<std::shared_ptr<const MathDrawing>> maths;
+        // 描いたときだけ、bytes のハッシュ (last_drawn_)。
+        uint64_t drawing_hash = 0;
     };
     // PeleEngine で描けなかった。描き直しても同じ。
     struct JobFailed {
@@ -295,8 +297,8 @@ private:
     // 待ちが空になって 1 個まで減らしたランタイムの最後の 1 個を、この時間使わなければ捨てる (読み進める間の切れ目では
     // 捨てない長さ)。別のアプリへ切り替わったときは待たずに捨てる。
     static constexpr UINT PELE_TRIM_MS = 10000;
-    // 前の幅の結果と比べる記録 (1 件 16 バイト) の件数。比べる相手が図の結果のキャッシュに残っている間しか役立たないので、
-    // キャッシュに入りうる件数に合わせ、キャッシュより先に溢れないようにする。保存のたびにコードが変わっても増え続けない。
+    // 前の幅の記録 (last_drawn_) の件数の上限。保存のたびにコードが変わっても増え続けないよう、図の結果のキャッシュに入りうる
+    // 件数に合わせる (ユーザーが選んだ)。溢れたら全部捨てる (描き直しを省く手掛かりなので、次に別の幅で描けば覚え直す)。
     static constexpr size_t MAX_LAST_DRAWN = DiagramCache::MAX_BYTES / DiagramCache::ITEM_BYTES;
 
     void ApplyMathResult(Job& r);
@@ -351,10 +353,15 @@ private:
     std::move_only_function<void()> on_update_;
 
     std::unordered_set<uint64_t> inflight_;
-    // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む)。別の幅で描き直して
-    // 描画命令がキャッシュにある前の結果と同じなら、幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに置く
-    // (追加の JS は要らない)。
-    TranspositionCache<uint64_t, uint64_t, MAX_LAST_DRAWN> last_drawn_;
+    // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む) と描画命令の
+    // ハッシュ。別の幅で描き直してハッシュが同じなら、幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに
+    // 置く (追加の JS は要らない)。前の幅の結果がキャッシュから捨てられても、上限より大きくて直列化した形を持たなくても比べられる
+    // よう、ハッシュで覚える。描くたびに引くので開番地法の表で持ち、キャッシュの上限には数えない (どちらも速さをユーザーが選んだ)。
+    struct LastDrawn {
+        uint64_t request_hash = 0;
+        uint64_t drawing_hash = 0;
+    };
+    FlatHashMap<LastDrawn> last_drawn_;
 
     DiagramCache cache_;
 

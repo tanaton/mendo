@@ -133,6 +133,16 @@ public:
         return { std::addressof(slot.value), true };
     }
 
+    // TryEmplace と同じだが、key が無くて max_size 件に達していれば先に全部捨てる。失っても作り直せる手掛かりの表を、
+    // 増え続けさせないのに使う。
+    std::pair<V*, bool> TryEmplaceBounded(uint64_t key, size_t max_size)
+    {
+        if (size_ >= max_size && !Find(key)) {
+            Clear();
+        }
+        return TryEmplace(key);
+    }
+
     // 次に同じくらい足すときに確保し直さないよう、配列は残す。
     void Clear() noexcept
     {

@@ -120,6 +120,9 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
     const auto with_run = [&](std::string_view run) { return std::string{ "10:20:0:0:1:0:1:" } + std::string{ run } + "0:"; };
     const auto with_math = [&](std::string_view math) { return std::string{ "10:20:0:0:1:0:0:1:" } + std::string{ math }; };
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
+    // 太さは図を作る側 (CSS の font-weight) と同じ値域の両端まで読む。
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1,0,0:0:1:a")).has_value());
+    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1000,0,0:0:1:a")).has_value());
     EXPECT_TRUE(mermaid_util::ParseDrawing(with_math("1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
     const std::string kBad[] = {
         "",
@@ -147,6 +150,7 @@ TEST(ParseDrawing, RejectsMalformedPayloads)
         with_run("1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
         with_run("1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
         with_run("1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
+        with_run("1,0,0,1,0,0,0,0,16,0,1,1001,0,0:0:1:a"),     // 太さが上限を超える
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
         with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない

@@ -61,6 +61,11 @@ public:
         return true;
     }
 
+    std::optional<mermaid_util::DiagramSize> KnownSize(const Node&, float, bool) const override
+    {
+        return std::nullopt;
+    }
+
     void DropQueued() override
     {
         drop_queued_count++;
@@ -70,8 +75,11 @@ public:
     void ReleaseIdleDrawings() override
     {
         release_idle_count++;
+        requested_before_release = requested.size();
     }
     int release_idle_count = 0;
+    // 最後に ReleaseIdleDrawings が呼ばれたときまでに頼まれた図の数。
+    size_t requested_before_release = 0;
 
     void RequestViewerDrawing(float max_width, bool dark_mode) override
     {
@@ -264,7 +272,7 @@ protected:
             0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF,
             0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         };
-        ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng), false));
+        ASSERT_TRUE(WriteAllBytes(path, kPng, sizeof(kPng)));
     }
 
     // LoadImageTable の image 枚目の画像。
@@ -511,7 +519,7 @@ TEST_F(ResourceManagerImageFileTest, UpdatedImageFileIsReloaded)
         0xC0, 0x00, 0x41, 0x50, 0xEA, 0x3F, 0x03, 0x03, 0x00, 0x41, 0xD2, 0x05, 0xFB, 0x25, 0xD1, 0x7C, 0x26, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
         0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     };
-    ASSERT_TRUE(WriteAllBytes(path, kWidePng, sizeof(kWidePng), false));
+    ASSERT_TRUE(WriteAllBytes(path, kWidePng, sizeof(kWidePng)));
     ASSERT_TRUE(WaitForImageReloadTimer()) << "更新の通知でタイマーが掛からない";
     rm_.LoadImages();
     ASSERT_TRUE(DrainScheduler(scheduler_));
@@ -831,8 +839,8 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 
 // ---- Mermaid 経路 ----
 
-// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。
-// 仮表示中の図は描き直しが届くまでの代わりなので残す。図から外した描画命令は、覚えている結果からも外させる。
+// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。仮表示中の図も、見えない
+// 所では代わりの絵が要らないので捨てる。覚えている結果から外させるのは、続く要求の回の終わり。
 TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n",
@@ -856,8 +864,22 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
     EXPECT_EQ(released.width, 100.0f);
     EXPECT_EQ(released.height, 50.0f);
     EXPECT_TRUE(released.NeedsRender());
-    EXPECT_TRUE(stale_far.HasImage());
+    EXPECT_FALSE(stale_far.HasImage());
+    EXPECT_EQ(stale_far.drawing, nullptr);
+    EXPECT_EQ(stale_far.height, 50.0f) << "描き直しが届くまで同じ高さで出す";
+    EXPECT_TRUE(stale_far.NeedsRender());
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 0);
+}
+
+// 要求の回の終わりに、どの図も持たなくなった解いた形を覚えている結果から外させる。この回で受け取って置き換わった結果も
+// 外せるよう、図を頼んだ後に呼ぶ。
+TEST_F(ResourceManagerTest, RequestMermaidRendersReleasesIdleDrawingsAfterRequests)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n");
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(mock_mermaid_.requested.size(), 2u);
     EXPECT_EQ(mock_mermaid_.release_idle_count, 1);
+    EXPECT_EQ(mock_mermaid_.requested_before_release, 2u);
 }
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagram)

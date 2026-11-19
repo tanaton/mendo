@@ -92,10 +92,7 @@ const ImageLoader::ImageInfo* ImageLoader::FindImageInfo(const std::wstring& abs
 void ImageLoader::StoreResult(const std::wstring& path, const ImageInfo& info, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap)
 {
     const uint64_t key = PathKey(path);
-    if (infos_.size() >= kMaxImageInfos && !infos_.Find(key)) {
-        infos_.Clear();
-    }
-    *infos_.TryEmplace(key).first = info;
+    *infos_.TryEmplaceBounded(key, kMaxImageInfos).first = info;
     if (bitmap) {
         *delivered_.bitmaps_.TryEmplace(key).first = std::move(bitmap);
     }

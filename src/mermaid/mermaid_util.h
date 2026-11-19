@@ -63,10 +63,16 @@ struct DrawingPlacement {
 // 不透明度が 0〜1。図を作る側は満たさない文字と数式を描かず、読む側は満たさないものを壊れた値として読まない。
 // 両側の値域をここでそろえる (外れたものを書くと読み戻せず、画面に戻るたびに描き直す)。
 bool IsStorable(const DrawingPlacement& p) noexcept;
+// 図の大きさ (DiagramDrawing の width・height) を書けるか。0 より大きく有限。IsStorable と同じく両側でそろえる。
+bool IsStorableSize(float width, float height) noexcept;
 // 図の文字の線 (CSS の text-decoration) のビット。overline は DirectWrite に無いので描かない。
 inline constexpr uint8_t kTextUnderline = 1;
 inline constexpr uint8_t kTextLineThrough = 2;
 inline constexpr uint8_t kTextDecorationBits = kTextUnderline | kTextLineThrough;
+// 図の文字の太さ (CSS の font-weight の数) の値域。CSS と同じ 1〜1000 で、図を作る側はこの外の指定を読まず、読む側は
+// 壊れた値として読まない。IsStorable と同じく両側でそろえる。
+inline constexpr uint16_t kMinFontWeight = 1;
+inline constexpr uint16_t kMaxFontWeight = 1000;
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
 struct DrawingText {
     DrawingPlacement at;

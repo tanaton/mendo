@@ -129,7 +129,7 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::string_view& s)
     ParseFloatList(*numbers, v);
     const auto at = ToPlacement(v);
     const float weight = v[11];
-    if (!at || !(weight >= 1.0f && weight <= 1000.0f) || (v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
+    if (!at || !(weight >= mermaid_util::kMinFontWeight && weight <= mermaid_util::kMaxFontWeight) ||(v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
         v[13] != std::floor(v[13])) {
         return std::nullopt;
     }
@@ -202,6 +202,11 @@ bool mermaid_util::IsStorable(const DrawingPlacement& p) noexcept
            p.font_size > 0.0f && p.font_size <= kMaxFontSize && p.rgb <= kMaxRgb && p.alpha >= 0.0f && p.alpha <= 1.0f;
 }
 
+bool mermaid_util::IsStorableSize(float width, float height) noexcept
+{
+    return width > 0.0f && height > 0.0f && std::isfinite(width) && std::isfinite(height);
+}
+
 std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
 {
     std::string out;
@@ -214,6 +219,8 @@ std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
         for (const auto& t : layer.texts) {
             AppendPlacement(out_it, t.at);
             std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.decoration);
+            // 文字は SVG の UTF-8 から Utf8ToWide で作る (不正な並びは U+FFFD にする) ので孤立したサロゲートを含まず、
+            // 読み戻すと同じ文字になる。含めば U+FFFD に変わり、画面外から戻った図の文字が変わる。
             const std::string family = string_convert::WideToUtf8(t.family);
             const std::string text = string_convert::WideToUtf8(t.text);
             std::format_to(out_it, "{}:{}{}:{}", family.size(), family, text.size(), text);
@@ -259,7 +266,7 @@ std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::stri
     const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
     const auto defs = background ? TakeText(s) : std::nullopt;
     const auto layer_count = defs ? take_count(4) : std::nullopt;
-    if (!layer_count || !(width > 0.0f && std::isfinite(width)) || !(height > 0.0f && std::isfinite(height))) {
+    if (!layer_count || !IsStorableSize(width, height)) {
         return std::nullopt;
     }
     DiagramDrawing out{

@@ -131,6 +131,9 @@ void ResourceManager::RequestMermaidRenders()
     // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。Y の再計算は変わった範囲に限る。
     IndexRange changed;
     RequestVisibleDiagrams(changed);
+    // この回で置き換わった結果 (テーマ・幅・コードの変更)、範囲の外へ出た図 (EvictOffscreenResources) と、届いたが
+    // どの図も受け取らなかった結果の解いた形を、まとめて手放す。
+    mermaid_.ReleaseIdleDrawings();
     if (!changed.empty()) {
         host_.RecomputeLayout(changed);
     }
@@ -150,6 +153,7 @@ void ResourceManager::EvictOffscreenResources()
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
     // 図のコマンドリストと描画命令も保持範囲の図の分だけ残す。戻ったら読み直して記録し直すが、メモリを返すほうをユーザーが選んだ。
+    // 覚えている結果からは、続く要求の回 (FlushPendingResources) の終わりに外す。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
@@ -159,7 +163,6 @@ void ResourceManager::EvictOffscreenResources()
             }
         }
     }
-    mermaid_.ReleaseIdleDrawings();
 
     // 本文中の画像のビットマップも保持範囲の画像の分だけ残す。寸法は表に残すので、戻ってきても組み直さない。
     if (inline_drawings_.images.size() == 0) {

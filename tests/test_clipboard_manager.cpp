@@ -19,6 +19,14 @@ public:
         return false;
     }
 
+    std::optional<mermaid_util::DiagramSize> KnownSize(const Node&, float, bool) const override
+    {
+        return std::nullopt;
+    }
+
+    void ReleaseIdleDrawings() override
+    {}
+
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override
     {
         ++bitmap_count;

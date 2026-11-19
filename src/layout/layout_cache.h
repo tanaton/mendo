@@ -578,14 +578,13 @@ struct DiagramEntry : DiagramResult {
     }
 
     // 画面外へ出た図のコマンドリストと描画命令を捨てる。寸法は残し、戻ったら読み直させる (NeedsRender)。
-    // 仮表示中の絵は、描き直しが届くまでの代わりなので残す。
-    bool ReleaseImage() noexcept
+    // 仮表示中の絵も捨てる。保持範囲の外では見えず、先読み範囲に入れば描き直しを頼み、届くまでは同じ高さのプレースホルダーで
+    // 足りる。残すと、テーマや幅を変えたときに先読み範囲の外にいた図が、頼まれないまま前の結果を持ち続ける。
+    void ReleaseImage() noexcept
     {
-        if (!drawing || stale) {
-            return false;
+        if (drawing) {
+            SetResult({ .width = width, .height = height });
         }
-        SetResult({ .width = width, .height = height });
-        return true;
     }
 
     // 仮表示として残せる結果 (描いた絵か、画面外へ出て絵を捨てた図の寸法) があるか。

@@ -210,9 +210,8 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
 // BOM の 3 バイトのずれ等を吸収するため 16 バイトの許容範囲を持たせる。
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 
-// flush_buffers: true の場合、close 前に FlushFileBuffers でデータブロックを
-// ディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
-[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers = false);
+// close 前に FlushFileBuffers でデータブロックをディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
+[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
 
 // tmp へ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換え、成功したかを返す。false なら原本は変わっていない。
 // rename が失敗 (クロスボリューム等) したら tmp を消す。CREATE_ALWAYS は原本を切り詰めてから失敗しうるので直書きしない。

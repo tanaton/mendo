@@ -50,8 +50,10 @@ ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
 }
 
 // 前の版が設定フォルダに残した図のディスクキャッシュと WebView2 のデータを、起動時に黙って消す (ユーザーが選んだ)。
-// 有るときだけ worker を起こし、図の無いセッションでスレッドを作らない。ファイルが多いので UI では消さない。
-void RemoveLegacyFolders(const ConfigService& config, TaskScheduler& scheduler)
+// ほかの mendo の窓 (前の版も窓のクラスは同じ) があれば、使っている最中かもしれないので次の起動に回す。ファイルが多いので、
+// 共有の scheduler の worker を塞がず終了も待たせないよう、有るときだけ優先度を下げた専用のスレッドで消す (途中で
+// 終了すれば次の起動で続きを消す)。
+void RemoveLegacyFolders(const ConfigService& config, HWND self)
 {
     std::vector<std::filesystem::path> dirs;
     for (const std::wstring_view name : { L"MermaidCache", L"WebView2Data" }) {
@@ -59,14 +61,16 @@ void RemoveLegacyFolders(const ConfigService& config, TaskScheduler& scheduler)
             dirs.push_back(std::move(dir));
         }
     }
-    if (!dirs.empty()) {
-        scheduler.Post([dirs = std::move(dirs)] {
-            for (const auto& dir : dirs) {
-                std::error_code ec;
-                std::filesystem::remove_all(dir, ec);
-            }
-        });
+    if (dirs.empty() || std::ranges::any_of(SameClassWindows(self), [self](HWND other) { return other != self; })) {
+        return;
     }
+    std::thread([dirs = std::move(dirs)] {
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+        for (const auto& dir : dirs) {
+            std::error_code ec;
+            std::filesystem::remove_all(dir, ec);
+        }
+    }).detach();
 }
 
 } // namespace
@@ -98,7 +102,7 @@ bool App::Init(HWND hwnd)
     // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
-    RemoveLegacyFolders(config_, scheduler_);
+    RemoveLegacyFolders(config_, hwnd_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
@@ -950,8 +954,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     resource_manager_.DropQueues();
     // 拡大表示は開いた文書の図なので一緒に閉じる
     mermaid_renderer_.CloseViewer();
-    // 前の文書の図はどれも表示しなくなったので、解いた描画命令とコマンドリストを手放す (直列化した形は残す)
-    mermaid_renderer_.ReleaseIdleDrawings();
+    // 前の文書の図の解いた描画命令とコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図が
+    // あれば、手放す前に受け取って解き直さない)。
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();

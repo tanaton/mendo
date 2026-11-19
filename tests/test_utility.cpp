@@ -51,6 +51,24 @@ TEST(FlatHashMap, TryEmplaceKeepsExistingValue)
     EXPECT_EQ(map.size(), 1u);
 }
 
+// 上限に達していても、あるキーは上書きできて表を捨てない。無いキーを足すときだけ全部捨てる。
+TEST(FlatHashMap, TryEmplaceBoundedClearsOnlyForNewKeyAtLimit)
+{
+    FlatHashMap<int> map;
+    *map.TryEmplaceBounded(1, 2).first = 10;
+    *map.TryEmplaceBounded(2, 2).first = 20;
+    const auto [existing, added] = map.TryEmplaceBounded(2, 2);
+    EXPECT_FALSE(added);
+    EXPECT_EQ(*existing, 20);
+    EXPECT_EQ(map.size(), 2u);
+
+    const auto [fresh, added_fresh] = map.TryEmplaceBounded(3, 2);
+    EXPECT_TRUE(added_fresh);
+    EXPECT_EQ(*fresh, 0);
+    EXPECT_EQ(map.size(), 1u);
+    EXPECT_EQ(map.Find(1), nullptr);
+}
+
 // 配列を広げても全部の要素が残る。連番のキーと、下位のビットがそろったキーの両方で確かめる。
 TEST(FlatHashMap, KeepsEntriesAcrossGrowth)
 {

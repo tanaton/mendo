@@ -1679,15 +1679,17 @@ public:
     virtual bool RequestRender(const Node& node, DiagramEntry& diagram_entry,
                                float max_width, bool dark_mode) = 0;
     // 前に描いた図の縮めない大きさ (CSS px)。文書を開くときと読み直すときに、描く前に図の高さを決めるのに使う。
-    virtual std::optional<mermaid_util::DiagramSize> KnownSize(const Node& node, float max_width, bool dark_mode) const;
+    // 実装し忘れると開くたびに図の高さが跳ねるので、既定の実装を置かない。
+    virtual std::optional<mermaid_util::DiagramSize> KnownSize(const Node& node, float max_width, bool dark_mode) const = 0;
     // 描画待ちと、投入済みでまだ始まっていない表示用の要求 (キャッシュの直列化した形の読み込みを含む) を捨て、
     // 描いている途中の表示用の描画も止める (インライン数式の要求は維持)。捨てた図は再要求される。
     virtual void DropQueued() {}
     // 見えている図から順に RequestRender し直す回の始まり。待ちを、この回に頼まれた順へ並べ直す。
     virtual void BeginRequestPass() {}
     // どの図も拡大表示も持たなくなった描画命令とコマンドリストを、覚えている結果からも外す (図から外しただけでは
-    // メモリが返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。
-    virtual void ReleaseIdleDrawings() {}
+    // メモリが返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。要求の回の終わりに呼ぶ。
+    // 実装し忘れると画面外の図のメモリが返らないまま気付けないので、既定の実装を置かない。
+    virtual void ReleaseIdleDrawings() = 0;
     // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。
     virtual void RequestViewerDrawing(float max_width, bool dark_mode) {}
     // 図の保存・コピーに使う画像を描く (本文の幅に収まらない図はその幅まで縮める)。描けなければ null。
@@ -1695,9 +1697,9 @@ public:
 };
 ```
 
-`ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する（拡大表示の図は本文の範囲に依らず先に頼む）。その場で結果が出た図は呼び出しごとの `changed` に積み、`RequestMermaidRenders` が再レイアウトを 1 回にまとめる（`RecomputeLayout`。Y の再計算は変わった範囲に限る）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。保持範囲の外へ出た図は `EvictOffscreenResources` がコマンドリストと描画命令を捨て（`DiagramEntry::ReleaseImage`。寸法は残すので組み直さない）、`ReleaseIdleDrawings` で覚えている結果からも外させる。戻ってきたら `RequestRender` が直列化した形を worker で解き直して記録する（JS は動かさない）。
+`ResourceManager` は `FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する（拡大表示の図は本文の範囲に依らず先に頼む）。その場で結果が出た図は呼び出しごとの `changed` に積み、`RequestMermaidRenders` が再レイアウトを 1 回にまとめる（`RecomputeLayout`。Y の再計算は変わった範囲に限る）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。保持範囲の外へ出た図は `EvictOffscreenResources` がコマンドリストと描画命令を捨て（`DiagramEntry::ReleaseImage`。寸法は残すので組み直さない。仮表示中の絵も、見えない所では代わりが要らないので捨てる）、続く要求の回の終わりに `RequestMermaidRenders` が `ReleaseIdleDrawings` で覚えている結果からも外させる。戻ってきたら `RequestRender` が直列化した形を worker で解き直して記録する（JS は動かさない）。
 
-要求と結果のキーは、ノードのテキストだけで決まる `DiagramCodeHash`（rapidhash）に量子化幅とテーマを混ぜた `DiagramRequestHash`。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持って先に引き、いまの幅の上限より狭いときだけ使う。幅の上限より広いフローチャートも、別の幅で描き直した描画命令が前の幅の結果（`last_drawn_` が覚えている前の要求のキーで引く）の直列化した形と同じなら、どの幅でも使える結果（`any_width`）として幅なしのキーに置き、前の幅の結果は捨てる。ウィンドウやペインの幅を変えても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持つ。
+要求と結果のキーは、ノードのテキストだけで決まる `DiagramCodeHash`（rapidhash）に量子化幅とテーマを混ぜた `DiagramRequestHash`。pele は幅の上限（要求に含めて渡す）より狭く描けた図（`IsWidthFree`）をどの幅でも同じに描く（mermaid の文書の例と本書の図、計 559 図で確かめた）。その結果は幅を混ぜない `DiagramWidthFreeHash` で持って先に引き、いまの幅の上限より狭いときだけ使う。幅の上限より広いフローチャートも、別の幅で描き直した描画命令（直列化した形のハッシュ）が `last_drawn_` に覚えた前の幅のものと同じなら、どの幅でも使える結果（`any_width`）として幅なしのキーに置き、前の幅の結果は捨てる。ウィンドウやペインの幅を変えても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持つ。
 
 図はブラウザを使わずに描く。`PeleEngine` が bg の `TaskScheduler` のワーカーで pele を QuickJS-ng で動かし、文字の幅は pele の `measurer` オプションを `DiagramTextMeasurer`（DirectWrite）につないで測る。出てきた SVG は `DrawingFromPeleSvg` がブラウザの `getComputedStyle` の代わりに CSS 変数・`color-mix()`・継承・変換・`text-anchor` を自分で解いて、描画命令（`DiagramDrawing`）にする。結果は `Job` 経路で UI に戻り、直列化した形（`SerializeDrawing`）と一緒に図の結果のキャッシュ（`DiagramCache`。3.12.3）に置く。`<foreignObject>` のように描画命令にできない要素を含む図は描かず、`DiagramError::Kind::Unsupported`（「この図は描画できません」）にする。今の pele は数式を描けたラベルを `<svg class="pele-math">`、描けなかったラベルを TeX の文字で書き、画像は `images: false` で出させないので、mermaid の文書の例と本書の図（575 図）でこのエラーになる図は無い。
 
@@ -1713,7 +1715,7 @@ KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどな�
 
 `MermaidRenderer` は `mendo_core` に入る。埋め込みリソース（pele・KaTeX・書体）から `PeleEngine` を作るのは `Init` に渡す `PeleFactory` で、本番は `CreateBundledPele` を、テストはビルドで作ったバイトコードから作る（テストの exe はリソースを持たない）。`ResourceManager` と `ClipboardManager` は `IMermaidRenderer` 越しに使い、テストでは mock を渡す。
 
-描画とキャッシュの直列化した形の読み込みは UI スレッドで行わない。どちらも `Job` 経路に流し、バックグラウンド `TaskScheduler` で描画命令を作るか、直列化した形を解く。`Job` は仕事の種類（`JobWork`: pele で描く `Render`・キャッシュにある描画命令の文字を組む `Load`。解いた形が無ければ先に直列化した形を解き、デバイスを作り直してコマンドリストだけ外した図は文字だけを組む）と、結果（`JobOutcome` の variant: 返しただけの `JobDropped`・描画命令の `JobDrawing`・描けなかった `JobFailed`・解けなかった `JobUnreadable`・インライン数式の `JobMaths`）を持つ。同時に描く数の枠を使うのは `Render` だけ。`JobDrawing` には worker で組んだ図の文字の並び（`DiagramTextLayouts`）も入れ、UI スレッドの記録では描くだけにする（記録の 8 割は文字を組む手間）。完了は `app_msg::MERMAID_JOB_DONE` で通知され、UI スレッドの `ProcessJobResults` が描画命令をコマンドリストに記録して図の結果のキャッシュに置き、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。記録した後の文字の並びは worker で捨てる。1 回の転送は `kImportSliceBudget`（4ms）までで、残した分は `HasLeftoverJobResults` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。直列化した形を解けなかった図（同じプロセスで書いたものなので、直列化と解析が食い違ったときの保険）は描き直し、描いた直後の図が記録できなければエラーとして確定させる。投入済みでまだ始まっていない表示用の要求（描画も読み込みも）は `DropQueued` / `Shutdown` で世代（`drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば描かず・読まずに `JobDropped` で返し、UI は要求中の印だけを外す。描いている途中の表示用の図も、pele が世代の変化を見て止める（`PeleEngine::Render` の `StaleWhen`。`Shutdown` は `PeleEngine::Cancel` で止める）。インライン数式は取り消すと頼み直す契機が無いので、世代が変わっても描く。
+描画とキャッシュの直列化した形の読み込みは UI スレッドで行わない。どちらも `Job` 経路に流し、バックグラウンド `TaskScheduler` で描画命令を作るか、直列化した形を解く。`Job` は仕事の種類（`JobWork`: pele で描く `Render`・キャッシュにある描画命令の文字を組む `Load`。解いた形が無ければ先に直列化した形を解き、デバイスを作り直してコマンドリストだけ外した図は文字だけを組む）と、結果（`JobOutcome` の variant: 返しただけの `JobDropped`・描画命令の `JobDrawing`・描けなかった `JobFailed`・解けなかった `JobUnreadable`・インライン数式の `JobMaths`）を持つ。同時に描く数の枠を使うのは `Render` だけ。`JobDrawing` には worker で組んだ図の文字の並び（`DiagramTextLayouts`）も入れ、UI スレッドの記録では描くだけにする（記録の 8 割は文字を組む手間）。完了は `app_msg::MERMAID_JOB_DONE` で通知され、UI スレッドの `ProcessJobResults` が描画命令をコマンドリストに記録して図の結果のキャッシュに置き、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。記録した後の文字の並びは worker で捨てる。1 回の転送は `kImportSliceBudget`（4ms）までで、残した分は `HasLeftoverJobResults` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。直列化した形を解けなかった図（同じプロセスで書いたものなので、直列化と解析が食い違ったときの保険。描画命令は大きさ（`IsStorableSize`）も置き方（`IsStorable`）も読み戻せるものだけを作る）はその項目を捨てて描き直し、描いた直後の図が記録できなければエラーとして確定させる。投入済みでまだ始まっていない表示用の要求（描画も読み込みも）は `DropQueued` / `Shutdown` で世代（`drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば描かず・読まずに `JobDropped` で返し、UI は要求中の印だけを外す。描いている途中の表示用の図も、pele が世代の変化を見て止める（`PeleEngine::Render` の `StaleWhen`。`Shutdown` は `PeleEngine::Cancel` で止める）。インライン数式は取り消すと頼み直す契機が無いので、世代が変わっても描く。
 
 #### 3.12.3 DiagramCache — 図の結果のキャッシュ
 
@@ -1739,8 +1741,8 @@ public:
     Hit Find(uint64_t width_free_key, uint64_t sized_key, float max_width);
     // 寸法を見るだけなので捨てる順を変えない (KnownSize)。
     const Item* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
-    const Item* Peek(uint64_t key) const;
-    // 同じキーは置き換える。上限を超えても置くときには捨てない。
+    const Item* Peek(uint64_t key) const;  // テスト用
+    // 同じキーは置き換える (置くものが無ければ残す)。上限を超えても置くときには捨てない。
     void Put(uint64_t key, Item item);
     void Erase(uint64_t key);
     // 持ち主のいなくなった解いた形とコマンドリストを外し、上限を超えた分を使っていない順に捨てる。
@@ -1752,11 +1754,11 @@ public:
 
 図の結果は、ディスクに置かず RAM の `DiagramCache` 1 つに持つ（設定ファイルのほかにファイルを書かない。起動し直すと空から始まる。ユーザーが選んだ）。描けた図は直列化した描画命令（`SerializeDrawing` の UTF-8。図 1 個 平均 4KB、同じ図の PNG の約 1/20）とラベルの数式の描画命令を持ち、表示している間だけ解いた描画命令（`DiagramDrawing`）とコマンドリストも持つ。直列化した形は数式を TeX だけで持つので、解いた後に覚えた数式の描画命令を同じ順で差し込み（`SetLabelMaths`）、読み直しで KaTeX も pele も動かさない。DPR に依らないので、キーに DPR を混ぜない。
 
-解いた形は直列化した形より大きいので、表示中の図の分だけにする（ユーザーが選んだ）。表示中かどうかは持ち主の数で決め、どの図（`DiagramEntry`）も拡大表示も worker の仕事も持たなくなった解いた形（`use_count` が 1）を `ReleaseIdleDrawings` で外す。持ち主を増やすのは UI スレッドだけなので、1 と読めたら持ち主はこの表だけである。呼ぶのは画面外の図を捨てたとき（`EvictOffscreenResources`）・文書を開いたとき・結果を取り込む回の始まり（届く前に画面外へ出た図の結果。受け取るのは通知の中で要求し直したときだが、後で要求し直す呼び出し側のために次の回まで待つ）で、置き換わった結果や閉じた拡大表示の分もここで外れる。表示が終わる経路ごとに知らせてはもらわない。同じコードの図が 2 つあれば解いた形を共有し、片方が画面外へ出ても外さない。
+解いた形は直列化した形より大きいので、表示中の図の分だけにする（ユーザーが選んだ）。表示中かどうかは持ち主の数で決め、どの図（`DiagramEntry`）も拡大表示も worker の仕事も持たなくなった解いた形（`use_count` が 1）を `ReleaseIdleDrawings` で外す。持ち主を増やすのは UI スレッドだけなので、1 と読めたら持ち主はこの表だけである。呼ぶのは要求の回（`ResourceManager::RequestMermaidRenders`）の終わりの 1 か所で、画面外の図を捨てた後（`EvictOffscreenResources` の後には要求の回が続く）・結果の通知・文書を開いたときの回がここを通る。図が受け取った後なので、この回で置き換わった結果・前の文書の図・閉じた拡大表示の分・届く前に画面外へ出た図の結果もここで外れ、新しい文書に同じ図があれば手放す前に受け取る。結果を取り込む `ProcessJobResults` では手放さない。表示が終わる経路ごとに知らせてはもらわない。同じコードの図が 2 つあれば解いた形を共有し、片方が画面外へ出ても外さない。
 
-上限 `MAX_BYTES`（4MB。ユーザーが選んだ）は直列化した形・ラベルの数式（1 つ `LABEL_MATH_BYTES` と見込む）・エラーの文言・項目の器（`ITEM_BYTES`）を数え、表示中の解いた形とコマンドリストは数えない。超えたら `ReleaseIdleDrawings` の最後に、解いた形を持たない項目を使っていない順に捨てる（捨てるのは上限を超えたときだけなので、順序の構造は持たず `last_used` の線形走査で最古を探す。手放した時を使った時とし、画面を離れたばかりの図を後まで残す）。表示中の項目は捨てず、それだけで上限を超えるなら超えたままにする。置くとき（`Put`）には捨てない。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、同じ図を JS で描き直し続けるためである。ほかを全部捨てても入らない図は直列化した形を持たず、表示している間だけ置く（手放したら JS で描き直す）。エラーの件数には上限を設けない（書きかけの図を保存するたびに増えても、ほかの項目と同じく古い順に捨てる）。前の幅の結果と比べる記録（`last_drawn_`）は、比べる相手がこの表に残っている間しか役立たないので、表に入りうる件数（`MAX_BYTES / ITEM_BYTES` = 16384 件）に合わせる。
+上限 `MAX_BYTES`（4MB。ユーザーが選んだ）は直列化した形・ラベルの数式（1 つ `LABEL_MATH_BYTES` と見込む）・エラーの文言・項目の器（`ITEM_BYTES`）を数え、表示中の解いた形とコマンドリストは数えない。超えたら `ReleaseIdleDrawings` の最後に、解いた形を持たない項目を使っていない順に捨てる（捨てるのは上限を超えたときだけなので、順序の構造は持たず、捨てるときに候補を 1 回だけ集めて `last_used` の古い順にヒープで取り出す。手放した時を使った時とし、画面を離れたばかりの図を後まで残す）。表示中の項目は捨てず、それだけで上限を超えるなら超えたままにする。置くとき（`Put`）には捨てない。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、同じ図を JS で描き直し続けるためである。ほかを全部捨てても入らない図は直列化した形を持たず、表示している間だけ置く（手放したら JS で描き直す）。エラーの件数には上限を設けない（書きかけの図を保存するたびに増えても、ほかの項目と同じく古い順に捨てる）。前の幅の記録（`last_drawn_`）は描画命令のハッシュで覚えるので、前の幅の結果がこの表から捨てられても、上限より大きくて直列化した形を持たなくても比べられる。描くたびに引くので `FlatHashMap`（3.28.1）で持ち、この表の上限には数えない（どちらも速さをユーザーが選んだ）。件数は表に入りうる件数（`MAX_BYTES / ITEM_BYTES` = 16384 件。ユーザーが選んだ）までで、達したら全部捨てる（`TryEmplaceBounded`）。
 
-描画デバイスが変わったら（`ResetDevice`）コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。表示中の図は、解いた形が残っていればそこから、無ければ直列化した形から worker で解いて文字を組み、記録し直す。前の版が設定フォルダに残した図のディスクキャッシュ（`MermaidCache`）と WebView2 のデータ（`WebView2Data`）は、起動時に有れば bg のワーカーで黙って消す（`RemoveLegacyFolders`。ユーザーが選んだ）。
+描画デバイスが変わったら（`ResetDevice`）コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。表示中の図は、解いた形が残っていればそこから、無ければ直列化した形から worker で解いて文字を組み、記録し直す。前の版が設定フォルダに残した図のディスクキャッシュ（`MermaidCache`）と WebView2 のデータ（`WebView2Data`）は、起動時に有れば優先度を下げた専用のスレッドで黙って消す（`RemoveLegacyFolders`。ユーザーが選んだ）。共有の bg のワーカーを塞がず、終了も待たせない（途中で終われば次の起動で続きを消す）。ほかの mendo の窓（`SameClassWindows`。前の版も窓のクラスは同じ）があれば、使っている最中かもしれないので次の起動に回す。
 
 #### 3.12.4 初期化
 
@@ -2754,17 +2756,19 @@ struct SystemCursors {
 
 ### 3.28 ユーティリティ
 
-#### 3.28.1 TranspositionCache — 固定長キャッシュ
+#### 3.28.1 FlatHashMap — ハッシュ値をキーにする表
 
-容量をコンパイル時に固定した `std::vector` 上の実装。LRU ではなく、順序は self-organizing list（transposition rule）で保ち、ヒットしたエントリを 1 つ前と入れ替えて前へ寄せる。新規 `Insert` は先頭に入れ、満杯なら末尾を捨てる（詰め直しは O(n) だが、挿入は図の描画の後にしか起きない）。非スレッド安全。今は幅の上限より広いフローチャートの前の幅の記録（`MermaidRenderer::last_drawn_`）に使う。
+`utility.h` の開番地法（線形探索）の表。キーはハッシュ値（`uint64_t`）で、要素を 1 本の配列に並べ、`unordered_map` のように要素ごとに確保しない。負荷率が 1/2 を超えると配列を 2 倍にする。要素は配列の中で動くので、`Find` や `TryEmplace` のポインタは次に表を変えるまでしか使えない。非スレッド安全。`TryEmplaceBounded` は、無いキーを足すときに上限に達していれば先に全部捨てる（失っても作り直せる手掛かりの表を増え続けさせない。画像の寸法の表 `ImageLoader::infos_` と、幅の上限より広いフローチャートの前の幅の記録 `MermaidRenderer::last_drawn_`）。
 
 ```cpp
-template <typename Key, typename Value, size_t MaxEntries>
-class TranspositionCache {
+template <class V>
+class FlatHashMap {
 public:
-    Value* Find(const Key& key);  // 無ければ nullptr。ヒットを前へ寄せる
-    void  Insert(const Key& key, Value value);
-    size_t Size() const noexcept;
+    size_t size() const noexcept;
+    const V* Find(uint64_t key) const noexcept;  // 無ければ nullptr
+    std::pair<V*, bool> TryEmplace(uint64_t key);  // 無ければ既定値で足す。second は足したとき true
+    std::pair<V*, bool> TryEmplaceBounded(uint64_t key, size_t max_size);
+    void Clear() noexcept;  // 配列は残す
 };
 ```
 
@@ -3113,7 +3117,7 @@ classDiagram
 
 `TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトは行ごとの配列（`row_layouts_`。初めてセルを置くときに作り、layout を持たない行は null）で持ち、セルは `CellIndex`（`row * col_count + col`）で引く（セルごとに持つと、巨大な表で可視 ±数画面の行のほかは null の `ComPtr` が並び、20 万行 20 列の表を組むと commit 64.3MB、行ごとにして 34.9MB）。`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。`MeasureTable` は `BuildTable` でローカルに組み、全セルを測って幾何を確定（`FinalizeTableLayout` の `CommitGeometry`）してから `NodeLayoutEntry::set_table_layout` で置くので（1 万セルを超える表の最初の計測は、`TableMeasureJobs` が計測ワーカーで `BuildTable` を呼んで組み、組み終えるまで表は推定の高さのまま中身を描かない）、`table_layout()` があれば描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）は揃っている。幅も合っているかは `GeometryValidAt` で分かる。幅が変わっても組み直すまでは前の幅の幾何のまま残り（見えている表は描く前に組み直す）、推定が `entry.height` だけを伸ばしても、同じ幅の早道は幾何の高さ（`TotalHeight`）で確定し直す。`table_layout()` の無いテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows` が呼ぶ `TableLayoutData::EvictRowsOutside`）はセルレイアウトが生存しうる行範囲 `live_rows_`（`IndexRange`。ノードの `text_layout` の `live_nodes_` も同じ型）のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。evict 済みの行の印（`row_evicted_`）・その数・生存範囲は互いに揃っている必要があるので private にし、`TableLayoutData` のメンバ（`EvictRowsOutside` / `MarkRowRestored` / `MarkAllRowsEvicted`）だけが書き換える。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
-`DiagramEntry` の `width` / `height` は描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramCommands()` はコマンドリストと描画命令を捨てても寸法は残す。図はビットマップを持たず、`commands`（描画命令を記録したコマンドリスト）を描き（スクロールの間だけ、見えている図を `DiagramBitmapCache` がビットマップに描いて写す）、`drawing`（描画命令）をクリップボードコピー・保存に使う。画面外へ出た図は `commands` と `drawing` を捨て（`ReleaseImage`）、寸法は残す（戻ったら図の結果のキャッシュの直列化した形から読み直す。3.12.3）。`error`（`DiagramError`。失敗の種類と、pele が返した文言）は描画失敗の理由で、空でなければ再要求しない（コードの書き換え・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`DiagramEntry` は図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。Mermaid の処理待ちは `DiagramEntry` を指さず、結果は `MermaidRenderer` のキャッシュに置かれ、要求し直したときに `RequestRender` が書き込む。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない図ノードには確保しない。検索・選択のハイライトの矩形はキャッシュせず、可視範囲の前後の行にかかる分を毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
+`DiagramEntry` の `width` / `height` は描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramCommands()` はコマンドリストと描画命令を捨てても寸法は残す。図はビットマップを持たず、`commands`（描画命令を記録したコマンドリスト）を描き（スクロールの間だけ、見えている図を `DiagramBitmapCache` がビットマップに描いて写す）、`drawing`（描画命令）をクリップボードコピー・保存に使う。画面外へ出た図は `commands` と `drawing` を捨て（`ReleaseImage`。仮表示中の絵も）、寸法は残す（戻ったら図の結果のキャッシュの直列化した形から読み直す。3.12.3）。`error`（`DiagramError`。失敗の種類と、pele が返した文言）は描画失敗の理由で、空でなければ再要求しない（コードの書き換え・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`DiagramEntry` は図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。Mermaid の処理待ちは `DiagramEntry` を指さず、結果は `MermaidRenderer` のキャッシュに置かれ、要求し直したときに `RequestRender` が書き込む。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない図ノードには確保しない。検索・選択のハイライトの矩形はキャッシュせず、可視範囲の前後の行にかかる分を毎フレーム引く（全選択のまま画面いっぱいの 15KB の和文を描いて 1 フレーム 34〜43µs）。
 
 ### 4.3 Document
 
@@ -3241,7 +3245,7 @@ flowchart TD
     INIT --> CFG[session::LoadDarkMode + LoadZoomLevel<br>の値で ThemeService::Init、テーマを作りフォントを決める]
     CFG --> D2D[Renderer::Init&#40;hwnd, theme&#41;<br>D2D / DWrite / WIC ファクトリ + Formats<br>+ LayoutEngine::Init で計測の書式]
     D2D --> LSCHED[measurer の SetScheduler<br>ワーカーは初回 Post で起動]
-    LSCHED --> LEGACY[RemoveLegacyFolders<br>前の版の MermaidCache・WebView2Data が<br>有るときだけ worker で消す]
+    LSCHED --> LEGACY[RemoveLegacyFolders<br>前の版の MermaidCache・WebView2Data が<br>有るときだけ専用のスレッドで消す<br>ほかの mendo の窓があれば次の起動へ]
     LEGACY --> MERM[MermaidRenderer::Init<br>PeleEngine は初回描画で作る]
     MERM --> PANES[session::LoadPanes<br>ペインの表示・幅・倍率]
     PANES --> SHOWW[DWMWA_CLOAK で隠したまま<br>RestoreWindowPlacement / ShowWindow]
@@ -3470,9 +3474,8 @@ pele の見た目は mermaid.js と違う（文字を 16px に保って折り返
 | `test_command_generator_frame.cpp` | CommandGenerator フレーム描画 |
 | `test_command_generator_content.cpp` | CommandGenerator コンテンツ描画 (モック経路) |
 | `test_command_generator_highlight.cpp` | CommandGenerator ハイライト描画 |
-| `test_transposition_cache.cpp` | TranspositionCache |
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
-| `test_utility.cpp` | ユーティリティ関数（`utility.h`、rapidhash のハッシュを含む） |
+| `test_utility.cpp` | ユーティリティ関数（`utility.h`、rapidhash のハッシュと FlatHashMap を含む） |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator（起動時の先行読み込みと `Attach` を含む） |
 | `test_parallel_measure.cpp` | 並列計測と `ProcessDirtyBatch` のダーティバッチ計測（期限・クリップ・計測に失敗したノードは 1 回で諦める） |
 | `test_clipboard_manager.cpp` | ClipboardManager |
@@ -3737,7 +3740,6 @@ src/
     ├── wic_util.h                 # WIC ヘルパー
     ├── d2d_util.h / .cpp          # Direct2D ヘルパー (TextFormatSpec・ほかの窓のスワップチェーン WindowSwapTarget)
     ├── ascii_util.h               # ASCII 操作 (ToLowerAsciiCopy を含む)
-    ├── transposition_cache.h      # TranspositionCache (固定長、transposition rule)
     ├── worker_latch.h             # ワーカー完了同期ラッチ
     ├── clipboard_util.h           # クリップボード補助
     ├── win_handle.h               # UniqueResource (RAII) + 定義済み traits
@@ -3845,7 +3847,6 @@ src/
 - [x] ファイル監視（ReadDirectoryChangesW + 短縮リトライ）
 - [x] session:: によるセッション復元
 - [x] 検索バー制御の分離 (SearchGroup のデータと reducer の関数)
-- [x] 固定長キャッシュの汎用化（TranspositionCache）
 - [x] RAIIハンドルラッパー（UniqueResource + ClipboardSession）
 - [x] Node 拡張データの union 統合（メモリ削減）
 - [x] LoadFile による UTF-8 のままの読み込み
@@ -5136,7 +5137,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 39 | i18n | i18n.h | mendo_core | あり |
 | 40 | ini::Parse / Serialize | config_service.h/cpp | mendo_core | あり |
 | 41 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
-| 42 | TranspositionCache | transposition_cache.h | mendo_core | あり |
+| 42 | FlatHashMap | utility.h | mendo_core | あり |
 | 43 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | Clipboard utils のみ |
 | 44 | SettingsDialog + PopupWindow | settings_dialog.h/cpp + popup_window.h | mendo_core | あり |
 | 45 | InlineMath | inline_math.h/cpp | mendo_core | あり |

@@ -221,7 +221,8 @@ protected:
         return renderer_.ResultCache().Peek(key);
     }
 
-    // 画面外へ出た図の絵と描画命令を外し、覚えている結果からも外させる (ResourceManager::EvictOffscreenResources と同じ)。
+    // 画面外へ出た図の絵と描画命令を外し、覚えている結果からも外させる (ResourceManager の EvictOffscreenResources と、
+    // 続く要求の回の終わりと同じ)。
     void Release(DiagramEntry& entry)
     {
         entry.ReleaseImage();
@@ -409,18 +410,20 @@ TEST_F(MermaidRendererTest, ReloadedDiagramReusesLabelMaths)
     EXPECT_EQ(FirstLabelMath(*entry.drawing), math);
 }
 
-// 届いた結果をどの図も受け取らないまま次の回が来たら (届く前に画面外へ出た図)、解いた形を持ち続けない。
+// 届いた結果をどの図も受け取らないまま要求の回が終わったら (届く前に画面外へ出た図)、解いた形を持ち続けない。
+// 結果を受け取るだけでは手放さない (通知の外で頼み直す呼び出し側もある)。
 TEST_F(MermaidRendererTest, UnclaimedResultReleasesItsDrawing)
 {
     const DiagramDoc d(kAlpha);
     DiagramEntry entry;
     EXPECT_FALSE(Request(d, entry));
     ASSERT_TRUE(Await([&] { return updates_ > 0; }));
+    renderer_.ProcessJobResults(kNoDeadline);
     const auto* item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_NE(item->result.drawing, nullptr) << "置いた回のうちは受け取れる";
+    EXPECT_NE(item->result.drawing, nullptr) << "要求の回が終わるまでは受け取れる";
 
-    renderer_.ProcessJobResults(kNoDeadline);
+    renderer_.ReleaseIdleDrawings();
     item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
     EXPECT_EQ(item->result.drawing, nullptr);
@@ -450,20 +453,32 @@ TEST_F(MermaidRendererTest, WideDiagramWithSameDrawingAtTwoWidthsIsReusedAtAnyWi
     EXPECT_EQ(CachedItem(d.RequestHash(200.0f)), nullptr) << "前の幅の結果は幅なしの結果と同じなので捨てる";
 }
 
-// 比べるのはキャッシュにある前の幅の直列化した形。別の図のものに置き換えておくと、どの幅でも使える結果にしない。
-TEST_F(MermaidRendererTest, WideDiagramComparesWithPreviousWidthDrawing)
+// 前の幅の描画命令はハッシュで覚えるので、前の幅の結果がキャッシュから捨てられていても比べられる。
+TEST_F(MermaidRendererTest, WideDiagramIsComparedAfterPreviousWidthIsEvicted)
 {
     const DiagramDoc d(kWide);
     DiagramEntry first;
     ASSERT_TRUE(RenderUntilSettled(d, first, 200.0f));
-    const DiagramDoc beta(kBeta);
-    DiagramEntry other;
-    ASSERT_TRUE(RenderUntilSettled(beta, other));
-    StoreDrawingAs(other, d.RequestHash(200.0f));
+    renderer_.ResultCache().Erase(d.RequestHash(200.0f));
 
     DiagramEntry second;
     ASSERT_TRUE(RenderUntilSettled(d, second, 300.0f));
+    EXPECT_TRUE(second.any_width);
+}
+
+// 同じ幅で描き直した (キャッシュから捨てられた) だけでは、幅で出力が変わらないとは分からない。
+TEST_F(MermaidRendererTest, WideDiagramRedrawnAtSameWidthIsNotAnyWidth)
+{
+    const DiagramDoc d(kWide);
+    DiagramEntry first;
+    ASSERT_TRUE(RenderUntilSettled(d, first, 200.0f));
+    renderer_.ResultCache().Erase(d.RequestHash(200.0f));
+
+    DiagramEntry second;
+    EXPECT_FALSE(Request(d, second, 200.0f)) << "描き直す";
+    ASSERT_TRUE(RenderUntilSettled(d, second, 200.0f));
     EXPECT_FALSE(second.any_width);
+    EXPECT_NE(CachedItem(d.RequestHash(200.0f)), nullptr);
 }
 
 // 描いた図のエラーは描き直しても同じなので確定させ、エラーとして覚える。
@@ -496,7 +511,8 @@ TEST_F(MermaidRendererTest, LoadsFromSerializedForm)
     EXPECT_EQ(entry.width, drawn.width);
 }
 
-// キャッシュの描画命令を解けなければ描き直す。描いた結果をキャッシュに置くので、次は解ける描画命令が当たる。
+// キャッシュの描画命令を解けなければ、その項目を捨てて描き直す。描いた結果が別のキー (幅なし) に置かれても、解けない項目は
+// 残らない。次は解ける描画命令が当たる。
 TEST_F(MermaidRendererTest, RerendersWhenCachedDrawingIsBroken)
 {
     const DiagramDoc beta(kBeta);
@@ -507,6 +523,7 @@ TEST_F(MermaidRendererTest, RerendersWhenCachedDrawingIsBroken)
     ASSERT_TRUE(RenderUntilSettled(beta, entry));
     EXPECT_TRUE(entry.HasImage());
     EXPECT_TRUE(SvgOf(entry).contains("Beta"));
+    EXPECT_EQ(CachedItem(key), nullptr);
     const auto hit = renderer_.ResultCache().Find(beta.WidthFreeHash(), key, kMaxWidth);
     ASSERT_NE(hit.item, nullptr);
     EXPECT_TRUE(mermaid_util::ParseDrawing(*hit.item->bytes).has_value());
@@ -1007,6 +1024,36 @@ TEST(DiagramCache, EvictsLeastRecentlyUsedOverLimit)
     EXPECT_TRUE(Has(cache, 1));
     EXPECT_FALSE(Has(cache, 2));
     EXPECT_TRUE(Has(cache, 3));
+}
+
+// 大きな図を手放して大きく溢れたら、上限に収まるまで古い順にまとめて捨てる。
+TEST(DiagramCache, EvictsManyInLeastRecentlyUsedOrder)
+{
+    const size_t one = DiagramCache::ITEM_BYTES + 100;
+    DiagramCache cache(one * 5);
+    for (uint64_t key = 1; key <= 10; ++key) {
+        cache.Put(key, Serialized(100));
+    }
+    ASSERT_NE(cache.Find(3, 3, 0.0f).item, nullptr);
+
+    cache.ReleaseIdleDrawings();
+    EXPECT_EQ(cache.EntryCount(), 5u);
+    for (const uint64_t key : { 3, 7, 8, 9, 10 }) {
+        EXPECT_TRUE(Has(cache, key)) << key;
+    }
+}
+
+// 置くものが無い (上限より大きくて直列化した形を持てず、表示もしていない) 結果は、同じキーの項目を消さない。
+TEST(DiagramCache, PutWithNothingToStoreKeepsExisting)
+{
+    DiagramCache cache(kTwoItems);
+    cache.Put(1, Serialized(1000));
+    cache.Put(1, Serialized(kTwoItems));
+    cache.Put(1, {});
+    const auto* item = cache.Peek(1);
+    ASSERT_NE(item, nullptr);
+    ASSERT_NE(item->bytes, nullptr);
+    EXPECT_EQ(item->bytes->size(), 1000u);
 }
 
 // 高さを決めるために見る (Peek) だけなら、捨てる順を変えない。
