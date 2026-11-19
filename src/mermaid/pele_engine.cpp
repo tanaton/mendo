@@ -184,6 +184,8 @@ struct PeleContext {
     PeleContext() = default;
     PeleContext(const PeleContext&) = delete;
     PeleContext& operator=(const PeleContext&) = delete;
+    // JS_FreeRuntime は省かない。省いても HeapDestroy で全部返り、捨てる時間も大きく減るが、公式資料が認めていない作りに頼ると
+    // QuickJS-ng の更新のたびに中身を確かめ直すことになるので、公式資料が認めるまでは呼ぶほうをユーザーが選んだ。
     ~PeleContext()
     {
         if (ctx) {
