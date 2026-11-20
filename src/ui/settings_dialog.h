@@ -7,6 +7,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <windows.h>
 
 struct SettingsDialogParams {
@@ -24,7 +25,7 @@ inline constexpr float HEADING_HEIGHT = 24.0f;
 inline constexpr float ROW_HEIGHT = 28.0f;
 inline constexpr float CHECK_WIDTH = 24.0f;
 inline constexpr float HOVER_MARGIN_X = 8.0f;
-inline constexpr float BOTTOM_PAD = 14.0f;
+inline constexpr float BOTTOM_PAD = 10.0f;
 inline constexpr float ICON_FONT_SIZE = 12.0f;
 
 // 言語の一覧の行。先頭は OS に合わせる (nullptr)、残りは i18n::kAllStrings の並び。
@@ -42,7 +43,14 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
     struct Layout {
         DipRect language_heading{};
         std::array<DipRect, settings_dialog_constants::kLanguageRowCount> languages{};
+        // 言語の一覧とバージョンの間の区切り線の行。
+        DipRect separator{};
+        DipRect version{};
     };
+
+    // 一番下に出す。タイトルバーはタスクバーや Alt+Tab にも出てファイル名の場所を減らすので使わない (ユーザーが選んだ)。
+    // 訳さずに済むよう、名前とリリースのタグの形 (mendo v0.5.1.0) にする。
+    static std::wstring_view VersionText() noexcept;
 
     static constexpr const i18n::Strings* LanguageOfRow(size_t row) noexcept
     {

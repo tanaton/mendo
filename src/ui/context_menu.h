@@ -35,7 +35,6 @@ inline constexpr float CTX_NAV_BTN_SIZE = 28.0f;
 inline constexpr float CTX_NAV_BTN_GAP = 16.0f;
 inline constexpr float CTX_NAV_BUTTONS_WIDTH = 2 * CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP;
 inline constexpr float CTX_NAV_ROW_PAD_Y = 5.0f;
-inline constexpr float SEPARATOR_HEIGHT = 9.0f;
 inline constexpr float PAD_X = 28.0f;
 inline constexpr float PAD_Y = 4.0f;
 inline constexpr float CHECK_WIDTH = 20.0f;
@@ -110,7 +109,6 @@ struct ContextMenu : PopupWindow<ContextMenu> {
     void DrawNavRow();
     void DrawZoomRow(const Item& item);
     void DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered);
-    void DrawSeparator(const Item& item);
     void DrawTextItem(const Item& item);
 
     // 無効項目・区切り上は 0。

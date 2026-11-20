@@ -1,13 +1,15 @@
 #include <winresrc.h>
 #include "../src/util/resource.h"
+// CMake が作る (バージョンは CMakeLists.txt の project(VERSION) に書く)。
+#include "mendo_version.h"
 
 IDI_APP_ICON ICON "mendo.ico"
 
 1 RT_MANIFEST "mendo.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    0,5,1,0
-PRODUCTVERSION 0,5,1,0
+FILEVERSION    MENDO_VERSION_RC
+PRODUCTVERSION MENDO_VERSION_RC
 FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
 FILEFLAGS      0
 FILEOS         VOS_NT_WINDOWS32
@@ -19,12 +21,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "mendo - Insanely Fast Markdown Viewer"
-            VALUE "FileVersion", "0.5.1.0"
+            VALUE "FileVersion", MENDO_VERSION_STR
             VALUE "InternalName", "mendo"
             VALUE "LegalCopyright", "Copyright (c) 2025 tanaton"
             VALUE "OriginalFilename", "mendo.exe"
             VALUE "ProductName", "mendo"
-            VALUE "ProductVersion", "0.5.1.0"
+            VALUE "ProductVersion", MENDO_VERSION_STR
         END
     END
     BLOCK "VarFileInfo"

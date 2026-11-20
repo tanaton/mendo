@@ -82,8 +82,8 @@ void ContextMenu::ComputeLayout()
             break;
         }
         case ItemType::Separator:
-            item.rect = { 0, y, width, y + SEPARATOR_HEIGHT };
-            y += SEPARATOR_HEIGHT;
+            item.rect = { 0, y, width, y + POPUP_SEPARATOR_HEIGHT };
+            y += POPUP_SEPARATOR_HEIGHT;
             break;
         case ItemType::Text:
             item.rect = { 0, y, width, y + ITEM_HEIGHT };
@@ -188,7 +188,7 @@ void ContextMenu::PaintContent()
             DrawZoomRow(item);
             break;
         case ItemType::Separator:
-            DrawSeparator(item);
+            DrawSeparator(item.rect, SEPARATOR_MARGIN_X);
             break;
         case ItemType::Text:
             DrawTextItem(item);
@@ -226,16 +226,6 @@ void ContextMenu::DrawZoomRow(const Item& item)
     draw_btn(zoom_layout.reset_rect, GLYPH_ZOOM_RESET, ZoomDirection::Reset);
 
     DrawLabel(std::format(L"{}%", zoom->Percent()), fmt_text_center.Get(), zoom_layout.percent_rect, brushes.text.Get());
-}
-
-void ContextMenu::DrawSeparator(const Item& item)
-{
-    const float cy = RectCenter(item.rect).y;
-    rt->DrawLine(
-        { item.rect.left + SEPARATOR_MARGIN_X, cy },
-        { item.rect.right - SEPARATOR_MARGIN_X, cy },
-        brushes.border.Get(),
-        1.0f);
 }
 
 void ContextMenu::DrawTextItem(const Item& item)

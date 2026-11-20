@@ -1,9 +1,15 @@
 #include "settings_dialog.h"
+#include "mendo_version.h"
 #include <algorithm>
 #include <cmath>
 #include <format>
 
 using namespace settings_dialog_constants;
+
+std::wstring_view SettingsDialog::VersionText() noexcept
+{
+    return L"mendo v" MENDO_VERSION_STR;
+}
 
 void SettingsDialog::CreateTextFormats()
 {
@@ -31,7 +37,7 @@ void SettingsDialog::Rebuild()
 void SettingsDialog::ComputeLayout()
 {
     const auto& ls = i18n::S();
-    float content_w = std::max(Measure(ls.settings_title, fmt_title.Get()), Measure(ls.settings_language, fmt_text.Get()));
+    float content_w = std::max({ Measure(ls.settings_title, fmt_title.Get()), Measure(ls.settings_language, fmt_text.Get()), Measure(VersionText(), fmt_text.Get()) });
     for (size_t row = 0; row < kLanguageRowCount; ++row) {
         const auto [text, fmt] = LabelOfRow(row);
         content_w = std::max(content_w, CHECK_WIDTH + Measure(text, fmt));
@@ -48,6 +54,10 @@ void SettingsDialog::ComputeLayout()
         row = { 0.0f, y, w, y + ROW_HEIGHT };
         y += ROW_HEIGHT;
     }
+    l.separator = { 0.0f, y, w, y + POPUP_SEPARATOR_HEIGHT };
+    y += POPUP_SEPARATOR_HEIGHT;
+    l.version = { PAD_X, y, w - PAD_X, y + HEADING_HEIGHT };
+    y += HEADING_HEIGHT;
     height = y + BOTTOM_PAD;
     layout = l;
 }
@@ -131,4 +141,7 @@ void SettingsDialog::PaintContent()
         const auto [text, fmt] = LabelOfRow(row);
         DrawLabel(text, fmt, { PAD_X + CHECK_WIDTH, rect.top, w - PAD_X, rect.bottom }, brushes.text.Get());
     }
+
+    DrawSeparator(layout.separator, HOVER_MARGIN_X);
+    DrawLabel(VersionText(), fmt_text.Get(), layout.version, brushes.sub.Get());
 }

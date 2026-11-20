@@ -75,7 +75,7 @@ A lightweight, high-speed Markdown viewer.
 - **Diagram Viewer**: Use the same top-right buttons to open a diagram in its own window. Scroll with the wheel or by dragging, and zoom with the buttons at the window's top-right. The open diagram updates when you save the file
 - **Image Viewer**: Click an image in the document to open it at full size in the same window (an image with a link opens the link instead). It works like the diagram viewer, and the open image updates when the image file changes
 - **Open in Editor**: Select "Open in Editor" from the right-click menu to open the current file in your default editor
-- **Settings**: Click the gear button in the title bar to switch the display language (applied immediately)
+- **Settings**: Click the gear button in the title bar to switch the display language (applied immediately). The mendo version is shown at the bottom
 - **Dark Mode**: Toggle from the title bar button or the right-click menu
 - **Per-Area Zoom**: The document, file pane, and TOC pane each have their own zoom level. You can also change it from the "Zoom" row (−, +, reset) in the right-click menu, which stays open while you adjust
 - **Pane Resizing**: Drag the pane border to resize

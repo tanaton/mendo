@@ -54,7 +54,9 @@ TEST_F(SettingsDialogLayoutTest, RowsStackInsideDialog)
     for (size_t row = 1; row < l.languages.size(); ++row) {
         EXPECT_FLOAT_EQ(l.languages[row].top, l.languages[row - 1].bottom);
     }
-    EXPECT_LT(l.languages.back().bottom, dialog_.height);
+    EXPECT_FLOAT_EQ(l.separator.top, l.languages.back().bottom);
+    EXPECT_FLOAT_EQ(l.version.top, l.separator.bottom);
+    EXPECT_LT(l.version.bottom, dialog_.height);
 }
 
 TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
@@ -65,6 +67,7 @@ TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
         dialog_.Rebuild();
         const float system_w = dialog_.Measure(dialog_.system_language_text, dialog_.fmt_text.Get());
         EXPECT_LE(PAD_X + CHECK_WIDTH + system_w, dialog_.width - PAD_X + 0.5f);
+        EXPECT_LE(dialog_.Measure(SettingsDialog::VersionText(), dialog_.fmt_text.Get()), dialog_.layout.version.right - dialog_.layout.version.left + 0.5f);
     }
 }
 
@@ -77,6 +80,9 @@ TEST_F(SettingsDialogLayoutTest, HitTestFindsEachControl)
         EXPECT_EQ(HitAt(l.languages[row]), row);
     }
     EXPECT_EQ(HitAt(l.language_heading), std::nullopt);
+    // バージョンは見るだけ。
+    EXPECT_EQ(HitAt(l.separator), std::nullopt);
+    EXPECT_EQ(HitAt(l.version), std::nullopt);
 }
 
 TEST_F(SettingsDialogLayoutTest, ChoosingLanguageSwitchesAndRelayouts)
