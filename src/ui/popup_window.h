@@ -21,6 +21,8 @@ inline constexpr float POPUP_FRAME_ALPHA = 0.45f;
 // 見出しの文字。押せない文字 (DISABLED_UI_ALPHA) より濃くする。
 inline constexpr float POPUP_SUB_TEXT_ALPHA = 0.7f;
 inline constexpr float POPUP_HOVER_CORNER = 4.0f;
+// 区切り線の行の高さ。線は行の中央に引く (整数の位置から並べると 100% で線が画素に収まる)。
+inline constexpr float POPUP_SEPARATOR_HEIGHT = 9.0f;
 inline constexpr wchar_t POPUP_GLYPH_CHECKMARK[] = L"\xE73E";
 
 // ポップアップはどれも同じ振る舞いにし、新しいポップアップは中身だけを書けば済むようにする。
@@ -131,6 +133,13 @@ struct PopupWindow {
     void DrawCheck(const DipRect& rect)
     {
         DrawLabel(POPUP_GLYPH_CHECKMARK, fmt_icon.Get(), rect, brushes.check.Get());
+    }
+
+    // 高さ POPUP_SEPARATOR_HEIGHT の行 row の中央に、左右を margin_x ずつ空けて引く。
+    void DrawSeparator(const DipRect& row, float margin_x)
+    {
+        const float cy = RectCenter(row).y;
+        rt->DrawLine({ row.left + margin_x, cy }, { row.right - margin_x, cy }, brushes.border.Get(), 1.0f);
     }
 
     // ウィンドウを作って pos (左上、スクリーン座標) に置き、閉じるまで戻らない。title は読み上げ用のウィンドウ名で、

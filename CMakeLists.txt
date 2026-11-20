@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 4.2)
-project(mendo LANGUAGES CXX C)
+# バージョンはここにだけ書く。rc の VERSIONINFO と設定ダイアログの表示は、下で作る mendo_version.h から読む (ユーザーが選んだ)。
+project(mendo VERSION 0.5.1.0 LANGUAGES CXX C)
+# rc の FILEVERSION が 4 つの数を取るので、リリースのタグ (v0.5.1.0) と同じ 4 つで書く。
+if(PROJECT_VERSION_TWEAK STREQUAL "")
+    message(FATAL_ERROR "mendo: project(VERSION) needs four components, e.g. 0.5.1.0.")
+endif()
+# コンパイル定義で渡すと上げるたびに全部の翻訳単位が組み直しになるので、ヘッダーにして読むファイルを絞る。
+set(MENDO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+configure_file(src/util/mendo_version.h.in "${MENDO_GENERATED_DIR}/mendo_version.h" @ONLY)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -167,6 +175,8 @@ target_include_directories(mendo_core PUBLIC
     src src/app src/window src/core src/render src/layout
     src/ui src/input src/io src/mermaid src/theme src/util
 )
+# mendo_version.h を読むのは settings_dialog.cpp だけなので、テストやベンチには伝えない。
+target_include_directories(mendo_core PRIVATE "${MENDO_GENERATED_DIR}")
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
@@ -200,7 +210,7 @@ add_executable(mendo WIN32
 )
 target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 imm32 delayimp)
 add_dependencies(mendo mendo_js_bytecode)
-set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR}")
+set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR};${MENDO_GENERATED_DIR}")
 # ファイルダイアログでしか使わないので、起動時にロードしない。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
 # shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。

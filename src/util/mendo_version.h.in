@@ -1,0 +1,6 @@
+#pragma once
+// CMakeLists.txt の project(VERSION) から configure_file で作る (編集するのは CMakeLists.txt の方)。
+// rc も読むので、マクロだけを置く。
+// rc の FILEVERSION / PRODUCTVERSION の形 (コンマ区切りの 4 つの数)。
+#define MENDO_VERSION_RC @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@PROJECT_VERSION_TWEAK@
+#define MENDO_VERSION_STR "@PROJECT_VERSION@"
