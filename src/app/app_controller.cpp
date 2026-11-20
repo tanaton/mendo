@@ -423,6 +423,8 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
     // 文字位置はリンクと画像の判定にしか使わないので、それらを含むノードの上でだけ求める。
     std::optional<LinkHit> link;
     std::optional<ImageHit> image;
+    // クリックで拡大表示に開ける画像。クリックと同じく、リンクの中の画像はリンクを開く。
+    bool viewable = false;
     if (node_index >= 0) {
         const auto& doc = state.document.doc;
         const Node& node = doc.GetNodes()[node_index];
@@ -435,11 +437,12 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
             }
             if (has_images && hit.node_index == node_index && hit.char_pos != hit_test::HitResult::kNoChar) {
                 image = FindImageHitAtPosition(node, hit.char_pos);
+                viewable = !link && hit.on_image;
             }
         }
     }
     hover.tooltip = BuildMdContentTooltip(state, node_index, link, image);
-    result.cursor = hover.link.Navigable() ? PointerCursor::Hand : PointerCursor::IBeam;
+    result.cursor = hover.link.Navigable() || viewable ? PointerCursor::Hand : PointerCursor::IBeam;
 }
 
 } // namespace
@@ -464,6 +467,12 @@ std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResul
     const auto& nodes = state.document.doc.GetNodes();
     const Node* node = NodeAt(nodes, hit.node_index);
     return node ? FindLinkHitAtPosition(*node, hit.char_pos) : std::nullopt;
+}
+
+std::optional<ImageHit> ImageAtHit(const AppState& state, const hit_test::HitResult& hit)
+{
+    const Node* node = NodeAt(state.document.doc.GetNodes(), hit.node_index);
+    return node && hit.on_image ? FindImageHitAtPosition(*node, hit.char_pos) : std::nullopt;
 }
 
 std::optional<LinkHit> LinkAtPoint(const AppState& state, const PaneLayout& layout, DipPoint window_dip)

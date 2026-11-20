@@ -4,6 +4,8 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
+#include <algorithm>
+#include <cmath>
 #include <ranges>
 
 namespace {
@@ -213,6 +215,28 @@ ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UIN
     return {
         .bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target),
         .info = { static_cast<float>(decoded->pixel_width), static_cast<float>(decoded->pixel_height), width_limited ? target.width : UINT_MAX },
+    };
+}
+
+FullSizeImage ImageLoader::DecodeFullSize(IWICImagingFactory* wic, const std::wstring& path, UINT max_dim, uint64_t max_pixels)
+{
+    // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
+    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
+    const auto decoded = wic_util::DecodeImageFileFromMemory(wic, bytes);
+    if (!decoded) {
+        return {};
+    }
+    // 画素数の上限は、縦横比を保って幅で縮める。
+    const uint64_t pixels = uint64_t{ decoded->pixel_width } * decoded->pixel_height;
+    UINT max_width = 0;
+    if (pixels > max_pixels) {
+        max_width = std::max(static_cast<UINT>(decoded->pixel_width * std::sqrt(static_cast<double>(max_pixels) / static_cast<double>(pixels))), 1u);
+    }
+    const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, max_width, max_dim);
+    return {
+        .bitmap = wic_util::DecodeToWicBitmap(wic, *decoded, target),
+        .pixel_width = decoded->pixel_width,
+        .pixel_height = decoded->pixel_height,
     };
 }
 

@@ -31,6 +31,8 @@ public:
     virtual void OnInlineImagesUpdated(bool pending_resolved, bool sizes_changed) = 0;
     // 別の文書を読み込んでいる。この間は表示中の文書の画像と図 (拡大表示の図も) を新たに頼まない (届いた画像は取り込む)。
     virtual bool IsLoadingOtherDocument() const = 0;
+    // 拡大表示が待っている図を、本文の図と同じ回の中で本文と同じ幅とテーマで頼ませる (ZoomViewer::RequestDiagram)。
+    virtual void RequestViewerDrawing(float max_width, bool dark_mode) = 0;
 
 protected:
     ~ResourceManagerHost() = default;
@@ -88,7 +90,10 @@ public:
         return image_watcher_.AwaitsWorker();
     }
     void OnImageFolderEvent();
-    void OnImageReloadTimer();
+    // 戻り値: 更新されたファイル (拡大表示の画像の読み直しに使う)。
+    std::vector<std::wstring> OnImageReloadTimer();
+    // 文書の中の記述どおりの src の画像の絶対パス。解決できなければ null。
+    const std::wstring* ImagePath(std::string_view src);
 
 private:
     // range のノードの図の推定高さを、前に描いた図の寸法 (IMermaidRenderer::KnownSize) で上書きする

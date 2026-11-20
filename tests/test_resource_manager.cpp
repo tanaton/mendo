@@ -80,12 +80,6 @@ public:
     int release_idle_count = 0;
     // 最後に ReleaseIdleDrawings が呼ばれたときまでに頼まれた図の数。
     size_t requested_before_release = 0;
-
-    void RequestViewerDrawing(float max_width, bool dark_mode) override
-    {
-        viewer_requests.emplace_back(max_width, dark_mode);
-    }
-    std::vector<std::pair<float, bool>> viewer_requests;
 };
 
 // ResourceManagerHost の各呼び出しを記録する。
@@ -100,6 +94,11 @@ struct TestResourceManagerHost final : ResourceManagerHost {
     {
         return loading_other;
     }
+    void RequestViewerDrawing(float max_width, bool dark_mode) override
+    {
+        viewer_requests.emplace_back(max_width, dark_mode);
+    }
+    std::vector<std::pair<float, bool>> viewer_requests;
     void SetTimer(app_timer::Id id, UINT) override
     {
         last_set_timer_id = id;
@@ -1209,14 +1208,14 @@ TEST_F(ResourceManagerTest, ViewerDrawingRequestedWithBodyWidthAndTheme)
 {
     LoadMarkdown("text\n");
     rm_.RequestMermaidRenders();
-    ASSERT_EQ(mock_mermaid_.viewer_requests.size(), 1u);
-    EXPECT_FLOAT_EQ(mock_mermaid_.viewer_requests[0].first, kContentWidth);
-    EXPECT_FALSE(mock_mermaid_.viewer_requests[0].second);
+    ASSERT_EQ(host_.viewer_requests.size(), 1u);
+    EXPECT_FLOAT_EQ(host_.viewer_requests[0].first, kContentWidth);
+    EXPECT_FALSE(host_.viewer_requests[0].second);
 
     theme_.dark = true;
     rm_.FlushPendingResources();
-    ASSERT_EQ(mock_mermaid_.viewer_requests.size(), 2u);
-    EXPECT_TRUE(mock_mermaid_.viewer_requests[1].second);
+    ASSERT_EQ(host_.viewer_requests.size(), 2u);
+    EXPECT_TRUE(host_.viewer_requests[1].second);
 }
 
 // 別の文書を読み込んでいる間は、拡大表示の図も頼まない (開いた文書の最初の図を待たせる)。差し替えずに終わったら頼む。
@@ -1228,11 +1227,11 @@ TEST_F(ResourceManagerTest, NoViewerDrawingRequestWhileLoadingOtherDocument)
     rm_.RequestMermaidRenders();
     rm_.FlushPendingResources();
     rm_.OnResourceManageTimer();
-    EXPECT_TRUE(mock_mermaid_.viewer_requests.empty());
+    EXPECT_TRUE(host_.viewer_requests.empty());
 
     host_.loading_other = false;
     rm_.OnResourceManageTimer();
-    EXPECT_EQ(mock_mermaid_.viewer_requests.size(), 1u);
+    EXPECT_EQ(host_.viewer_requests.size(), 1u);
 }
 
 // 画像も同じ。捨てた要求が読まずに戻っても (待つ間に頼み直してあると読み直させる)、読み込み中は頼み直さない。

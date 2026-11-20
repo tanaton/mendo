@@ -17,6 +17,15 @@
 
 class TaskScheduler;
 
+// 拡大表示のために読んだ画像 (ImageLoader::DecodeFullSize)。
+struct FullSizeImage {
+    // 32bpp PBGRA。読めなければ null。
+    Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+    // 元の画像の画素数。bitmap は上限を超える画像だけ縮めてある。
+    UINT pixel_width = 0;
+    UINT pixel_height = 0;
+};
+
 // ImageLoader::ProcessCompletedDecodes で GPU に載せたビットマップ。TakeDelivered で受け取った側が描く側へ渡す。
 class DeliveredImages {
 public:
@@ -97,6 +106,9 @@ public:
     void Invalidate(const std::wstring& abs_path);
 
     void Shutdown();
+
+    // 拡大表示の画像を原寸で読む。一辺が max_dim (GPU の最大) を、画素数が max_pixels を超える画像だけ縮める。worker で呼ぶ。
+    static FullSizeImage DecodeFullSize(IWICImagingFactory* wic, const std::wstring& path, UINT max_dim, uint64_t max_pixels);
 
     // 寸法の表と受け取ったビットマップを空にする。テスト専用。
     void ClearImagesForTest() noexcept

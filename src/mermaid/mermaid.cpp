@@ -6,7 +6,6 @@
 #include "resource.h"
 #include "task_scheduler.h"
 #include "win32_util.h"
-#include <d3d11.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
@@ -194,13 +193,11 @@ void MermaidRenderer::Shutdown()
     pele_.reset();
     renders_running_ = 0;
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
-    CloseViewer();
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
-                           ViewerFactory open_viewer, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed)
+                           std::move_only_function<void()> on_update)
 {
-    open_viewer_ = open_viewer;
     hwnd_ = hwnd;
     d2d_factory_ = d2d;
     wic_factory_ = wic;
@@ -208,7 +205,6 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic
     bg_scheduler_ = &bg_scheduler;
     make_pele_ = std::move(make_pele);
     on_update_ = std::move(on_update);
-    on_viewer_failed_ = std::move(on_viewer_failed);
 }
 
 void MermaidRenderer::TrimIdleRuntimes()
@@ -220,17 +216,12 @@ void MermaidRenderer::TrimIdleRuntimes()
     }
 }
 
-void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d, ID2D1Device* device)
+void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
 {
     render_target_ = render_target;
-    d3d_device_ = d3d;
-    d2d_device_ = device;
     // 旧デバイスで記録できなかったエラーも捨てて再試行させる。解いた描画命令は残し、記録し直す。
     cache_.ResetDevice();
     record_dc_ = CreateRecordContext(render_target);
-    if (ViewerOpen()) {
-        viewer_.view->SetDevice(d3d, device);
-    }
 }
 
 void MermaidRenderer::DropQueued()
@@ -621,88 +612,8 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBa
     });
 }
 
-void MermaidRenderer::OpenViewer(std::string_view code, int node, bool dark_mode)
+const DiagramResult* MermaidRenderer::RequestViewerDrawing(std::string_view code, float max_width, bool dark_mode)
 {
-    const bool open = ViewerOpen();
-    viewer_.node = node;
-    if (open) {
-        viewer_.view->BringToFront();
-        if (viewer_.code == code) {
-            return;
-        }
-    }
-    viewer_.code.assign(code);
-    if (open) {
-        viewer_.view->ShowLoading();
-    }
-    else if (viewer_.view = open_viewer_(hwnd_, d3d_device_.Get(), d2d_device_.Get(), dw_factory_.Get(), wic_factory_.Get(), dark_mode, [this] { CloseViewer(); });
-             !viewer_.view) {
-        FailViewer();
-        return;
-    }
-    AwaitViewerDrawing();
-}
-
-void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
-{
-    if (!ViewerOpen()) {
-        return;
-    }
-    viewer_.view->SetDarkMode(dark_mode);
-    AwaitViewerDrawing();
-}
-
-void MermaidRenderer::UpdateViewerCode(std::string_view code)
-{
-    if (!ViewerOpen() || viewer_.code == code) {
-        return;
-    }
-    viewer_.code.assign(code);
-    AwaitViewerDrawing();
-}
-
-void MermaidRenderer::ApplyViewerLanguage()
-{
-    if (ViewerOpen()) {
-        viewer_.view->ApplyLanguage();
-    }
-}
-
-void MermaidRenderer::CloseViewer()
-{
-    // 窓も壊す。頼んだ図の描画は止めず、結果は本文と同じキャッシュに残る。
-    viewer_ = {};
-}
-
-void MermaidRenderer::FailViewer()
-{
-    CloseViewer();
-    on_viewer_failed_();
-}
-
-void MermaidRenderer::AwaitViewerDrawing()
-{
-    viewer_.pending = true;
-    on_update_();
-}
-
-void MermaidRenderer::RequestViewerDrawing(float max_width, bool dark_mode)
-{
-    if (!viewer_.pending || !ViewerOpen()) {
-        return;
-    }
-    const auto* item = FindOrRequest(viewer_.code, max_width, dark_mode);
-    if (!item) {
-        return;
-    }
-    viewer_.pending = false;
-    if (const DiagramResult& result = item->result; result.drawing) {
-        // デバイスが変わって外したコマンドリストは、窓が自分で記録する (ここで記録してキャッシュに入れると、本文の図が
-        // 表示していなくても残る)。
-        viewer_.view->SetDrawing(result.drawing, result.commands);
-    }
-    // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
-    else if (!viewer_.view->HasDrawing()) {
-        FailViewer();
-    }
+    const auto* item = FindOrRequest(code, max_width, dark_mode);
+    return item ? &item->result : nullptr;
 }

@@ -106,11 +106,12 @@ bool App::Init(HWND hwnd)
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
+    // 結果を待っていた図と、拡大表示に出す図を要求し直して反映する。
+    const auto request_diagrams = [this] { resource_manager_.RequestMermaidRenders(); };
     mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), scheduler_,
-                           &MermaidRenderer::CreateBundledPele, &DiagramView::Open, [this]() {
-        // 結果を待っていた図と、拡大表示に出す図を要求し直して反映する。
-        resource_manager_.RequestMermaidRenders();
-    }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
+                           &MermaidRenderer::CreateBundledPele, request_diagrams);
+    zoom_viewer_.Init(hwnd_, app_msg::VIEWER_IMAGE_DECODED, renderer_.GetDWriteFactory(), renderer_.GetWICFactory(), scheduler_, &ZoomWindow::Open,
+                      request_diagrams, [this](std::wstring_view message) { ShowToast(message); });
 
     image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
@@ -189,7 +190,8 @@ void App::AwaitImageFoldersBeforeDevice()
 void App::ShareRenderTarget()
 {
     auto* const rt = renderer_.GetRenderTarget();
-    mermaid_renderer_.SetRenderTarget(rt, renderer_.GetD3DDevice(), renderer_.GetD2DDevice());
+    mermaid_renderer_.SetRenderTarget(rt);
+    zoom_viewer_.SetRenderTarget(rt, renderer_.GetD3DDevice(), renderer_.GetD2DDevice());
     image_loader_.SetRenderTarget(rt);
 }
 
@@ -437,6 +439,11 @@ void App::OnTableMeasured()
     // 届く前の寸法で組んだかもしれない表は、先に組み直す印を付けて、後始末を 1 回で済ませる。
     const bool remeasure = placed.stale_inline && InvalidatePendingInline(/*force_tables=*/false);
     FinishLayout(remeasure ? LayoutChange::Remeasure : LayoutChange::Reflowed, LayoutCaller::Message);
+}
+
+void App::OnViewerImageDecoded()
+{
+    zoom_viewer_.OnImageDecoded();
 }
 
 bool App::RequestInlineMathChunk(uint64_t key)
@@ -699,7 +706,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         RunReloadCommand(reload_.OnTimer(state_.view.IsSelectingText()));
         return;
     case IMAGE_RELOAD:
-        resource_manager_.OnImageReloadTimer();
+        zoom_viewer_.OnImageFilesChanged(resource_manager_.OnImageReloadTimer());
         return;
     case SCROLL_SETTLE:
         KillTimer(id);
@@ -952,8 +959,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 監視は新しい文書で始め直すので、前の文書の読み直しはやめる
     RunReloadCommand(reload_.OnDocumentReplaced());
     resource_manager_.DropQueues();
-    // 拡大表示は開いた文書の図なので一緒に閉じる
-    mermaid_renderer_.CloseViewer();
+    // 拡大表示は前の文書の図か画像なので一緒に閉じる
+    zoom_viewer_.Close();
     // 前の文書の図の解いた描画命令とコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図が
     // あれば、手放す前に受け取って解き直さない)。
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
@@ -1017,18 +1024,18 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     Dispatch(ReloadSettledAction{});
 
-    if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), mermaid_renderer_.ViewerNode(), NodeType::Diagram)) {
-        mermaid_renderer_.UpdateViewerCode(node->GetText());
+    if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), zoom_viewer_.DiagramNode(), NodeType::Diagram)) {
+        zoom_viewer_.UpdateDiagramCode(node->GetText());
     }
 }
 
 void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
 {
-    const std::optional<std::string_view> shown = mermaid_renderer_.ViewerCode();
+    const std::optional<std::string_view> shown = zoom_viewer_.DiagramCode();
     if (!shown) {
         return;
     }
-    int node = mermaid_renderer_.ViewerNode();
+    int node = zoom_viewer_.DiagramNode();
     if (node >= 0) {
         node = MapDiagramAcrossReload(state_.document.doc.GetNodes(), next.GetNodes(), ends, static_cast<size_t>(node));
     }
@@ -1039,7 +1046,7 @@ void App::FollowViewerNode(const Document& next, const UnchangedEnds& ends)
         const auto it = std::ranges::find(diagrams, *shown, [&](size_t i) { return std::string_view{ nodes[i].GetText() }; });
         node = it != diagrams.end() ? static_cast<int>(*it) : -1;
     }
-    mermaid_renderer_.SetViewerNode(node);
+    zoom_viewer_.SetDiagramNode(node);
 }
 
 void App::StartFileWatch(FileWatchTarget target)
@@ -1165,6 +1172,7 @@ void App::OnDestroy()
         SaveSession();
     }
 
+    zoom_viewer_.Shutdown();
     mermaid_renderer_.Shutdown();
     // 計測ワーカーが measurer_ を参照したまま走らないよう、表の組みを待ってから参照を外して join する。
     table_jobs_.CancelAll();
@@ -1235,7 +1243,7 @@ void App::ToggleDarkMode()
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
-    mermaid_renderer_.SetViewerDarkMode(dark);
+    zoom_viewer_.SetDarkMode(dark);
     session::SaveDarkMode(config_, dark);
 }
 
@@ -1310,6 +1318,12 @@ void App::OnLButtonUp(int px, int py)
     if (const auto link = app_controller::LinkAtHit(state_, hit)) {
         // ファイル一覧の項目と同じく Ctrl+クリックは新しいウィンドウ。
         HandleLinkClick(link->url, IsKeyDown(VK_CONTROL));
+    }
+    // GitHub と同じく、リンクの外の画像はクリックで原寸の画像を開く。
+    else if (const auto image = app_controller::ImageAtHit(state_, hit)) {
+        if (const std::wstring* path = resource_manager_.ImagePath(image->src)) {
+            zoom_viewer_.OpenImage(*path, theme_service_.GetTheme().dark);
+        }
     }
 }
 
@@ -1478,7 +1492,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         return;
     case OverlayButton::DiagramView:
         if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), hit.node, NodeType::Diagram)) {
-            mermaid_renderer_.OpenViewer(node->GetText(), hit.node, dark);
+            zoom_viewer_.OpenDiagram(node->GetText(), hit.node, dark);
         }
         return;
     case OverlayButton::DiagramCopy:
@@ -1752,7 +1766,7 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
         return;
     }
     renderer_.OnLanguageChanged();
-    mermaid_renderer_.ApplyViewerLanguage();
+    zoom_viewer_.ApplyLanguage();
     // 別のファイルを読み込み中ならそれに差し替わる。読み直すとその読み込みを取り消し、仮の履歴を確定させてしまう。
     if (IsHelpPath(state_.document.doc.GetFilePath()) && !load_coordinator_.IsActive()) {
         ShowEmbeddedResource(HELP_PATH);

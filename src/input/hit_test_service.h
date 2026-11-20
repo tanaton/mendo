@@ -66,6 +66,9 @@ struct HitResult {
     uint32_t text_pos = 0;
     // 点の下にある文字の位置 (リンクの判定)。文字の上でなければ kNoChar。
     uint32_t char_pos = kNoChar;
+    // 点の下が、描いている画像の箱か。読み込み中の幅 0 の箱と、読めない画像 (アイコンと alt) は含めない。
+    // 描いた layout の inline object で決めるので、カーソルと描画が食い違わない。
+    bool on_image = false;
 };
 
 HitResult HitTest(const MdPaneHitContext& ctx) noexcept;

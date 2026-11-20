@@ -5,6 +5,7 @@
 #include "app_controller.h"
 #include "command_generator.h"
 #include "draw_cmd_test_util.h"
+#include "inline_math.h"
 #include "reducer_harness.h"
 #include "tooltip.h"
 #include "chrome_layout.h"
@@ -20,8 +21,15 @@ protected:
     // 既定の幅のサイドペイン 2 枚の右に、幅 600 の本文。
     static constexpr float kWindowWidth = 1048.0f;
 
+    void TearDown() override
+    {
+        measurer_.SetInlineImages(nullptr);
+        DWriteTestBase::TearDown();
+    }
+
     void Load(std::string_view md)
     {
+        measurer_.SetInlineImages(&images_);
         state_.theme = &theme_;
         state_.document.doc = Document::FromMarkdown(std::string(md), L"C:\\docs\\a.md");
         SetPaneHeight(400.0f);
@@ -47,9 +55,20 @@ protected:
     {
         return app_controller::ResolvePointerHover(state_, layout_, static_cast<int>(p.x), static_cast<int>(p.y), false);
     }
+    hit_test::HitResult HitAt(DipPoint p) const
+    {
+        return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, layout_, p));
+    }
+
+    void SetImage(std::string_view src, InlineImageState state)
+    {
+        images_.Exchange(InlineImageKey(src), { .state = state, .size = { 40.0f, 20.0f } });
+    }
 
     AppState state_;
     PaneLayout layout_;
+    // 計測が画像の箱を組むのに引く寸法表。
+    InlineImageTable images_;
 };
 
 } // namespace
@@ -85,6 +104,36 @@ TEST_F(LinkHoverTest, ShowsDestinationAndCursorPerLink)
     const auto off = HoverAt(CharCenter(3));
     EXPECT_FALSE(off.hover.link.Any());
     EXPECT_EQ(off.cursor, PointerCursor::IBeam);
+}
+
+// 描いている画像はクリックで拡大表示に開くので、手の形のカーソルにする (クリックの ImageAtHit と同じ)。リンクの中の画像は
+// GitHub と同じくリンクを開き (クリックは LinkAtHit を先に見る)、読めない画像 (アイコンと alt) は開かない。
+TEST_F(LinkHoverTest, HandCursorOnlyOverViewableImage)
+{
+    SetImage("a.png", InlineImageState::Ready);
+    SetImage("b.png", InlineImageState::Ready);
+    SetImage("c.png", InlineImageState::Unavailable);
+    // 本文の文字列は "a b c" で、どれも画像の alt。
+    Load("![a](a.png) [![b](b.png)](https://example.com) ![c](c.png)");
+
+    const DipPoint plain = CharCenter(0);
+    const auto on_plain = HoverAt(plain);
+    EXPECT_EQ(on_plain.cursor, PointerCursor::Hand);
+    EXPECT_FALSE(on_plain.hover.link.Any());
+    EXPECT_EQ(on_plain.hover.tooltip.target.zone, TooltipTarget::Zone::MdImage);
+    const auto viewable = app_controller::ImageAtHit(state_, HitAt(plain));
+    ASSERT_TRUE(viewable);
+    EXPECT_EQ(viewable->src, "a.png");
+
+    const DipPoint linked = CharCenter(2);
+    const auto on_linked = HoverAt(linked);
+    EXPECT_EQ(on_linked.cursor, PointerCursor::Hand);
+    EXPECT_TRUE(on_linked.hover.link.Any());
+    EXPECT_TRUE(app_controller::LinkAtHit(state_, HitAt(linked)));
+
+    const DipPoint broken = CharCenter(4);
+    EXPECT_EQ(HoverAt(broken).cursor, PointerCursor::IBeam);
+    EXPECT_FALSE(app_controller::ImageAtHit(state_, HitAt(broken)));
 }
 
 // ツールチップの URL も、見えない文字を %XX にして出す。

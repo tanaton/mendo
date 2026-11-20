@@ -1,7 +1,6 @@
 #pragma once
 #include "document_types.h"
 #include "diagram_raster.h"
-#include "diagram_view.h"
 #include "inline_math.h"
 #include "layout_cache.h"
 #include "mermaid_renderer_interface.h"
@@ -124,7 +123,7 @@ private:
 };
 
 // Mermaid の図を描画命令にして ID2D1CommandList に記録する。図は bg のワーカーで pele を QuickJS で動かして描き (PeleEngine)、
-// 拡大表示 (DiagramView) と保存・コピーの画像もその描画命令から作る。図のラベルの数式とインライン数式は同じランタイムの
+// 拡大表示 (ZoomViewer) と保存・コピーの画像もその描画命令から作る。図のラベルの数式とインライン数式は同じランタイムの
 // KaTeX で描く。描画命令にできない図は描かず、描けないことを知らせる。パブリックメソッドはすべて UI スレッドから呼ぶ。
 class MermaidRenderer : public IMermaidRenderer {
 public:
@@ -139,22 +138,17 @@ public:
     // 作る (テストの exe は埋め込みリソースを持たない)。
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
-    // 拡大表示の窓を開く。開けなければ null。本番は DiagramView::Open で、テストは窓を作らない実装を返す。
-    // d3d と device は本体の描画デバイス (SetRenderTarget で受けたもの)。
-    using ViewerFactory = std::unique_ptr<IDiagramViewer> (*)(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw,
-                                                              IWICImagingFactory* wic, bool dark, std::move_only_function<void()> on_close);
 
     // d2d・wic・dw は Renderer と共有し、保存・コピーの画像の描画先 (d2d) と画像 (wic)、図の文字 (dw) を作るのに使う。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
-              ViewerFactory open_viewer, std::move_only_function<void()> on_update, std::move_only_function<void()> on_viewer_failed);
+              std::move_only_function<void()> on_update);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     std::optional<mermaid_util::DiagramSize> KnownSize(const Node& node, float max_width, bool dark_mode) const override;
     // インライン数式をまとめて bg のワーカーで描く (PeleEngine の KaTeX)。図と同じ同時に描く数の枠を使う。
     // 速いので図の結果のキャッシュには置かない。
     void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback);
-    // d3d と device は render_target を作った描画デバイス (拡大表示の窓のスワップチェーンを作って描く)。無ければ拡大表示を開けない。
-    void SetRenderTarget(ID2D1RenderTarget* render_target, ID3D11Device* d3d = nullptr, ID2D1Device* device = nullptr);
+    void SetRenderTarget(ID2D1RenderTarget* render_target);
     // 本体の窓の DPR で今その場で描く (大きな図は画素数の上限まで縮める)。
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
@@ -180,32 +174,10 @@ public:
     // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
     void TrimIdleRuntimes();
 
-    // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
-    // node は呼び出し側の図の目印で、窓と一緒に消える (ViewerNode)。
-    void OpenViewer(std::string_view code, int node, bool dark_mode);
-    void CloseViewer();
-    // 拡大表示は本文と同じ結果 (cache_) を使う。本文が描いた図はその描画命令をそのまま出し、無ければ表示用の要求として
-    // 描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。
-    void RequestViewerDrawing(float max_width, bool dark_mode) override;
-    // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
-    void SetViewerDarkMode(bool dark_mode);
-    // 開いている図のコード。閉じていれば nullopt (図を空にして保存すると、開いていてもコードは空になる)。
-    std::optional<std::string_view> ViewerCode() const noexcept
-    {
-        return ViewerOpen() ? std::optional<std::string_view>{ viewer_.code } : std::nullopt;
-    }
-    // 開いている図の目印。閉じていれば -1。読み直しで図を見失ったら SetViewerNode(-1) にする。
-    int ViewerNode() const noexcept
-    {
-        return ViewerOpen() ? viewer_.node : -1;
-    }
-    void SetViewerNode(int node) noexcept
-    {
-        viewer_.node = node;
-    }
-    // 保存で図が変わったら、位置とボタンで変えた倍率を保って差し替える。描けなければ今の図を残す。開いていない・同じコードなら何もしない。
-    void UpdateViewerCode(std::string_view code);
-    void ApplyViewerLanguage();
+    // 拡大表示 (ZoomViewer) の図。本文と同じ結果 (cache_) を使い、本文が描いた図はその描画命令をそのまま出し、無ければ
+    // 表示用の要求として描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。結果 (描画命令かエラー) が出ていれば
+    // 返し、まだなら null (結果が出たら on_update で知らせる)。戻り値は次にキャッシュを変えるまで使える。
+    const DiagramResult* RequestViewerDrawing(std::string_view code, float max_width, bool dark_mode);
 
 private:
     struct MathRequest {
@@ -240,16 +212,6 @@ private:
         bool dark_mode = false;
         // 結果の渡し先。図 (DisplayTarget) は結果をキャッシュに持ち、数式 (MathRequest) はコールバックで返す。数式は code などを使わない。
         std::variant<DisplayTarget, MathRequest> target;
-    };
-
-    // 図の拡大表示 (窓は DiagramView が持つ)。
-    struct Viewer {
-        std::unique_ptr<IDiagramViewer> view;
-        // 最後に要求した図。描けなかったコードも入るので、出ている絵のコードとは限らない。
-        std::string code;
-        int node = -1;
-        // code の図の結果をまだ窓に渡していない。
-        bool pending = false;
     };
 
     enum class JobWork : uint8_t {
@@ -302,13 +264,6 @@ private:
     static constexpr size_t MAX_LAST_DRAWN = DiagramCache::MAX_BYTES / DiagramCache::ITEM_BYTES;
 
     void ApplyMathResult(Job& r);
-    bool ViewerOpen() const noexcept
-    {
-        return viewer_.view && viewer_.view->IsOpen();
-    }
-    // 拡大表示に出す図が変わった。待ちの印を付け、on_update で頼ませる (印だけだと窓が読み込み中のまま残る)。
-    void AwaitViewerDrawing();
-    void FailViewer();
 
     // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
     void EnsurePele();
@@ -340,15 +295,8 @@ private:
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
-    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
-    // render_target_ のデバイス。拡大表示の窓はこれで描く。
-    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
-
-    ViewerFactory open_viewer_ = nullptr;
-    Viewer viewer_;
-    std::move_only_function<void()> on_viewer_failed_;
 
     std::move_only_function<void()> on_update_;
 

@@ -138,6 +138,7 @@ add_library(mendo_core STATIC
     src/ui/settings_dialog.cpp
     src/ui/titlebar.cpp
     src/ui/tooltip.cpp
+    src/ui/zoom_viewer.cpp
     src/input/hit_test_service.cpp
     src/io/file_explorer.cpp
     src/io/config_service.cpp
@@ -147,7 +148,6 @@ add_library(mendo_core STATIC
     src/mermaid/mermaid_util.cpp
     src/mermaid/diagram_raster.cpp
     src/mermaid/pele_engine.cpp
-    src/mermaid/diagram_view.cpp
     src/theme/theme.cpp
     src/app/async_load_coordinator.cpp
     src/app/app_controller.cpp

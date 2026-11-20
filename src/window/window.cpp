@@ -590,6 +590,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnTableMeasured();
         return 0;
 
+    case app_msg::VIEWER_IMAGE_DECODED:
+        app_->OnViewerImageDecoded();
+        return 0;
+
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

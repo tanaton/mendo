@@ -44,7 +44,9 @@ struct Strings {
     std::wstring_view tooltip_view_diagram;
 
     // 図の拡大表示ウィンドウ
-    std::wstring_view viewer_title;
+    // 拡大表示の窓のタイトル。画像はファイル名の後ろに付ける。
+    std::wstring_view viewer_diagram_title;
+    std::wstring_view viewer_image_title;
     std::wstring_view viewer_zoom_in;
     std::wstring_view viewer_zoom_out;
     std::wstring_view viewer_fit;
@@ -78,6 +80,7 @@ struct Strings {
     std::wstring_view toast_diagram_copied;
     std::wstring_view toast_diagram_copy_failed;
     std::wstring_view toast_diagram_view_failed;
+    std::wstring_view toast_image_view_failed;
 
     std::wstring_view loading;
 
@@ -125,7 +128,8 @@ inline constexpr Strings kJa = {
     .tooltip_save_image = L"画像を保存",
     .tooltip_copy_diagram = L"クリップボードにコピー",
     .tooltip_view_diagram = L"拡大表示",
-    .viewer_title = L"図の拡大表示",
+    .viewer_diagram_title = L"図の拡大表示",
+    .viewer_image_title = L"画像の拡大表示",
     .viewer_zoom_in = L"拡大 (+)",
     .viewer_zoom_out = L"縮小 (-)",
     .viewer_fit = L"全体を表示 (0)",
@@ -151,6 +155,7 @@ inline constexpr Strings kJa = {
     .toast_diagram_copied = L"クリップボードにコピーしました",
     .toast_diagram_copy_failed = L"コピーに失敗しました",
     .toast_diagram_view_failed = L"図を開けませんでした",
+    .toast_image_view_failed = L"画像を開けませんでした",
     .loading = L"読み込み中...",
     .diagram_error = L"図の描画に失敗しました",
     .diagram_unsupported = L"この図は描画できません",
@@ -188,7 +193,8 @@ inline constexpr Strings kEn = {
     .tooltip_save_image = L"Save Image",
     .tooltip_copy_diagram = L"Copy to clipboard",
     .tooltip_view_diagram = L"Enlarge",
-    .viewer_title = L"Diagram Viewer",
+    .viewer_diagram_title = L"Diagram Viewer",
+    .viewer_image_title = L"Image Viewer",
     .viewer_zoom_in = L"Zoom In (+)",
     .viewer_zoom_out = L"Zoom Out (-)",
     .viewer_fit = L"Fit to Window (0)",
@@ -214,6 +220,7 @@ inline constexpr Strings kEn = {
     .toast_diagram_copied = L"Copied to clipboard",
     .toast_diagram_copy_failed = L"Copy failed",
     .toast_diagram_view_failed = L"Could not open the diagram",
+    .toast_image_view_failed = L"Could not open the image",
     .loading = L"Loading...",
     .diagram_error = L"Failed to render diagram",
     .diagram_unsupported = L"This diagram cannot be rendered",
@@ -251,7 +258,8 @@ inline constexpr Strings kZh = {
     .tooltip_save_image = L"保存图像",
     .tooltip_copy_diagram = L"复制到剪贴板",
     .tooltip_view_diagram = L"放大查看",
-    .viewer_title = L"图表查看器",
+    .viewer_diagram_title = L"图表查看器",
+    .viewer_image_title = L"图片查看器",
     .viewer_zoom_in = L"放大 (+)",
     .viewer_zoom_out = L"缩小 (-)",
     .viewer_fit = L"适应窗口 (0)",
@@ -277,6 +285,7 @@ inline constexpr Strings kZh = {
     .toast_diagram_copied = L"已复制到剪贴板",
     .toast_diagram_copy_failed = L"复制失败",
     .toast_diagram_view_failed = L"无法打开图表",
+    .toast_image_view_failed = L"无法打开图片",
     .loading = L"正在加载...",
     .diagram_error = L"图表渲染失败",
     .diagram_unsupported = L"无法绘制此图表",
@@ -314,7 +323,8 @@ inline constexpr Strings kZhHant = {
     .tooltip_save_image = L"儲存圖片",
     .tooltip_copy_diagram = L"複製到剪貼簿",
     .tooltip_view_diagram = L"放大檢視",
-    .viewer_title = L"圖表檢視器",
+    .viewer_diagram_title = L"圖表檢視器",
+    .viewer_image_title = L"圖片檢視器",
     .viewer_zoom_in = L"放大 (+)",
     .viewer_zoom_out = L"縮小 (-)",
     .viewer_fit = L"符合視窗 (0)",
@@ -340,6 +350,7 @@ inline constexpr Strings kZhHant = {
     .toast_diagram_copied = L"已複製到剪貼簿",
     .toast_diagram_copy_failed = L"複製失敗",
     .toast_diagram_view_failed = L"無法開啟圖表",
+    .toast_image_view_failed = L"無法開啟圖片",
     .loading = L"正在載入...",
     .diagram_error = L"無法繪製圖表",
     .diagram_unsupported = L"無法繪製此圖表",
@@ -377,7 +388,8 @@ inline constexpr Strings kKo = {
     .tooltip_save_image = L"이미지 저장",
     .tooltip_copy_diagram = L"클립보드에 복사",
     .tooltip_view_diagram = L"크게 보기",
-    .viewer_title = L"다이어그램 보기",
+    .viewer_diagram_title = L"다이어그램 보기",
+    .viewer_image_title = L"이미지 보기",
     .viewer_zoom_in = L"확대 (+)",
     .viewer_zoom_out = L"축소 (-)",
     .viewer_fit = L"창에 맞추기 (0)",
@@ -403,6 +415,7 @@ inline constexpr Strings kKo = {
     .toast_diagram_copied = L"클립보드에 복사했습니다",
     .toast_diagram_copy_failed = L"복사하지 못했습니다",
     .toast_diagram_view_failed = L"다이어그램을 열 수 없습니다",
+    .toast_image_view_failed = L"이미지를 열 수 없습니다",
     .loading = L"불러오는 중...",
     .diagram_error = L"다이어그램을 그리지 못했습니다",
     .diagram_unsupported = L"이 다이어그램은 그릴 수 없습니다",

@@ -4,6 +4,9 @@
 #include "layout.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
+#include "app_constants.h"
+#include "fake_zoom_window.h"
+#include "i18n.h"
 #include "file_io.h"
 #include "image_loader.h"
 #include "layout_invariants.h"
@@ -709,6 +712,33 @@ TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
     const auto decoded = Decode(L"keep.jpg");
     ASSERT_TRUE(decoded);
     ExpectPbgraOfSize(wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { 64, 32 }).Get(), 64, 32);
+}
+
+// 拡大表示の画像は原寸で読み、一辺が GPU の最大を、画素数が上限を超える画像だけ縦横比を保って縮める。元の画素数は縮めても
+// 元のまま返す (100% の大きさを決める)。
+TEST_F(WicDecodeTest, DecodeFullSizeShrinksOnlyBeyondLimits)
+{
+    ASSERT_TRUE(CreateTestImage(L"full.png", GUID_ContainerFormatPng, 1000, 500));
+    const std::wstring path = GetTestImagePath(L"full.png");
+    struct Case {
+        UINT max_dim;
+        uint64_t max_pixels;
+        UINT width;
+        UINT height;
+    };
+    const Case kCases[] = {
+        { 16384, 1000 * 500, 1000, 500 },
+        { 16384, 125000, 500, 250 },
+        { 400, uint64_t{ 1 } << 30, 400, 200 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.max_pixels);
+        const auto image = ImageLoader::DecodeFullSize(wic_factory_.Get(), path, c.max_dim, c.max_pixels);
+        ExpectPbgraOfSize(image.bitmap.Get(), c.width, c.height);
+        EXPECT_EQ(image.pixel_width, 1000u);
+        EXPECT_EQ(image.pixel_height, 500u);
+    }
+    EXPECT_FALSE(ImageLoader::DecodeFullSize(wic_factory_.Get(), GetTestImagePath(L"missing.png"), 16384, uint64_t{ 1 } << 30).bitmap);
 }
 
 // ============================================================
@@ -1432,4 +1462,195 @@ TEST_F(ImageLoaderAsyncTest, InvalidateWhilePendingKeepsResultStale)
         ASSERT_TRUE(DrainDecodes());
     }
     EXPECT_FALSE(loader_.HasGivenUp(missing));
+}
+
+// ============================================================
+// 拡大表示の画像 (ZoomViewer)
+// ============================================================
+
+// 窓は作らない。読み終えた知らせ (投函) は受け取らず、ワーカーを待ってから OnImageDecoded を呼ぶ。
+class ZoomViewerImageTest : public ImageLoaderTest {
+protected:
+    void SetUp() override
+    {
+        ImageLoaderTest::SetUp();
+        log_ = {};
+        viewer_.Init(window_.Get(), app_msg::VIEWER_IMAGE_DECODED, nullptr, wic_factory_.Get(), scheduler_, OpenFakeZoomWindow<log_>, [] {},
+                     [this](std::wstring_view message) { failures_.emplace_back(message); });
+        viewer_.SetRenderTarget(render_target_.Get(), nullptr, nullptr);
+    }
+    void TearDown() override
+    {
+        viewer_.Shutdown();
+        ImageLoaderTest::TearDown();
+    }
+
+    // 頼んだ読み込みを終わらせ、届いた画像を受け取る。
+    void Settle()
+    {
+        ASSERT_TRUE(DrainScheduler(scheduler_));
+        viewer_.OnImageDecoded();
+    }
+    std::wstring WriteImage(std::wstring_view name, UINT width, UINT height)
+    {
+        EXPECT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, width, height));
+        return GetTestImagePath(name);
+    }
+
+    static inline ZoomWindowLog log_;
+    MessageOnlyWindow window_;
+    ZoomViewer viewer_;
+    std::vector<std::wstring> failures_;
+};
+
+// 本文の幅に縮めずに原寸で読み、読み終えたら知らせて窓に渡す。タイトルはファイル名から始める。
+TEST_F(ZoomViewerImageTest, OpensImageAtFullSize)
+{
+    const std::wstring path = WriteImage(L"wide.png", 3000, 200);
+    viewer_.OpenImage(path, /*dark_mode=*/true);
+    EXPECT_EQ(log_.opened, 1);
+    EXPECT_TRUE(log_.dark);
+    EXPECT_TRUE(log_.title.starts_with(L"wide.png - ")) << ::testing::PrintToString(log_.title);
+    EXPECT_TRUE(log_.images.empty());
+
+    Settle();
+    EXPECT_EQ(window_.DrainMessages(app_msg::VIEWER_IMAGE_DECODED), 1);
+    ASSERT_EQ(log_.images.size(), 1u);
+    EXPECT_EQ(log_.images[0].pixel_width, 3000u);
+    EXPECT_EQ(log_.images[0].pixel_height, 200u);
+    const D2D1_SIZE_U size = log_.images[0].bitmap->GetPixelSize();
+    EXPECT_EQ(size.width, 3000u);
+    EXPECT_EQ(size.height, 200u);
+    EXPECT_TRUE(failures_.empty());
+}
+
+// 同じ画像をもう一度開くと前面に出すだけで読み直さない。別の画像なら読み込み中に戻して差し替える (窓は 1 枚)。
+TEST_F(ZoomViewerImageTest, ReopenBringsToFrontOrReplaces)
+{
+    const std::wstring a = WriteImage(L"a.png", 40, 30);
+    const std::wstring b = WriteImage(L"b.png", 50, 20);
+    viewer_.OpenImage(a, false);
+    Settle();
+    viewer_.OpenImage(a, false);
+    Settle();
+    EXPECT_EQ(log_.front, 1);
+    EXPECT_EQ(log_.loading, 0);
+    EXPECT_EQ(log_.images.size(), 1u);
+
+    viewer_.OpenImage(b, false);
+    EXPECT_EQ(log_.opened, 1);
+    EXPECT_EQ(log_.loading, 1);
+    EXPECT_TRUE(log_.title.starts_with(L"b.png - "));
+    Settle();
+    ASSERT_EQ(log_.images.size(), 2u);
+    EXPECT_EQ(log_.images[1].pixel_width, 50u);
+}
+
+// 読めない画像は窓を閉じて知らせる。窓を開けなくても知らせる。
+TEST_F(ZoomViewerImageTest, UnreadableImageClosesAndNotifies)
+{
+    const std::vector<std::wstring> expected{ std::wstring{ i18n::S().toast_image_view_failed } };
+    viewer_.OpenImage(GetTestImagePath(L"missing.png"), false);
+    Settle();
+    EXPECT_FALSE(log_.alive);
+    EXPECT_FALSE(viewer_.IsOpen());
+    EXPECT_EQ(failures_, expected);
+
+    failures_.clear();
+    log_.fail_open = true;
+    viewer_.OpenImage(WriteImage(L"ok.png", 4, 4), false);
+    Settle();
+    EXPECT_EQ(failures_, expected);
+    EXPECT_TRUE(log_.images.empty());
+}
+
+// 開いている画像のファイルが更新されたら、読み込み中に戻さずに読み直し、載せる前に古い画像を外す。ほかのファイルの更新では
+// 読み直さない。書き込みの途中などで読めなければ、前の絵を外さずに残して窓も閉じない。
+TEST_F(ZoomViewerImageTest, FollowsFileUpdatesAndKeepsPictureOnError)
+{
+    const std::wstring path = WriteImage(L"c.png", 40, 30);
+    viewer_.OpenImage(path, false);
+    Settle();
+    ASSERT_TRUE(CreateTestImage(L"c.png", GUID_ContainerFormatPng, 80, 60));
+    const std::vector<std::wstring> other{ GetTestImagePath(L"other.png") };
+    viewer_.OnImageFilesChanged(other);
+    Settle();
+    EXPECT_EQ(log_.images.size(), 1u);
+
+    const std::vector<std::wstring> changed{ other[0], path };
+    viewer_.OnImageFilesChanged(changed);
+    Settle();
+    ASSERT_EQ(log_.images.size(), 2u);
+    EXPECT_EQ(log_.images[1].pixel_width, 80u);
+    EXPECT_EQ(log_.loading, 0);
+    EXPECT_EQ(log_.released, 2);
+
+    temp_dir_.Write(L"c.png", "broken");
+    viewer_.OnImageFilesChanged(changed);
+    Settle();
+    EXPECT_EQ(log_.images.size(), 2u);
+    EXPECT_EQ(log_.released, 2);
+    EXPECT_TRUE(log_.alive);
+    EXPECT_TRUE(failures_.empty());
+}
+
+// 読んでいる間に図へ切り替えたり閉じたりしたら、後から届いた画像は窓に渡さない。図と画像は同じ窓を使い回す。
+TEST_F(ZoomViewerImageTest, SwitchingOrClosingDropsPendingImage)
+{
+    const std::wstring path = WriteImage(L"e.png", 40, 30);
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        viewer_.OpenImage(path, false);
+        viewer_.OpenDiagram("graph TD; A", 3, false);
+    }
+    Settle();
+    EXPECT_TRUE(log_.images.empty());
+    EXPECT_EQ(log_.opened, 1);
+    EXPECT_EQ(log_.loading, 1);
+    EXPECT_EQ(log_.title, i18n::S().viewer_diagram_title);
+    EXPECT_EQ(viewer_.DiagramCode(), "graph TD; A");
+    EXPECT_EQ(viewer_.DiagramNode(), 3);
+
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        viewer_.OpenImage(path, false);
+        EXPECT_EQ(viewer_.DiagramCode(), std::nullopt);
+        EXPECT_EQ(viewer_.DiagramNode(), -1);
+        viewer_.Close();
+    }
+    Settle();
+    EXPECT_TRUE(log_.images.empty());
+    EXPECT_FALSE(log_.alive);
+    EXPECT_TRUE(failures_.empty());
+}
+
+// 描画先が無い間 (デバイスの作り直しの再試行中) に読み終えた画像は持たずに捨て、描画先が戻ったら読み直す。デバイスを
+// 作り直したら、窓の画像は旧デバイスのものなので読み直して渡す。読み直せなければ、外した絵の代わりが無いので閉じて知らせる。
+TEST_F(ZoomViewerImageTest, FollowsRenderDevice)
+{
+    const std::wstring path = WriteImage(L"f.png", 40, 30);
+    viewer_.SetRenderTarget(nullptr, nullptr, nullptr);
+    viewer_.OpenImage(path, false);
+    Settle();
+    EXPECT_TRUE(log_.images.empty());
+    viewer_.SetRenderTarget(render_target_.Get(), nullptr, nullptr);
+    EXPECT_EQ(log_.device_changes, 1);
+    EXPECT_TRUE(log_.images.empty());
+    Settle();
+    ASSERT_EQ(log_.images.size(), 1u);
+
+    viewer_.SetRenderTarget(render_target_.Get(), nullptr, nullptr);
+    EXPECT_EQ(log_.device_changes, 2);
+    EXPECT_EQ(log_.images.size(), 1u);
+    Settle();
+    EXPECT_EQ(log_.images.size(), 2u);
+    EXPECT_TRUE(failures_.empty());
+
+    std::filesystem::remove(path);
+    viewer_.SetRenderTarget(render_target_.Get(), nullptr, nullptr);
+    Settle();
+    EXPECT_FALSE(log_.alive);
+    EXPECT_EQ(failures_, std::vector<std::wstring>{ std::wstring{ i18n::S().toast_image_view_failed } });
 }
