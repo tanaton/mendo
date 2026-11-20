@@ -1,6 +1,7 @@
 #include "hit_test_service.h"
 #include "block_h_scroll.h"
 #include "doc_dwrite_bridge.h"
+#include "inline_math.h"
 #include "layout_computer.h"
 #include "chrome_layout.h"
 #include <ranges>
@@ -12,9 +13,21 @@ using layout::NodeTextXOffset;
 
 namespace {
 
+// layout の position にある inline object が、描いている画像か (HitResult::on_image)。
+bool IsDrawnImageAt(IDWriteTextLayout* layout, UINT32 position) noexcept
+{
+    Microsoft::WRL::ComPtr<IDWriteInlineObject> object;
+    if (FAILED(layout->GetInlineObject(position, &object, nullptr)) || !object) {
+        return false;
+    }
+    const auto image = InlineImageObjectOf(object.Get());
+    return image && !image->alt && image->size.width > 0.0f;
+}
+
 // layout 上の点 (x, y) をヒットテストし、base (ノードまたはセルの先頭) 起点の text_pos / char_pos を書く。
+// images はノードが画像を持つか (持たなければ画像の判定を省く)。
 void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, float x, float y,
-                    std::string_view text, uint32_t base) noexcept
+                    std::string_view text, uint32_t base, bool images) noexcept
 {
     BOOL is_trailing = FALSE;
     BOOL is_inside = FALSE;
@@ -26,6 +39,7 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
     result.text_pos = base + (is_trailing ? cursor.ByteAt(metrics.textPosition + metrics.length) : char_pos);
     if (is_inside) {
         result.char_pos = base + char_pos;
+        result.on_image = images && IsDrawnImageAt(layout, metrics.textPosition);
     }
 }
 
@@ -100,7 +114,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     const float local_y = dip_y - direct.text_top;
 
     HitResult result{ direct.node_index };
-    ResolveTextHit(result, entry.text_layout(), local_x, local_y, node.GetText(), 0);
+    ResolveTextHit(result, entry.text_layout(), local_x, local_y, node.GetText(), 0, node.has_images());
     return result;
 }
 
@@ -149,7 +163,7 @@ hit_test::HitResult hit_test::HitTestTable(
     const uint32_t flat_offset = tbl->CellTextStart(r, c);
     if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
         const auto [text_x, text_y] = TableCellTextOrigin(cell_left_x, row_top_y);
-        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, tbl->GetCellText(r, c), flat_offset);
+        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, tbl->GetCellText(r, c), flat_offset, node.has_images());
     }
     else {
         result.text_pos = flat_offset;

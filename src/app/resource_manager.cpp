@@ -352,7 +352,7 @@ void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
     DropQueuesIfJumped();
     mermaid_.BeginRequestPass();
     // 拡大表示の図は本文の範囲の外にもあるので、範囲に依らず頼む。見ている窓の図なので本文より先に並べる。
-    mermaid_.RequestViewerDrawing(content_width, dark_mode);
+    host_.RequestViewerDrawing(content_width, dark_mode);
     const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
     for (const size_t i : slices | std::views::join) {
         RequestDiagramRender(i, content_width, dark_mode, changed);
@@ -403,14 +403,22 @@ void ResourceManager::OnImageFolderEvent()
     }
 }
 
-void ResourceManager::OnImageReloadTimer()
+std::vector<std::wstring> ResourceManager::OnImageReloadTimer()
 {
     host_.KillTimer(app_timer::Id::IMAGE_RELOAD);
-    for (const std::wstring& path : std::exchange(changed_image_paths_, {})) {
+    std::vector<std::wstring> changed = std::exchange(changed_image_paths_, {});
+    for (const std::wstring& path : changed) {
         image_loader_.Invalidate(path);
     }
     // 先読み範囲の画像はここで読み直しを頼む。範囲の外の画像は、入ったときの走査が頼む。
     LoadImages();
+    return changed;
+}
+
+const std::wstring* ResourceManager::ImagePath(std::string_view src)
+{
+    const std::wstring& doc_dir = state_.document.doc.GetDirectory();
+    return doc_dir.empty() ? nullptr : ResolveImagePath(src, doc_dir);
 }
 
 void ResourceManager::DropQueuesIfJumped()

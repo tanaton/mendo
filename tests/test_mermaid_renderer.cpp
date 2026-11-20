@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "diagram_raster.h"
 #include "document.h"
+#include "fake_zoom_window.h"
 #include "mermaid.h"
 #include "mermaid_util.h"
 #include "pele_test_assets.h"
@@ -54,70 +55,6 @@ struct DiagramDoc {
 constexpr std::string_view kGamma = "flowchart TD\n  M[Gamma] --> N[Delta]\n";
 constexpr std::string_view kWide = "flowchart LR\n  A[aaaaaaaaaaaaaaaa] --> B[bbbbbbbbbbbbbbbb] --> C[cccccccccccccccc] --> D[dddddddddddddddd]\n";
 
-// 拡大表示の窓に頼まれた操作の記録。窓が壊れた後も見られるよう、窓の外に置く。
-struct ViewerLog {
-    int opened = 0;
-    int loading = 0;
-    int front = 0;
-    bool alive = false;
-    bool dark = false;
-    bool fail_open = false;
-    // 本体の描画デバイスを差し替えられた回数。
-    int device_changes = 0;
-    std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> drawings;
-};
-
-// 窓を作らない拡大表示 (本物は開くと前面を取る)。
-class FakeViewer final : public IDiagramViewer {
-public:
-    FakeViewer(ViewerLog& log, bool dark) : log_(log)
-    {
-        ++log_.opened;
-        log_.alive = true;
-        log_.dark = dark;
-    }
-    ~FakeViewer() override
-    {
-        log_.alive = false;
-    }
-    bool IsOpen() const noexcept override
-    {
-        return true;
-    }
-    bool HasDrawing() const noexcept override
-    {
-        return has_drawing_;
-    }
-    void BringToFront() const noexcept override
-    {
-        ++log_.front;
-    }
-    void ApplyLanguage() override
-    {}
-    void SetDarkMode(bool dark) override
-    {
-        log_.dark = dark;
-    }
-    void ShowLoading() override
-    {
-        ++log_.loading;
-        has_drawing_ = false;
-    }
-    void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList>) override
-    {
-        has_drawing_ = true;
-        log_.drawings.push_back(std::move(drawing));
-    }
-    void SetDevice(ID3D11Device*, ID2D1Device*) override
-    {
-        ++log_.device_changes;
-    }
-
-private:
-    ViewerLog& log_;
-    bool has_drawing_ = false;
-};
-
 // MermaidRenderer を、ビルドで作った pele と KaTeX のバイトコードで動かす (テストの exe は埋め込みリソースを持たない)。
 // 描画先は WIC のビットマップ。bg のワーカーは 2 本で、同時に描くのは 1 つ (PumpRenders)。
 class MermaidRendererTest : public ComApartmentTest {
@@ -144,10 +81,12 @@ protected:
         ASSERT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(bitmap.Get(), D2D1::RenderTargetProperties(), &rt_));
 
         viewer_ = {};
-        renderer_.Init(
-            window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), scheduler_, NewEngine, OpenFakeViewer, [this] { OnUpdate(); },
-            [this] { ++viewer_failed_; });
+        renderer_.Init(window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), scheduler_, NewEngine, [this] { OnUpdate(); });
         renderer_.SetRenderTarget(rt_.Get());
+        // 拡大表示の図は ZoomViewer が本文と同じ結果から受け取る。画像は読まないので、知らせの投函先は使わない。
+        zoom_.Init(window_.Get(), app_msg::VIEWER_IMAGE_DECODED, SharedDWriteFactory(), wic_.Get(), scheduler_, OpenFakeZoomWindow<viewer_>,
+                   [this] { OnUpdate(); }, [this](std::wstring_view) { ++viewer_failed_; });
+        zoom_.SetRenderTarget(rt_.Get(), nullptr, nullptr);
     }
 
     // 通知のたびに、拡大表示の図を今の本文の幅とテーマで頼む (ResourceManager::RequestVisibleDiagrams と同じ)。
@@ -155,20 +94,14 @@ protected:
     {
         ++updates_;
         if (request_viewer_) {
-            renderer_.RequestViewerDrawing(viewer_width_, viewer_.dark);
+            zoom_.RequestDiagram(renderer_, viewer_width_, viewer_.dark);
         }
-    }
-
-    static std::unique_ptr<IDiagramViewer> OpenFakeViewer(HWND, ID3D11Device*, ID2D1Device*, IDWriteFactory*, IWICImagingFactory*, bool dark,
-                                                          std::move_only_function<void()>)
-    {
-        return viewer_.fail_open ? nullptr : std::make_unique<FakeViewer>(viewer_, dark);
     }
 
     void OpenViewer(std::string_view code, int node = 0, float max_width = kMaxWidth)
     {
         viewer_width_ = max_width;
-        renderer_.OpenViewer(code, node, /*dark_mode=*/false);
+        zoom_.OpenDiagram(code, node, /*dark_mode=*/false);
     }
 
     bool AwaitViewerDrawings(size_t count)
@@ -178,6 +111,7 @@ protected:
 
     void TearDown() override
     {
+        zoom_.Shutdown();
         renderer_.Shutdown();
     }
 
@@ -246,7 +180,7 @@ protected:
     }
 
     static inline PeleTestAssets assets_;
-    static inline ViewerLog viewer_;
+    static inline ZoomWindowLog viewer_;
     int viewer_failed_ = 0;
 
     ComPtr<ID2D1Factory> d2d_;
@@ -255,6 +189,7 @@ protected:
     TaskScheduler scheduler_{ 2 };
     MessageOnlyWindow window_;
     MermaidRenderer renderer_;
+    ZoomViewer zoom_;
     int updates_ = 0;
     // 偽なら通知を受けても拡大表示の図を頼まない (別の文書を読み込み中の ResourceManager)。
     bool request_viewer_ = true;
@@ -387,7 +322,7 @@ TEST_F(MermaidRendererTest, ViewerHoldsDrawingUntilClosed)
     ASSERT_NE(item, nullptr);
     EXPECT_NE(item->result.drawing, nullptr);
 
-    renderer_.CloseViewer();
+    zoom_.Close();
     viewer_.drawings.clear();
     renderer_.ReleaseIdleDrawings();
     item = CachedItem(d.WidthFreeHash());
@@ -685,8 +620,8 @@ TEST_F(MermaidRendererTest, ViewerShowsDrawingWhenRendered)
     OpenViewer(kAlpha, 3);
     EXPECT_EQ(viewer_.opened, 1);
     EXPECT_TRUE(viewer_.drawings.empty());
-    EXPECT_EQ(renderer_.ViewerNode(), 3);
-    EXPECT_EQ(renderer_.ViewerCode(), kAlpha);
+    EXPECT_EQ(zoom_.DiagramNode(), 3);
+    EXPECT_EQ(zoom_.DiagramCode(), kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Alpha"));
     EXPECT_EQ(viewer_failed_, 0);
@@ -751,7 +686,7 @@ TEST_F(MermaidRendererTest, ViewerReopenBringsToFrontOrReplaces)
     EXPECT_EQ(viewer_.front, 1);
     EXPECT_EQ(viewer_.loading, 0);
     EXPECT_EQ(viewer_.opened, 1);
-    EXPECT_EQ(renderer_.ViewerNode(), 2);
+    EXPECT_EQ(zoom_.DiagramNode(), 2);
     EXPECT_EQ(viewer_.drawings.size(), 1u);
 
     OpenViewer(kBeta, 5);
@@ -766,12 +701,12 @@ TEST_F(MermaidRendererTest, ViewerFollowsCodeAndKeepsDrawingOnError)
 {
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
-    renderer_.UpdateViewerCode(kBeta);
+    zoom_.UpdateDiagramCode(kBeta);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
     EXPECT_EQ(viewer_.loading, 0);
 
-    renderer_.UpdateViewerCode(kBroken);
+    zoom_.UpdateDiagramCode(kBroken);
     // 同じ壊れた図の本文の結果が確定するころには、先に頼んだ拡大表示の分も済んでいる。
     const DiagramDoc broken(kBroken);
     DiagramEntry entry;
@@ -780,7 +715,7 @@ TEST_F(MermaidRendererTest, ViewerFollowsCodeAndKeepsDrawingOnError)
     EXPECT_TRUE(viewer_.alive);
     EXPECT_EQ(viewer_.drawings.size(), 2u);
     EXPECT_EQ(viewer_failed_, 0);
-    EXPECT_EQ(renderer_.ViewerCode(), kBroken);
+    EXPECT_EQ(zoom_.DiagramCode(), kBroken);
 }
 
 // 開いた図が描けなければ、窓を閉じて知らせる。
@@ -790,8 +725,8 @@ TEST_F(MermaidRendererTest, ViewerFailsWhenFirstDrawingCannotRender)
     ASSERT_TRUE(Await([&] { return viewer_failed_ == 1; }));
     EXPECT_FALSE(viewer_.alive);
     EXPECT_TRUE(viewer_.drawings.empty());
-    EXPECT_EQ(renderer_.ViewerCode(), std::nullopt);
-    EXPECT_EQ(renderer_.ViewerNode(), -1);
+    EXPECT_EQ(zoom_.DiagramCode(), std::nullopt);
+    EXPECT_EQ(zoom_.DiagramNode(), -1);
 }
 
 // 窓を開けなければ知らせ、図も描かせない。
@@ -800,7 +735,7 @@ TEST_F(MermaidRendererTest, ViewerFailsWhenWindowCannotOpen)
     viewer_.fail_open = true;
     OpenViewer(kAlpha);
     EXPECT_EQ(viewer_failed_, 1);
-    EXPECT_EQ(renderer_.ViewerCode(), std::nullopt);
+    EXPECT_EQ(zoom_.DiagramCode(), std::nullopt);
     const DiagramDoc beta(kBeta);
     DiagramEntry entry;
     ASSERT_TRUE(RenderUntilSettled(beta, entry));
@@ -814,21 +749,21 @@ TEST_F(MermaidRendererTest, ViewerFollowsTheme)
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_EQ(viewer_.drawings[0]->background, kDiagramLightBackground);
-    renderer_.SetViewerDarkMode(true);
+    zoom_.SetDarkMode(true);
     EXPECT_TRUE(viewer_.dark);
     ASSERT_TRUE(AwaitViewerDrawings(2));
     EXPECT_EQ(viewer_.drawings[1]->background, kDiagramDarkBackground);
     EXPECT_EQ(viewer_.loading, 0);
 }
 
-// 拡大表示の図は RequestViewerDrawing で頼まれるまで描かない。開く・テーマ・コードの追従・待ちを捨てる・ほかの図の結果、
+// 拡大表示の図は RequestDiagram で頼まれるまで描かない。開く・テーマ・コードの追従・待ちを捨てる・ほかの図の結果、
 // のどれからも自分では頼まない (別の文書を読み込み中に、旧文書の図を描き始めない)。
-TEST_F(MermaidRendererTest, ViewerDrawingIsRequestedOnlyThroughRequestViewerDrawing)
+TEST_F(MermaidRendererTest, ViewerDrawingIsRequestedOnlyThroughRequestDiagram)
 {
     request_viewer_ = false;
     OpenViewer(kAlpha);
-    renderer_.SetViewerDarkMode(false);
-    renderer_.UpdateViewerCode(kBeta);
+    zoom_.SetDarkMode(false);
+    zoom_.UpdateDiagramCode(kBeta);
     renderer_.DropQueued();
     // 同時に描くのは 1 つなので、頼んでいれば gamma より先に描き終えている。
     const DiagramDoc gamma(kGamma);
@@ -858,7 +793,7 @@ TEST_F(MermaidRendererTest, ViewerDrawingSurvivesDropQueued)
     }
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Beta"));
-    renderer_.CloseViewer();
+    zoom_.Close();
     ASSERT_TRUE(RenderUntilSettled(alpha, ea));
 
     {
@@ -878,7 +813,7 @@ TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
         WorkerGate gate(scheduler_, 2);
         ASSERT_TRUE(gate.ready());
         OpenViewer(kAlpha);
-        renderer_.CloseViewer();
+        zoom_.Close();
     }
     EXPECT_FALSE(viewer_.alive);
     const DiagramDoc beta(kBeta);
@@ -890,16 +825,6 @@ TEST_F(MermaidRendererTest, ViewerClosedWhileWaitingIgnoresResult)
     OpenViewer(kAlpha);
     ASSERT_TRUE(AwaitViewerDrawings(1));
     EXPECT_TRUE(DrawingToSvg(*viewer_.drawings.back()).contains("Alpha"));
-}
-
-// 拡大表示は本体の描画デバイスで描くので、本体がデバイスを作り直したら拡大表示にも渡す。
-TEST_F(MermaidRendererTest, ViewerFollowsRenderDevice)
-{
-    OpenViewer(kAlpha);
-    ASSERT_TRUE(AwaitViewerDrawings(1));
-    EXPECT_EQ(viewer_.device_changes, 0);
-    renderer_.SetRenderTarget(rt_.Get());
-    EXPECT_EQ(viewer_.device_changes, 1);
 }
 
 // 描画先が無い間 (デバイスの作り直し) に頼んだ拡大表示の図は、描画先が戻ってから渡す。
@@ -931,11 +856,11 @@ TEST_F(MermaidRendererTest, ShutdownDropsPendingCallbacks)
     EXPECT_EQ(updates_, 0);
 }
 
-using diagram_view::FitZoom;
-using diagram_view::NextZoom;
+using zoom_viewer::FitZoom;
+using zoom_viewer::NextZoom;
 
 // 全体表示は余白を除いた窓に収め、等倍より大きくしない。潰した窓では最小の倍率で止める。
-TEST(DiagramViewZoom, FitsInsidePaddingWithoutEnlarging)
+TEST(ZoomViewerZoom, FitsInsidePaddingWithoutEnlarging)
 {
     EXPECT_FLOAT_EQ(FitZoom(1000.0f, 800.0f, 200.0f, 100.0f), 1.0f);
     EXPECT_FLOAT_EQ(FitZoom(432.0f, 1000.0f, 800.0f, 100.0f), 0.5f);
@@ -944,7 +869,7 @@ TEST(DiagramViewZoom, FitsInsidePaddingWithoutEnlarging)
 }
 
 // ボタンの止まる位置は表の値と全体表示の倍率。全体表示のすぐ隣の値は飛ばす。
-TEST(DiagramViewZoom, StepsThroughStopsIncludingFit)
+TEST(ZoomViewerZoom, StepsThroughStopsIncludingFit)
 {
     EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, 1), 1.25f);
     EXPECT_FLOAT_EQ(*NextZoom(1.0f, 1.0f, -1), 0.75f);

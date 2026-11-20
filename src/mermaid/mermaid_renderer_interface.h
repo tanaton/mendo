@@ -32,10 +32,6 @@ public:
     // メモリが返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。要求の回の終わり (図が届いた結果を
     // 受け取って前の結果を離した後) に呼ぶ。実装し忘れると画面外の図のメモリが返らないまま気付けないので、既定の実装を置かない。
     virtual void ReleaseIdleDrawings() = 0;
-    // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。待っていなければ何もしない。
-    // 本文の図と同じ所から呼ぶ (頼んでよいかの判断と、本文と同じ要求になる幅を 1 か所で決める)。
-    virtual void RequestViewerDrawing(float /*max_width*/, bool /*dark_mode*/)
-    {}
     // 保存・コピーの画像を描く。max_width (本文の幅) に収まらない図は本文と同じくその幅まで縮めて描く。描けなければ null。
     virtual Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& /*drawing*/, float /*max_width*/)
     {

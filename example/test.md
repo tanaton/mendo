@@ -1690,8 +1690,6 @@ public:
     // メモリが返らない)。寸法と直列化した形は残し、次の RequestRender でそこから読み直す。要求の回の終わりに呼ぶ。
     // 実装し忘れると画面外の図のメモリが返らないまま気付けないので、既定の実装を置かない。
     virtual void ReleaseIdleDrawings() = 0;
-    // 拡大表示が待っている図を本文と同じ幅・テーマで頼み、結果が出ていれば窓に渡す。
-    virtual void RequestViewerDrawing(float max_width, bool dark_mode) {}
     // 図の保存・コピーに使う画像を描く (本文の幅に収まらない図はその幅まで縮める)。描けなければ null。
     virtual ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width);
 };
@@ -1707,7 +1705,9 @@ public:
 
 KaTeX は 1 式 平均 0.2ms（最大 3ms ほど）、配置は 15µs ほどなので、インライン数式は文書の順に重複を除いて、最初は 16 個（開いた直後の画面の数式を早く出す）、後は 64 個ずつ区切った組（`InlineMathPlan`）ごとに bg のワーカーで描き（`MermaidRenderer::RequestMathBatch`）、図の結果のキャッシュには置かない。図のラベルの `$$...$$` は pele の `math` オプションで描く。KaTeX は JS のスタックを深く使い、pele の配置の奥で動かすと pele の使う分だけ描ける入れ子の段数が減るので、pele と同じ正規表現でコードから TeX を拾って最上位で HTML にしておき、配置の途中では `LayoutKatexHtml`（C++ だけ）を呼ぶ（pele が切り出した TeX が拾ったものと違ったときだけ、もう一度配置する）。描画命令の層にはラベルの数式（`DrawingMath`）を置く。直列化した形には TeX だけを書き、数式の描画命令は別に覚えて、解き直したときに差し込む（3.12.3）。起動から最初に見える数式がそろうまでは、数式の見本の文書で 553 → 86ms、KaTeX の対応一覧で 563 → 95ms、mendo + WebView2 のメモリは 202 → 62MB と 211 → 59MB になった（WebView2 で描いていた頃との比較。キャッシュなし、3 回交互の中央値）。
 
-拡大表示（`DiagramView`）とクリップボードの SVG も本文と同じ描画命令から作る。描画命令は本文の幅で組んだ縮めない大きさ（幅の上限より広いことがある）で、本文は描くときに幅まで縮めるが、拡大表示と SVG は縮めずに描く。拡大表示は本文と同じ幅・テーマで要求して本文と同じ結果（`cache_`）を使う（`RequestViewerDrawing`。本文が描いた図は pele で描き直さず、本文と同じ折り返しになる）。拡大表示は本体の描画デバイスで窓のスワップチェーンを作り（`WindowSwapTarget`）、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く（別のデバイスの `HwndRenderTarget` で描いていた頃は、開くたびに最初の描画まで 34〜40ms かかり、ドライバのデバイスの分の commit 約 30MB が閉じた後も残った）。操作は右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ。描けない図は窓を閉じて「図を開けませんでした」を出す（書き換えで描けなくなったときは、出ている図を残す）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。保存・コピーの画像は本体の窓の DPR でその場で描く（`DiagramBitmap`。本文の幅に収まらない図はその幅まで縮め、大きな図は画素数の上限まで縮める）。コピーは描いた画像をそのまま CF_DIB にし、SVG もその場で作って一緒に置く。保存は保存先を選んでから描いて PNG にする。
+拡大表示（窓 1 枚を `ZoomViewer` が持ち、`ZoomWindow` が描く。`ui/zoom_viewer.*`）とクリップボードの SVG も本文と同じ描画命令から作る。描画命令は本文の幅で組んだ縮めない大きさ（幅の上限より広いことがある）で、本文は描くときに幅まで縮めるが、拡大表示と SVG は縮めずに描く。拡大表示は本文と同じ幅・テーマで要求して本文と同じ結果（`cache_`）を使う（`ResourceManager` が本文の図と同じ回の中で `ResourceManagerHost::RequestViewerDrawing` を呼び、`ZoomViewer::RequestDiagram` が `MermaidRenderer::RequestViewerDrawing` で引く。本文が描いた図は pele で描き直さず、本文と同じ折り返しになる）。拡大表示は本体の描画デバイスで窓のスワップチェーンを作り（`WindowSwapTarget`）、描画命令をコマンドリストに記録して、倍率と位置の変換を掛けて描く（別のデバイスの `HwndRenderTarget` で描いていた頃は、開くたびに最初の描画まで 34〜40ms かかり、ドライバのデバイスの分の commit 約 30MB が閉じた後も残った）。操作は右上のボタン・ホイールでスクロール・ドラッグ・`+` `-` `0` `Esc`・全体表示のまま窓に追従・保存とテーマの切り替えで倍率と位置を保つ。描けない図は窓を閉じて「図を開けませんでした」を出す（書き換えで描けなくなったときは、出ている図を残す）。クリップボードの SVG は描画命令をそのまま 1 枚の SVG にする（`DrawingToSvg`。図形は層の SVG の中身、文字は 1 行ずつの `<text>`、CSS は使わない）。数式のラベルは Office や Inkscape で読めるよう、ラベルに書いたとおりの `$$TeX$$` の文字で書く。保存・コピーの画像は本体の窓の DPR でその場で描く（`DiagramBitmap`。本文の幅に収まらない図はその幅まで縮め、大きな図は画素数の上限まで縮める）。コピーは描いた画像をそのまま CF_DIB にし、SVG もその場で作って一緒に置く。保存は保存先を選んでから描いて PNG にする。
+
+本文の画像も同じ窓で拡大表示する（issue #468）。リンクの外の画像をクリックすると開き（GitHub と同じ。リンクの中の画像はリンクを開く）、開ける画像の上ではポインタを手の形にする。どちらも、ヒットテストが当たった layout の inline object が描いている画像か（`HitResult::on_image`）で決める。本文のビットマップは本文の幅に縮めたもので見えている範囲の分しか持たないので、`ZoomViewer` が開いたときに worker で原寸に読み直し（`ImageLoader::DecodeFullSize`。画素数は 32Mi px、辺は GPU の最大までに縮める）、本体の描画先で GPU に載せて窓に渡し、閉じたら捨てる。読み終えたことは `app_msg::VIEWER_IMAGE_DECODED` で知らせ、中身を替える・閉じるたびに進める世代で古い結果を捨てる。画像のファイルが更新されたら（`ResourceManager::OnImageReloadTimer` が返すパス）位置と倍率を保って読み直し、載せる前に古い絵を外す。デバイスを作り直したら読み直す（描画先が無い間に読み終えた画像は持たない）。100% は本文と同じく画像の 1 px を物理 1 px で描き、左上を物理 px の境目に置く。縮小表示では今の倍率の画素数へ高品質に縮めた版を持ち、描くたびに縮め直さない（窓の大きさを変えている間は作らない）。
 
 `PeleEngine` は同時に動く数だけ QuickJS のランタイムを作って使い回す（pele を読んだもので約 2.9MB、KaTeX を読んだもので約 2.6MB）。pele と KaTeX はビルドの時に QuickJS のバイトコードにして exe に埋め込み（`js_compile`。実行時にコンパイルすると最初の図で約 65ms、最初の数式で約 20ms かかっていた）、各ランタイムは使うときにそれを読む（pele 約 5ms、KaTeX 約 3ms）。スレッドのスタックは 8MB（`CMakeLists.txt` の `/STACK`）にし、JS のスタックの上限は 4MB にする（512KB では分数 3 段・行列 2 段までしか描けなかった）。同時に描く数は bg のワーカーの数より 1 つ少なくし（`PumpRenders`）、配置の重い図が画像のデコードやキャッシュの直列化した形の読み込みを待たせないようにする。描き終えて待ちが空になったら、同時に描いた分のランタイムを 1 個まで減らし（`ProcessJobResults`）、残りの 1 個は最後に描き終えてから `PELE_TRIM_MS`（10 秒）か、別のアプリへ切り替わった時点で捨てる（`app_timer::Id::PELE_TRIM` / `App::OnActivateApp` → `TrimIdleRuntimes`。図 4 個の文書で mendo の private bytes が 63 → 52MB）。捨てる処理は全オブジェクトをたどる（1 個約 3.5ms）ので bg のワーカーで行う（`PeleEngine::Trim`）。切り替えた時点で捨てるのは、ランタイムを捨てると全オブジェクトをたどり、ヒープも遅れて decommit するので、ワーキングセットを空にした後だと外したページを触り直させるため。起動から図がそろうまでは図 4 個の文書で 473 → 149ms、mendo + WebView2 のメモリは 194 → 61MB になった（WebView2 で描いていた頃との比較。3 回交互の中央値）。インタプリタなので配置の重い図は遅く、本書の図のうち subgraph のある LR の 1 つは約 0.8 秒かかる（V8 の JIT では 0.07 秒）。
 
@@ -3721,13 +3721,13 @@ src/
 │   ├── mermaid_util.h / .cpp      # ヘルパー
 │   ├── pele_engine.h / .cpp       # PeleEngine (pele と KaTeX を QuickJS-ng で動かす)
 │   ├── diagram_raster.h / .cpp    # pele の SVG の解決 (DrawingFromPeleSvg)・図の記録と描画 (DrawDiagram / RasterizeDiagram)・KaTeX の HTML の配置
-│   ├── diagram_view.h / .cpp      # 図の拡大表示の窓 (DiagramView)
 │   └── js_compile.cpp             # pele と KaTeX をビルド時にバイトコードにする (mendo_js_compile)
 ├── ui/                            # UI層 (Win32/D2D 依存ありの可視層)
 │   ├── titlebar.h / titlebar.cpp  # TitleBar + ウィンドウのタイトル (BuildTitleString)
 │   ├── context_menu.h / .cpp      # ContextMenu (D2D描画)
 │   ├── settings_dialog.h / .cpp   # SettingsDialog (言語の選択、D2D描画)
 │   ├── popup_window.h             # 自前描画のポップアップ (コンテキストメニュー・設定ダイアログ) の共通の土台 PopupWindow
+│   ├── zoom_viewer.h / .cpp       # 図と画像の拡大表示 (窓 ZoomWindow と、中身を取り寄せる ZoomViewer)
 │   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget
 │   └── search_state.h / .cpp      # SearchState
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
@@ -5145,7 +5145,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 47 | UIConstants | ui_constants.h | mendo_core | あり |
 | 48 | StringConvert | string_convert.h | mendo_core | あり |
 | 49 | Profiler | profiler.h | mendo_core | なし |
-| 50 | DiagramView | diagram_view.h/cpp | mendo_core | 倍率のみ (FitZoom / NextZoom) |
+| 50 | ZoomWindow + ZoomViewer | zoom_viewer.h/cpp | mendo_core | 倍率 (FitZoom / NextZoom) と ZoomViewer (窓は偽物) |
 | 51 | PeleEngine | pele_engine.h/cpp | mendo_core | あり |
 | 52 | DrawingFromPeleSvg + RasterizeDiagram | diagram_raster.h/cpp | mendo_core | あり |
 | 53 | ClipboardManager | clipboard_manager.h/cpp | mendo_core | あり |

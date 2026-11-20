@@ -73,6 +73,7 @@ A lightweight, high-speed Markdown viewer.
 - **Copy as HTML**: Press `Ctrl+Shift+C` or select "Copy as HTML" from the right-click menu to put HTML rich text on the clipboard while preserving headings, emphasis, links, and more. Pasting into Word or Outlook keeps the formatting.
 - **Diagram Save / Copy**: Hover over a Mermaid diagram and use the buttons that appear at its top-right to save it as PNG or copy it to the clipboard
 - **Diagram Viewer**: Use the same top-right buttons to open a diagram in its own window. Scroll with the wheel or by dragging, and zoom with the buttons at the window's top-right. The open diagram updates when you save the file
+- **Image Viewer**: Click an image in the document to open it at full size in the same window (an image with a link opens the link instead). It works like the diagram viewer, and the open image updates when the image file changes
 - **Open in Editor**: Select "Open in Editor" from the right-click menu to open the current file in your default editor
 - **Settings**: Click the gear button in the title bar to switch the display language (applied immediately)
 - **Dark Mode**: Toggle from the title bar button or the right-click menu

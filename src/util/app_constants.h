@@ -45,5 +45,7 @@ inline constexpr UINT FILE_LISTED = WM_APP + 8;
 inline constexpr UINT INLINE_MATH_REQUESTED = WM_APP + 9;
 // 巨大な表を計測ワーカーで組み終えた (TableMeasureJobs::SetWake)。
 inline constexpr UINT TABLE_MEASURED = WM_APP + 10;
+// 拡大表示の画像を読み終えた (ZoomViewer)。
+inline constexpr UINT VIEWER_IMAGE_DECODED = WM_APP + 11;
 
 } // namespace app_msg

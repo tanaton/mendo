@@ -1,9 +1,12 @@
-#include "diagram_view.h"
+#include "zoom_viewer.h"
 #include "d2d_util.h"
 #include "diagram_raster.h"
+#include "file_io.h"
 #include "i18n.h"
+#include "mermaid.h"
 #include "pane_layout.h"
 #include "resource.h"
+#include "task_scheduler.h"
 #include "ui_constants.h"
 #include "win32_util.h"
 #include <d2d1_3.h>
@@ -22,8 +25,12 @@ namespace {
 // 8 倍は試作で確かめた範囲。
 constexpr float kZoomStops[]{ 0.05f, 0.1f, 0.25f, 0.33f, 0.5f, 0.67f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f };
 constexpr float kPadding = 16.0f;
+// 拡大表示で読む画像の画素数の上限。開いている間は原寸のビットマップを 1 枚 (縮小表示の間は縮小版も) 持つので、
+// 8K (7680x4320) までは原寸のまま、それより大きな画像は縮める (原寸は 32bpp で 128MB まで)。辺は GPU の最大 (MaxBitmapDim)
+// でも縮める。
+constexpr uint64_t kMaxImagePixels = 32ull * 1024 * 1024;
 
-constexpr std::wstring_view kWindowClass = L"mendo_MermaidViewer";
+constexpr std::wstring_view kWindowClass = L"mendo_ZoomViewer";
 // 最初の大きさ。本体に対する割合。
 constexpr int kSizePercent = 90;
 
@@ -70,7 +77,7 @@ float ContentExtent(float size, float zoom) noexcept
 
 } // namespace
 
-float diagram_view::FitZoom(float view_width, float view_height, float natural_width, float natural_height) noexcept
+float zoom_viewer::FitZoom(float view_width, float view_height, float natural_width, float natural_height) noexcept
 {
     if (!(natural_width > 0.0f && natural_height > 0.0f)) {
         return 1.0f;
@@ -78,7 +85,7 @@ float diagram_view::FitZoom(float view_width, float view_height, float natural_w
     return std::max(kZoomStops[0], std::min({ 1.0f, (view_width - kPadding * 2.0f) / natural_width, (view_height - kPadding * 2.0f) / natural_height }));
 }
 
-std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir) noexcept
+std::optional<float> zoom_viewer::NextZoom(float zoom, float fit_zoom, int dir) noexcept
 {
     std::array<float, std::size(kZoomStops) + 1> stops{};
     size_t count = 0;
@@ -98,12 +105,12 @@ std::optional<float> diagram_view::NextZoom(float zoom, float fit_zoom, int dir)
     return it == used.begin() ? std::nullopt : std::optional{ *std::prev(it) };
 }
 
-DiagramView::DiagramView(ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
+ZoomWindow::ZoomWindow(ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic, std::move_only_function<void()> on_close)
     : on_close_(std::move(on_close)), dw_(dw), wic_(wic), d3d_(d3d), device_(device)
 {}
 
-std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic,
-                                                  bool dark, std::move_only_function<void()> on_close)
+std::unique_ptr<IZoomWindow> ZoomWindow::Open(HWND owner, ID3D11Device* d3d, ID2D1Device* device, IDWriteFactory* dw, IWICImagingFactory* wic,
+                                              bool dark, std::wstring_view title, std::move_only_function<void()> on_close)
 {
     static const bool registered = RegisterWindowClass(
         kWindowClass.data(), WndProc, LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON)), LoadCursorW(nullptr, IDC_ARROW));
@@ -111,7 +118,8 @@ std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d,
     if (!registered || !d3d || !device || !GetWindowRect(owner, &owner_rect)) {
         return nullptr;
     }
-    std::unique_ptr<DiagramView> view(new DiagramView(d3d, device, dw, wic, std::move(on_close)));
+    std::unique_ptr<ZoomWindow> view(new ZoomWindow(d3d, device, dw, wic, std::move(on_close)));
+    const std::wstring title_text{ title };
     const int owner_w = owner_rect.right - owner_rect.left;
     const int owner_h = owner_rect.bottom - owner_rect.top;
     const int w = MulDiv(owner_w, kSizePercent, 100);
@@ -122,7 +130,7 @@ std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d,
         // 最小化ボタンを消さずにタスクバーのボタンを出す。
         WS_EX_APPWINDOW,
         kWindowClass.data(),
-        i18n::S().viewer_title.data(),
+        title_text.c_str(),
         WS_OVERLAPPEDWINDOW,
         owner_rect.left + (owner_w - w) / 2, owner_rect.top + (owner_h - h) / 2,
         w, h,
@@ -142,7 +150,7 @@ std::unique_ptr<IDiagramViewer> DiagramView::Open(HWND owner, ID3D11Device* d3d,
     return view;
 }
 
-DiagramView::~DiagramView()
+ZoomWindow::~ZoomWindow()
 {
     if (!hwnd_) {
         return;
@@ -153,7 +161,7 @@ DiagramView::~DiagramView()
     DestroyWindow(std::exchange(hwnd_, nullptr));
 }
 
-void DiagramView::BringToFront() const noexcept
+void ZoomWindow::BringToFront() const noexcept
 {
     if (IsIconic(hwnd_)) {
         ShowWindow(hwnd_, SW_RESTORE);
@@ -161,7 +169,7 @@ void DiagramView::BringToFront() const noexcept
     SetForegroundWindow(hwnd_);
 }
 
-LRESULT CALLBACK DiagramView::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+LRESULT CALLBACK ZoomWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg) {
     // 本体 (Win32Window) と同じく、開閉で DWM のアニメーションを出さない。閉じ方が多く (Esc・×・文書の切り替え・本体と
@@ -186,7 +194,7 @@ LRESULT CALLBACK DiagramView::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     default:
         break;
     }
-    auto* const self = BindWindowInstance<DiagramView>(hwnd, msg, lparam);
+    auto* const self = BindWindowInstance<ZoomWindow>(hwnd, msg, lparam);
     if (!self) {
         return DefWindowProcW(hwnd, msg, wparam, lparam);
     }
@@ -210,9 +218,13 @@ LRESULT CALLBACK DiagramView::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-void DiagramView::ApplyLanguage()
+void ZoomWindow::SetTitle(std::wstring_view title)
 {
-    SetWindowTextW(hwnd_, i18n::S().viewer_title.data());
+    SetWindowTextW(hwnd_, std::wstring{ title }.c_str());
+}
+
+void ZoomWindow::ApplyLanguage()
+{
     // 倍率と読み込み中は 13px、ボタンの記号は 16px。
     const auto make = [&](float size) {
         return CreateTextFormat(dw_.Get(), { .family = L"Segoe UI",
@@ -228,7 +240,7 @@ void DiagramView::ApplyLanguage()
     Invalidate();
 }
 
-void DiagramView::SetDarkMode(bool dark)
+void ZoomWindow::SetDarkMode(bool dark)
 {
     dark_ = dark;
     ApplyDarkModeToWindow(hwnd_, dark);
@@ -236,40 +248,56 @@ void DiagramView::SetDarkMode(bool dark)
     Invalidate();
 }
 
-void DiagramView::ShowLoading()
+void ZoomWindow::ShowLoading()
 {
-    drawing_.reset();
-    commands_.Reset();
+    content_ = std::monostate{};
     HoverAt(Button::None);
     Layout();
 }
 
-void DiagramView::SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands)
+void ZoomWindow::SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands)
 {
-    const bool keep = drawing_ != nullptr;
-    drawing_ = std::move(drawing);
     // 本文と同じく DPI 96 の新しい DC に恒等変換で記録したものなので、そのまま描ける。
-    commands_ = std::move(commands);
-    if (keep) {
-        Layout();
-    }
-    else {
-        Fit();
+    Replace(DiagramContent{ .drawing = std::move(drawing), .commands = std::move(commands) });
+}
+
+void ZoomWindow::SetImage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height)
+{
+    Replace(ImageContent{ .bitmap = std::move(bitmap), .pixel_width = pixel_width, .pixel_height = pixel_height });
+}
+
+void ZoomWindow::ReleaseImage()
+{
+    if (auto* image = std::get_if<ImageContent>(&content_)) {
+        image->bitmap.Reset();
+        image->scaled.Reset();
     }
 }
 
-float DiagramView::Scale() const noexcept
+D2D1_SIZE_F ZoomWindow::NaturalSize() const noexcept
+{
+    if (const auto* diagram = std::get_if<DiagramContent>(&content_)) {
+        return { diagram->drawing->width, diagram->drawing->height };
+    }
+    if (const auto* image = std::get_if<ImageContent>(&content_)) {
+        const float scale = Scale();
+        return { PixelToDip(static_cast<float>(image->pixel_width), scale), PixelToDip(static_cast<float>(image->pixel_height), scale) };
+    }
+    return {};
+}
+
+float ZoomWindow::Scale() const noexcept
 {
     return DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 }
 
-D2D1_POINT_2F DiagramView::ToDip(LPARAM lparam) const noexcept
+D2D1_POINT_2F ZoomWindow::ToDip(LPARAM lparam) const noexcept
 {
     const auto [x, y] = PixelToDip(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), Scale());
     return { x, y };
 }
 
-bool DiagramView::EnsureTarget()
+bool ZoomWindow::EnsureTarget()
 {
     if (target_.dc()) {
         return true;
@@ -291,33 +319,40 @@ bool DiagramView::EnsureTarget()
     return true;
 }
 
-void DiagramView::ReleaseTarget() noexcept
+void ZoomWindow::ReleaseTarget() noexcept
 {
     target_.Reset();
     brush_.Reset();
     record_dc_.Reset();
-    commands_.Reset();
+    if (auto* diagram = std::get_if<DiagramContent>(&content_)) {
+        diagram->commands.Reset();
+    }
+    if (auto* image = std::get_if<ImageContent>(&content_)) {
+        image->scaled.Reset();
+    }
 }
 
-void DiagramView::SetDevice(ID3D11Device* d3d, ID2D1Device* device)
+void ZoomWindow::SetDevice(ID3D11Device* d3d, ID2D1Device* device)
 {
     // 旧デバイスのスワップチェーンを放してから作る (同じ窓に 2 つ目は作れない)。
     ReleaseTarget();
+    ReleaseImage();
     d3d_ = d3d;
     device_ = device;
     Invalidate();
 }
 
-D2D1_POINT_2F DiagramView::Origin() const noexcept
+D2D1_POINT_2F ZoomWindow::Origin() const noexcept
 {
     const float zoom = Zoom();
+    const D2D1_SIZE_F natural = NaturalSize();
     const auto place = [zoom](float size, float view, float scroll) {
         return ContentExtent(size, zoom) <= view ? (view - size * zoom) / 2.0f : kPadding - scroll;
     };
-    return { place(drawing_->width, view_width_, scroll_x_), place(drawing_->height, view_height_, scroll_y_) };
+    return { place(natural.width, view_width_, scroll_x_), place(natural.height, view_height_, scroll_y_) };
 }
 
-void DiagramView::Paint()
+void ZoomWindow::Paint()
 {
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
@@ -330,16 +365,14 @@ void DiagramView::Paint()
     rt->BeginDraw();
     rt->SetTransform(D2D1::Matrix3x2F::Identity());
     rt->Clear(palette.background);
-    if (drawing_) {
-        if (!commands_) {
-            commands_ = RecordDiagram(record_dc_.Get(), dw_.Get(), wic_.Get(), *drawing_, i18n::TextLocale());
-        }
-        if (commands_) {
-            const D2D1_POINT_2F origin = Origin();
-            rt->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) * D2D1::Matrix3x2F::Translation(origin.x, origin.y));
-            rt->DrawImage(commands_.Get());
-            rt->SetTransform(D2D1::Matrix3x2F::Identity());
-        }
+    if (HasContent()) {
+        // 左上を物理 px の境目に置く。中央寄せやドラッグで半端な位置に来ると、100% の画像がぼける。
+        const float scale = Scale();
+        const D2D1_POINT_2F origin = Origin();
+        rt->SetTransform(D2D1::Matrix3x2F::Scale(Zoom(), Zoom()) *
+                         D2D1::Matrix3x2F::Translation(SnapToPhysicalPixel(origin.x, scale), SnapToPhysicalPixel(origin.y, scale)));
+        PaintContent(rt);
+        rt->SetTransform(D2D1::Matrix3x2F::Identity());
         PaintBar();
     }
     else if (fmt_label_) {
@@ -354,7 +387,70 @@ void DiagramView::Paint()
     }
 }
 
-D2D1_RECT_F DiagramView::BarRect() const noexcept
+void ZoomWindow::PaintContent(ID2D1DeviceContext* rt)
+{
+    if (auto* diagram = std::get_if<DiagramContent>(&content_)) {
+        if (!diagram->commands) {
+            diagram->commands = RecordDiagram(record_dc_.Get(), dw_.Get(), wic_.Get(), *diagram->drawing, i18n::TextLocale());
+        }
+        if (diagram->commands) {
+            rt->DrawImage(diagram->commands.Get());
+        }
+        return;
+    }
+    if (auto* image = std::get_if<ImageContent>(&content_); image && image->bitmap) {
+        const D2D1_SIZE_F natural = NaturalSize();
+        const D2D1_RECT_F dest = D2D1::RectF(0.0f, 0.0f, natural.width, natural.height);
+        // 縮小版は画面の画素と 1:1 で写すだけにする。拡大はブラウザと同じく滑らかにする。縮小版を作れなければ、その場で
+        // 高品質に縮める (画素を間引くと細い線や文字が欠けて縞が出る)。
+        if (ID2D1Bitmap* scaled = ScaledImage(*image)) {
+            rt->DrawBitmap(scaled, &dest, 1.0f, D2D1_INTERPOLATION_MODE_LINEAR, nullptr, nullptr);
+            return;
+        }
+        const auto mode = Zoom() < 1.0f ? D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC : D2D1_INTERPOLATION_MODE_LINEAR;
+        rt->DrawBitmap(image->bitmap.Get(), &dest, 1.0f, mode, nullptr, nullptr);
+    }
+}
+
+ID2D1Bitmap* ZoomWindow::ScaledImage(ImageContent& image)
+{
+    // 画面に出す画素の数。倍率 1 で画像の 1 px が物理 1 px なので、元の画素数に倍率を掛けたもの。
+    const auto width = static_cast<UINT>(std::lround(static_cast<float>(image.pixel_width) * Zoom()));
+    const auto height = static_cast<UINT>(std::lround(static_cast<float>(image.pixel_height) * Zoom()));
+    if (image.scaled) {
+        if (const D2D1_SIZE_U size = image.scaled->GetPixelSize(); size.width == width && size.height == height) {
+            return image.scaled.Get();
+        }
+        // 前の倍率のものは、作る前か、縮小しない倍率になったら返す。
+        image.scaled.Reset();
+    }
+    // 縮小しない倍率は bitmap をそのまま描く。窓の大きさを変えている間は、1 px ごとに作り直さずにその場で縮める。
+    if (width == 0 || height == 0 || width >= image.bitmap->GetPixelSize().width || sizing_ || !record_dc_) {
+        return nullptr;
+    }
+    ComPtr<ID2D1Bitmap1> scaled;
+    const auto props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(record_dc_->CreateBitmap(D2D1::SizeU(width, height), nullptr, 0, props, &scaled))) {
+        return nullptr;
+    }
+    // record_dc_ は DPI 96 なので、DIP がそのまま画素になる。
+    const D2D1_RECT_F dest = D2D1::RectF(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+    record_dc_->SetTarget(scaled.Get());
+    record_dc_->BeginDraw();
+    // 図の記録の後片付けに頼らず、変換を戻してから描く。
+    record_dc_->SetTransform(D2D1::Matrix3x2F::Identity());
+    record_dc_->Clear(D2D1::ColorF(0, 0.0f));
+    record_dc_->DrawBitmap(image.bitmap.Get(), &dest, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+    const HRESULT hr = record_dc_->EndDraw();
+    record_dc_->SetTarget(nullptr);
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+    image.scaled = std::move(scaled);
+    return image.scaled.Get();
+}
+
+D2D1_RECT_F ZoomWindow::BarRect() const noexcept
 {
     const float width = kBarPadding * 2.0f + kButtonWidth * 3.0f + kLabelWidth + kBarGap * 3.0f;
     const bool vscroll = (GetWindowLongPtrW(hwnd_, GWL_STYLE) & WS_VSCROLL) != 0;
@@ -363,7 +459,7 @@ D2D1_RECT_F DiagramView::BarRect() const noexcept
     return D2D1::RectF(right - width, kBarMargin, right, kBarMargin + kBarPadding * 2.0f + kButtonHeight);
 }
 
-D2D1_RECT_F DiagramView::ButtonRect(Button button) const noexcept
+D2D1_RECT_F ZoomWindow::ButtonRect(Button button) const noexcept
 {
     const D2D1_RECT_F bar = BarRect();
     float left = bar.left + kBarPadding;
@@ -382,13 +478,13 @@ D2D1_RECT_F DiagramView::ButtonRect(Button button) const noexcept
     return D2D1::RectF(left, bar.top + kBarPadding, left + kButtonWidth, bar.top + kBarPadding + kButtonHeight);
 }
 
-bool DiagramView::IsEnabled(Button button) const noexcept
+bool ZoomWindow::IsEnabled(Button button) const noexcept
 {
     switch (button) {
     case Button::ZoomIn:
-        return diagram_view::NextZoom(Zoom(), fit_zoom_, 1).has_value();
+        return zoom_viewer::NextZoom(Zoom(), fit_zoom_, 1).has_value();
     case Button::ZoomOut:
-        return diagram_view::NextZoom(Zoom(), fit_zoom_, -1).has_value();
+        return zoom_viewer::NextZoom(Zoom(), fit_zoom_, -1).has_value();
     case Button::Fit:
         return true;
     case Button::None:
@@ -397,9 +493,9 @@ bool DiagramView::IsEnabled(Button button) const noexcept
     return false;
 }
 
-DiagramView::Button DiagramView::HitButton(float x, float y) const noexcept
+ZoomWindow::Button ZoomWindow::HitButton(float x, float y) const noexcept
 {
-    if (!drawing_) {
+    if (!HasContent()) {
         return Button::None;
     }
     for (const Button b : { Button::ZoomOut, Button::ZoomIn, Button::Fit }) {
@@ -410,7 +506,7 @@ DiagramView::Button DiagramView::HitButton(float x, float y) const noexcept
     return Button::None;
 }
 
-void DiagramView::PaintBar()
+void ZoomWindow::PaintBar()
 {
     ID2D1DeviceContext* const rt = target_.dc();
     ID2D1SolidColorBrush* const brush = brush_.Get();
@@ -461,7 +557,7 @@ void DiagramView::PaintBar()
     }
 }
 
-void DiagramView::Layout()
+void ZoomWindow::Layout()
 {
     if (laying_out_) {
         return;
@@ -477,9 +573,9 @@ void DiagramView::Layout()
         if (target_.dc() && !target_.Resize(static_cast<UINT>(rc.right), static_cast<UINT>(rc.bottom), scale * DEFAULT_DPI)) {
             ReleaseTarget();
         }
-        if (drawing_) {
-            fit_zoom_ = diagram_view::FitZoom(view_width_, view_height_, drawing_->width, drawing_->height);
-        }
+        // 画像の倍率 1 の大きさは DPI で変わる。読み込み中は大きさが 0 で、倍率は 1 になる。
+        const D2D1_SIZE_F natural = NaturalSize();
+        fit_zoom_ = zoom_viewer::FitZoom(view_width_, view_height_, natural.width, natural.height);
         UpdateScrollBars();
         RECT after{};
         GetClientRect(hwnd_, &after);
@@ -491,7 +587,7 @@ void DiagramView::Layout()
     Invalidate();
 }
 
-void DiagramView::UpdateScrollBars()
+void ZoomWindow::UpdateScrollBars()
 {
     const float scale = Scale();
     const auto apply = [&](int bar, float content, float view, float& scroll) {
@@ -505,17 +601,20 @@ void DiagramView::UpdateScrollBars()
         }
         SetScrollInfo(hwnd_, bar, &si, TRUE);
     };
-    apply(SB_HORZ, drawing_ ? ContentExtent(drawing_->width, Zoom()) : 0.0f, view_width_, scroll_x_);
-    apply(SB_VERT, drawing_ ? ContentExtent(drawing_->height, Zoom()) : 0.0f, view_height_, scroll_y_);
+    const bool content = HasSize();
+    const D2D1_SIZE_F natural = NaturalSize();
+    apply(SB_HORZ, content ? ContentExtent(natural.width, Zoom()) : 0.0f, view_width_, scroll_x_);
+    apply(SB_VERT, content ? ContentExtent(natural.height, Zoom()) : 0.0f, view_height_, scroll_y_);
 }
 
-void DiagramView::ScrollTo(float x, float y)
+void ZoomWindow::ScrollTo(float x, float y)
 {
-    if (!drawing_) {
+    if (!HasSize()) {
         return;
     }
-    x = std::clamp(x, 0.0f, MaxScroll(ContentExtent(drawing_->width, Zoom()), view_width_));
-    y = std::clamp(y, 0.0f, MaxScroll(ContentExtent(drawing_->height, Zoom()), view_height_));
+    const D2D1_SIZE_F natural = NaturalSize();
+    x = std::clamp(x, 0.0f, MaxScroll(ContentExtent(natural.width, Zoom()), view_width_));
+    y = std::clamp(y, 0.0f, MaxScroll(ContentExtent(natural.height, Zoom()), view_height_));
     // 端を越えて送っても描き直さない。
     if (x == scroll_x_ && y == scroll_y_) {
         return;
@@ -526,7 +625,7 @@ void DiagramView::ScrollTo(float x, float y)
     Invalidate();
 }
 
-void DiagramView::Scroll(int bar, WORD request)
+void ZoomWindow::Scroll(int bar, WORD request)
 {
     const bool horizontal = bar == SB_HORZ;
     const float page = (horizontal ? view_width_ : view_height_) * kPageRatio;
@@ -563,19 +662,19 @@ void DiagramView::Scroll(int bar, WORD request)
     ScrollBy(horizontal ? delta : 0.0f, horizontal ? 0.0f : delta);
 }
 
-void DiagramView::SetZoom(float zoom)
+void ZoomWindow::SetZoom(float zoom)
 {
     const D2D1_POINT_2F before = Origin();
-    // 窓の中央にある図の上の点 (倍率 1 の座標)。
+    // 窓の中央にある中身の上の点 (倍率 1 の座標)。
     const float ax = (view_width_ / 2.0f - before.x) / Zoom();
     const float ay = (view_height_ / 2.0f - before.y) / Zoom();
     manual_zoom_ = zoom;
     Layout();
-    // 新しい倍率で同じ点が中央に来るスクロール位置。余白込みの面では図の左上が kPadding にある。
+    // 新しい倍率で同じ点が中央に来るスクロール位置。余白込みの面では中身の左上が kPadding にある。
     ScrollTo(kPadding + ax * zoom - view_width_ / 2.0f, kPadding + ay * zoom - view_height_ / 2.0f);
 }
 
-void DiagramView::Fit()
+void ZoomWindow::Fit()
 {
     manual_zoom_.reset();
     scroll_x_ = 0.0f;
@@ -583,14 +682,14 @@ void DiagramView::Fit()
     Layout();
 }
 
-void DiagramView::Step(int dir)
+void ZoomWindow::Step(int dir)
 {
-    if (const auto next = drawing_ ? diagram_view::NextZoom(Zoom(), fit_zoom_, dir) : std::nullopt) {
+    if (const auto next = HasContent() ? zoom_viewer::NextZoom(Zoom(), fit_zoom_, dir) : std::nullopt) {
         SetZoom(*next);
     }
 }
 
-void DiagramView::HoverAt(Button button)
+void ZoomWindow::HoverAt(Button button)
 {
     Button current = Button::None;
     if (const auto* over = std::get_if<PointerOver>(&pointer_)) {
@@ -616,7 +715,7 @@ void DiagramView::HoverAt(Button button)
     Invalidate();
 }
 
-DiagramView::Button DiagramView::HighlightedButton() const noexcept
+ZoomWindow::Button ZoomWindow::HighlightedButton() const noexcept
 {
     if (const auto* over = std::get_if<PointerOver>(&pointer_)) {
         return over->button;
@@ -627,7 +726,7 @@ DiagramView::Button DiagramView::HighlightedButton() const noexcept
     return Button::None;
 }
 
-bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result)
+bool ZoomWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& result)
 {
     result = 0;
     switch (msg) {
@@ -644,6 +743,15 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             Layout();
         }
         return true;
+
+    // 既定の処理 (移動・大きさの変更のモーダルループ) はそのまま行わせる。
+    case WM_ENTERSIZEMOVE:
+        sizing_ = true;
+        return false;
+    case WM_EXITSIZEMOVE:
+        sizing_ = false;
+        Invalidate();
+        return false;
 
     case WM_TIMER:
         if (wparam != kTooltipTimer) {
@@ -685,7 +793,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             }
             Invalidate();
         }
-        else if (drawing_) {
+        else if (HasContent()) {
             pointer_ = PointerDragging{ p };
             SetCapture(hwnd_);
             SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
@@ -807,7 +915,7 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
             Step(-1);
             return true;
         case L'0':
-            if (drawing_) {
+            if (HasContent()) {
                 Fit();
             }
             return true;
@@ -817,5 +925,261 @@ bool DiagramView::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT&
 
     default:
         return false;
+    }
+}
+
+ZoomViewer::ZoomViewer() = default;
+
+ZoomViewer::~ZoomViewer()
+{
+    Shutdown();
+}
+
+void ZoomViewer::Init(HWND hwnd, UINT image_msg, IDWriteFactory* dw, IWICImagingFactory* wic, TaskScheduler& scheduler, WindowFactory open_window,
+                      std::move_only_function<void()> on_update, std::move_only_function<void(std::wstring_view)> on_failed)
+{
+    hwnd_ = hwnd;
+    image_msg_ = image_msg;
+    dw_ = dw;
+    wic_ = wic;
+    scheduler_ = &scheduler;
+    open_window_ = open_window;
+    on_update_ = std::move(on_update);
+    on_failed_ = std::move(on_failed);
+}
+
+void ZoomViewer::Shutdown()
+{
+    Close();
+    latch_.Wait();
+    decoded_.TakeAll();
+}
+
+void ZoomViewer::SetRenderTarget(ID2D1RenderTarget* rt, ID3D11Device* d3d, ID2D1Device* device)
+{
+    rt_ = rt;
+    d3d_ = d3d;
+    device_ = device;
+    if (!IsOpen()) {
+        return;
+    }
+    window_->SetDevice(d3d, device);
+    // 窓の画像は旧デバイスのものなので外れた。CPU 側の写しは持たずに読み直す (作り直しはまれなので、写しを持ち続けるより
+    // 読み直す。ユーザーが選んだ)。描画先が無い間は読まず、戻ったときに読む。
+    if (rt && Shown<ImageSubject>()) {
+        StartDecode();
+    }
+}
+
+void ZoomViewer::OpenDiagram(std::string_view code, int node, bool dark_mode)
+{
+    if (auto* shown = Shown<DiagramSubject>(); shown && shown->code == code) {
+        shown->node = node;
+        window_->BringToFront();
+        return;
+    }
+    if (Show(DiagramSubject{ .code = std::string{ code }, .node = node }, dark_mode)) {
+        AwaitDiagram();
+    }
+}
+
+void ZoomViewer::OpenImage(std::wstring path, bool dark_mode)
+{
+    if (const auto* shown = Shown<ImageSubject>(); shown && shown->path == path) {
+        window_->BringToFront();
+        return;
+    }
+    if (Show(ImageSubject{ .path = std::move(path) }, dark_mode)) {
+        StartDecode();
+    }
+}
+
+bool ZoomViewer::Show(Subject subject, bool dark_mode)
+{
+    const bool open = IsOpen();
+    subject_ = std::move(subject);
+    // 前に開いていた画像の読み込みの結果を捨てる。
+    ++generation_;
+    if (open) {
+        window_->BringToFront();
+        window_->SetTitle(Title());
+        window_->ShowLoading();
+        return true;
+    }
+    window_ = open_window_(hwnd_, d3d_.Get(), device_.Get(), dw_.Get(), wic_.Get(), dark_mode, Title(), [this] { Close(); });
+    if (!window_) {
+        Fail();
+        return false;
+    }
+    return true;
+}
+
+void ZoomViewer::Close()
+{
+    window_.reset();
+    subject_ = std::monostate{};
+    ++generation_;
+}
+
+void ZoomViewer::Fail()
+{
+    const auto& s = i18n::S();
+    const std::wstring_view message = std::holds_alternative<ImageSubject>(subject_) ? s.toast_image_view_failed : s.toast_diagram_view_failed;
+    Close();
+    on_failed_(message);
+}
+
+void ZoomViewer::FailIfEmpty()
+{
+    if (!window_->HasContent()) {
+        Fail();
+    }
+}
+
+std::wstring ZoomViewer::Title() const
+{
+    const auto& s = i18n::S();
+    if (const auto* image = std::get_if<ImageSubject>(&subject_)) {
+        return std::format(L"{} - {}", path_util::FilenameView(image->path), s.viewer_image_title);
+    }
+    return std::wstring{ s.viewer_diagram_title };
+}
+
+void ZoomViewer::SetDarkMode(bool dark_mode)
+{
+    if (!IsOpen()) {
+        return;
+    }
+    window_->SetDarkMode(dark_mode);
+    // 図はテーマの色を焼き込むので、新しいテーマの図に差し替える。
+    if (std::holds_alternative<DiagramSubject>(subject_)) {
+        AwaitDiagram();
+    }
+}
+
+void ZoomViewer::ApplyLanguage()
+{
+    if (IsOpen()) {
+        window_->ApplyLanguage();
+        window_->SetTitle(Title());
+    }
+}
+
+std::optional<std::string_view> ZoomViewer::DiagramCode() const noexcept
+{
+    const auto* diagram = Shown<DiagramSubject>();
+    return diagram ? std::optional<std::string_view>{ diagram->code } : std::nullopt;
+}
+
+int ZoomViewer::DiagramNode() const noexcept
+{
+    const auto* diagram = Shown<DiagramSubject>();
+    return diagram ? diagram->node : -1;
+}
+
+void ZoomViewer::SetDiagramNode(int node) noexcept
+{
+    if (auto* diagram = Shown<DiagramSubject>()) {
+        diagram->node = node;
+    }
+}
+
+void ZoomViewer::UpdateDiagramCode(std::string_view code)
+{
+    auto* diagram = Shown<DiagramSubject>();
+    if (!diagram || diagram->code == code) {
+        return;
+    }
+    diagram->code.assign(code);
+    AwaitDiagram();
+}
+
+void ZoomViewer::AwaitDiagram()
+{
+    std::get<DiagramSubject>(subject_).pending = true;
+    on_update_();
+}
+
+void ZoomViewer::RequestDiagram(MermaidRenderer& mermaid, float max_width, bool dark_mode)
+{
+    auto* diagram = Shown<DiagramSubject>();
+    if (!diagram || !diagram->pending) {
+        return;
+    }
+    const DiagramResult* result = mermaid.RequestViewerDrawing(diagram->code, max_width, dark_mode);
+    if (!result) {
+        return;
+    }
+    diagram->pending = false;
+    if (result->drawing) {
+        // デバイスが変わって外したコマンドリストは、窓が自分で記録する (ここで記録してキャッシュに入れると、本文の図が
+        // 表示していなくても残る)。
+        window_->SetDrawing(result->drawing, result->commands);
+    }
+    // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
+    else {
+        FailIfEmpty();
+    }
+}
+
+void ZoomViewer::StartDecode()
+{
+    const auto& image = std::get<ImageSubject>(subject_);
+    const uint32_t generation = ++generation_;
+    // 縮める辺の上限は頼むときの描画先で決める (デバイスが変われば読み直す)。
+    const UINT max_dim = MaxBitmapDim(rt_);
+    scheduler_->Post([this, path = image.path, generation, max_dim, guard = latch_.Acquire()] {
+        // 閉じたか別のものを開いたなら読まない。
+        if (generation_.load() != generation) {
+            return;
+        }
+        TaskScheduler::EnsureWorkerCom();
+        FullSizeImage image = ImageLoader::DecodeFullSize(wic_.Get(), path, max_dim, kMaxImagePixels);
+        // 読んでいる間に閉じたか別のものを開いたなら、受け箱に入れずにここで捨てる (UI スレッドが取り出すまで大きな画像を残さない)。
+        if (generation_.load() != generation) {
+            return;
+        }
+        if (decoded_.Push({ .generation = generation, .image = std::move(image) }) && hwnd_) {
+            ::PostMessageW(hwnd_, image_msg_, 0, 0);
+        }
+    });
+}
+
+void ZoomViewer::OnImageDecoded()
+{
+    for (DecodeResult& r : decoded_.TakeAll()) {
+        if (!Shown<ImageSubject>() || r.generation != generation_.load()) {
+            continue;
+        }
+        if (!r.image.bitmap) {
+            // 書き込みの途中で読んだ更新は読めないことがある。
+            FailIfEmpty();
+            continue;
+        }
+        Upload(std::move(r.image));
+    }
+}
+
+void ZoomViewer::Upload(FullSizeImage image)
+{
+    if (!rt_) {
+        return;
+    }
+    // 読み直した画像を載せる前に、出している古い画像を外す。古い絵・CPU 側の写し・新しい絵が同時に載らない (ユーザーが選んだ)。
+    window_->ReleaseImage();
+    ComPtr<ID2D1Bitmap> bitmap;
+    if (FAILED(rt_->CreateBitmapFromWicBitmap(image.bitmap.Get(), &bitmap)) || !bitmap) {
+        // 古い絵は外したので、出すものが無い。
+        Fail();
+        return;
+    }
+    window_->SetImage(std::move(bitmap), image.pixel_width, image.pixel_height);
+}
+
+void ZoomViewer::OnImageFilesChanged(std::span<const std::wstring> paths)
+{
+    const auto* image = Shown<ImageSubject>();
+    if (image && std::ranges::contains(paths, image->path)) {
+        StartDecode();
     }
 }

@@ -18,6 +18,7 @@
 #include "side_effect.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
+#include "zoom_viewer.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <array>
@@ -164,6 +165,7 @@ public:
     void OnMermaidJobDone();
     void OnInlineMathRequested();
     void OnTableMeasured();
+    void OnViewerImageDecoded();
     void OnFileListed();
     void OnDestroy();
 
@@ -205,6 +207,10 @@ private:
     bool IsLoadingOtherDocument() const noexcept override
     {
         return reload_.IsLoadingOther();
+    }
+    void RequestViewerDrawing(float max_width, bool dark_mode) override
+    {
+        zoom_viewer_.RequestDiagram(mermaid_renderer_, max_width, dark_mode);
     }
     void ShowToast(std::wstring_view message);
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
@@ -323,7 +329,7 @@ private:
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
     // ends は worker が数えた変わらなかったノード数。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
     void ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos);
-    // 拡大表示している図のノード (MermaidRenderer::ViewerNode) を新しい文書に移す。差し替える前の文書と比べるので、
+    // 拡大表示している図のノード (ZoomViewer::DiagramNode) を新しい文書に移す。差し替える前の文書と比べるので、
     // ReplaceDocument より先に呼ぶ。
     void FollowViewerNode(const Document& next, const UnchangedEnds& ends);
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
@@ -403,6 +409,8 @@ private:
     std::chrono::steady_clock::time_point last_inline_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
+    // 図と画像の拡大表示の窓。図の結果は mermaid_renderer_ から受け取り、画像は scheduler_ で読む。
+    ZoomViewer zoom_viewer_;
     FileWatcher file_watcher_{ &scheduler_ };
     ConfigService& config_;
     ThemeService theme_service_;
