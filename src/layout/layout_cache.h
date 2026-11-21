@@ -103,7 +103,9 @@ struct TableLayoutData {
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
-    std::vector<float> row_cum_y;
+    // row_cum_y は表の高さまで伸びるので double で持つ。float では数十万行の表で 1 DIP 刻みになり、先頭の可視行が
+    // 変わるたびに中身が跳ねた。1 行 4B 増えるのは表の中だけなので、ユーザーが double を選んだ。
+    std::vector<double> row_cum_y;
     std::vector<float> col_cum_x;
     // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
     float last_applied_max_width = 0.0f;
@@ -191,9 +193,9 @@ struct TableLayoutData {
     }
 
     // [local_top, local_bottom] (エントリ上端からのローカル座標) に重なる行帯 [r_begin, r_end) を二分探索で返す。
-    std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
+    std::pair<size_t, size_t> VisibleRowRange(double local_top, double local_bottom) const noexcept;
     // [local_top, local_bottom] に重なる行に、セル layout を退避した行があるか。
-    bool HasEvictedRowsIn(float local_top, float local_bottom) const noexcept;
+    bool HasEvictedRowsIn(double local_top, double local_bottom) const noexcept;
     // x は列順に単調なので、[local_left, local_right] に重なる列も連続した区間 [c_begin, c_end) になる。
     // 座標は col_cum_x と同じ base_x からのローカル系。
     std::pair<size_t, size_t> VisibleColRange(float local_left, float local_right) const noexcept;
@@ -227,14 +229,15 @@ struct TableLayoutData {
     // row_heights から罫線込みの累積位置を積み直す。first_row より前の row_cum_y は有効なものとして使い回す。
     void RebuildRowCumY(size_t first_row);
 
-    // 最下行の下罫線まで含めた表の高さ (計測で entry.height に確定する値)。
+    // 最下行の下罫線まで含めた表の高さ (計測で entry.height に確定する値)。entry.height は float なので、巨大な表では
+    // 1 DIP 未満丸まるが、ずれるのは表の後ろのノードの位置だけで、表の中は row_cum_y で描く。
     float TotalHeight() const noexcept
     {
-        return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
+        return static_cast<float>(row_cum_y[row_count] + TABLE_BORDER_WIDTH);
     }
 
     // local_y (エントリ上端からのローカル座標) がヒットする行インデックスを返す。ヒットなしは -1。
-    int RowIndexAt(float local_y) const noexcept;
+    int RowIndexAt(double local_y) const noexcept;
 
 private:
     // 列 c の左端から次の列の左端までの幅 (列幅 + 左右パディング + 罫線)。col_cum_x の刻み幅。
@@ -267,14 +270,15 @@ constexpr D2D1_POINT_2F TableCellTextOrigin(float cell_left, float row_top) noex
     return { cell_left + TABLE_CELL_PADDING, row_top + TABLE_CELL_PADDING };
 }
 
-// Y の閉区間 [top, bottom]。文書座標でも、エントリ上端からのローカル座標でも使う。
+// Y の閉区間 [top, bottom]。文書座標でも、エントリ上端からのローカル座標でも使う。どちらも float の刻みが粗くなる
+// 大きさになりうる (文書の Y と、巨大な表の中の Y) ので double で持つ。
 // 既定値は持たせず、全部は All() で明示する。
 struct YRange {
-    static constexpr float kInf = std::numeric_limits<float>::infinity();
-    float top;
-    float bottom;
+    static constexpr double kInf = std::numeric_limits<double>::infinity();
+    double top;
+    double bottom;
 
-    constexpr YRange(float t, float b) noexcept : top(t), bottom(b)
+    constexpr YRange(double t, double b) noexcept : top(t), bottom(b)
     {
     }
     // どの Y も含む。帯の二分探索・下端 break がすべて素通りになる。
@@ -283,7 +287,7 @@ struct YRange {
         return { -kInf, kInf };
     }
 
-    constexpr YRange ToLocal(float entry_top) const noexcept
+    constexpr YRange ToLocal(double entry_top) const noexcept
     {
         return { top - entry_top, bottom - entry_top };
     }
@@ -292,7 +296,7 @@ struct YRange {
 namespace layout {
 
 // scroll_y から height の可視範囲に、上下 height * screens ずつ足した範囲。
-constexpr YRange BufferedRange(float scroll_y, float height, float screens) noexcept
+constexpr YRange BufferedRange(double scroll_y, float height, float screens) noexcept
 {
     const float buffer = height * screens;
     return { scroll_y - buffer, scroll_y + height + buffer };
@@ -432,7 +436,7 @@ struct NodeLayoutEntry {
     // 精密に求め、無ければブロック先頭 / テーブル行先頭の座標にする。長い段落内の複数マッチが同じブロック先頭 Y に
     // 丸まると「次へ」でスクロールしない。text_offset_w は IDWriteTextLayout のヒットテストに渡すので
     // UTF-16 単位を渡すこと (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
-    std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept;
+    std::pair<double, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, double entry_text_top) const noexcept;
 
 private:
     struct Aux {
@@ -611,7 +615,7 @@ public:
     LayoutCache() = default;
     // node_count 個の未計測 (dirty・位置 0) のエントリを持つ。文書を表示に載せる経路は MakeEstimatedLayoutCache で作る。
     explicit LayoutCache(size_t node_count)
-        : entries_(node_count), tops_(node_count), top_block_offsets_((node_count >> kTopBlockShift) + 1, 0.0f)
+        : entries_(node_count), tops_(node_count), top_block_offsets_((node_count >> kTopBlockShift) + 1, 0.0)
     {
     }
 
@@ -632,27 +636,54 @@ public:
     // ノード Y 位置の唯一の真実。WRITE 経路は layout_computer の RecomputeYPositions / EstimateNodeHeights /
     // ReestimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。高さ変化時の後続ノード一括シフトが
     // AoS のエントリを全件なめないよう、連続 float 配列として entries_ とは別に持つ。
-    constexpr float Top(size_t i) const noexcept
+    constexpr double Top(size_t i) const noexcept
     {
-        return tops_[i] + top_block_offsets_[i >> kTopBlockShift];
+        return top_block_offsets_[i >> kTopBlockShift] + tops_[i];
     }
-    constexpr void SetTop(size_t i, float y) noexcept
+    // 1 件だけ書く (テストが位置を置く)。ブロックのオフセットは動かさないので、文書の Y は WriteTops で積む。
+    constexpr void SetTop(size_t i, double y) noexcept
     {
-        tops_[i] = y - top_block_offsets_[i >> kTopBlockShift];
+        tops_[i] = static_cast<float>(y - top_block_offsets_[i >> kTopBlockShift]);
     }
-    constexpr float Bottom(size_t i) const noexcept
+    // [from, end) の Top を i の昇順に top_at(i) で書く。ブロックの先頭から書くときはオフセットをその Top に置き直し、
+    // ブロック内の値を小さく保つ (書かない残りは同じ位置のまま差を直す)。書いている途中のブロックの残りの Top は古いので、
+    // top_at は Top を読まないこと。
+    // 置き直すかはブロックごとに決める (1 件ごとに判定すると Reload/RecomputeYPositions が 2.1 → 2.4ms)。
+    template <class TopAt>
+    void WriteTops(size_t from, size_t end, TopAt&& top_at)
+    {
+        float* const tops = tops_.data();
+        while (from < end) {
+            const size_t block = from >> kTopBlockShift;
+            const size_t block_end = BlockEnd(block);
+            const size_t stop = std::min(block_end, end);
+            double offset = top_block_offsets_[block];
+            if ((from & kTopBlockMask) == 0) {
+                const double first = top_at(from);
+                AddToTops(stop, block_end, static_cast<float>(offset - first));
+                offset = first;
+                top_block_offsets_[block] = first;
+                tops[from++] = 0.0f;
+            }
+            for (; from < stop; ++from) {
+                tops[from] = static_cast<float>(top_at(from) - offset);
+            }
+        }
+    }
+    constexpr double Bottom(size_t i) const noexcept
     {
         return Top(i) + entries_[i].height;
     }
-    // from 以降の Top を delta ずらす。後続のブロックはオフセットだけ書き換える。
-    void ShiftTops(size_t from, float delta) noexcept
+    // from 以降の Top を delta ずらす。後続のブロックはオフセットだけ書き換える。from がブロックの先頭なら、そのブロックも
+    // オフセットだけで済み、ブロック内の値は変わらない。
+    void ShiftTops(size_t from, double delta) noexcept
     {
-        const size_t block = from >> kTopBlockShift;
-        const size_t block_end = std::min((block + 1) << kTopBlockShift, tops_.size());
-        for (float& top : std::span(tops_).subspan(from, block_end - from)) {
-            top += delta;
+        size_t block = from >> kTopBlockShift;
+        if ((from & kTopBlockMask) != 0) {
+            AddToTops(from, BlockEnd(block), static_cast<float>(delta));
+            ++block;
         }
-        for (float& offset : std::span(top_block_offsets_).subspan(block + 1)) {
+        for (double& offset : std::span(top_block_offsets_).subspan(block)) {
             offset += delta;
         }
     }
@@ -756,11 +787,28 @@ private:
     // 計測で高さが変わるたびに後ろの全ノードをずらすと、数十万ノードの文書では 1 回で数百 µs かかる。
     // Top は 2^kTopBlockShift 件ごとのブロック内の値とブロックのオフセットに分けて持ち、ずらしを
     // 同じブロックの残りとブロック数ぶんの書き換えで済ませる。
+    // 文書の Y は float だと 2^22 DIP (図や画像の多い文書でも届く) を超えて 0.5 DIP 以上の刻みになるので、オフセットを
+    // double にし、ブロック内の値は先頭からの差にして float のまま細かく保つ。tops_ も double にするより 1 ノード 4B 少なく、
+    // ユーザーがこちらを選んだ。1 ブロックの中が 2^22 DIP を超える (巨大な表の後ろなど) と、その残りだけ刻みが粗くなる。
     static constexpr size_t kTopBlockShift = 12;
+    static constexpr size_t kTopBlockSize = size_t{ 1 } << kTopBlockShift;
+    static constexpr size_t kTopBlockMask = kTopBlockSize - 1;
+
+    size_t BlockEnd(size_t block) const noexcept
+    {
+        return std::min((block + 1) << kTopBlockShift, tops_.size());
+    }
+    // [from, to) のブロック内の値に delta を足す (同じブロックの中に限る)。
+    void AddToTops(size_t from, size_t to, float delta) noexcept
+    {
+        for (float& top : std::span(tops_).subspan(from, to - from)) {
+            top += delta;
+        }
+    }
 
     std::vector<NodeLayoutEntry> entries_;
     std::vector<float> tops_;
-    std::vector<float> top_block_offsets_;
+    std::vector<double> top_block_offsets_;
     std::unordered_map<size_t, DiagramEntry> diagrams_;
     ReleasedLayouts released_layouts_;
     bool has_dirty_nodes_ = true;
@@ -771,23 +819,23 @@ private:
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 下端マージン)。
 // = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない。空なら 0。
-constexpr float ComputeTotalContentHeight(const LayoutCache& cache, float margin_bottom) noexcept
+constexpr double ComputeTotalContentHeight(const LayoutCache& cache, float margin_bottom) noexcept
 {
     if (cache.size() == 0) {
-        return 0.0f;
+        return 0.0;
     }
     return cache.Bottom(cache.size() - 1) + margin_bottom;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならなければ true。端が接している (y+h == range_top 等) のは
 // 重なり扱い (false = 描画対象)。ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分見えるため。
-constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
+constexpr bool IsOffscreen(float y, float h, double range_top, double range_bottom) noexcept
 {
     return y + h < range_top || y > range_bottom;
 }
 
 // 下端が viewport_top を超える最初のノードを二分探索で見つける。該当なしの場合は cache.size() を返す。
-constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, float viewport_top) noexcept
+constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, double viewport_top) noexcept
 {
     const auto indices = std::views::iota(size_t{ 0 }, cache.size());
     const auto it = std::ranges::partition_point(indices, [&cache, viewport_top](size_t i) noexcept {
@@ -797,7 +845,7 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, float viewport
 }
 
 // [from, size) のうち上端が y を超える最初のノード。該当なしの場合は cache.size() を返す。
-constexpr size_t FindFirstNodeBelow(const LayoutCache& cache, float y, size_t from = 0) noexcept
+constexpr size_t FindFirstNodeBelow(const LayoutCache& cache, double y, size_t from = 0) noexcept
 {
     const auto rest = std::views::iota(from, cache.size());
     const auto it = std::ranges::partition_point(rest, [&cache, y](size_t i) noexcept {
@@ -809,18 +857,18 @@ constexpr size_t FindFirstNodeBelow(const LayoutCache& cache, float y, size_t fr
 // range_top..range_bottom と重なる可能性があるノード範囲を返す。
 // begin: 下端が range_top を超える最初のノード（FindFirstVisibleNodeIndex 相当）。
 // end: 上端が range_bottom を超える最初のノード。
-inline IndexRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
+inline IndexRange ComputeVisibleNodeRange(const LayoutCache& cache, double range_top, double range_bottom) noexcept
 {
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range_top));
     return { first, FindFirstNodeBelow(cache, range_bottom, first) };
 }
 
 // (node, offset) → 絶対スクロール位置。負の node や空キャッシュは 0、末尾を超える node は最後の要素へクランプする。
-constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float offset) noexcept
+constexpr double NodeOffsetToScrollY(const LayoutCache& cache, int node, double offset) noexcept
 {
     if (cache.size() == 0 || node < 0) {
-        return 0.0f;
+        return 0.0;
     }
     const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
-    return std::max(0.0f, cache.Top(static_cast<size_t>(clamped)) + offset);
+    return std::max(0.0, cache.Top(static_cast<size_t>(clamped)) + offset);
 }

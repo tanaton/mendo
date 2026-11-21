@@ -299,7 +299,7 @@ TEST_F(SearchBarTest, ReloadSettledResearchesWithoutScrolling)
 
     const auto effects = Dispatch(ReloadSettledAction{});
 
-    EXPECT_FLOAT_EQ(state_.view.viewport.GetScrollY(), 200.0f);
+    EXPECT_DOUBLE_EQ(state_.view.viewport.GetScrollY(), 200.0);
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 2);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -330,7 +330,7 @@ TEST_F(SearchBarTest, ScrollToMatchClearsScrollTarget)
 {
     SetDocument("hello\n\nworld hello\n", 500.0f);
     ASSERT_EQ(Nodes().size(), 2u);
-    ASSERT_FLOAT_EQ(MdMaxScroll(state_), 1000.0f - 800.0f);
+    ASSERT_DOUBLE_EQ(MdMaxScroll(state_), 1000.0 - 800.0);
 
     auto& viewport = state_.view.viewport;
     viewport.SetScrollTarget(0, 0.0f);
@@ -359,11 +359,11 @@ TEST_F(SearchBarTest, NextMatchAcrossTableRowsAdvancesScroll)
     Dispatch(SearchTextChangedAction{ L"hit" });
     ASSERT_EQ(state_.search.search_state.GetMatchCount(), 5);
 
-    float prev_scroll = state_.view.viewport.GetScrollY();
+    double prev_scroll = state_.view.viewport.GetScrollY();
     int advanced = 0;
     for (int i = 0; i < 4; i++) {
         Dispatch(SearchStepAction{ .forward = true });
-        const float now = state_.view.viewport.GetScrollY();
+        const double now = state_.view.viewport.GetScrollY();
         if (now > prev_scroll) {
             advanced++;
         }
@@ -394,7 +394,7 @@ TEST_F(SearchBarTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     ASSERT_FALSE(ensured.empty());
     EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
     const float visible = 800.0f - SEARCH_BAR_HEIGHT;
-    EXPECT_FLOAT_EQ(state_.view.viewport.GetScrollY(), 5000.0f - visible / 3.0f);
+    EXPECT_DOUBLE_EQ(state_.view.viewport.GetScrollY(), 5000.0 - visible / 3.0f);
 }
 
 // 現在位置が既に可視範囲内ならスクロールしない（余計な再描画を避ける）。
@@ -408,8 +408,8 @@ TEST_F(SearchBarTest, ScrollToMatchNoOpWhenAlreadyVisible)
     Dispatch(OpenSearchBarAction{});
     Dispatch(SearchTextChangedAction{ L"hello" });
 
-    const float before = state_.view.viewport.GetScrollY();
+    const double before = state_.view.viewport.GetScrollY();
     const auto effects = Dispatch(SearchStepAction{ .forward = true });
-    EXPECT_FLOAT_EQ(state_.view.viewport.GetScrollY(), before);
+    EXPECT_DOUBLE_EQ(state_.view.viewport.GetScrollY(), before);
     EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }

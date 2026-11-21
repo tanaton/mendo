@@ -450,7 +450,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
 MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, DipPoint window_dip) noexcept
 {
     const Theme& theme = *state.theme;
-    const float scroll_y = state.view.viewport.GetScrollY();
+    const double scroll_y = state.view.viewport.GetScrollY();
     return MdPaneHitContext{
         .nodes = state.document.doc.GetNodes(),
         .cache = state.document.layout_cache,

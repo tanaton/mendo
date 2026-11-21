@@ -51,14 +51,14 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_TRUE(hist_.GoBack({ L"c.md", 5, 6.0f }, out));
     EXPECT_EQ(out.file_path, L"b.md");
     EXPECT_EQ(out.node, 3);
-    EXPECT_FLOAT_EQ(out.offset, 4.0f);
+    EXPECT_DOUBLE_EQ(out.offset, 4.0f);
     EXPECT_TRUE(hist_.CanGoForward());
     hist_.CommitOpened({ L"c.md", 5, 6.0f });
 
     EXPECT_TRUE(hist_.GoBack({ L"b.md", 3, 4.0f }, out));
     EXPECT_EQ(out.file_path, L"a.md");
     EXPECT_EQ(out.node, 1);
-    EXPECT_FLOAT_EQ(out.offset, 2.0f);
+    EXPECT_DOUBLE_EQ(out.offset, 2.0f);
     hist_.CommitOpened({ L"b.md", 3, 4.0f });
 
     EXPECT_FALSE(hist_.CanGoBack());
@@ -71,7 +71,7 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_TRUE(hist_.GoForward({ L"b.md", 3, 4.0f }, out));
     EXPECT_EQ(out.file_path, L"c.md");
     EXPECT_EQ(out.node, 5);
-    EXPECT_FLOAT_EQ(out.offset, 6.0f);
+    EXPECT_DOUBLE_EQ(out.offset, 6.0f);
 
     EXPECT_FALSE(hist_.CanGoForward());
 }

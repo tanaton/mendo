@@ -34,7 +34,7 @@ protected:
     static constexpr PaneRect kDefaultPane{ 0, 0, kViewportW, 2000.0f };
 
     // nodes_ / cache_ を描いたコマンド。
-    DrawCommandList Draw(const PaneRect& pane = kDefaultPane, float scroll_y = 0.0f, float dpi = 1.0f)
+    DrawCommandList Draw(const PaneRect& pane = kDefaultPane, double scroll_y = 0.0, float dpi = 1.0f)
     {
         DrawCommandList cmds;
         gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, dpi);
@@ -42,7 +42,7 @@ protected:
     }
 
     // 呼び出し後も nodes_ / cache_ で期待値を組み立てられる。
-    DrawCommandList Generate(std::string_view md, const PaneRect& pane = kDefaultPane, float scroll_y = 0.0f, float dpi = 1.0f)
+    DrawCommandList Generate(std::string_view md, const PaneRect& pane = kDefaultPane, double scroll_y = 0.0, float dpi = 1.0f)
     {
         Parse(md);
         return Draw(pane, scroll_y, dpi);

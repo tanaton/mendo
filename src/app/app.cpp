@@ -1035,7 +1035,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
         layout::RecomputeYPositions(state_.document.doc.GetNodes(), state_.document.layout_cache, theme_service_.GetTheme());
     }
 
-    const float desired_scroll = layout::CalcScrollYForDiff(
+    const double desired_scroll = layout::CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
         state_.document.doc.GetRawText().size(),
         diff_pos, md.height, state_.view.viewport.GetScrollY());
@@ -1183,7 +1183,7 @@ void App::SaveSession()
         session::SaveLastFilePath(config_, doc.GetFilePath());
         // ノードの無い文書でも書く。残すと前のファイルの位置がこのファイルの位置として復元される。
         const auto t = SnapshotVisibleTarget(state_);
-        session::SaveScrollPosition(config_, t.IsValid() ? t.node : -1, t.IsValid() ? t.offset : 0.0f);
+        session::SaveScrollPosition(config_, t.IsValid() ? t.node : -1, t.IsValid() ? t.offset : 0.0);
     }
 
     session::SavePanes(config_, state_.view.panes);
@@ -1241,7 +1241,7 @@ void App::RestoreScrollPosition()
 {
     const auto pos = session::LoadScrollPosition(config_);
     if (pos.node >= 0) {
-        state_.view.pending_scroll = ScrollTarget{ pos.node, static_cast<float>(pos.offset) };
+        state_.view.pending_scroll = ScrollTarget{ pos.node, static_cast<double>(pos.offset) };
     }
 }
 
@@ -1837,7 +1837,7 @@ void App::FinishLayout(LayoutChange change, LayoutCaller caller)
         layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     }
     // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。
-    const float scroll_y = viewport.GetScrollY();
+    const double scroll_y = viewport.GetScrollY();
     viewport.ClampScroll(MdMaxScroll(state_));
     const bool clamped = viewport.GetScrollY() != scroll_y;
     switch (caller) {
@@ -1885,7 +1885,7 @@ void App::OnDeferredLayout()
     if (!run.scrollbar) {
         run.scrollbar = scrollbar();
     }
-    const float scroll_y = state_.view.viewport.GetScrollY();
+    const double scroll_y = state_.view.viewport.GetScrollY();
     const auto visible = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + md.height);
     run.visible_dirty |= std::ranges::any_of(std::views::iota(visible.begin, visible.end), [&](size_t i) {
         if (cache[i].layout_dirty) {

@@ -117,8 +117,8 @@ private:
     void DropQueuesIfJumped();
 
     struct BufferedRange {
-        float viewport_top;
-        float viewport_bottom;
+        double viewport_top;
+        double viewport_bottom;
         YRange keep;
         IndexRange range;
     };
@@ -137,7 +137,7 @@ private:
 
     float last_mermaid_content_width_ = 0.0f;
     bool last_mermaid_dark_mode_ = false;
-    float last_request_scroll_ = 0.0f;
+    double last_request_scroll_ = 0.0;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     // resolved_image_paths_ に入れた画像のファイルの監視と、更新の通知が来て IMAGE_RELOAD タイマーを待っているパス。
     ImageFolderWatcher image_watcher_;

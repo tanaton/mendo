@@ -204,7 +204,7 @@ public:
     bool Reestimate(std::span<const Node> nodes, LayoutCache& cache, float viewport_width);
     bool EnsureVisibleLayout(
         std::span<const Node> nodes, LayoutCache& cache, float viewport_width,
-        float viewport_top, float viewport_bottom);
+        double viewport_top, double viewport_bottom);
     struct PassResult {
         // 高さ・位置・テーブル行のいずれかが変わった。
         bool updated = false;
@@ -258,7 +258,7 @@ public:
 private:
     template <class Op>
     auto KeepingAnchor(LayoutCache& cache, Op&& op);
-    bool EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom);
+    bool EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, double top, double bottom);
 
     LayoutEngine& engine_;
     ViewportManager& viewport_;

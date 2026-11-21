@@ -8,7 +8,7 @@
 // ユーザー発のピクセルスクロール (SetScrollY / ScrollTo / DirectScrollBy) で無効になる。
 struct ScrollTarget {
     int node = -1;       // -1 = 無効
-    float offset = 0.0f; // ノード先頭からのピクセル距離
+    double offset = 0.0; // ノード先頭からのピクセル距離 (巨大な表の中では float の刻みが粗くなる大きさになる)
 
     constexpr bool IsValid() const noexcept
     {
@@ -21,28 +21,29 @@ class ViewportManager {
 public:
     // ---- スクロール ----
 
-    constexpr float GetScrollY() const noexcept
+    // 文書の Y なので double。float では大きな文書で刻みが粗くなり、タッチパッドの 1 DIP 未満のスクロールが消える。
+    constexpr double GetScrollY() const noexcept
     {
         return scroll_y_;
     }
 
     // ピクセル絶対スクロール。scroll_target を無効化する。
-    constexpr void ScrollTo(float position, float max_scroll) noexcept
+    constexpr void ScrollTo(double position, double max_scroll) noexcept
     {
-        scroll_y_ = std::clamp(position, 0.0f, max_scroll);
+        scroll_y_ = std::clamp(position, 0.0, max_scroll);
         scroll_target_ = {};
     }
 
     // ユーザー発のピクセルスクロール。scroll_target を無効化する。
-    constexpr void DirectScrollBy(float delta, float max_scroll) noexcept
+    constexpr void DirectScrollBy(float delta, double max_scroll) noexcept
     {
         ScrollTo(scroll_y_ + delta, max_scroll);
     }
 
     // scroll_target は残す (以降のレイアウト変化でも見ている位置を保つ)。
-    constexpr void ClampScroll(float max_scroll) noexcept
+    constexpr void ClampScroll(double max_scroll) noexcept
     {
-        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll);
+        scroll_y_ = std::clamp(scroll_y_, 0.0, max_scroll);
     }
 
     // 下端が scroll_y_ より下にある最初のノード。無ければ -1。
@@ -54,7 +55,7 @@ public:
 
     // scroll_target を明示設定する。内部の scroll_y は更新しないので、
     // 呼び出し側は直後に ApplyScrollTarget を呼ぶか、レイアウト操作経由のフックで再評価されるのを待つ。
-    constexpr void SetScrollTarget(int node, float offset) noexcept
+    constexpr void SetScrollTarget(int node, double offset) noexcept
     {
         scroll_target_ = { node, offset };
     }
@@ -88,12 +89,12 @@ public:
     constexpr ScrollTarget CurrentTarget(const LayoutCache& cache) const noexcept
     {
         const int idx = FindFirstVisibleNode(cache);
-        const float top = idx >= 0 ? cache.Top(static_cast<size_t>(idx)) : 0.0f;
+        const double top = idx >= 0 ? cache.Top(static_cast<size_t>(idx)) : 0.0;
         return { idx, scroll_y_ - top };
     }
 
     // scroll_target を無効にし、クランプせずに書く。max_scroll が未確定な段階 (ファイルロード直後など) のシードに使う。
-    constexpr void SetScrollY(float y) noexcept
+    constexpr void SetScrollY(double y) noexcept
     {
         scroll_y_ = y;
         scroll_target_ = {};
@@ -133,7 +134,7 @@ public:
     }
 
 private:
-    float scroll_y_ = 0.0f;
+    double scroll_y_ = 0.0;
     ScrollTarget scroll_target_{};
     TextSelection selection_;
     ZoomLevel zoom_;

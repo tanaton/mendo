@@ -28,7 +28,7 @@ protected:
     // text_layout が null なので 1 行目の高さは本文の行送り。bullet 中心は物理ピクセルへスナップされる。
     float ExpectedBulletY(int node) const
     {
-        return SnapToPhysicalPixel(cache_.Top(node) + theme_.font_size_body * BODY_LINE_HEIGHT_FACTOR * 0.5f, 1.0f);
+        return SnapToPhysicalPixel(static_cast<float>(cache_.Top(node)) + theme_.font_size_body * BODY_LINE_HEIGHT_FACTOR * 0.5f, 1.0f);
     }
 };
 
@@ -271,6 +271,40 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
     }
 }
 
+// 表の中の Y が float では 2 DIP 刻みになる大きさでも、行の線は行の位置 (row_cum_y) に描く。先頭の行から高さを足して
+// いくと、先頭の行が変わるたびに丸めがずれて中身が跳ねた。
+TEST_F(CmdGenContentTest, GiantTableRowLinesStayAtRowTops)
+{
+    std::string md = "| a |\n|---|\n";
+    for (int r = 0; r < 40; ++r) {
+        md += "| x |\n";
+    }
+    Parse(md);
+    ASSERT_EQ(nodes_.size(), 1u);
+    const auto* tl = cache_[0].table_layout();
+    ASSERT_NE(tl, nullptr);
+    const double top = MakeFirstTableRowGiant(nodes_, cache_, 0);
+
+    // 先頭に見える行が違う 2 つの位置で描く。
+    for (const double scroll_y : { top + tl->row_cum_y[3] + 0.4, top + tl->row_cum_y[6] + 7.6 }) {
+        SCOPED_TRACE(scroll_y);
+        const double snapped = SnapToPhysicalPixel(scroll_y, 1.0f);
+        int lines = 0;
+        for (const auto& l : CollectCmds<DrawLineCmd>(Draw(PaneRect{ 0.0f, 0.0f, kViewportW, 200.0f }, scroll_y))) {
+            if (l.brush_id != BrushId::Hr || l.p0.y != l.p1.y) {
+                continue;
+            }
+            const double doc_y = l.p0.y + snapped;
+            const auto r = std::ranges::min(std::views::iota(size_t{ 0 }, tl->row_count + 1), {}, [&](size_t k) {
+                return std::abs(top + tl->row_cum_y[k] - doc_y);
+            });
+            EXPECT_NEAR(doc_y, top + tl->row_cum_y[r], 1e-3) << "row " << r;
+            ++lines;
+        }
+        EXPECT_GE(lines, 3);
+    }
+}
+
 // 区切ったコードブロックは間を空けずに並べ、背景は継ぎ目で丸めずにつなげる。
 TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
 {
@@ -278,11 +312,11 @@ TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
     Parse(md);
     ASSERT_GT(nodes_.size(), 2u);
     for (size_t i = 1; i < nodes_.size(); ++i) {
-        EXPECT_FLOAT_EQ(cache_.Top(i), cache_.Top(i - 1) + cache_[i - 1].height);
+        EXPECT_DOUBLE_EQ(cache_.Top(i), cache_.Top(i - 1) + cache_[i - 1].height);
     }
 
     // 1 つ目と 2 つ目の継ぎ目を画面の y=200 に置く。
-    const float seam = cache_.Top(1);
+    const double seam = cache_.Top(1);
     const auto cmds = GenerateMdPaneAt(gen_, nodes_, cache_, PaneRect{ 0, 0, kViewportW, 400.0f }, seam - 200.0f);
     const auto code_bg_edge = [&](auto edge) {
         return CountCmd<FillRectCmd>(cmds, [&](const FillRectCmd& c) { return c.brush_id == BrushId::CodeBg && std::abs(edge(c.rect) - 200.0f) < 0.01f; });

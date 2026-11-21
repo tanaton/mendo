@@ -128,7 +128,7 @@ protected:
     std::vector<Node> nodes_;
     LayoutCache cache_;
     float width_ = 800.0f;
-    float scroll_ = 0.0f;
+    double scroll_ = 0.0;
 
     void SetUp() override
     {
@@ -150,9 +150,9 @@ protected:
         ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
     }
 
-    float MaxScroll() const
+    double MaxScroll() const
     {
-        return std::max(0.0f, ComputeTotalContentHeight(cache_, theme_.margin_bottom) - kViewportHeight);
+        return std::max(0.0, ComputeTotalContentHeight(cache_, theme_.margin_bottom) - kViewportHeight);
     }
 
     float NodeWidth(size_t i) const
@@ -223,7 +223,7 @@ protected:
             return desc;
         }
         case Op::Scroll:
-            ScrollTo(MaxScroll() > 0.0f ? std::uniform_real_distribution<float>(0.0f, MaxScroll())(rng) : 0.0f);
+            ScrollTo(MaxScroll() > 0.0 ? std::uniform_real_distribution<double>(0.0, MaxScroll())(rng) : 0.0);
             return "Scroll+EnsureVisibleLayout scroll=" + std::to_string(scroll_);
         case Op::Layout:
             ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
@@ -264,9 +264,9 @@ protected:
         ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
     }
 
-    void ScrollTo(float y)
+    void ScrollTo(double y)
     {
-        scroll_ = std::clamp(y, 0.0f, MaxScroll());
+        scroll_ = std::clamp(y, 0.0, MaxScroll());
         engine_.EnsureVisibleLayout(nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
     }
 
@@ -416,7 +416,7 @@ TEST_F(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimat
     ComputeLayout(engine_, doc.GetNodes(), cache, kWidth);
     viewport_.SetScrollTarget(kTarget, 0.0f);
     viewport_.ApplyScrollTarget(cache);
-    const float measured_scroll_y = viewport_.GetScrollY();
+    const double measured_scroll_y = viewport_.GetScrollY();
 
     ASSERT_TRUE(recording_.RecreateFormats());
     cache.InvalidateAllLayouts(doc.GetNodes());
@@ -424,7 +424,7 @@ TEST_F(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimat
     service_.ViewportLayout(doc, cache, kWidth, kHeight);
 
     EXPECT_LT(viewport_.GetScrollY(), measured_scroll_y) << "推定し直した Y で位置を求め直す";
-    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), cache.Top(kTarget));
+    EXPECT_DOUBLE_EQ(viewport_.GetScrollY(), cache.Top(kTarget));
     const auto vr = ComputeVisibleNodeRange(cache, viewport_.GetScrollY(), viewport_.GetScrollY() + kHeight);
     for (size_t i = vr.begin; i < vr.end; ++i) {
         EXPECT_FALSE(cache[i].layout_dirty) << "可視ノードが未計測 i=" << i;
@@ -470,7 +470,7 @@ TEST_F(LayoutServiceTest, RecomputeAfterDiagramKeepsViewWithoutTarget)
     changed.Add(1);
     service_.RecomputeAfterDiagram(doc, cache, changed);
 
-    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), cache.Top(kVisible) + 3.0f);
+    EXPECT_DOUBLE_EQ(viewport_.GetScrollY(), cache.Top(kVisible) + 3.0);
 }
 
 // worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。
@@ -513,7 +513,7 @@ TEST_F(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
     ASSERT_EQ(width_aware.size(), reestimated.size());
     for (size_t i = 0; i < reestimated.size(); ++i) {
         EXPECT_FLOAT_EQ(width_aware[i].height, reestimated[i].height) << i;
-        EXPECT_FLOAT_EQ(width_aware.Top(i), reestimated.Top(i)) << i;
+        EXPECT_DOUBLE_EQ(width_aware.Top(i), reestimated.Top(i)) << i;
     }
 }
 

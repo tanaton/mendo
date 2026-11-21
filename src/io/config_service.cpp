@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
@@ -437,17 +438,22 @@ void session::LoadPanes(const ConfigService& config, PaneController& panes)
     }
 }
 
-void session::SaveScrollPosition(ConfigService& config, int node, float offset)
+void session::SaveScrollPosition(ConfigService& config, int node, double offset)
 {
+    using Limits = std::numeric_limits<int>;
     config.SaveInt(kSectionSession, kKeyScrollNode, node);
-    config.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
+    // lround は long (32 ビット) を返してあふれうるので、64 ビットで丸めてから int の端に寄せる。
+    config.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::clamp<long long>(std::llround(offset), Limits::min(), Limits::max())));
 }
 
 session::ScrollPosition session::LoadScrollPosition(const ConfigService& config)
 {
+    // node と offset に上限を付けない。どの値でも NodeOffsetToScrollY とスクロールの上限で文書の中に収まり、
+    // 100 万ノードを超える文書や巨大な表の奥 (数千万 DIP) の位置も戻せる。
+    using Limits = std::numeric_limits<int>;
     return {
-        .node = config.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, 1000000),
-        .offset = config.LoadInt(kSectionSession, kKeyScrollOffset, 0, -1000000, 1000000),
+        .node = config.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, Limits::max()),
+        .offset = config.LoadInt(kSectionSession, kKeyScrollOffset, 0, Limits::min(), Limits::max()),
     };
 }
 

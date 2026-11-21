@@ -39,9 +39,18 @@ TEST(ViewportManagerTest, ScrollClampsToRange)
                 vm.ScrollTo(amount, max_scroll);
             }
         }
-        EXPECT_FLOAT_EQ(vm.GetScrollY(), c.expected);
+        EXPECT_DOUBLE_EQ(vm.GetScrollY(), c.expected);
     }
     EXPECT_FLOAT_EQ(MaxScroll(100.0f, 500.0f), 0.0f);
+}
+
+// スクロール位置は文書の Y。float では 2 DIP 刻みになる位置でも、タッチパッドの 1 DIP 未満の量で動く。
+TEST(ViewportManagerTest, SubDipScrollFarDown)
+{
+    ViewportManager vm;
+    vm.ScrollTo(3.0e7, 4.0e7);
+    vm.DirectScrollBy(0.25f, 4.0e7);
+    EXPECT_DOUBLE_EQ(vm.GetScrollY(), 3.0e7 + 0.25);
 }
 
 TEST(ViewportManagerTest, ClampScrollClampsExistingScroll)
@@ -49,10 +58,10 @@ TEST(ViewportManagerTest, ClampScrollClampsExistingScroll)
     ViewportManager vm;
     vm.ScrollTo(600.0f, MaxScroll(1000.0f, 200.0f));
     vm.SetScrollTarget(1, 0.0f);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 600.0f);
+    EXPECT_DOUBLE_EQ(vm.GetScrollY(), 600.0f);
 
     vm.ClampScroll(MaxScroll(500.0f, 200.0f));
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), 300.0f);
+    EXPECT_DOUBLE_EQ(vm.GetScrollY(), 300.0f);
     EXPECT_TRUE(vm.GetScrollTarget().IsValid());
 }
 
@@ -72,10 +81,10 @@ TEST(ViewportManagerTest, ApplyScrollTargetIsNoOpWhenInvalid)
     auto cache = MakeUniformCache(3, 100.0f);
     const float max_scroll = MaxScroll(300.0f, 100.0f);
     vm.ScrollTo(50.0f, max_scroll);
-    float before = vm.GetScrollY();
+    double before = vm.GetScrollY();
     EXPECT_FALSE(vm.GetScrollTarget().IsValid());
     vm.ApplyScrollTarget(cache);
-    EXPECT_FLOAT_EQ(vm.GetScrollY(), before);
+    EXPECT_DOUBLE_EQ(vm.GetScrollY(), before);
 }
 
 // 利用者のスクロールは、ノード基準の位置を捨てる。
@@ -103,7 +112,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetSynthesizesFromVisibleAnchor)
     vm.EnsureScrollTarget(cache);
     ASSERT_TRUE(vm.GetScrollTarget().IsValid());
     EXPECT_EQ(vm.GetScrollTarget().node, 1);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 50.0f);
+    EXPECT_DOUBLE_EQ(vm.GetScrollTarget().offset, 50.0f);
 }
 
 TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
@@ -115,7 +124,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
 
     vm.EnsureScrollTarget(cache);
     EXPECT_EQ(vm.GetScrollTarget().node, 3);
-    EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 25.0f);
+    EXPECT_DOUBLE_EQ(vm.GetScrollTarget().offset, 25.0f);
 }
 
 // 全選択は先頭ノードの 0 から最終ノードの末尾まで。最終ノードが Table のときも concat_text (= GetText) の末尾を終端にする。
@@ -227,16 +236,16 @@ TEST(ViewportManagerTest, ScrollRestoreFollowsNodeAcrossHeightChange)
 
         const ScrollTarget saved = vm.CurrentTarget(cache);
         EXPECT_EQ(saved.node, c.node);
-        EXPECT_FLOAT_EQ(saved.offset, c.offset);
+        EXPECT_DOUBLE_EQ(saved.offset, c.offset);
 
         ViewportManager restored;
         restored.SetScrollTarget(saved.node, saved.offset);
         restored.ApplyScrollTarget(cache);
-        EXPECT_FLOAT_EQ(restored.GetScrollY(), c.scroll);
+        EXPECT_DOUBLE_EQ(restored.GetScrollY(), c.scroll);
 
         cache.ShiftTops(1, kShift);
         restored.ApplyScrollTarget(cache);
-        EXPECT_FLOAT_EQ(restored.GetScrollY(), c.scroll + (c.node >= 1 ? kShift : 0.0f));
+        EXPECT_DOUBLE_EQ(restored.GetScrollY(), c.scroll + (c.node >= 1 ? kShift : 0.0f));
     }
 }
 

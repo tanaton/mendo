@@ -2,14 +2,17 @@
 #include "ui_types.h"
 #include <d2d1.h>
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <utility>
 
-// スクロール上限。内容の高さは計測や図の確定で変わり続けるので、値として持たずに使う時点で求める。
-constexpr float MaxScroll(float total_height, float viewport_height) noexcept
+// スクロール上限。内容の高さは計測や図の確定で変わり続けるので、値として持たずに使う時点で求める。本文の高さ (文書の Y)
+// は float では刻みが粗くなる大きさになりうるので double で渡す。
+template <std::floating_point T>
+constexpr T MaxScroll(T total_height, float viewport_height) noexcept
 {
-    return std::max(0.0f, total_height - viewport_height);
+    return std::max(T{ 0 }, total_height - viewport_height);
 }
 
 enum class PaneZone : uint8_t {
@@ -231,7 +234,7 @@ private:
 
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width) noexcept;
 PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content) noexcept;
-float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept;
+float ComputeThumbY(const PaneScrollInfo& info, double scroll_y) noexcept;
 float ScrollFromThumbY(const PaneScrollInfo& info, float thumb_y) noexcept;
 
 // 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。

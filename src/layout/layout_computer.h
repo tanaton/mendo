@@ -188,16 +188,16 @@ void RecomputeYPositions(
 
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
 // margin は見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
-int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept;
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, double scroll_y, float margin) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // diff_pos が npos (差分位置なし = スクロール維持) かノードが見つからなければ fallback_scroll を返す。
-float CalcScrollYForDiff(
+double CalcScrollYForDiff(
     std::span<const Node> nodes,
     const LayoutCache& cache,
     size_t content_size,
     size_t diff_pos,
     float viewport_height,
-    float fallback_scroll) noexcept;
+    double fallback_scroll) noexcept;
 
 } // namespace layout

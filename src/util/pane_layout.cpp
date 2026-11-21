@@ -127,9 +127,9 @@ PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, floa
     return info;
 }
 
-float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept
+float ComputeThumbY(const PaneScrollInfo& info, double scroll_y) noexcept
 {
-    const float scroll_ratio = (info.max_scroll > 0) ? scroll_y / info.max_scroll : 0.0f;
+    const float scroll_ratio = (info.max_scroll > 0) ? static_cast<float>(scroll_y / info.max_scroll) : 0.0f;
     return info.content_top + scroll_ratio * (info.content_height - info.thumb_height);
 }
 

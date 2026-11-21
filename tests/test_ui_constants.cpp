@@ -287,10 +287,10 @@ TEST(BlockHScrollbarThumbWidthTest, ProportionalAndClamped)
 // バーはブロック下端の内側に収まり、ヒット矩形はバーを上下に広げたもの。
 TEST(BlockHScrollbarGeometryTest, BarInsideBlockAndHitRectContainsBar)
 {
-    const float bar_y = BlockHScrollbarBarY(100.0f, 50.0f, 0.0f);
+    const float bar_y = BlockHScrollbarBarY(150.0f, 0.0f);
     EXPECT_LT(bar_y, 150.0f);
     EXPECT_LE(bar_y + PANE_SCROLLBAR_WIDTH, 150.0f);
-    EXPECT_FLOAT_EQ(BlockHScrollbarBarY(100.0f, 50.0f, 8.0f), bar_y + 8.0f);
+    EXPECT_FLOAT_EQ(BlockHScrollbarBarY(150.0f, 8.0f), bar_y + 8.0f);
 
     const auto hit = BlockHScrollbarHitRect(20.0f, 300.0f, bar_y);
     EXPECT_FLOAT_EQ(hit.left, 20.0f);

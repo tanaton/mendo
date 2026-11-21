@@ -40,17 +40,20 @@ struct DrawLineCmd {
     BrushId brush_id;
 };
 
+// 飛ばさない (DrawTextLayoutCmd の cull_* の既定)。
+inline constexpr float kNoCull = std::numeric_limits<float>::infinity();
+
 struct DrawTextLayoutCmd {
     D2D1_POINT_2F origin;
     IDWriteTextLayout* layout; // 非所有; ライフタイムは LayoutCache か TextLayoutCache が管理。
     BrushId brush_id;
     // [cull_top, cull_bottom] (origin と同じ座標系) の外のランを飛ばす。本文は可視範囲を渡す。既定の無限なら飛ばさない。
-    float cull_top = -std::numeric_limits<float>::infinity();
-    float cull_bottom = std::numeric_limits<float>::infinity();
+    float cull_top = -kNoCull;
+    float cull_bottom = kNoCull;
     // 折り返さない長い行は、横スクロールの clip に映らないグリフを [cull_left, cull_right] で飛ばす
     // (BM_CodeBlockDraw/json_12kb が 127 → 4.5ms)。
-    float cull_left = -std::numeric_limits<float>::infinity();
-    float cull_right = std::numeric_limits<float>::infinity();
+    float cull_left = -kNoCull;
+    float cull_right = kNoCull;
     float opacity = 1.0f;
     // 非所有; layout と同じ NodeLayoutEntry が持つ。UTF-16 位置のトークンで、描画時にグリフランを色分けする。
     std::span<const SyntaxToken> syntax_tokens;

@@ -739,7 +739,7 @@ TEST_F(DWriteInlineImageTest, EvictedRowWithShrunkImageEstimatesShrunkHeight)
     auto [nodes, cache] = ParseAndLayout(md);
     ASSERT_EQ(nodes.size(), 1u);
     auto& entry = cache[0];
-    const float far_top = cache.Top(0) - 10000.0f;
+    const double far_top = cache.Top(0) - 10000.0f;
     cache.EvictInvisibleTableRows(std::array<size_t, 1>{ 0 }, YRange{ far_top, far_top + 1000.0f });
     ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 

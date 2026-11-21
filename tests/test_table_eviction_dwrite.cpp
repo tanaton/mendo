@@ -54,7 +54,7 @@ protected:
     // テーブル全体を一旦 evict (viewport より遠い範囲) → 全セルが null になる。
     void EvictWholeTable()
     {
-        const float far_top = pl_.cache.Top(idx_) - 10000.0f;
+        const double far_top = pl_.cache.Top(idx_) - 10000.0f;
         pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ far_top, far_top + 1000.0f });
     }
 
@@ -294,7 +294,7 @@ TEST_F(TableEvictionDWriteTest, VisibleTableWithEvictedRowsKeepsPrefetchPending)
     auto& tl = *Entry().table_layout();
     EvictWholeTable();
 
-    const float top = pl_.cache.Top(idx_);
+    const double top = pl_.cache.Top(idx_);
     ASSERT_TRUE(engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, 800.0f, top, top + 80.0f));
     EXPECT_TRUE(pl_.cache.HasDirtyNodes());
 
@@ -330,7 +330,7 @@ TEST_F(TableEvictionDWriteTest, RestoresVisibleRowsAfterWidthChangeBelowThreshol
     ASSERT_FALSE(engine_.Reestimate(pl_.nodes, pl_.cache, kNudgedWidth));
     ASSERT_FALSE(Entry().layout_dirty);
 
-    const float mid = pl_.cache.Top(idx_) + Entry().height * 0.5f;
+    const double mid = pl_.cache.Top(idx_) + Entry().height * 0.5f;
     engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, kNudgedWidth, mid, mid + 100.0f);
 
     const YRange local = YRange{ mid, mid + 100.0f }.ToLocal(pl_.cache.Top(idx_));

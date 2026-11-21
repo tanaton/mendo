@@ -42,7 +42,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
 
     const auto line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_TRUE(line.has_value());
-    const float expected_y = cache_.Top(0) - scroll_y + theme_.paragraph_spacing * 0.5f;
+    const float expected_y = static_cast<float>(cache_.Top(0) - scroll_y) + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
     EXPECT_EQ(line->brush_id, BrushId::Hr);
 }
@@ -59,7 +59,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const auto line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_TRUE(line.has_value());
     const float snapped_scroll = 0.5f; // round(0.3 * 2) / 2
-    const float expected_y = cache_.Top(0) - snapped_scroll + theme_.paragraph_spacing * 0.5f;
+    const float expected_y = static_cast<float>(cache_.Top(0) - snapped_scroll) + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
 

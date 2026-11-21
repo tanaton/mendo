@@ -7,7 +7,7 @@
 
 NodeLayoutEntry::Aux::~Aux() = default;
 
-std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
+std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(double local_top, double local_bottom) const noexcept
 {
     size_t r_begin = 0;
     const auto upper = std::ranges::upper_bound(row_cum_y, local_top);
@@ -18,7 +18,7 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, std::min(row_count, static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower))) };
 }
 
-bool TableLayoutData::HasEvictedRowsIn(float local_top, float local_bottom) const noexcept
+bool TableLayoutData::HasEvictedRowsIn(double local_top, double local_bottom) const noexcept
 {
     if (!HasEvictedRows()) {
         return false;
@@ -40,7 +40,7 @@ std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, flo
 void TableLayoutData::RebuildRowCumY(size_t first_row)
 {
     // row_cum_y[0] は常に 0。加算順は全行の積み直しと同じなので、途中から再開しても結果は一致する。
-    float ry = row_cum_y[first_row];
+    double ry = row_cum_y[first_row];
     for (size_t r = first_row; r < row_count; r++) {
         row_cum_y[r] = ry;
         ry += row_heights[r] + TABLE_BORDER_WIDTH;
@@ -58,7 +58,7 @@ void TableLayoutData::RebuildColCumX()
     col_cum_x[col_count] = cx;
 }
 
-int TableLayoutData::RowIndexAt(float local_y) const noexcept
+int TableLayoutData::RowIndexAt(double local_y) const noexcept
 {
     const auto it = std::ranges::upper_bound(row_cum_y, local_y);
     if (it == row_cum_y.begin()) {
@@ -71,11 +71,11 @@ int TableLayoutData::RowIndexAt(float local_y) const noexcept
     return static_cast<int>(idx);
 }
 
-std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
-    int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept
+std::pair<double, float> NodeLayoutEntry::GetMatchYRange(
+    int table_row, int table_col, uint32_t text_offset_w, double entry_text_top) const noexcept
 {
     IDWriteTextLayout* layout = nullptr;
-    float base_y = entry_text_top;
+    double base_y = entry_text_top;
     float fallback_h = height;
 
     if (const auto* tl = table_layout(); table_row >= 0 && tl) {
@@ -88,7 +88,8 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
             }
         }
         if (layout != nullptr) {
-            base_y = TableCellTextOrigin(0.0f, base_y).y;
+            // 行上端からセル本文までの差だけ足す (行上端は float に収まらない大きさになりうる)。
+            base_y += TableCellTextOrigin(0.0f, 0.0f).y;
         }
     }
     else {

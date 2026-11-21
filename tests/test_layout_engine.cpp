@@ -26,7 +26,7 @@ TEST_F(MockLayoutTest, EmptyDocumentHasNoHeight)
     std::vector<Node> nodes;
     LayoutCache cache;
     ComputeLayout(engine_, nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
+    EXPECT_DOUBLE_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0);
 }
 
 // ---- ダーティ追跡 ----
@@ -51,12 +51,12 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
     EXPECT_FALSE(cache.HasDirtyNodes());
 
-    float height_before = ComputeTotalContentHeight(cache, theme_.margin_bottom);
+    double height_before = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(height_before, 0.0f);
 
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()).remaining;
     EXPECT_FALSE(more);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
+    EXPECT_DOUBLE_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
 
 // ---- Mermaidブロックのズーム耐性 ----
@@ -139,7 +139,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     EXPECT_GE(cache[table_idx].height, measured_table_h)
         << "partial モードで実測済みテーブルの高さが推定値で縮められた";
 
-    const float table_bottom = cache.Top(table_idx) + cache[table_idx].height;
+    const double table_bottom = cache.Top(table_idx) + cache[table_idx].height;
     EXPECT_GE(cache.Top(para_idx), table_bottom)
         << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";
 }
@@ -226,8 +226,8 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 
     LayoutCache full(nodes.size());
     LayoutAll(nodes, full, kSwitchWidth);
-    const float expected = ComputeTotalContentHeight(full, theme_.margin_bottom);
-    const float actual = ComputeTotalContentHeight(cache, theme_.margin_bottom);
+    const double expected = ComputeTotalContentHeight(full, theme_.margin_bottom);
+    const double actual = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(actual, expected * 0.8f);
     EXPECT_LT(actual, expected * 1.25f);
 }
@@ -253,11 +253,11 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
     auto nodes = ParseNodes(md);
     LayoutCache cache(nodes.size());
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
-    const float top0 = cache.Top(0);
+    const double top0 = cache.Top(0);
     const float height0 = cache[0].height;
 
     EXPECT_FALSE(engine_.EnsureVisibleLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom));
-    EXPECT_FLOAT_EQ(cache.Top(0), top0);
+    EXPECT_DOUBLE_EQ(cache.Top(0), top0);
     EXPECT_FLOAT_EQ(cache[0].height, height0);
 }
 
@@ -270,7 +270,7 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
     LayoutCache cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
 
     constexpr size_t kTarget = 150;
-    const float scroll_y = cache.Top(kTarget);
+    const double scroll_y = cache.Top(kTarget);
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, scroll_y, scroll_y + kSwitchViewportBottom);
 
     const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + kSwitchViewportBottom);

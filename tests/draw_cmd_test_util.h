@@ -96,7 +96,7 @@ inline SidePaneState TocOnlySidePane(PaneRect rect, float item_height, const std
 
 // 選択も検索も無い本文を pane に等倍で描いた命令。
 inline DrawCommandList GenerateMdPaneAt(CommandGenerator& gen, std::span<const Node> nodes, const LayoutCache& cache, PaneRect pane,
-                                        float scroll_y = 0.0f, int hovered_diagram = -1)
+                                        double scroll_y = 0.0, int hovered_diagram = -1)
 {
     static const TextSelection no_selection{};
     DrawCommandList cmds;

@@ -23,17 +23,17 @@ namespace {
 class HitTestDWriteTest : public DWriteTestBase {
 protected:
     // スクロールしていないので、ペイン内の点 p がそのまま文書の点になる。
-    MdPaneHitContext Ctx(const ParsedLayout& pl, DipPoint p) const
+    MdPaneHitContext Ctx(const ParsedLayout& pl, DocPoint p) const
     {
-        return { pl.nodes, pl.cache, theme_, 0.0f, p, theme_.ContentWidth(800.0f) };
+        return { pl.nodes, pl.cache, theme_, 0.0, p, theme_.ContentWidth(800.0f) };
     }
 
-    DipPoint PointInChar(const ParsedLayout& pl, size_t node, uint32_t pos, float fraction) const
+    DocPoint PointInChar(const ParsedLayout& pl, size_t node, uint32_t pos, float fraction) const
     {
         return DWriteTestBase::PointInChar(pl.nodes, pl.cache, node, pos, fraction);
     }
 
-    DipPoint RightHalfOfChar(const ParsedLayout& pl, size_t node, uint32_t pos) const
+    DocPoint RightHalfOfChar(const ParsedLayout& pl, size_t node, uint32_t pos) const
     {
         return PointInChar(pl, node, pos, 0.75f);
     }
@@ -143,7 +143,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     DWRITE_HIT_TEST_METRICS m{};
     ASSERT_HRESULT_SUCCEEDED(cell->HitTestTextPosition(0, FALSE, &x, &y, &m));
     const float text_x = theme_.margin_left + NodeIndent(node, theme_) + tl->col_cum_x[0] + TABLE_CELL_PADDING;
-    const float text_y = pl.cache.Top(static_cast<size_t>(idx)) + tl->row_cum_y[1] + TABLE_CELL_PADDING;
+    const double text_y = pl.cache.Top(static_cast<size_t>(idx)) + tl->row_cum_y[1] + TABLE_CELL_PADDING;
 
     const auto r = hit_test::HitTest(Ctx(pl, { text_x + m.left + m.width * 0.75f, text_y + m.top + m.height * 0.5f }));
 
@@ -167,7 +167,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     // 3 行目 2 列目のセルの中。
     const auto& tl = *pl.cache[table_idx].table_layout();
     const float x = theme_.margin_left + tl.col_cum_x[1] + TABLE_CELL_PADDING + 2.0f;
-    const float y = pl.cache.Top(table_idx) + tl.row_cum_y[2] + TABLE_CELL_PADDING + 4.0f;
+    const double y = pl.cache.Top(table_idx) + tl.row_cum_y[2] + TABLE_CELL_PADDING + 4.0f;
     const auto r = hit_test::HitTest(Ctx(pl, { x, y }));
 
     ASSERT_EQ(r.node_index, table_idx);
@@ -193,7 +193,7 @@ struct VariedTable {
     const TableLayoutData* tl;
     size_t row_count;
     float height;
-    float top;
+    double top;
 };
 
 } // namespace
@@ -226,7 +226,7 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
     const auto cmds = GenerateMdPaneAt(gen, pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f });
 
     std::vector<float> col_lines;
-    std::vector<float> row_lines;
+    std::vector<double> row_lines;
     for (const auto& c : cmds) {
         const auto* l = std::get_if<DrawLineCmd>(&c);
         if (!l || l->brush_id != BrushId::Hr) {

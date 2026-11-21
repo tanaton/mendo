@@ -61,26 +61,26 @@ hit_test::HitResult ClampToNearestTextNode(std::span<const Node> nodes, int cand
     return {};
 }
 
-// dip_y を含む表か text_layout を持つノード。余白や水平線の上などは -1 にして ClampToNearestTextNode に委ねる。
+// 点を含む表か text_layout を持つノード。余白や水平線の上などは -1 にして ClampToNearestTextNode に委ねる。
 struct DirectHit {
     int node_index = -1;
-    // ClampToNearestTextNode に渡す候補 (dip_y 以下に上端がある最後のノード)。
+    // ClampToNearestTextNode に渡す候補 (点より上に上端がある最後のノード)。
     int candidate = -1;
-    float text_top = 0.0f;
+    // candidate の上端からの点の Y (MdPaneHitContext::LocalYExact)。
+    double local_y = 0.0;
 };
 
-DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
+DirectHit FindDirectHit(const MdPaneHitContext& ctx) noexcept
 {
     DirectHit hit;
-    hit.candidate = static_cast<int>(FindFirstNodeBelow(ctx.cache, dip_y)) - 1;
+    hit.candidate = static_cast<int>(FindFirstNodeBelow(ctx.cache, ctx.point.y)) - 1;
     if (hit.candidate < 0) {
         return hit;
     }
-    // 探索と同じ text_top を局所座標 (local_y) の基準にする。
     const auto c = static_cast<size_t>(hit.candidate);
-    hit.text_top = ctx.cache.Top(c);
+    hit.local_y = ctx.LocalYExact(c);
     // 背景の下側のはみ出し (横スクロールバーを置く領域) もそのノードに含め、ホバーを切らさない。
-    const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
+    const bool inside = hit.local_y <= ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
     const NodeType type = ctx.nodes[c].type;
     if (inside && (type == NodeType::Table || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
@@ -96,8 +96,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
         return {};
     }
 
-    const auto [dip_x, dip_y] = ctx.point;
-    const auto direct = FindDirectHit(ctx, dip_y);
+    const auto direct = FindDirectHit(ctx);
     if (direct.node_index < 0) {
         return ClampToNearestTextNode(ctx.nodes, direct.candidate);
     }
@@ -107,14 +106,13 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     const float h_scroll_x = LookupBlockScrollX(
         ctx.block_scroll_x, GetBlockHScrollGeometry(ctx.nodes, ctx.cache, static_cast<size_t>(direct.node_index), NodeContentWidth(node, ctx.theme, ctx.content_width)));
     if (node.type == NodeType::Table) {
-        return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
+        return HitTestTable(node, entry, direct.node_index, ctx.theme, ctx.point.x, direct.local_y, h_scroll_x);
     }
     // FindDirectHit は表か、text_layout を持つノードしか返さない。
-    const float local_x = dip_x - NodeBlockX(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
-    const float local_y = dip_y - direct.text_top;
+    const float local_x = ctx.point.x - NodeBlockX(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
 
     HitResult result{ direct.node_index };
-    ResolveTextHit(result, entry.text_layout(), local_x, local_y, node.GetText(), 0, node.has_images());
+    ResolveTextHit(result, entry.text_layout(), local_x, static_cast<float>(direct.local_y), node.GetText(), 0, node.has_images());
     return result;
 }
 
@@ -123,16 +121,15 @@ int hit_test::HitNode(const MdPaneHitContext& ctx) noexcept
     if (ctx.nodes.empty()) {
         return -1;
     }
-    const auto direct = FindDirectHit(ctx, ctx.point.y);
+    const auto direct = FindDirectHit(ctx);
     return direct.node_index >= 0 ? direct.node_index : ClampToNearestTextNode(ctx.nodes, direct.candidate).node_index;
 }
 
 hit_test::HitResult hit_test::HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
-    float entry_text_top,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y, float h_scroll_x) noexcept
+    float dip_x, double table_y, float h_scroll_x) noexcept
 {
     HitResult result;
     result.node_index = node_index;
@@ -148,12 +145,13 @@ hit_test::HitResult hit_test::HitTestTable(
     const float base_x = NodeBlockX(node, theme) - h_scroll_x;
 
     const auto* tbl = node.table_data();
-    const auto [hit_row, row_top] = FindTableRow(tl, dip_y - entry_text_top);
+    const auto [hit_row, row_top] = FindTableRow(tl, table_y);
     if (hit_row < 0) {
         result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
-    const float row_top_y = entry_text_top + row_top;
+    // 表の上端からの Y は巨大な表で float の刻みが粗くなるので、行の上端からの差にしてから float にする。
+    const auto row_y = static_cast<float>(table_y - row_top);
 
     const auto [hit_col, cell_left] = FindTableCol(tl, dip_x - base_x);
     const float cell_left_x = base_x + cell_left;
@@ -162,8 +160,8 @@ hit_test::HitResult hit_test::HitTestTable(
     const auto c = static_cast<size_t>(hit_col);
     const uint32_t flat_offset = tbl->CellTextStart(r, c);
     if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
-        const auto [text_x, text_y] = TableCellTextOrigin(cell_left_x, row_top_y);
-        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, tbl->GetCellText(r, c), flat_offset, node.has_images());
+        const auto [text_x, text_y] = TableCellTextOrigin(cell_left_x, 0.0f);
+        ResolveTextHit(result, cell_layout, dip_x - text_x, row_y - text_y, tbl->GetCellText(r, c), flat_offset, node.has_images());
     }
     else {
         result.text_pos = flat_offset;
@@ -173,26 +171,25 @@ hit_test::HitResult hit_test::HitTestTable(
 
 OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept
 {
-    const auto [dip_x, dip_y] = ctx.point;
     const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.scroll_y);
     const int count = static_cast<int>(ctx.cache.size());
 
     OverlayButtonHit out;
     for (int i = first; i < count && !out.Any(); i++) {
-        const float entry_text_top = ctx.cache.Top(static_cast<size_t>(i));
+        const float local_y = ctx.LocalY(static_cast<size_t>(i));
         // ボタンは上端 (コードブロックは padding だけ上) から OVERLAY_BTN_MARGIN 下に 1 段だけ並ぶ。上端は単調に増えるので、
         // 段がポインタより下から始まるノードより先には当たるボタンが無い。
-        if (entry_text_top - ctx.theme.code_block_padding + OVERLAY_BTN_MARGIN > dip_y) {
+        if (OVERLAY_BTN_MARGIN - ctx.theme.code_block_padding > local_y) {
             break;
         }
         const auto& node = ctx.nodes[i];
-        if (!layout::MayHaveOverlayButtons(node) || dip_y > entry_text_top + OVERLAY_BTN_MARGIN + OVERLAY_BTN_SIZE) {
+        if (!layout::MayHaveOverlayButtons(node) || local_y > OVERLAY_BTN_MARGIN + OVERLAY_BTN_SIZE) {
             continue;
         }
         const float x = NodeBlockX(node, ctx.theme);
         const float w = NodeContentWidth(node, ctx.theme, ctx.content_width);
-        layout::ForEachOverlayButton(node, ctx.cache, static_cast<size_t>(i), x, w, entry_text_top, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
-            if (PointInRectInclusive(dip_x, dip_y, btn)) {
+        layout::ForEachOverlayButton(node, ctx.cache, static_cast<size_t>(i), x, w, 0.0f, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
+            if (PointInRectInclusive(ctx.point.x, local_y, btn)) {
                 out = { i, kind };
             }
         });
@@ -210,10 +207,9 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     if (!layout::HasDiagramButtons(diagram)) {
         return false;
     }
-    const auto [dip_x, dip_y] = ctx.point;
     const D2D1_RECT_F image = DiagramRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
-                                          NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
-    return PointInRectInclusive(dip_x, dip_y, image);
+                                          NodeContentWidth(*node, ctx.theme, ctx.content_width), 0.0f);
+    return PointInRectInclusive(ctx.point.x, ctx.LocalY(static_cast<size_t>(node_index)), image);
 }
 
 NavDirection hit_test::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept
@@ -233,9 +229,8 @@ bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_inde
     if (i >= ctx.cache.size()) {
         return false;
     }
-    const auto [dip_x, dip_y] = ctx.point;
     const auto& node = ctx.nodes[i];
-    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadBottom(node, ctx.theme));
+    const float bar_y = BlockHScrollbarBarY(ctx.cache[i].height, NodeBoxPadBottom(node, ctx.theme));
     const float block_x = NodeBlockX(node, ctx.theme);
-    return PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x, visible_width, bar_y));
+    return PointInRect(ctx.point.x, ctx.LocalY(i), BlockHScrollbarHitRect(block_x, visible_width, bar_y));
 }

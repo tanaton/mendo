@@ -5,6 +5,7 @@
 #include "test_helpers.h"
 #include "d2d_util.h"
 #include "dwrite_measurer.h"
+#include "hit_test_service.h"
 #include "layout_computer.h"
 #include "parsed_layout.h"
 #include "theme.h"
@@ -38,7 +39,7 @@ protected:
     }
 
     // ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置 (本文ペインの中の文書の座標)。
-    DipPoint PointInChar(std::span<const Node> nodes, const LayoutCache& cache, size_t node, uint32_t pos, float fraction) const
+    DocPoint PointInChar(std::span<const Node> nodes, const LayoutCache& cache, size_t node, uint32_t pos, float fraction) const
     {
         FLOAT x = 0.0f, y = 0.0f;
         DWRITE_HIT_TEST_METRICS m{};

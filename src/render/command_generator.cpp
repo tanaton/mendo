@@ -55,15 +55,16 @@ std::pair<uint32_t, uint32_t> TextRangeOfVisibleLines(const NodeLayoutEntry& ent
     auto* const layout = entry.text_layout();
     uint32_t begin = 0;
     uint32_t end = UINT32_MAX;
+    // view は layout ローカルなので、本文のノードの高さ (区切ったノードは小さい) に収まり float で足りる。
     if (view.top > 0.0f) {
-        if (const auto first = HitLineAt(layout, view.top); first && first->line_top > 0.0f) {
+        if (const auto first = HitLineAt(layout, static_cast<float>(view.top)); first && first->line_top > 0.0f) {
             if (const auto prev = HitLineAt(layout, first->line_top - 0.5f); prev && prev->line_top < first->line_top) {
                 begin = prev->pos;
             }
         }
     }
     if (view.bottom < entry.height) {
-        if (const auto last = HitLineAt(layout, view.bottom)) {
+        if (const auto last = HitLineAt(layout, static_cast<float>(view.bottom))) {
             if (const auto next = HitLineAt(layout, last->line_bottom + 0.5f); next && next->line_top > last->line_top) {
                 end = next->pos;
             }
@@ -107,8 +108,9 @@ constexpr bool OverlapsY(const D2D1_RECT_F& r, YRange visible) noexcept
 DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, BrushId brush_id, YRange visible) noexcept
 {
     DrawTextLayoutCmd cmd{ origin, layout, brush_id };
-    cmd.cull_top = visible.top;
-    cmd.cull_bottom = visible.bottom;
+    // visible はペインローカル (0 〜 ペインの高さ) なので float に収まる。
+    cmd.cull_top = static_cast<float>(visible.top);
+    cmd.cull_bottom = static_cast<float>(visible.bottom);
     return cmd;
 }
 
@@ -253,7 +255,7 @@ std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float heade
     return VScrollThumb(pane, ComputeScrollInfo(pane, header_height, total_content_height), scroll_y, may_grow);
 }
 
-std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, float scroll_y, bool may_grow) noexcept
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, double scroll_y, bool may_grow) noexcept
 {
     if (!ShowsVScrollbar(info, may_grow)) {
         return std::nullopt;
@@ -805,7 +807,8 @@ struct MdPaneEmitter : CmdWriter {
     std::vector<DWRITE_HIT_TEST_METRICS>& hit_test_buffer;
     float content_width;
     float dpi_scale;
-    float snapped_scroll_y;
+    // 文書の Y。ペインローカルへの差は double で取ってから float にする (LocalTop)。
+    double snapped_scroll_y;
     // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、ドキュメント Y が 10^7
     // オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・ハイライト矩形・グリフランのカリングに使う。
     YRange visible;
@@ -813,8 +816,22 @@ struct MdPaneEmitter : CmdWriter {
     D2D1::Matrix3x2F pane_transform;
     NodeOverhang overhang;
 
-    void GenerateNode(const Node& node, const NodeLayoutEntry& entry, int node_index, float entry_text_top)
+    // ノード i の上端のペインローカル Y。
+    double LocalTopExact(size_t i) const noexcept
     {
+        return p.cache.Top(i) - snapped_scroll_y;
+    }
+    float LocalTop(size_t i) const noexcept
+    {
+        return static_cast<float>(LocalTopExact(i));
+    }
+
+    // entry_top はペインローカルの上端。巨大な表では float の刻みが粗くなる大きさになるので、表の中 (GenTable) と
+    // 下端は double のまま求める。
+    void GenerateNode(const Node& node, const NodeLayoutEntry& entry, int node_index, double entry_top)
+    {
+        const auto entry_text_top = static_cast<float>(entry_top);
+        const auto entry_bottom = static_cast<float>(entry_top + entry.height);
         const float x = layout::NodeBlockX(node, theme);
         const float cw = NodeContentWidth(node, theme, content_width);
         const float text_x = x + NodeTextXOffset(node, theme);
@@ -838,7 +855,7 @@ struct MdPaneEmitter : CmdWriter {
             if (geom.can_scroll()) {
                 out.emplace_back(PopClipCmd{});
             }
-            EmitBlockHScrollbarIfActive(node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, NodeBoxPadBottom(node, theme)), geom, scroll_x);
+            EmitBlockHScrollbarIfActive(node_index, x, BlockHScrollbarBarY(entry_bottom, NodeBoxPadBottom(node, theme)), geom, scroll_x);
         };
 
         switch (node.type) {
@@ -848,8 +865,8 @@ struct MdPaneEmitter : CmdWriter {
 
         case NodeType::Table:
             gen_h_scroll_block(
-                D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-                [&](float scroll_x) { GenTable(node, entry, node_index, x, cw, entry_text_top, scroll_x); });
+                D2D1::RectF(x, entry_text_top, x + cw, entry_bottom),
+                [&](float scroll_x) { GenTable(node, entry, node_index, x, cw, entry_top, scroll_x); });
             return;
 
         case NodeType::Diagram: {
@@ -867,7 +884,7 @@ struct MdPaneEmitter : CmdWriter {
 
         case NodeType::CodeBlock: {
             const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - NodeBoxPadTop(node, theme), x + cw,
-                                                entry_text_top + entry.height + NodeBoxPadBottom(node, theme));
+                                                entry_bottom + NodeBoxPadBottom(node, theme));
             GenCodeBlockBg(box, !node.continues_prev(), !node.continues_next());
             // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
             gen_h_scroll_block(box, [&](float scroll_x) {
@@ -888,7 +905,7 @@ struct MdPaneEmitter : CmdWriter {
         case NodeType::Heading: {
             const int8_t lv = node.heading_level;
             if (lv <= 2) {
-                const float line_y = entry_text_top + entry.height + HeadingUnderlineGap(theme);
+                const float line_y = entry_bottom + HeadingUnderlineGap(theme);
                 out.emplace_back(DrawLineCmd{
                     D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
                     theme.GetHeadingUnderlineThickness(lv), BrushId::Hr });
@@ -907,7 +924,7 @@ struct MdPaneEmitter : CmdWriter {
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
     // コードブロックは横スクロールの clip に映る [cull_left, cull_right] (text_x と同じ系) を渡す。
     void GenNodeTextDecorations(const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top,
-                                float cull_left = -YRange::kInf, float cull_right = YRange::kInf)
+                                float cull_left = -kNoCull, float cull_right = kNoCull)
     {
         if (!entry.text_layout()) {
             return;
@@ -1064,7 +1081,6 @@ struct MdPaneEmitter : CmdWriter {
     {
         const auto& nodes = p.nodes;
         const auto& cache = p.cache;
-        const float snap = snapped_scroll_y;
         const int node_count = static_cast<int>(nodes.size());
 
         // バーと背景はクリップされるので、グループの可視範囲外は走査しない (巨大な引用でも可視ノード数ぶんで済む)。
@@ -1079,13 +1095,13 @@ struct MdPaneEmitter : CmdWriter {
             if (group < 0) {
                 // text_top は単調なので、非引用ノードが下端を超えたら以降のグループも全て可視域外。
                 // ここで break しないと引用が可視域以降に無い文書で毎フレーム末尾まで全走査する。
-                if (cache.Top(i) - snap > visible.bottom) {
+                if (LocalTopExact(i) > visible.bottom) {
                     break;
                 }
                 i++;
                 continue;
             }
-            const float group_top = cache.Top(i) - snap;
+            const float group_top = LocalTop(i);
             if (group_top - overhang.above > visible.bottom) {
                 break;
             }
@@ -1096,7 +1112,7 @@ struct MdPaneEmitter : CmdWriter {
             // 可視範囲の下端を越えたノードまで含めれば、下へ続くバーと背景は可視範囲の外まで伸びる。
             int j = i + 1;
             while (j < node_count && nodes[j].blockquote_group == group) {
-                group_bottom = std::max(group_bottom, cache.Bottom(j) - snap);
+                group_bottom = std::max(group_bottom, LocalTop(j) + cache[j].height);
                 max_depth = std::max<int>(max_depth, nodes[j].quote_depth);
                 j++;
                 if (group_bottom > visible.bottom) {
@@ -1148,7 +1164,7 @@ struct MdPaneEmitter : CmdWriter {
             float region_top = 0.0f;
             float region_bottom = 0.0f;
             for (int k = first; k < last; ++k) {
-                const float local_top_k = cache.Top(k) - snapped_scroll_y;
+                const float local_top_k = LocalTop(k);
                 if (nodes[k].quote_depth >= level) {
                     if (!in_region) {
                         in_region = true;
@@ -1198,8 +1214,9 @@ struct MdPaneEmitter : CmdWriter {
     }
 
     // 表は横スクロールの clip [offset_x, offset_x + clip_width] の中に描くので、列はその幅で間引く。
+    // entry_top はペインローカルの上端 (double のまま。GenerateNode)。
     void GenTable(const Node& node, const NodeLayoutEntry& entry,
-                  int node_index, float offset_x, float clip_width, float entry_text_top, float h_scroll_x)
+                  int node_index, float offset_x, float clip_width, double entry_top, float h_scroll_x)
     {
         const auto* tbl = node.table_data();
         const auto* tl_ptr = entry.table_layout();
@@ -1219,9 +1236,11 @@ struct MdPaneEmitter : CmdWriter {
 
         // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする (FindTableRow と同じパターン)。巨大テーブルで
         // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
-        const YRange local_visible = visible.ToLocal(entry_text_top);
+        const YRange local_visible = visible.ToLocal(entry_top);
         const auto [r_begin, r_end] = tl.VisibleRowRange(local_visible.top, local_visible.bottom);
-        float y = entry_text_top + tl.row_cum_y[r_begin];
+        // 行の上端は row_cum_y (表の上端からの double) をペインローカルにしてから float にする。先頭の行から高さを
+        // 足していくと、巨大な表では先頭の行が変わるたびに起点の丸めがずれて中身が跳ねる。
+        const auto row_top = [&](size_t r) { return static_cast<float>(entry_top + tl.row_cum_y[r]); };
 
         // 横スクロール時は clip に映る範囲が h_scroll_x だけ右にずれる。
         const auto [c_begin, c_end] = tl.VisibleColRange(h_scroll_x + border, h_scroll_x + clip_width + border);
@@ -1229,6 +1248,7 @@ struct MdPaneEmitter : CmdWriter {
         const auto search_nm = FindNodeSearchMatches(node_index);
 
         for (size_t r = r_begin; r < r_end; r++) {
+            const float y = row_top(r);
             const float row_h = tl.row_heights[r];
             const bool is_header_row = tbl->IsHeaderRow(r);
             if (is_header_row || r % 2 == 0) {
@@ -1253,16 +1273,16 @@ struct MdPaneEmitter : CmdWriter {
                     out.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, text_y), cell_layout, is_header_row ? header_brush : cell_brush, visible));
                 }
             }
-            y += row_h + border;
         }
 
         // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
-        const float table_bottom = entry_text_top + tl.row_cum_y[row_count];
+        const float table_top = row_top(0);
+        const float table_bottom = row_top(row_count);
         out.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), border, BrushId::Hr });
 
         // 縦罫線は可視列ごとに表の上端から下端まで 1 本で引く (行ごとに引くと 行×列 本になる)。可視外はクリップされる。
         const auto vline = [&](float x) {
-            out.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), border, BrushId::Hr });
+            out.emplace_back(DrawLineCmd{ D2D1::Point2F(x, table_top), D2D1::Point2F(x, table_bottom), border, BrushId::Hr });
         };
         for (size_t c = c_begin; c < c_end; c++) {
             vline(offset_x + tl.col_cum_x[c] - border);
@@ -1366,14 +1386,15 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
 {
     MENDO_PROFILE("GenerateMdPane");
     const auto& md_pane_rect = p.md_pane_rect;
-    const float scroll_y = p.scroll_y;
+    const double scroll_y = p.scroll_y;
     const auto& nodes = p.nodes;
     const auto& cache = p.cache;
 
     out.emplace_back(PushClipCmd{ ToD2DRect(md_pane_rect) });
     // スクロール位置を物理ピクセルにスナップし、ClearTypeヒンティングのフレーム間変動によるテキストのガタつきを防ぐ。
     // スナップは描画 Y のみに適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。
-    const float snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
+    // 文書の Y のまま double でスナップする (float では大きな文書で物理ピクセルの倍数を表せず、スナップが効かない)。
+    const double snapped_y = SnapToPhysicalPixel(scroll_y, dpi_scale);
 
     // スクロールの Y 平行移動は Transform に乗せず CPU 側で entry ごとに加算する。大規模ファイルで text_top/scroll_y が
     // 10^7 DIP オーダーになると、D2D 内部の float32 行列演算で catastrophic cancellation が起きるため。ペイン原点は
@@ -1407,7 +1428,7 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
-        const float local_text_top = cache.Top(i) - snapped_y;
+        const double local_text_top = e.LocalTopExact(static_cast<size_t>(i));
         if (local_text_top - e.overhang.above > e.visible.bottom) {
             break;
         }

@@ -16,13 +16,13 @@
 class HitTestTest : public MockLayoutTestBase {
 protected:
     // ペインの原点を窓の原点に置いたときの、窓の座標 (x, y) の点。
-    MdPaneHitContext Ctx(const ParsedLayout& pl, float scroll_y, float x, float y) const
+    MdPaneHitContext Ctx(const ParsedLayout& pl, double scroll_y, float x, double y) const
     {
         return { pl.nodes, pl.cache, theme_, scroll_y, { x, y + scroll_y } };
     }
 
     // オーバーレイボタンはコンテンツ幅で決まる。
-    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, float x, float y, float scroll_y = 0.0f) const
+    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, float x, double y, double scroll_y = 0.0) const
     {
         return { pl.nodes, pl.cache, theme_, scroll_y, { x, y + scroll_y }, theme_.ContentWidth(800.0f) };
     }
@@ -84,9 +84,9 @@ TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
     ASSERT_FALSE(pr.nodes.empty());
 
     // 全ノードの下端より十分下 (scroll=0 なので y がそのまま文書の Y)
-    float last_bottom = 0.0f;
+    double last_bottom = 0.0;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
-        const float text_top = pr.cache.Top(i);
+        const double text_top = pr.cache.Top(i);
         last_bottom = std::max(last_bottom, text_top + pr.cache[i].height);
     }
     const auto ctx = Ctx(pr, 0.0f, 50.0f, last_bottom + 1000.0f);
@@ -118,10 +118,10 @@ TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     // ノード間の余白クリックは直前の非空ノード末尾に返る。文書の末尾へ飛ばすと、余白からのドラッグで巨大な選択になる。
     auto pr = ParseAndLayout("Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 2u);
-    const float node0_bottom = pr.cache.Top(0) + pr.cache[0].height;
+    const double node0_bottom = pr.cache.Top(0) + pr.cache[0].height;
     ASSERT_LT(node0_bottom, pr.cache.Top(1)) << "ノード間に余白があること";
 
-    const float gap_y = (node0_bottom + pr.cache.Top(1)) * 0.5f;
+    const double gap_y = (node0_bottom + pr.cache.Top(1)) * 0.5f;
     const auto ctx = Ctx(pr, gap_y, 50, 0);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
@@ -135,10 +135,10 @@ TEST_F(HitTestTest, HitTest_GapBelowTableClampsToTableTextEnd)
     ASSERT_EQ(pr.nodes.size(), 3u);
     ASSERT_EQ(pr.nodes[1].type, NodeType::Table);
     ASSERT_EQ(pr.nodes[1].GetText(), "a\nb");
-    const float table_bottom = pr.cache.Bottom(1) + layout::NodeBoxPadBottom(pr.nodes[1], theme_);
+    const double table_bottom = pr.cache.Bottom(1) + layout::NodeBoxPadBottom(pr.nodes[1], theme_);
     ASSERT_LT(table_bottom, pr.cache.Top(2)) << "表と次の段落の間に余白があること";
 
-    const float gap_y = (table_bottom + pr.cache.Top(2)) * 0.5f;
+    const double gap_y = (table_bottom + pr.cache.Top(2)) * 0.5f;
     const auto ctx = Ctx(pr, gap_y, 50, 0);
     const auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
@@ -155,7 +155,7 @@ TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     ASSERT_FALSE(pr.nodes[1].GetText().empty());
     ASSERT_GT(pr.cache[0].height, 0.0f);
 
-    const float mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
+    const double mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
     const auto ctx = Ctx(pr, mid_y, 50, 0);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
@@ -170,7 +170,7 @@ TEST_F(HitTestTest, HitTest_InsideEmptyAltImageHitsImage)
     ASSERT_EQ(pr.nodes[1].GetText(), kImagePlaceholder);
     ASSERT_GT(pr.cache[1].height, 0.0f);
 
-    const float mid_y = pr.cache.Top(1) + pr.cache[1].height * 0.5f;
+    const double mid_y = pr.cache.Top(1) + pr.cache[1].height * 0.5f;
     const auto ctx = Ctx(pr, mid_y, 50, 0);
     const auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
@@ -186,7 +186,7 @@ TEST_F(HitTestTest, HitNodeMatchesHitTestNodeIndex)
 {
     auto pr = ParseAndLayout("![](x.png)\n\nHello\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```cpp\nint x;\n```\n\n---\n\nWorld");
     ASSERT_FALSE(pr.nodes.empty());
-    const float bottom = pr.cache.Bottom(pr.nodes.size() - 1) + 50.0f;
+    const double bottom = pr.cache.Bottom(pr.nodes.size() - 1) + 50.0f;
     for (float y = -10.0f; y < bottom; y += 3.0f) {
         const auto ctx = Ctx(pr, y, 50, 0);
         EXPECT_EQ(hit_test::HitNode(ctx), hit_test::HitTest(ctx).node_index) << "y=" << y;
@@ -205,9 +205,7 @@ TEST_F(HitTestTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     const NodeLayoutEntry entry{};
     ASSERT_EQ(entry.table_layout(), nullptr);
 
-    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
-    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
-                                    theme_, 100.0f, entry_text_top + 5.0f, 0.0f);
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, table_idx, theme_, 100.0f, 5.0, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos,
               static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -223,11 +221,7 @@ TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
     ASSERT_NE(entry.table_layout(), nullptr);
 
     // テーブル上端より 10 dip 上 → FindTableRow は -1 を返す
-    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
-    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
-                                    theme_,
-                                    theme_.margin_left + 10.0f,
-                                    entry_text_top - 10.0f, 0.0f);
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, table_idx, theme_, theme_.margin_left + 10.0f, -10.0, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     // 末尾は concat_text の長さ (0 だと先頭セルと区別できない)。
     EXPECT_EQ(r.text_pos, static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -246,14 +240,35 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
     ASSERT_GE(tl.row_heights.size(), 1u);
     ASSERT_GE(tl.col_widths.size(), 1u);
 
-    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
-    const float row0_mid_y = entry_text_top + tl.row_heights[0] * 0.5f;
     const float col0_mid_x = theme_.margin_left + tl.col_widths[0] * 0.5f;
 
-    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
-                                    theme_, col0_mid_x, row0_mid_y, 0.0f);
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, table_idx, theme_, col0_mid_x, tl.row_heights[0] * 0.5, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos, 0u);
+}
+
+// 表の中の Y が float では 2 DIP 刻みになる大きさでも、行の境目の前後で正しい行に当たる (文書の Y の点から当てる)。
+TEST_F(HitTestTest, HitTestTable_GiantTableRowBoundaries)
+{
+    std::string md = "| a | b |\n|---|---|\n";
+    for (int r = 0; r < 10; ++r) {
+        md += "| 1 | 2 |\n";
+    }
+    auto pr = ParseAndLayout(md);
+    const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
+    ASSERT_GE(table_idx, 0);
+    const auto* tl = pr.cache[table_idx].table_layout();
+    ASSERT_NE(tl, nullptr);
+    const double top = MakeFirstTableRowGiant(pr.nodes, pr.cache, static_cast<size_t>(table_idx));
+
+    const auto* tbl = pr.nodes[table_idx].table_data();
+    const float x = theme_.margin_left + 1.0f;
+    for (size_t r = 2; r < 6; ++r) {
+        const double row_top = top + tl->row_cum_y[r];
+        const auto hit = [&](double y) { return hit_test::HitTest(Ctx(pr, 0.0, x, y)).text_pos; };
+        EXPECT_EQ(hit(row_top + 0.25), tbl->CellTextStart(r, 0)) << "row " << r;
+        EXPECT_EQ(hit(row_top - 0.25), tbl->CellTextStart(r - 1, 0)) << "row " << r;
+    }
 }
 
 // ---- OverlayButtonHitTest ----
@@ -269,7 +284,7 @@ TEST_F(HitTestTest, SaveButton_UnrenderedDiagramReturnsNegative)
     ASSERT_TRUE(diagram == nullptr || !diagram->HasImage());
 
     const float content_width = theme_.ContentWidth(800.0f);
-    const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
+    const double entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
     const auto ctx = OverlayCtx(pr, theme_.margin_left + content_width - 10.0f, entry_text_top + 5.0f);
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
@@ -286,18 +301,18 @@ protected:
     }
 
     // コードブロックのコピーボタン中心を、ペインの原点を窓の原点に置いたときの窓の座標で返す。文書の Y は y + scroll_y。
-    DipPoint CopyBtnCenter(const ParsedLayout& pr, int node_index, float scroll_y = 0.0f) const
+    DipPoint CopyBtnCenter(const ParsedLayout& pr, int node_index, double scroll_y = 0.0) const
     {
         const float indent = NodeIndent(pr.nodes[node_index], theme_);
         const float x = theme_.margin_left + indent;
         const float w = ContentWidth() - indent;
-        const float block_top = pr.cache.Top(node_index) - NodeBoxPadTop(pr.nodes[node_index], theme_);
-        const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top, OverlayButton::CodeCopy);
+        // ボタンはノードの上端を 0 にした系で求め、窓の Y (文書の Y - scroll_y) に直す。
+        const D2D1_RECT_F btn = OverlayButtonRect(x + w, -NodeBoxPadTop(pr.nodes[node_index], theme_), OverlayButton::CodeCopy);
         const auto [cx, cy] = RectCenter(btn);
-        return { cx, cy - scroll_y };
+        return { cx, static_cast<float>(pr.cache.Top(node_index) - scroll_y) + cy };
     }
 
-    int CopyNodeAt(const ParsedLayout& pr, float x, float y, float scroll_y = 0.0f) const
+    int CopyNodeAt(const ParsedLayout& pr, float x, float y, double scroll_y = 0.0) const
     {
         const auto hit = hit_test::OverlayButtonHitTest(OverlayCtx(pr, x, y, scroll_y));
         return hit.kind == OverlayButton::CodeCopy ? hit.node : -1;
@@ -385,7 +400,7 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     const int code_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
     ASSERT_GE(code_idx, 0);
 
-    const float scroll_y = std::max(0.0f, pr.cache.Top(code_idx) - 50.0f);
+    const double scroll_y = std::max(0.0, pr.cache.Top(code_idx) - 50.0);
     auto [sx, sy] = CopyBtnCenter(pr, code_idx, scroll_y);
     EXPECT_EQ(CopyNodeAt(pr, sx, sy, scroll_y), code_idx);
 }
@@ -400,7 +415,7 @@ TEST_F(CopyButtonTest, SplitCodeBlockHasCopyButtonOnlyOnFirstChunk)
 
     const auto [x0, y0] = CopyBtnCenter(pr, 0);
     EXPECT_EQ(CopyNodeAt(pr, x0, y0), 0);
-    const float scroll_y = pr.cache.Top(1) - 100.0f;
+    const double scroll_y = pr.cache.Top(1) - 100.0f;
     const auto [x1, y1] = CopyBtnCenter(pr, 1, scroll_y);
     EXPECT_EQ(CopyNodeAt(pr, x1, y1, scroll_y), -1);
 }

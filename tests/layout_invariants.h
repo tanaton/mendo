@@ -21,7 +21,7 @@ inline ::testing::AssertionResult YChainConsistent(
         return ::testing::AssertionFailure() << "Top(0)=" << cache.Top(0) << " expected=" << top0;
     }
     for (size_t i = 0; i + 1 < nodes.size(); ++i) {
-        const float expected = cache.Bottom(i) + GetSpacingBelow(nodes[i], theme) + GetSpacingAbove(nodes[i + 1], theme);
+        const double expected = cache.Bottom(i) + GetSpacingBelow(nodes[i], theme) + GetSpacingAbove(nodes[i + 1], theme);
         if (std::abs(cache.Top(i + 1) - expected) > eps) {
             return ::testing::AssertionFailure() << "Top(" << (i + 1) << ")=" << cache.Top(i + 1) << " expected=" << expected
                                                  << " (height(" << i << ")=" << cache[i].height << ")";

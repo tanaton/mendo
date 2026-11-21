@@ -246,7 +246,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     ASSERT_EQ(s_nodes.size(), p_nodes.size());
     for (size_t i = 0; i < s_nodes.size(); ++i) {
         EXPECT_FLOAT_EQ(s_cache[i].height, p_cache[i].height) << "i=" << i;
-        EXPECT_FLOAT_EQ(s_cache.Top(i), p_cache.Top(i)) << "i=" << i;
+        EXPECT_DOUBLE_EQ(s_cache.Top(i), p_cache.Top(i)) << "i=" << i;
         EXPECT_EQ(s_cache[i].layout_dirty, p_cache[i].layout_dirty) << "i=" << i;
     }
 }

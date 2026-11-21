@@ -419,7 +419,7 @@ const std::wstring* ResourceManager::ImagePath(std::string_view src)
 
 void ResourceManager::DropQueuesIfJumped()
 {
-    const float scroll_y = state_.view.viewport.GetScrollY();
+    const double scroll_y = state_.view.viewport.GetScrollY();
     const float viewport_height = ComputePaneLayout(state_).md_rect.height;
     if (viewport_height > 0.0f && std::abs(scroll_y - last_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
         DropQueues();
@@ -433,7 +433,7 @@ std::optional<ResourceManager::BufferedRange> ResourceManager::ComputeBufferedRa
     if (viewport_height <= 0.0f) {
         return std::nullopt;
     }
-    const float viewport_top = state_.view.viewport.GetScrollY();
+    const double viewport_top = state_.view.viewport.GetScrollY();
     const YRange keep = layout::BufferedRange(viewport_top, viewport_height, screens);
     const auto vr = ComputeVisibleNodeRange(state_.document.layout_cache, keep.top, keep.bottom);
     return BufferedRange{ viewport_top, viewport_top + viewport_height, keep, vr };

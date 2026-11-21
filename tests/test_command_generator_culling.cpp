@@ -187,7 +187,7 @@ protected:
     }
 
     // 次の呼び出しまで有効。
-    const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
+    const DrawCommandList& Generate(const ParsedLayout& pl, double scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
     {
         cmds_.clear();
         gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, .scroll_y = scroll_y, .block_h_scroll = h_scroll }, 1.0f);
@@ -207,10 +207,10 @@ protected:
     {
         const size_t n = pl.nodes.size();
         constexpr float ORACLE_SCROLL = -64.0f;
-        const float total_h = ComputeTotalContentHeight(pl.cache, theme_.margin_bottom);
-        const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, total_h - ORACLE_SCROLL + 64.0f, h_scroll));
+        const double total_h = ComputeTotalContentHeight(pl.cache, theme_.margin_bottom);
+        const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, static_cast<float>(total_h - ORACLE_SCROLL + 64.0f), h_scroll));
 
-        std::vector<float> probes;
+        std::vector<double> probes;
         for (size_t i = 0; i < n; i++) {
             for (const float d : { -3.0f, -1.0f, 0.0f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, 8.0f, 12.0f, 16.0f, 20.0f, 24.0f, 32.0f }) {
                 probes.push_back(pl.cache.Bottom(i) + d);        // ノードが上端をちょうど抜けた直後
@@ -220,9 +220,9 @@ protected:
             }
         }
 
-        for (const float scroll_y : probes) {
+        for (const double scroll_y : probes) {
             // 生成側は scroll_y を物理ピクセルにスナップしてから描画 Y を出す (dpi=1 なので整数)。
-            const float dy = std::round(scroll_y) - ORACLE_SCROLL;
+            const auto dy = static_cast<float>(std::round(scroll_y) - ORACLE_SCROLL);
             const auto expected = VisibleBoxes(oracle, dy);
             const auto actual = VisibleBoxes(AllBoxes(Generate(pl, scroll_y, PANE_H, h_scroll)), 0.0f);
             const auto diff = DiffBoxes(expected, actual);
@@ -368,8 +368,8 @@ TEST_F(CullingParityTest, AllNodesInsideOffsetPaneClipAreDrawn)
             }
         }
         for (size_t i = 0; i < pl.nodes.size(); i++) {
-            const float window_top = dy + pl.cache.Top(i) - scroll_y;
-            const float window_bottom = window_top + pl.cache[i].height;
+            const double window_top = dy + pl.cache.Top(i) - scroll_y;
+            const double window_bottom = window_top + pl.cache[i].height;
             if (window_bottom > PANE_Y && window_top < PANE_Y + PANE_H) {
                 EXPECT_TRUE(drawn.contains(pl.cache[i].text_layout())) << "scroll_y=" << scroll_y << " node=" << i;
             }

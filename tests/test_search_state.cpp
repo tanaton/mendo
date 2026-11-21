@@ -509,7 +509,7 @@ protected:
     struct Doc {
         ParsedLayout pl;
         SearchState search;
-        std::vector<float> match_ys;
+        std::vector<double> match_ys;
     };
 
     void Load(Doc& d, const std::string& md)
@@ -524,9 +524,9 @@ protected:
 };
 
 // 仕様: マッチ順で最初に match_y >= scroll_y となるマッチ、無ければ先頭。
-int LinearNearest(const std::vector<float>& ys, float scroll_y)
+int LinearNearest(const std::vector<double>& ys, double scroll_y)
 {
-    const auto it = std::ranges::find_if(ys, [scroll_y](float y) { return y >= scroll_y; });
+    const auto it = std::ranges::find_if(ys, [scroll_y](double y) { return y >= scroll_y; });
     return (it != ys.end()) ? static_cast<int>(it - ys.begin()) : 0;
 }
 
@@ -542,13 +542,13 @@ TEST_F(SearchMatchYTest, SetCurrentMatchNearAgreesWithLinearScan)
             // 前提: 表の同一行内でマッチ順と Y 順が逆転している (二分探索の単調性が崩れる状況)。
             ASSERT_FALSE(std::ranges::is_sorted(d.match_ys));
 
-            std::vector<float> probes{ -10.0f, d.match_ys.back() + 100.0f };
-            for (const float y : d.match_ys) {
-                for (const float delta : { -2.0f, -0.5f, 0.0f, 0.5f, 2.0f }) {
+            std::vector<double> probes{ -10.0, d.match_ys.back() + 100.0 };
+            for (const double y : d.match_ys) {
+                for (const double delta : { -2.0, -0.5, 0.0, 0.5, 2.0 }) {
                     probes.push_back(y + delta);
                 }
             }
-            for (const float y : probes) {
+            for (const double y : probes) {
                 d.search.SetCurrentMatchNear(y, d.pl.cache);
                 ASSERT_EQ(d.search.GetCurrentMatchIndex(), LinearNearest(d.match_ys, y)) << "scroll_y=" << y;
             }

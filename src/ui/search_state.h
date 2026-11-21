@@ -111,7 +111,7 @@ public:
     }
     bool NextMatch() noexcept; // ラップしたらtrueを返す
     bool PrevMatch() noexcept; // ラップしたらtrueを返す
-    void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
+    void SetCurrentMatchNear(double scroll_y, const LayoutCache& cache) noexcept;
 
 private:
     // query は case-insensitive (fold) 時は ASCII 小文字化済み。text の from バイト目から探す。
