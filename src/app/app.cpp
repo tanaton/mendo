@@ -401,32 +401,32 @@ void App::OnActivateApp(bool active)
     }
 }
 
-void App::OnAppMessage(UINT msg)
+bool App::OnAppMessage(UINT msg)
 {
     switch (msg) {
     case app_msg::IMAGE_LOADED:
         resource_manager_.OnImagesDecoded();
-        return;
+        return true;
     case app_msg::PARSE_COMPLETE:
         OnParseComplete();
-        return;
+        return true;
     case app_msg::MERMAID_JOB_DONE:
         mermaid_renderer_.ProcessJobResults();
-        return;
+        return true;
     case app_msg::FILE_LISTED:
         OnFileListed();
-        return;
+        return true;
     case app_msg::INLINE_MATH_REQUESTED:
         OnInlineMathRequested();
-        return;
+        return true;
     case app_msg::TABLE_MEASURED:
         OnTableMeasured();
-        return;
+        return true;
     case app_msg::VIEWER_IMAGE_DECODED:
         zoom_viewer_.OnImageDecoded();
-        return;
+        return true;
     default:
-        return;
+        return false;
     }
 }
 

@@ -158,7 +158,7 @@ public:
     TableMeasureJobs(const TableMeasureJobs&) = delete;
     TableMeasureJobs& operator=(const TableMeasureJobs&) = delete;
 
-    void SetWake(std::move_only_function<void()> wake)
+    void SetWake(WorkerWake wake)
     {
         wake_ = std::move(wake);
     }
@@ -186,7 +186,7 @@ private:
     std::vector<Running> running_;
     uint64_t last_job_ = 0;
     PostedInbox<Result> results_;
-    std::move_only_function<void()> wake_;
+    WorkerWake wake_;
     WorkerLatch latch_;
 };
 

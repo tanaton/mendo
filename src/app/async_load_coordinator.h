@@ -118,7 +118,7 @@ public:
         late_content_width_.store(content_width, std::memory_order_relaxed);
     }
     // 結果が出たら wake を呼ばせる。もう出ていればここで呼ぶ。worker でも呼ぶので、UI スレッドに Take を呼ばせるだけにする。
-    bool Attach(std::move_only_function<void()> wake);
+    bool Attach(WorkerWake wake);
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
     void Cancel() noexcept
@@ -134,7 +134,7 @@ private:
                    const std::stop_token& stop_token, ReloadBase reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
-    void NotifyLocked() noexcept;
+    void NotifyLocked() const noexcept;
 
     // sink を swap-out して mutex の外で破棄する。結果の文書は worker で捨てる。
     void ResetSinks() noexcept;
@@ -148,7 +148,7 @@ private:
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;
     // 結果の通知先。worker が Publish で読むので mutex_ で守る。
-    std::move_only_function<void()> wake_;
+    WorkerWake wake_;
 
     // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
     std::stop_source stop_source_;

@@ -119,7 +119,7 @@ void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_w
     });
 }
 
-bool AsyncLoadCoordinator::Attach(std::move_only_function<void()> wake)
+bool AsyncLoadCoordinator::Attach(WorkerWake wake)
 {
     // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
     // 出ている結果は Publish が通知していないので、ここで送っても二重には届かない。
@@ -212,7 +212,7 @@ void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadO
     NotifyLocked();
 }
 
-void AsyncLoadCoordinator::NotifyLocked() noexcept
+void AsyncLoadCoordinator::NotifyLocked() const noexcept
 {
     if (wake_) {
         wake_();

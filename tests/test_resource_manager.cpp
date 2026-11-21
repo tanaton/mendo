@@ -238,6 +238,7 @@ TEST_F(ResourceManagerTest, NothingAppliedWhenContentWidthIsZero)
     EXPECT_EQ(host_.inline_updates, 0);
     EXPECT_EQ(host_.recompute_layout, 0);
     EXPECT_EQ(mock_mermaid_.requested.size(), 0u);
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 0);
 }
 
 // 本物の ImageLoader で画像ファイルを読む。
@@ -1185,11 +1186,13 @@ TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 
 // 別の文書を読み込んでいる間は、結果の到着・スクロール・RESOURCE_MANAGE のどれからも表示中の文書の図を頼まない。
 // 始まった描画は取り消せず、開いた文書の最初の図を待たせる。差し替えずに終わったら頼み直す。
+// 届いた結果の解いた形も、受け取る図がいないうちは手放さない (失敗して戻ったときに解き直さない)。
 TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.RequestMermaidRenders();
     ASSERT_EQ(mock_mermaid_.requested.size(), 1u);
+    ASSERT_EQ(mock_mermaid_.release_idle_count, 1);
 
     host_.loading_other = true;
     rm_.DropQueues();
@@ -1197,10 +1200,12 @@ TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
     rm_.FlushPendingResources();
     rm_.OnResourceManageTimer();
     EXPECT_EQ(mock_mermaid_.requested.size(), 1u);
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 1);
 
     host_.loading_other = false;
     rm_.OnResourceManageTimer();
     EXPECT_EQ(mock_mermaid_.requested.size(), 2u);
+    EXPECT_EQ(mock_mermaid_.release_idle_count, 2);
 }
 
 // 拡大表示の図は本文の図と同じ走査で、今の本文の幅とテーマで頼む。本文に図が無くても、範囲の外でも頼む。

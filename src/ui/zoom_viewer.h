@@ -270,7 +270,7 @@ public:
         // 待っている図を頼み直させる (本文の図と同じ回の中で RequestDiagram を呼ばせる)。UI スレッドで呼ぶ。
         std::move_only_function<void()> on_update;
         // 読み終えた画像が溜まり始めたときに worker で呼ぶ。UI スレッドに OnImageDecoded を呼ばせるだけにする。空なら呼ばない。
-        std::move_only_function<void()> wake;
+        WorkerWake wake;
         // 開けなかったことを文言で知らせる。UI スレッドで呼ぶ。
         std::move_only_function<void(std::wstring_view)> on_failed;
     };

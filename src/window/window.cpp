@@ -545,12 +545,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return *result;
     }
 
-    // WM_APP から上は、App が自分のワーカーの仕事の終わりを知らせるメッセージだけ。
-    if (msg >= WM_APP && msg <= 0xBFFF) {
-        app_->OnAppMessage(msg);
-        return 0;
-    }
-
     switch (msg) {
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
@@ -680,6 +674,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
 
     default:
+        // App のワーカーが仕事の終わりを知らせる app_msg。
+        if (app_->OnAppMessage(msg)) {
+            return 0;
+        }
         break;
     }
     return DefWindowProcW(hwnd_, msg, wParam, lParam);

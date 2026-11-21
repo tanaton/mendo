@@ -28,6 +28,7 @@
 #include "test_nodes.h"
 #include "theme.h"
 #include "ui_types.h"
+#include "worker_latch.h"
 
 // 区切って進める処理 (ContinueSearch など) を、最初の区切りで止める期限。
 inline constexpr auto kExpiredDeadline = std::chrono::steady_clock::time_point::min();
@@ -594,7 +595,7 @@ private:
 // worker が仕事の終わりを知らせる関数 (wake) の呼ばれた回数を数える。
 class WakeCounter {
 public:
-    std::move_only_function<void()> Fn() noexcept
+    WorkerWake Fn() noexcept
     {
         return [this] { count_.fetch_add(1, std::memory_order_relaxed); };
     }

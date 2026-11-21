@@ -97,7 +97,7 @@ protected:
         zoom_.SetRenderTarget(rt_.Get(), nullptr, nullptr);
     }
 
-    // 通知のたびに、拡大表示の図を今の本文の幅とテーマで頼む (ResourceManager::RequestVisibleDiagrams と同じ)。
+    // 通知のたびに、拡大表示の図を今の本文の幅とテーマで頼む (ResourceManager::RequestMermaidRenders と同じ)。
     void OnUpdate()
     {
         ++updates_;

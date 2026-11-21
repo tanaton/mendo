@@ -112,7 +112,6 @@ private:
         InlineImageUpdate& update);
     void SetInlineImage(uint64_t key, const InlineImageEntry& entry, InlineImageUpdate& update);
     void NotifyInlineImages(const InlineImageUpdate& update);
-    void RequestVisibleDiagrams(IndexRange& changed);
     void RequestDiagramRender(size_t i, float content_width, bool dark_mode, IndexRange& changed);
     const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
     void DropQueuesIfJumped();

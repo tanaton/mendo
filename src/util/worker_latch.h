@@ -2,11 +2,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <utility>
 #include <vector>
+
+// worker が仕事の終わりを UI スレッドへ知らせる関数。PostedInbox は取り出しを挟むと空の箱に入る 1 件目が続くので、
+// 複数の worker が同時に呼ぶ。そのため const で呼ぶ。
+using WorkerWake = std::move_only_function<void() const>;
 
 // worker の結果を UI スレッドへ渡す受け箱。空のときに入った 1 件目だけ受け手へ投函させ、まとめて回収させる。
 // 1 件ずつ投函すると、投函メッセージは描画・入力より先に取り出されるので、時間で区切った回収が間を空けずに続いてしまう。

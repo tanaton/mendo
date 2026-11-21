@@ -166,8 +166,8 @@ public:
     void TakeStartupMessages();
     // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に測り、計測を vblank 待ちに隠す。
     void PrepareFrame();
-    // ワーカーの仕事が終わったことを知らせる app_msg のメッセージ。
-    void OnAppMessage(UINT msg);
+    // ワーカーの仕事が終わったことを知らせる app_msg のメッセージ。戻り値: app_msg の番号だった (扱った)。
+    bool OnAppMessage(UINT msg);
     void OnDestroy();
 
     constexpr bool IsSearchBarVisible() const noexcept

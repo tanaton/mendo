@@ -131,7 +131,7 @@ void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
     }
 }
 
-void InlineMathTable::SetWake(std::move_only_function<void()> wake)
+void InlineMathTable::SetWake(WorkerWake wake)
 {
     const std::lock_guard lock(mutex_);
     wake_ = std::move(wake);

@@ -59,7 +59,7 @@ ImageLoader::~ImageLoader()
     Shutdown();
 }
 
-void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, std::move_only_function<void()> wake)
+void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, WorkerWake wake)
 {
     wic_factory_ = wic;
     hwnd_ = hwnd;

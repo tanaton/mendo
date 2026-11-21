@@ -144,7 +144,7 @@ public:
         // 待っていた図と、拡大表示に出す図を要求し直させる。UI スレッドで呼ぶ。
         std::move_only_function<void()> on_update;
         // 結果が溜まり始めたときに worker で呼ぶ。UI スレッドに ProcessJobResults を呼ばせるだけにする。空なら呼ばない。
-        std::move_only_function<void()> wake;
+        WorkerWake wake;
         // ms 後に TrimIdleRuntimes を呼ばせる。掛け直すとそこから数え直す。
         std::move_only_function<void(UINT ms)> set_trim_timer;
         std::move_only_function<void()> kill_trim_timer;

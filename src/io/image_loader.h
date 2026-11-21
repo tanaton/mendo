@@ -45,7 +45,7 @@ public:
 
     // デコード結果が溜まり始めたら worker で wake を呼ぶ (空なら呼ばない)。UI スレッドに ProcessCompletedDecodes を呼ばせるだけにする。
     // hwnd は描画先より先に来た要求を、窓の DPI でデコードするのに使う。
-    void Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, std::move_only_function<void()> wake);
+    void Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, WorkerWake wake);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
     // デバイスロストでの差し替えでは、旧 rt のビットマップを捨てる。デコードは WIC ビットマップを作るので rt に依らず
     // (縮める上限 max_bitmap_dim_ は始めるときに読む)、待ちのものも受け箱の結果も新しい rt に載せる。
@@ -160,7 +160,7 @@ private:
     DeliveredImages delivered_;
 
     HWND hwnd_ = nullptr;
-    std::move_only_function<void()> wake_;
+    WorkerWake wake_;
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> drop_gen_{ 0 };
     struct ReadingSize {};
