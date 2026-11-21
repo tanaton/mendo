@@ -77,8 +77,7 @@ void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::
             continue;
         }
         const auto range = cursor.WideRange(run.start, run.length);
-        const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, buffer);
-        for (const auto& m : std::span(buffer).first(count)) {
+        for (const auto& m : FetchHitTestMetrics(layout, range.startPosition, range.length, buffer)) {
             add(D2D1::RectF(m.left, m.top + INLINE_CODE_INSET_Y, m.left + m.width, m.top + m.height - INLINE_CODE_INSET_Y));
         }
     }

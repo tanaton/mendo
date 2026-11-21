@@ -158,6 +158,12 @@ public:
     {
         return load_coordinator_.IsActive();
     }
+    // 起動時の読み込みの結果が届いていれば、最初のフレームより前に取り込んで true を返す。
+    bool TakeParseComplete();
+    // 起動時の、デバイスに依存しない通知を最初のフレームより前に取り込む。デバイスの作成を待つ前に呼ぶと、
+    // ファイルペインの一覧の行の文字レイアウト (CreateRenderDevice の PrepareChrome) と、インライン数式の描画を
+    // 作成と並行して進められる。待つ間に届いた分のため、作成の後にも呼ぶ。
+    void TakeStartupMessages();
     // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に測り、計測を vblank 待ちに隠す。
     void PrepareFrame();
     // ワーカーの仕事が終わったことを知らせる app_msg のメッセージ。
@@ -181,6 +187,8 @@ public:
     bool IsOverMdScrollbar(float dip_x, float dip_y);
 
 private:
+    // 窓のキューに msg が届いていれば取り出して OnAppMessage に渡す。
+    bool DispatchPosted(UINT msg);
     void OnParseComplete();
     void OnInlineMathRequested();
     void OnTableMeasured();

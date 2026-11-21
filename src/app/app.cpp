@@ -51,7 +51,8 @@ ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
 }
 
 // ワーカーが仕事の終わりを知らせる関数。msg を窓に投げ、UI スレッドの OnAppMessage で受け取る。
-std::move_only_function<void()> PostTo(HWND hwnd, UINT msg)
+// コピーできるように、move_only_function にせずラムダのまま返す (列挙のたびに作るスレッドへ渡す)。
+auto PostTo(HWND hwnd, UINT msg)
 {
     return [hwnd, msg] { ::PostMessageW(hwnd, msg, 0, 0); };
 }
@@ -118,8 +119,8 @@ bool App::Init(HWND hwnd)
 
     // フォルダの列挙はネットワークドライブなどで数百 ms かかるので、描画を待たせずに別スレッドで行う。
     // 共有 scheduler の画像デコード待ちの後ろに並ばないよう専用スレッドにする。
-    state_.file_explorer.SetAsyncLister([hwnd = hwnd_, slot = file_listing_](std::wstring dir, uint32_t request) {
-        std::thread([hwnd, slot, dir = std::move(dir), request] {
+    state_.file_explorer.SetAsyncLister([wake = PostTo(hwnd_, app_msg::FILE_LISTED), slot = file_listing_](std::wstring dir, uint32_t request) {
+        std::thread([wake, slot, dir = std::move(dir), request] {
             auto entries = FileExplorer::List(dir);
             {
                 // 先に始めた遅い列挙が、まだ受け取っていない新しい結果を上書きしないようにする。
@@ -128,7 +129,7 @@ bool App::Init(HWND hwnd)
                     slot->result.emplace(request, std::move(entries));
                 }
             }
-            ::PostMessageW(hwnd, app_msg::FILE_LISTED, 0, 0);
+            wake();
         }).detach();
     });
     // 起動時に表示するなら、D3D デバイスの作成と並行して列挙を始めておく。
@@ -427,6 +428,27 @@ void App::OnAppMessage(UINT msg)
     default:
         return;
     }
+}
+
+bool App::DispatchPosted(UINT msg)
+{
+    MSG posted;
+    if (!::PeekMessageW(&posted, hwnd_, msg, msg, PM_REMOVE)) {
+        return false;
+    }
+    OnAppMessage(msg);
+    return true;
+}
+
+bool App::TakeParseComplete()
+{
+    return DispatchPosted(app_msg::PARSE_COMPLETE);
+}
+
+void App::TakeStartupMessages()
+{
+    DispatchPosted(app_msg::FILE_LISTED);
+    DispatchPosted(app_msg::INLINE_MATH_REQUESTED);
 }
 
 void App::OnInlineMathRequested()

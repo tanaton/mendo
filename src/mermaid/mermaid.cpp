@@ -191,10 +191,6 @@ void MermaidRenderer::Shutdown()
     job_results_.TakeAll();
     pele_.reset();
     renders_running_ = 0;
-    // App の初期化に失敗したときは Init より前に呼ばれる。
-    if (hooks_.kill_trim_timer) {
-        hooks_.kill_trim_timer();
-    }
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
@@ -349,7 +345,7 @@ void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
         const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && job.drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
-        if (job_results_.Push(std::move(job))) {
+        if (job_results_.Push(std::move(job)) && hooks_.wake) {
             hooks_.wake();
         }
     });

@@ -35,10 +35,9 @@ bool InvalidatePending(std::span<const Node> nodes, LayoutCache& cache, bool tab
 float InlineRangeWidth(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
 {
     std::vector<DWRITE_HIT_TEST_METRICS> m;
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, m);
     float width = 0.0f;
-    for (UINT32 i = 0; i < count; ++i) {
-        width += m[i].width;
+    for (const auto& hit : FetchHitTestMetrics(layout, start, length, m)) {
+        width += hit.width;
     }
     return width;
 }

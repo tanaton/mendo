@@ -44,8 +44,6 @@ constexpr float kButtonHeight = 28.0f;
 constexpr float kLabelWidth = 48.0f;
 constexpr float kBarCorner = 6.0f;
 constexpr float kButtonCorner = 4.0f;
-// 矢印キーとスクロールバーの矢印の 1 回分は KEY_SCROLL_LINE_AMOUNT。ホイールは 1 行をこの長さとして
-// SPI_GETWHEELSCROLLLINES 行 (本文のホイールの量とは違う)。
 // 端まで送る。ScrollTo が範囲に収める。
 constexpr float kFar = 1.0e9f;
 
@@ -769,6 +767,7 @@ bool ZoomWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& 
         const UINT lines = WheelScrollLines();
         const float notches = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
         const bool horizontal = msg == WM_MOUSEHWHEEL || (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT);
+        // 1 行を矢印キーの 1 回分として SPI_GETWHEELSCROLLLINES 行 (本文のホイールの量とは違う)。
         const float step = lines == WHEEL_PAGESCROLL ? (horizontal ? view_width_ : view_height_) * SCROLL_PAGE_FACTOR : KEY_SCROLL_LINE_AMOUNT * static_cast<float>(lines);
         // 縦のホイールは前へ回すと上へ、横のホイールは右へ倒すと右へ。
         const float amount = (msg == WM_MOUSEHWHEEL ? notches : -notches) * step;
@@ -1135,7 +1134,7 @@ void ZoomViewer::StartDecode()
         if (generation_.load() != generation) {
             return;
         }
-        if (decoded_.Push({ .generation = generation, .image = std::move(image) })) {
+        if (decoded_.Push({ .generation = generation, .image = std::move(image) }) && hooks_.wake) {
             hooks_.wake();
         }
     });

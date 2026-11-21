@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <utility>
 
@@ -65,6 +66,14 @@ struct TextRun {
 };
 // 文書の run は数百万になるので、image_slot は詰め物の中に置いて大きさを変えない。
 static_assert(sizeof(TextRun) == 12);
+
+// ノードのリンク URL・画像の src と TextRun (TextArena::CopyRefs が 1 つの塊に置き、Node::SetRefs が受け取る)。
+// urls は先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。
+struct NodeRefs {
+    std::span<const std::string_view> urls;
+    size_t link_count = 0;
+    std::span<const TextRun> runs;
+};
 
 // 1 ノードの画像の src の数。Node が数を 1 バイトで持つので 255 まで。超えた画像は alt を文字のまま出す。
 inline constexpr size_t kMaxImageSlots = 255;

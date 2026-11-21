@@ -1474,7 +1474,7 @@ protected:
     {
         ImageLoaderTest::SetUp();
         log_ = {};
-        viewer_.Init(window_.Get(), nullptr, wic_factory_.Get(), scheduler_, OpenFakeZoomWindow<log_>,
+        viewer_.Init(nullptr, nullptr, wic_factory_.Get(), scheduler_, OpenFakeZoomWindow<log_>,
                      {
                          .on_update = [] {},
                          .wake = wakes_.Fn(),
@@ -1501,7 +1501,6 @@ protected:
     }
 
     static inline ZoomWindowLog log_;
-    MessageOnlyWindow window_;
     WakeCounter wakes_;
     ZoomViewer viewer_;
     std::vector<std::wstring> failures_;

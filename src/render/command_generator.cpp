@@ -1273,8 +1273,7 @@ struct MdPaneEmitter : CmdWriter {
     // range の矩形のうち可視 Y 範囲と重なるものを塗る。
     void EmitRangeRects(IDWriteTextLayout* layout, DWRITE_TEXT_RANGE range, float origin_x, float origin_y, BrushId brush)
     {
-        const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, hit_test_buffer);
-        for (const auto& m : std::span(hit_test_buffer).first(count)) {
+        for (const auto& m : FetchHitTestMetrics(layout, range.startPosition, range.length, hit_test_buffer)) {
             if (const auto r = RectFromHitTest(m, origin_x, origin_y); OverlapsY(r, visible)) {
                 out.emplace_back(FillRectCmd{ r, brush });
             }

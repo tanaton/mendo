@@ -208,8 +208,7 @@ struct ParseContext : NodeStorage {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
             if (!current_runs.empty() || !current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
-                const auto [kept_urls, kept_runs] = arena.CopyRefs(current_link_urls.urls, current_image_srcs.urls, current_runs);
-                current_node->SetRefs(kept_urls, current_link_urls.urls.size(), kept_runs);
+                current_node->SetRefs(arena.CopyRefs(current_link_urls.urls, current_image_srcs.urls, current_runs));
             }
         }
         current_text.clear();
@@ -785,8 +784,7 @@ void AppendFootnoteBackrefs(std::span<Node> nodes, TextArena& arena, std::span<c
         }
         node.SetText(arena.CopyText(text));
         // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
-        const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, node.image_srcs(), runs);
-        node.SetRefs(kept_urls, urls.size(), kept_runs);
+        node.SetRefs(arena.CopyRefs(urls, node.image_srcs(), runs));
     }
 }
 
@@ -904,9 +902,7 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     node.SetText(arena.CopyText(new_text));
     node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
-    const auto link_urls = node.view_link_urls();
-    const auto [kept_urls, kept_runs] = arena.CopyRefs(link_urls, node.image_srcs(), new_runs);
-    node.SetRefs(kept_urls, link_urls.size(), kept_runs);
+    node.SetRefs(arena.CopyRefs(node.view_link_urls(), node.image_srcs(), new_runs));
     node.alert_type = type;
     node.set_has_alert_label();
 }

@@ -1,6 +1,5 @@
 #include "window.h"
 #include "app.h"
-#include "app_constants.h"
 #include "config_service.h"
 #include "i18n.h"
 #include "win32_util.h"
@@ -19,12 +18,6 @@
 namespace {
 
 constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
-
-bool TakePosted(HWND hwnd, UINT msg_id)
-{
-    MSG msg;
-    return PeekMessageW(&msg, hwnd, msg_id, msg_id, PM_REMOVE) != FALSE;
-}
 
 // システムメニュー（タスクバー右クリック）のカスタムコマンドID
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
@@ -184,15 +177,13 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
     app_->LoadInitialDocument();
     AwaitInitialParseBeforeDevice();
-    TakeStartupMessages();
+    app_->TakeStartupMessages();
     if (!app_->CreateRenderDevice()) {
         return destroy();
     }
     // デバイスを待つ間に起動時の読み込みが終わっていれば、空のフレームを出さずに最初のフレームへ入れる。
-    if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
-        app_->OnAppMessage(app_msg::PARSE_COMPLETE);
-    }
-    TakeStartupMessages();
+    app_->TakeParseComplete();
+    app_->TakeStartupMessages();
     UpdateWindow(hwnd_);
     SetCloaked(hwnd_, FALSE);
 
@@ -209,23 +200,13 @@ void Win32Window::AwaitInitialParseBeforeDevice()
     const HANDLE device_ready = D3DPrefetchDoneEvent();
     for (;;) {
         // 先行作成が無くても、Attach の時点で出ていた結果はここで取り込む。
-        if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
-            app_->OnAppMessage(app_msg::PARSE_COMPLETE);
+        if (app_->TakeParseComplete()) {
             return;
         }
-        TakeStartupMessages();
+        app_->TakeStartupMessages();
         // 確かめた後に届いたポストだけで起きる。他の通知 (画像の完了など) で起きたら確かめ直す。
         if (!device_ready || MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
             return;
-        }
-    }
-}
-
-void Win32Window::TakeStartupMessages()
-{
-    for (const UINT msg : { app_msg::FILE_LISTED, app_msg::INLINE_MATH_REQUESTED }) {
-        if (TakePosted(hwnd_, msg)) {
-            app_->OnAppMessage(msg);
         }
     }
 }

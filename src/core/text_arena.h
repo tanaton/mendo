@@ -283,10 +283,7 @@ public:
     }
 
     // リンク URL・画像の src の順に並べた配列と、その直後に続く TextRun の配列を 1 つの塊に置く (Node::SetRefs)。
-    // 返す URL の配列は link_urls と image_srcs をつないだもの。
-    std::pair<std::span<const std::string_view>, std::span<const TextRun>> CopyRefs(std::span<const std::string_view> link_urls,
-                                                                                    std::span<const std::string_view> image_srcs,
-                                                                                    std::span<const TextRun> runs)
+    NodeRefs CopyRefs(std::span<const std::string_view> link_urls, std::span<const std::string_view> image_srcs, std::span<const TextRun> runs)
     {
         const size_t url_bytes = link_urls.size_bytes() + image_srcs.size_bytes();
         const size_t bytes = url_bytes + runs.size_bytes();
@@ -301,8 +298,9 @@ public:
             }
             at += src.size();
         }
-        return { { reinterpret_cast<const std::string_view*>(p), link_urls.size() + image_srcs.size() },
-                 { reinterpret_cast<const TextRun*>(p + url_bytes), runs.size() } };
+        return { .urls = { reinterpret_cast<const std::string_view*>(p), link_urls.size() + image_srcs.size() },
+                 .link_count = link_urls.size(),
+                 .runs = { reinterpret_cast<const TextRun*>(p + url_bytes), runs.size() } };
     }
 
     // 組んだ置き場を写さずに引き取る (大きな表の本文)。ReservedArray は動かしても要素の場所が変わらないので、返した view は

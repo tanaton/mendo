@@ -88,11 +88,10 @@ protected:
                            .kill_trim_timer = [] {},
                        });
         renderer_.SetRenderTarget(rt_.Get());
-        // 拡大表示の図は ZoomViewer が本文と同じ結果から受け取る。画像は読まないので、wake は呼ばれない。
+        // 拡大表示の図は ZoomViewer が本文と同じ結果から受け取る。画像は読まないので、wake は渡さない。
         zoom_.Init(window_.Get(), SharedDWriteFactory(), wic_.Get(), scheduler_, OpenFakeZoomWindow<viewer_>,
                    {
                        .on_update = [this] { OnUpdate(); },
-                       .wake = [] {},
                        .on_failed = [this](std::wstring_view) { ++viewer_failed_; },
                    });
         zoom_.SetRenderTarget(rt_.Get(), nullptr, nullptr);

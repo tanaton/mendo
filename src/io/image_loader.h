@@ -174,8 +174,8 @@ private:
         bool requested_again = false;
         bool invalidated = false;
     };
-    std::unordered_map<std::wstring, PendingDecode, StringTransparentHash> pending_paths_;
-    std::unordered_map<std::wstring, uint32_t, StringTransparentHash> failed_paths_;
+    std::unordered_map<std::wstring, PendingDecode, StringTransparentHash, std::equal_to<>> pending_paths_;
+    std::unordered_map<std::wstring, uint32_t, StringTransparentHash, std::equal_to<>> failed_paths_;
 
     PostedInbox<DecodeResult> completed_;
     WorkerLatch latch_;

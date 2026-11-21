@@ -61,8 +61,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     std::wstring locale_;
     std::wstring key_;
-    std::unordered_map<std::wstring, FontEntry, StringTransparentHash> entries_;
-    std::unordered_map<std::wstring, float, StringTransparentHash> widths_;
+    std::unordered_map<std::wstring, FontEntry, StringTransparentHash, std::equal_to<>> entries_;
+    std::unordered_map<std::wstring, float, StringTransparentHash, std::equal_to<>> widths_;
 };
 
 // pele の math オプションに返した数式のラベル。pele は {svg} を <svg class="pele-math"> の中に入れるので、
