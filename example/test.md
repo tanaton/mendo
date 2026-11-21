@@ -1752,13 +1752,13 @@ public:
 };
 ```
 
-図の結果は、ディスクに置かず RAM の `DiagramCache` 1 つに持つ（設定ファイルのほかにファイルを書かない。起動し直すと空から始まる。ユーザーが選んだ）。描けた図は直列化した描画命令（`SerializeDrawing` の UTF-8。図 1 個 平均 4KB、同じ図の PNG の約 1/20）とラベルの数式の描画命令を持ち、表示している間だけ解いた描画命令（`DiagramDrawing`）とコマンドリストも持つ。直列化した形は数式を TeX だけで持つので、解いた後に覚えた数式の描画命令を同じ順で差し込み（`SetLabelMaths`）、読み直しで KaTeX も pele も動かさない。DPR に依らないので、キーに DPR を混ぜない。
+図の結果は、ディスクに置かず RAM の `DiagramCache` 1 つに持つ（ファイルを書かない。設定はレジストリ。起動し直すと空から始まる。ユーザーが選んだ）。描けた図は直列化した描画命令（`SerializeDrawing` の UTF-8。図 1 個 平均 4KB、同じ図の PNG の約 1/20）とラベルの数式の描画命令を持ち、表示している間だけ解いた描画命令（`DiagramDrawing`）とコマンドリストも持つ。直列化した形は数式を TeX だけで持つので、解いた後に覚えた数式の描画命令を同じ順で差し込み（`SetLabelMaths`）、読み直しで KaTeX も pele も動かさない。DPR に依らないので、キーに DPR を混ぜない。
 
 解いた形は直列化した形より大きいので、表示中の図の分だけにする（ユーザーが選んだ）。表示中かどうかは持ち主の数で決め、どの図（`DiagramEntry`）も拡大表示も worker の仕事も持たなくなった解いた形（`use_count` が 1）を `ReleaseIdleDrawings` で外す。持ち主を増やすのは UI スレッドだけなので、1 と読めたら持ち主はこの表だけである。呼ぶのは要求の回（`ResourceManager::RequestMermaidRenders`）の終わりの 1 か所で、画面外の図を捨てた後（`EvictOffscreenResources` の後には要求の回が続く）・結果の通知・文書を開いたときの回がここを通る。図が受け取った後なので、この回で置き換わった結果・前の文書の図・閉じた拡大表示の分・届く前に画面外へ出た図の結果もここで外れ、新しい文書に同じ図があれば手放す前に受け取る。結果を取り込む `ProcessJobResults` では手放さない。表示が終わる経路ごとに知らせてはもらわない。同じコードの図が 2 つあれば解いた形を共有し、片方が画面外へ出ても外さない。
 
 上限 `MAX_BYTES`（4MB。ユーザーが選んだ）は直列化した形・ラベルの数式（1 つ `LABEL_MATH_BYTES` と見込む）・エラーの文言・項目の器（`ITEM_BYTES`）を数え、表示中の解いた形とコマンドリストは数えない。超えたら `ReleaseIdleDrawings` の最後に、解いた形を持たない項目を使っていない順に捨てる（捨てるのは上限を超えたときだけなので、順序の構造は持たず、捨てるときに候補を 1 回だけ集めて `last_used` の古い順にヒープで取り出す。手放した時を使った時とし、画面を離れたばかりの図を後まで残す）。表示中の項目は捨てず、それだけで上限を超えるなら超えたままにする。置くとき（`Put`）には捨てない。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、同じ図を JS で描き直し続けるためである。ほかを全部捨てても入らない図は直列化した形を持たず、表示している間だけ置く（手放したら JS で描き直す）。エラーの件数には上限を設けない（書きかけの図を保存するたびに増えても、ほかの項目と同じく古い順に捨てる）。前の幅の記録（`last_drawn_`）は描画命令のハッシュで覚えるので、前の幅の結果がこの表から捨てられても、上限より大きくて直列化した形を持たなくても比べられる。描くたびに引くので `FlatHashMap`（3.28.1）で持ち、この表の上限には数えない（どちらも速さをユーザーが選んだ）。件数は表に入りうる件数（`MAX_BYTES / ITEM_BYTES` = 16384 件。ユーザーが選んだ）までで、達したら全部捨てる（`TryEmplaceBounded`）。
 
-描画デバイスが変わったら（`ResetDevice`）コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。表示中の図は、解いた形が残っていればそこから、無ければ直列化した形から worker で解いて文字を組み、記録し直す。前の版が設定フォルダに残した図のディスクキャッシュ（`MermaidCache`）と WebView2 のデータ（`WebView2Data`）は、起動時に有れば優先度を下げた専用のスレッドで黙って消す（`RemoveLegacyFolders`。ユーザーが選んだ）。共有の bg のワーカーを塞がず、終了も待たせない（途中で終われば次の起動で続きを消す）。ほかの mendo の窓（`SameClassWindows`。前の版も窓のクラスは同じ）があれば、使っている最中かもしれないので次の起動に回す。
+描画デバイスが変わったら（`ResetDevice`）コマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。表示中の図は、解いた形が残っていればそこから、無ければ直列化した形から worker で解いて文字を組み、記録し直す。前の版が `%LOCALAPPDATA%\mendo` に残した設定・図のディスクキャッシュ（`MermaidCache`）・WebView2 のデータ（`WebView2Data`）は消さず、README でユーザーに手で消してもらう（ユーザーが選んだ）。
 
 #### 3.12.4 初期化
 
@@ -2118,10 +2118,14 @@ struct OverlayButtonHit {
 #### 3.19.1 保存先・形式
 
 ```
-%LOCALAPPDATA%\mendo\settings.ini
+HKEY_CURRENT_USER\Software\tanaton\mendo\<セクション>    (キーは値の名前)
 ```
 
-`ini::Parse` / `ini::Serialize`（3.28.4）で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約し、読み込み後に値が変わっていなければ書かない。ログオフ・シャットダウンでは WM_DESTROY が来ないため、WM_ENDSESSION で `DestroyWindow` を呼んで同じ終了処理を通す。
+セクションごとのレジストリのキーに、値を `REG_DWORD`（`bool` は 0 / 1、`int` は負の値も 2 の補数のまま）か `REG_SZ`（`wstring`）で置く。型の違う値（regedit で書き換えたものなど）は無いものとして既定値にする。書き出しはアプリ終了時 (WM_DESTROY) に集約し、読み込み後に値が変わっていなければ書かない。ログオフ・シャットダウンでは WM_DESTROY が来ないため、WM_ENDSESSION で `DestroyWindow` を呼んで同じ終了処理を通す。
+
+前の版の `%LOCALAPPDATA%\mendo\settings.ini` は取り込まない。項目が少なく、ユーザーが設定し直せば足りる（ユーザーが選んだ）。
+
+環境変数 `MENDO_SETTINGS_KEY=<名前>` があれば `HKEY_CURRENT_USER\Software\tanaton\mendo-test\<名前>` を使う。スクリーンショットや計測で本人の設定を書き換えないための場所で（ユーザーが選んだ）、引数でなく環境変数にするのは Ctrl+N の新しいウィンドウ（`CreateProcessW`）にも環境ごと引き継がれるため。本番のキーの下に置くとセクションとして読まれるので、隣のキーにする。初期値は `.reg` を `reg import` で入れる。
 
 #### 3.19.2 保存項目
 
@@ -2145,40 +2149,46 @@ struct OverlayButtonHit {
 
 #### 3.19.3 ConfigService — 設定永続化
 
-設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使うだけで分離できる。
+設定のメモリ上マップ（値は `std::variant<uint32_t, std::wstring>`、セクションと値の名前はレジストリの API に合わせて `std::wstring`）とレジストリへの永続化を保持する。インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使うだけで分離できる。
 
 ```cpp
+// HKCU の下の Software\tanaton\mendo。MENDO_SETTINGS_KEY があれば Software\tanaton\mendo-test\<名前>
+std::wstring DefaultRegistryPath();
+
 class ConfigService {
 public:
-    ConfigService();     // 設定ディレクトリを DefaultConfigDir() で決める
+    // registry_path は HKCU の下のキー。テストは本人の設定と別の場所を渡す
+    explicit ConfigService(std::wstring registry_path = DefaultRegistryPath());
 
-    // 設定ディレクトリ
-    void SetConfigDir(const std::filesystem::path& dir);
-    // filename は固定の名前だけを渡す (検証しない)。
-    std::filesystem::path GetConfigPath(std::wstring_view filename) const;
-
-    // ディスク永続化
+    // 永続化
     void Load();
-    void Flush();        // 変更があれば、書く直前に読み直してこのインスタンスで変えた値だけを重ねて書く（WM_DESTROY 時に呼ぶ）
+    void Flush();        // 変更があれば、このインスタンスで変えた値だけをトランザクションで書く（WM_DESTROY 時に呼ぶ）
 
     // 型付きアクセサ
-    void SaveBool(std::string_view section, std::string_view key, bool value);
-    bool LoadBool(std::string_view section, std::string_view key, bool default_value) const;
+    void SaveBool(std::wstring_view section, std::wstring_view key, bool value);
+    bool LoadBool(std::wstring_view section, std::wstring_view key, bool default_value) const;
 
-    void SaveInt(std::string_view section, std::string_view key, int value);
-    int  LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    void SaveInt(std::wstring_view section, std::wstring_view key, int value);
+    int  LoadInt(std::wstring_view section, std::wstring_view key, int def, int min_v, int max_v) const;
     // 無い・不正・範囲外なら等倍
-    ZoomLevel LoadZoomLevel(std::string_view section, std::string_view key) const;
-    void      SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom);
+    ZoomLevel LoadZoomLevel(std::wstring_view section, std::wstring_view key) const;
+    void      SaveZoomLevel(std::wstring_view section, std::wstring_view key, ZoomLevel zoom);
 
-    void         SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::wstring LoadWString(std::string_view section, std::string_view key) const;
+    void         SaveWString(std::wstring_view section, std::wstring_view key, std::wstring_view value);
+    std::wstring LoadWString(std::wstring_view section, std::wstring_view key) const;
+
+    // Flush の途中で OS の関数の前に呼ばれ、0 以外を返すとその関数がその値で失敗したことにする (テスト用)
+    enum class FlushStep { TransactedKey, Commit, DirectKey };
+    using FlushHook = std::function<long(FlushStep step)>;
+    void SetFlushHookForTest(FlushHook hook);
 };
 ```
 
-LocalAppData は環境変数 `LOCALAPPDATA` を優先し（`SHGetKnownFolderPath` は初回に `windows.storage.dll` のロード等で ms 単位かかるため）、取れない・絶対パスでない場合だけ `SHGetKnownFolderPath` にフォールバックする。それも取れなければ一時フォルダ（`GetTempPathW`、絶対パスでなければ Windows フォルダ）の下にし、相対パスでカレントディレクトリの下を読み書きしないよう必ず絶対パスにする。解決は `config_service.cpp` の無名名前空間の関数 `DefaultConfigDir()` がコンストラクタで一度だけ行い、`config_dir_` に持つ（テストは `SetConfigDir` で差し替える）。
+`Save*` は既存値と同じなら何もせず、値が変わったときだけそのキーを `changed_` に記録する。`Flush` は `changed_` が空なら書き込まず、書き込みに成功したら `changed_` を空にする（失敗した変更は次の `Flush` で書く）。書くのはこのインスタンスで変えた値だけなので、他のウィンドウが先に閉じて書いた値を起動時に読んだ古い値で戻さず、知らない値（他の版が足したものなど）も消さない。組で意味を持つ `Session` / `Window` は 1 つでも変えていればセクションの値をすべて書く（キーごとだと別のプロセスの値と混ざる）。
 
-`Save*` は既存値と同じなら何もせず、値が変わったときだけそのキーを `changed_` に記録する。`Flush` は `changed_` が空なら書き込まず、書き込みに成功したら `changed_` を空にする。終了のたびに同期書き込み（`FlushFileBuffers` + `MOVEFILE_WRITE_THROUGH`）が走るのを、設定を変えたセッションだけに限るためである。書くときは直前に settings.ini を読み直し、このインスタンスで変えた値だけを重ねる（他のウィンドウが先に閉じて書いた値を、起動時に読んだ古い値で戻さない）。組で意味を持つ `Session` / `Window` は 1 つでも変えていればセクションごと重ねる（キーごとだと別のプロセスの値と混ざる）。読み込みと書き込みはプロセス間のロック（`InterProcessFileLock`）で囲む。
+書き込みは 1 つのトランザクション（`CreateTransaction` → `RegCreateKeyTransactedW` → `RegSetValueExW` → `CommitTransaction`）でまとめ（ユーザーが選んだ）、読む側はコミット前の値を見ない。ファイルの丸ごと置き換えに要った一時ファイル・FlushFileBuffers・読み書きを囲むプロセス間のロックは要らない。別の mendo が同じキーを書いている最中（`ERROR_TRANSACTIONAL_CONFLICT`）や、書いている間に regedit などがトランザクション無しで書いて中止された（`ERROR_TRANSACTION_ALREADY_ABORTED`）ときは、10ms おきに 4 回まで書き直す。トランザクションが使えない（FSLogix のプロファイルで `ERROR_RM_NOT_ACTIVE` になった報告がある）か衝突が続けば、トランザクション無しで書く（まれに組が別のプロセスの値と混ざるのは受け入れる）。ktmw32.dll は終了時にしか使わないので遅延ロードする。
+
+読み込みはセクションのキーごとに値の名前を列挙し、`RegQueryMultipleValuesW` で 1 度に読む。1 つずつ読むと、間に別のプロセスのコミットが入って組が混ざる。
 
 #### 3.19.4 session::
 
@@ -2792,8 +2802,8 @@ public:
 using UniqueHandle       = UniqueResource<HANDLE, InvalidHandleValue, CloseHandle>;
 using UniqueNullHandle   = UniqueResource<HANDLE, NullHandle<HANDLE>, CloseHandle>;   // イベントなど無効値が nullptr のもの
 using UniqueFindHandle   = UniqueResource<HANDLE, InvalidHandleValue, FindClose>;
-using UniqueCoTaskMemStr = UniqueResource<wchar_t*, NullHandle<wchar_t*>, CoTaskMemFree>;
 using UniqueGlobalMem    = UniqueResource<HGLOBAL, NullHandle<HGLOBAL>, GlobalFree>;
+using UniqueRegKey       = UniqueResource<HKEY, NullHandle<HKEY>, RegCloseKey>;
 
 // clipboard_util.h。GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で書かせる。失敗したら空
 template <class Fill>
@@ -2840,22 +2850,7 @@ public:
 
 ワーカーは初回 `Post` で指定数をまとめて起動する。レイアウト用は最初の並列計測まで、バックグラウンド用は起動時の読み込みや画像・Mermaid の要求が来るまで起動しない。ワーカーは COM を初期化せずに起動し、COM を使うタスクが `EnsureWorkerCom` でそのスレッドを一度だけ MTA に入れる（起動時に全ワーカーで初期化すると、プロセス初回の COM 初期化を COM を使わない起動時の読み込みのパースまで待たせるため）。バックグラウンド用は Mermaid の描画と直列化した形の読み込み、画像のデコード、`AsyncLoadCoordinator` のバックグラウンドロードなどに使用される。
 
-#### 3.28.4 ini:: — INIファイルパーサ
-
-軽量パーサ。型と宣言は `config_service.h`、本体は `config_service.cpp` に置く（使うのは `ConfigService` とテストだけ）。`[Section]` と `Key=Value` 形式をサポートし、`;` / `#` コメントを無視する。
-
-```cpp
-namespace ini {
-    using IniData = std::map<std::string,
-                             std::map<std::string, std::string, std::less<>>,
-                             std::less<>>;
-
-    IniData     Parse(std::string_view text);
-    std::string Serialize(const IniData& data);
-}
-```
-
-#### 3.28.5 i18n — 国際化
+#### 3.28.4 i18n — 国際化
 
 UI文字列のローカライズ。日本語 (`ja`) / 英語 (`en`) / 簡体字中国語 (`zh`) / 繁体字中国語 (`zh-hant`) / 韓国語 (`ko`) の5言語をサポート。
 
@@ -2867,7 +2862,7 @@ namespace i18n {
     bool SetLanguage(const Strings* chosen) noexcept;  // nullptr は OS の表示言語に合わせる。表示が変われば true
     const Strings* ChosenLanguage() noexcept;          // 設定で選んだ言語。OS に合わせるときは nullptr
     const Strings& S() noexcept;
-    std::wstring_view ConfigLangKey() noexcept;        // 設定ファイルに保存する値。OS に合わせるときは空
+    std::wstring_view ConfigLangKey() noexcept;        // 設定に保存する値。OS に合わせるときは空
     const wchar_t* TextLocale() noexcept;              // 本文の書式に渡すロケール
 }
 ```
@@ -2876,7 +2871,7 @@ namespace i18n {
 
 `TextLocale()` は UI の言語設定とは別に OS の表示言語から決める。`Theme::text_locale` がこれを持ち、文書から来る文字の書式（本文・見出し・コード・ペインの一覧・タイトル・検索語）に渡す。メニュー・ペインの見出し・トースト・設定ダイアログなど UI の決まった文言は、選んだ言語の `Strings::lang_locale` で組む。
 
-#### 3.28.6 StringConvert — 文字列変換ユーティリティ
+#### 3.28.5 StringConvert — 文字列変換ユーティリティ
 
 UTF-8 ↔ ワイド文字変換のヘッダオンリーユーティリティ。
 
@@ -2887,7 +2882,7 @@ namespace string_convert {
 }
 ```
 
-#### 3.28.7 Profiler — パフォーマンス計測
+#### 3.28.6 Profiler — パフォーマンス計測
 
 Tracy プロファイラベースの計測マクロ（`src/util/profiler.h`）。`MENDO_PROFILE(label)` は `ZoneNamedN(...)` に展開される。ほかにフレーム境界の `MENDO_FRAME_MARK()`、数値プロットの `MENDO_PLOT`、Tracy 有効時だけ展開する `MENDO_IF_TRACY(...)`、ログの `MENDO_TRACE` / `MENDO_TRACEF` を持つ。CMake オプション `-DMENDO_USE_TRACY=ON` で有効化され、既定 OFF では全マクロが no-op（`((void)0)` か空）に展開される。
 
@@ -3228,7 +3223,7 @@ struct TextSelection {
 flowchart TD
     START[wWinMain] --> DLL[SetDefaultDllDirectories<br>System32 限定 + d2d1 / dwrite を先に読む]
     DLL --> D3D[PrefetchD3DDevice<br>D3D11 デバイスを別スレッドで先行作成]
-    D3D --> CFGLOAD[ConfigService::Load<br>settings.ini読み込み]
+    D3D --> CFGLOAD[ConfigService::Load<br>レジストリ読み込み]
     CFGLOAD --> I18NINIT[i18n::Init<br>session::LoadLanguage General/Language]
     I18NINIT --> PLAN[PlanStartup → DecideStartupPlan<br>引数 __wargv / 前回ファイル / cwd]
     PLAN --> WIN[Win32Window window&#40;config&#41;]
@@ -3245,8 +3240,7 @@ flowchart TD
     INIT --> CFG[session::LoadDarkMode + LoadZoomLevel<br>の値で ThemeService::Init、テーマを作りフォントを決める]
     CFG --> D2D[Renderer::Init&#40;hwnd, theme&#41;<br>D2D / DWrite / WIC ファクトリ + Formats<br>+ LayoutEngine::Init で計測の書式]
     D2D --> LSCHED[measurer の SetScheduler<br>ワーカーは初回 Post で起動]
-    LSCHED --> LEGACY[RemoveLegacyFolders<br>前の版の MermaidCache・WebView2Data が<br>有るときだけ専用のスレッドで消す<br>ほかの mendo の窓があれば次の起動へ]
-    LEGACY --> MERM[MermaidRenderer::Init<br>PeleEngine は初回描画で作る]
+    LSCHED --> MERM[MermaidRenderer::Init<br>PeleEngine は初回描画で作る]
     MERM --> PANES[session::LoadPanes<br>ペインの表示・幅・倍率]
     PANES --> SHOWW[DWMWA_CLOAK で隠したまま<br>RestoreWindowPlacement / ShowWindow]
     SHOWW --> ATTACH{LoadInitialDocument<br>Attach で通知先を渡す}
@@ -3415,7 +3409,7 @@ pele の見た目は mermaid.js と違う（文字を 16px に保って折り返
 | `/OPT:REF` | 未参照関数/データの除去 (Release) |
 | `/OPT:ICF` | 同一COMDATの統合 (Release) |
 | `/MT` | CRT静的リンク（単一exe配布のため） |
-| `/DELAYLOAD` | `comdlg32.dll`（ファイルダイアログでしか使わない）、`comctl32.dll`（検索の Edit とツールチップを初めて作るまで要らない）、`shell32.dll`（ドロップ・外部で開く・設定フォルダの取得の予備だけ）と、KnownDLLs に無い `d2d1` / `dwrite` / `d3d11` / `dwmapi` / `uxtheme` を遅延ロード。`/DEPENDENTLOADFLAG:0x800` と `SetDefaultDllDirectories` で System32 からだけ解決させる |
+| `/DELAYLOAD` | `comdlg32.dll`（ファイルダイアログでしか使わない）、`comctl32.dll`（検索の Edit とツールチップを初めて作るまで要らない）、`shell32.dll`（ドロップと外部で開くときだけ）、`ktmw32.dll`（設定を書く終了時だけ。KnownDLLs にも無い）と、KnownDLLs に無い `d2d1` / `dwrite` / `d3d11` / `dwmapi` / `uxtheme` を遅延ロード。`/DEPENDENTLOADFLAG:0x800` と `SetDefaultDllDirectories` で System32 からだけ解決させる |
 
 ---
 
@@ -3448,7 +3442,7 @@ pele の見た目は mermaid.js と違う（文字を 16px に保って折り返
 | `test_types.cpp` | 型・データ構造 |
 | `test_file_io.cpp` | ファイルI/O ユーティリティ |
 | `test_file_explorer.cpp` | FileExplorer |
-| `test_config_service.cpp` | ConfigService（設定永続化）・session::・INI の読み書き（`ini::Parse` / `Serialize`） |
+| `test_config_service.cpp` | ConfigService（設定永続化。`HKCU\Software\tanaton\mendo-test` の下にテストごとのキーを作って消す）・session:: |
 | `test_locale.cpp` | i18n ロケール |
 | `test_string_convert.cpp` | UTF-8 ↔ Wide 変換 |
 | `test_pane_layout.cpp` | ペインレイアウト計算・PaneController |
@@ -3714,7 +3708,7 @@ src/
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
-│   └── config_service.h / .cpp    # ConfigService + session:: + INI の読み書き (ini::Parse / Serialize)
+│   └── config_service.h / .cpp    # ConfigService (レジストリ) + session::
 ├── mermaid/                       # Mermaid層
 │   ├── mermaid.h / mermaid.cpp    # MermaidRenderer + DiagramCache (図の結果のキャッシュ)
 │   ├── mermaid_renderer_interface.h # IMermaidRenderer
@@ -4700,7 +4694,7 @@ test = false
 ##### INI コード
 
 ```ini
-; 設定ファイルの例 (mendo の settings.ini の書式とは別)
+; 設定ファイルの例 (mendo の設定とは関係ない)
 [window]
 width = 1280
 height = 800
@@ -5135,27 +5129,26 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 37 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
 | 38 | ResourceManager | resource_manager.h/cpp + app.h/cpp (ResourceManagerHost の実装) | mendo_core / mendo (App) | あり |
 | 39 | i18n | i18n.h | mendo_core | あり |
-| 40 | ini::Parse / Serialize | config_service.h/cpp | mendo_core | あり |
-| 41 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
-| 42 | FlatHashMap | utility.h | mendo_core | あり |
-| 43 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | Clipboard utils のみ |
-| 44 | SettingsDialog + PopupWindow | settings_dialog.h/cpp + popup_window.h | mendo_core | あり |
-| 45 | InlineMath | inline_math.h/cpp | mendo_core | あり |
-| 46 | SystemCursors | app.h 内 | mendo | なし |
-| 47 | UIConstants | ui_constants.h | mendo_core | あり |
-| 48 | StringConvert | string_convert.h | mendo_core | あり |
-| 49 | Profiler | profiler.h | mendo_core | なし |
-| 50 | ZoomWindow + ZoomViewer | zoom_viewer.h/cpp | mendo_core | 倍率 (FitZoom / NextZoom) と ZoomViewer (窓は偽物) |
-| 51 | PeleEngine | pele_engine.h/cpp | mendo_core | あり |
-| 52 | DrawingFromPeleSvg + RasterizeDiagram | diagram_raster.h/cpp | mendo_core | あり |
-| 53 | ClipboardManager | clipboard_manager.h/cpp | mendo_core | あり |
-| 54 | StartupPlan + DecideStartupPlan | startup_plan.h/cpp | mendo_core | あり |
-| 55 | TableMeasureJobs | layout.h/cpp | mendo_core | あり |
-| 56 | ReloadScheduler | async_load_coordinator.h/cpp | mendo_core | あり |
-| 57 | ImageFolderWatcher | file_watcher.h/cpp | mendo_core | あり |
-| 58 | DiagramBitmapCache | draw_command.h + command_executor.cpp | mendo_core | あり |
-| 59 | MathMaskCache | diagram_raster.h/cpp | mendo_core | あり |
-| 60 | TextLayoutCache | command_generator.h | mendo_core | あり |
+| 40 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
+| 41 | FlatHashMap | utility.h | mendo_core | あり |
+| 42 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | Clipboard utils のみ |
+| 43 | SettingsDialog + PopupWindow | settings_dialog.h/cpp + popup_window.h | mendo_core | あり |
+| 44 | InlineMath | inline_math.h/cpp | mendo_core | あり |
+| 45 | SystemCursors | app.h 内 | mendo | なし |
+| 46 | UIConstants | ui_constants.h | mendo_core | あり |
+| 47 | StringConvert | string_convert.h | mendo_core | あり |
+| 48 | Profiler | profiler.h | mendo_core | なし |
+| 49 | ZoomWindow + ZoomViewer | zoom_viewer.h/cpp | mendo_core | 倍率 (FitZoom / NextZoom) と ZoomViewer (窓は偽物) |
+| 50 | PeleEngine | pele_engine.h/cpp | mendo_core | あり |
+| 51 | DrawingFromPeleSvg + RasterizeDiagram | diagram_raster.h/cpp | mendo_core | あり |
+| 52 | ClipboardManager | clipboard_manager.h/cpp | mendo_core | あり |
+| 53 | StartupPlan + DecideStartupPlan | startup_plan.h/cpp | mendo_core | あり |
+| 54 | TableMeasureJobs | layout.h/cpp | mendo_core | あり |
+| 55 | ReloadScheduler | async_load_coordinator.h/cpp | mendo_core | あり |
+| 56 | ImageFolderWatcher | file_watcher.h/cpp | mendo_core | あり |
+| 57 | DiagramBitmapCache | draw_command.h + command_executor.cpp | mendo_core | あり |
+| 58 | MathMaskCache | diagram_raster.h/cpp | mendo_core | あり |
+| 59 | TextLayoutCache | command_generator.h | mendo_core | あり |
 
 ---
 
@@ -5899,7 +5892,7 @@ GitHub Alerts記法を用いたコールアウトの表示テスト。各Alert�
 > 非常に大きなMarkdownファイル（数十MB以上）を開くと、初回パースに時間がかかる場合があります。
 
 > [!CAUTION]
-> 設定ファイル（`%LOCALAPPDATA%\mendo\settings.ini`）を手動で編集する場合、不正なフォーマットでエントリを記述するとそのエントリは既定値で再生成されます。**編集前にバックアップを取ってください。**
+> 設定（`HKEY_CURRENT_USER\Software\tanaton\mendo`）を regedit で編集する場合、型の違う値（`REG_DWORD` の代わりの `REG_SZ` など）は無視され、終了時に既定値で書き直されます。**編集前にキーを書き出してバックアップを取ってください。**
 
 ### 複数段落のAlert
 

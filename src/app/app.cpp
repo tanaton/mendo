@@ -49,30 +49,6 @@ ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
     return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
 }
 
-// 前の版が設定フォルダに残した図のディスクキャッシュと WebView2 のデータを、起動時に黙って消す (ユーザーが選んだ)。
-// ほかの mendo の窓 (前の版も窓のクラスは同じ) があれば、使っている最中かもしれないので次の起動に回す。ファイルが多いので、
-// 共有の scheduler の worker を塞がず終了も待たせないよう、有るときだけ優先度を下げた専用のスレッドで消す (途中で
-// 終了すれば次の起動で続きを消す)。
-void RemoveLegacyFolders(const ConfigService& config, HWND self)
-{
-    std::vector<std::filesystem::path> dirs;
-    for (const std::wstring_view name : { L"MermaidCache", L"WebView2Data" }) {
-        if (auto dir = config.GetConfigPath(name); GetFileAttributesW(dir.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            dirs.push_back(std::move(dir));
-        }
-    }
-    if (dirs.empty() || std::ranges::any_of(SameClassWindows(self), [self](HWND other) { return other != self; })) {
-        return;
-    }
-    std::thread([dirs = std::move(dirs)] {
-        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
-        for (const auto& dir : dirs) {
-            std::error_code ec;
-            std::filesystem::remove_all(dir, ec);
-        }
-    }).detach();
-}
-
 } // namespace
 
 bool App::Init(HWND hwnd)
@@ -101,8 +77,6 @@ bool App::Init(HWND hwnd)
 
     // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
-
-    RemoveLegacyFolders(config_, hwnd_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 

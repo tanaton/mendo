@@ -175,16 +175,9 @@ struct OpenedFile {
     size_t size = 0;
 };
 
-// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。out_error は CreateFileW の失敗時だけ GetLastError()。
+// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。
 // 読み取り系は wstring から filesystem::path を作るヒープ確保を避けるため、NUL 終端文字列で受ける。
-[[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size,
-                                                                             DWORD* out_error = nullptr) noexcept;
-
-// 読めなかった理由が、ファイルが無いことか (共有違反などの一時的な失敗と分ける)。
-constexpr bool IsFileMissingError(DWORD error) noexcept
-{
-    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-}
+[[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size) noexcept;
 
 // 失敗時と空ファイルは空を返す。読めなかった理由が要るときは OpenFileForReadShared を使う。
 [[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD share_mode = FILE_SHARE_READ,
@@ -210,33 +203,11 @@ constexpr bool IsFileMissingError(DWORD error) noexcept
 // BOM の 3 バイトのずれ等を吸収するため 16 バイトの許容範囲を持たせる。
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 
-// close 前に FlushFileBuffers でデータブロックをディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
-[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
-
-// tmp へ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換え、成功したかを返す。false なら原本は変わっていない。
-// rename が失敗 (クロスボリューム等) したら tmp を消す。CREATE_ALWAYS は原本を切り詰めてから失敗しうるので直書きしない。
-// tmp は `<path>.tmp` 固定なので、同じ path への並行呼び出しは呼び出し側で排他する (プロセス間は InterProcessFileLock)。
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
-
-// 利用者が選んだ保存先を AtomicWriteAllBytes と同じく置き換える。一時ファイルは固定の `<path>.tmp` でなく、
-// 既存のファイルと重ならない名前で新しく作る。固定の名前では、同じ名前の利用者のファイルを切り詰めたうえ置き換えで消してしまう。
+// 利用者が選んだ保存先を、一時ファイルへ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換え、成功したかを返す。
+// false なら原本は変わっていない。CREATE_ALWAYS は原本を切り詰めてから失敗しうるので直書きしない。
+// 一時ファイルは既存のファイルと重ならない名前で新しく作る。固定の名前 (`<path>.tmp`) では、同じ名前の利用者のファイルを
+// 切り詰めたうえ置き換えで消してしまう。
 bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, size_t size);
-
-// 複数のプロセスが同じファイルを読み書きするのを重ねない。後から書く方が先の内容を知らずに消すうえ、
-// AtomicWriteAllBytes の一時ファイルの名前が同じなので片方の書き込みが失敗する。読んでいる間の置き換え (MoveFileExW) も、
-// FILE_SHARE_DELETE を付けても共有違反で失敗するので、読み込みも囲む。
-// 名前付きミューテックスの名前は kind とパスのハッシュから作る (テストは別のフォルダを使うので、パスごとに分ける)。
-class InterProcessFileLock {
-public:
-    InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path);
-    ~InterProcessFileLock();
-    InterProcessFileLock(const InterProcessFileLock&) = delete;
-    InterProcessFileLock& operator=(const InterProcessFileLock&) = delete;
-
-private:
-    UniqueNullHandle mutex_;
-    bool owned_ = false;
-};
 
 // ファイル選択ダイアログ。`<commdlg.h>` は file_io.cpp だけが読む。
 namespace file_dialog {

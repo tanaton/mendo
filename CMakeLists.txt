@@ -183,7 +183,7 @@ target_compile_definitions(mendo_core PUBLIC
 # リンクする OS のライブラリはここにまとめる (ソースの #pragma comment(lib) は使わない)。
 # windowscodecs は DLL を静的に読まないが、WIC の GUID がこの lib にある。
 target_link_libraries(mendo_core PUBLIC
-    md4c quickjs rapidhash d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
+    md4c quickjs rapidhash d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32 ktmw32
 )
 if(MENDO_USE_TRACY)
     # profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。TRACY_ENABLE は TracyClient から伝わる。
@@ -213,8 +213,9 @@ add_dependencies(mendo mendo_js_bytecode)
 set_source_files_properties(res/mendo.rc PROPERTIES OBJECT_DEPENDS "${MENDO_JS_BYTECODE}" INCLUDE_DIRECTORIES "${MENDO_JS_BYTECODE_DIR};${MENDO_GENERATED_DIR}")
 # ファイルダイアログでしか使わないので、起動時にロードしない。
 # comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
-# shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。
-target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll /DELAYLOAD:comctl32.dll /DELAYLOAD:shell32.dll)
+# shell32 はドロップと外部で開くときにしか使わない。
+# ktmw32 (レジストリのトランザクション) は設定を書く終了時にしか使わない。KnownDLLs にも無い (下の理由)。
+target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll /DELAYLOAD:comctl32.dll /DELAYLOAD:shell32.dll /DELAYLOAD:ktmw32.dll)
 # KnownDLLs に無い DLL を静的インポートすると、ローダーが exe と同じフォルダを先に探すので
 # Downloads 等に置かれた偽 DLL を読んでしまう。遅延ロードにして、wWinMain 先頭の
 # SetDefaultDllDirectories (System32 限定) の後で解決させる。

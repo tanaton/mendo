@@ -14,6 +14,10 @@ Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/
 winget install tanaton.mendo
 ```
 
+### Upgrading from an older version
+
+Versions up to v0.5.1.0 stored settings and diagram caches in the `%LOCALAPPDATA%\mendo` folder. The current version no longer uses this folder and does not carry those settings over. Type `%LOCALAPPDATA%` into the Explorer address bar to open it, then delete the `mendo` folder manually.
+
 ## Features
 
 - **Fast startup** — Window creation and file processing run in parallel for a quick launch.
@@ -29,7 +33,7 @@ winget install tanaton.mendo
 - **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
 - **Customizable view** — Show/hide each pane, switch between light and dark themes, zoom in 17 steps from 0.25x to 5.00x, and more.
 - **Multilingual UI** — Shows the UI and help in Japanese, English, Simplified Chinese, Traditional Chinese, or Korean to match the Windows display language. You can also switch it from the settings button in the title bar.
-- **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to `%LOCALAPPDATA%\mendo\`.
+- **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to the registry (`HKEY_CURRENT_USER\Software\tanaton\mendo`).
 
 ## Usage
 

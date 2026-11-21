@@ -144,7 +144,7 @@ public:
     {
         return index_;
     }
-    // 設定ファイル等の外部入力から不正値が来ても範囲外を指さないよう、ここで必ずクランプする。
+    // 保存した設定等の外部入力から不正値が来ても範囲外を指さないよう、ここで必ずクランプする。
     constexpr void SetIndex(int idx) noexcept
     {
         index_ = static_cast<uint8_t>(std::clamp(idx, 0, ZOOM_STEP_COUNT - 1));
