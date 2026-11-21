@@ -3,17 +3,11 @@
 #include <format>
 #include <new>
 
-std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
+std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size) noexcept
 {
-    if (out_error) {
-        *out_error = 0;
-    }
     UniqueHandle hFile(CreateFileW(path, GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
         const DWORD error = GetLastError();
-        if (out_error) {
-            *out_error = error;
-        }
         return std::unexpected(error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION ? FileLoadError::Locked : FileLoadError::NotFound);
     }
     LARGE_INTEGER file_size;
@@ -57,55 +51,6 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept
     return size > static_cast<uint64_t>(reference_size) + kTolerance;
 }
 
-namespace {
-
-// 書いたデータブロックを FlushFileBuffers でディスクへコミットする (rename と組み合わせる置き換えのため)。
-bool WriteToHandle(HANDLE file, const void* data, size_t size) noexcept
-{
-    DWORD bytes_written = 0;
-    if (!WriteFile(file, data, static_cast<DWORD>(size), &bytes_written, nullptr) ||
-        bytes_written != static_cast<DWORD>(size)) {
-        return false;
-    }
-    return FlushFileBuffers(file);
-}
-
-// 書き終えた tmp_path で path を置き換える。置き換えられなければ tmp_path を消す。
-bool ReplaceWithTmp(const std::filesystem::path& tmp_path, const std::filesystem::path& path) noexcept
-{
-    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        return true;
-    }
-    DeleteFileW(tmp_path.c_str());
-    return false;
-}
-
-} // namespace
-
-bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
-{
-    if (size > std::numeric_limits<DWORD>::max()) {
-        return false;
-    }
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
-    return hFile && WriteToHandle(hFile.get(), data, size);
-}
-
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
-{
-    std::filesystem::path tmp_path = path;
-    tmp_path += L".tmp";
-
-    // tmp のデータブロックを flush してから write-through で rename する。rename のメタデータだけが先にディスクへ
-    // コミットされると、電源断で対象ファイルが 0 バイトになり旧内容を戻せない。
-    if (!WriteAllBytes(tmp_path, data, size)) {
-        // 書き込みの途中で失敗しても CREATE_ALWAYS で tmp はできているので、部分書き込みの孤児 tmp を残さないよう消す。
-        DeleteFileW(tmp_path.c_str());
-        return false;
-    }
-    return ReplaceWithTmp(tmp_path, path);
-}
-
 bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, size_t size)
 {
     if (size > std::numeric_limits<DWORD>::max()) {
@@ -126,35 +71,17 @@ bool AtomicWriteUserFile(const std::filesystem::path& path, const void* data, si
     if (!hFile) {
         return false;
     }
-    const bool written = WriteToHandle(hFile.get(), data, size);
+    // データブロックを FlushFileBuffers でディスクへコミットしてから write-through で rename する。rename の
+    // メタデータだけが先にディスクへコミットされると、電源断で対象ファイルが 0 バイトになり旧内容を戻せない。
+    DWORD bytes_written = 0;
+    const bool written = WriteFile(hFile.get(), data, static_cast<DWORD>(size), &bytes_written, nullptr) &&
+                         bytes_written == static_cast<DWORD>(size) && FlushFileBuffers(hFile.get());
     hFile.reset();
-    if (!written) {
-        DeleteFileW(tmp_path.c_str());
-        return false;
+    if (written && MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        return true;
     }
-    return ReplaceWithTmp(tmp_path, path);
-}
-
-InterProcessFileLock::InterProcessFileLock(std::wstring_view kind, const std::filesystem::path& path)
-{
-    // 名前に '\\' を含められないのでパスはハッシュにする。
-    const uint64_t hash = RapidHash(path.native());
-    const std::wstring name = std::format(L"Local\\mendo-{}-{:016x}", kind, hash);
-    mutex_.reset(CreateMutexW(nullptr, FALSE, name.c_str()));
-    if (!mutex_) {
-        return;
-    }
-    // ログオフ中は待てる時間が限られる。待ちきれなければロックなしで進める。
-    constexpr DWORD kTimeoutMs = 2000;
-    const DWORD result = WaitForSingleObject(mutex_.get(), kTimeoutMs);
-    owned_ = (result == WAIT_OBJECT_0) || (result == WAIT_ABANDONED);
-}
-
-InterProcessFileLock::~InterProcessFileLock()
-{
-    if (owned_) {
-        ReleaseMutex(mutex_.get());
-    }
+    DeleteFileW(tmp_path.c_str());
+    return false;
 }
 
 namespace {

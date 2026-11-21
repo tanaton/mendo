@@ -274,24 +274,38 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
-// temp ディレクトリを RAII で用意・破棄する。名前はテスト名とプロセスIDで一意なので、並列実行や異常終了時も衝突しない。
-// gtest はフィクスチャ生成前に current_test_info を設定するので、フィクスチャのメンバとして持てる。
+// バイナリでファイルを作るか上書きし、書けたかを返す。
+inline bool WriteBinaryFile(const std::filesystem::path& path, const void* data, size_t size)
+{
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+    return f.good();
+}
+
+// テスト名とプロセスIDで一意な名前 (<スイート>_<テスト>_<PID>)。並列実行や異常終了時も衝突せず、残骸がどのテストのものか分かる。
+// gtest はフィクスチャ生成前に current_test_info を設定するので、フィクスチャのメンバの初期化から呼べる。
+inline std::string UniqueTestName()
+{
+    const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+    std::string name;
+    if (info) {
+        name += info->test_suite_name();
+        name += "_";
+        name += info->name();
+        name += "_";
+    }
+    name += std::to_string(::GetCurrentProcessId());
+    // 値パラメータ化テスト名の '/' でネストしたディレクトリにならないようにする
+    std::ranges::replace(name, '/', '_');
+    return name;
+}
+
+// temp ディレクトリを RAII で用意・破棄する。名前は UniqueTestName。
 class ScopedTempDir {
 public:
     ScopedTempDir()
     {
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string name = "mendo_test_";
-        if (info) {
-            name += info->test_suite_name();
-            name += "_";
-            name += info->name();
-            name += "_";
-        }
-        name += std::to_string(::GetCurrentProcessId());
-        // 値パラメータ化テスト名の '/' でネストしたディレクトリにならないようにする
-        std::ranges::replace(name, '/', '_');
-        path_ = std::filesystem::temp_directory_path() / name;
+        path_ = std::filesystem::temp_directory_path() / ("mendo_test_" + UniqueTestName());
         std::error_code ec;
         // PID 再利用時に前回の異常終了の残骸を引き継がない
         std::filesystem::remove_all(path_, ec);
@@ -317,13 +331,7 @@ public:
     std::filesystem::path Write(std::wstring_view name, std::string_view content = {}) const
     {
         auto path = path_ / name;
-        std::ofstream f(path, std::ios::binary);
-        if (!f.is_open()) {
-            ADD_FAILURE() << "Failed to open temp file: " << path.string();
-            return path;
-        }
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f.good()) {
+        if (!WriteBinaryFile(path, content.data(), content.size())) {
             ADD_FAILURE() << "Failed to write temp file: " << path.string();
         }
         return path;

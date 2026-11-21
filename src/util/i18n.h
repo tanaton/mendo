@@ -95,7 +95,7 @@ struct Strings {
 
     UINT help_resource_id;
 
-    // 設定ファイルの General/Language に保存する値。
+    // 設定の General/Language に保存する値。
     std::wstring_view lang_key;
     // 言語の一覧に出す名前。どの言語の表示中でもその言語自身の表記で出す。
     std::wstring_view lang_name;
@@ -478,7 +478,7 @@ inline bool SetLanguage(const Strings* chosen) noexcept
     return g_strings.exchange(shown, std::memory_order_acq_rel) != shown;
 }
 
-// config_lang は設定ファイルの値。空や知らない値は OS に合わせる。
+// config_lang は設定の値。空や知らない値は OS に合わせる。
 inline void Init(std::wstring_view config_lang) noexcept
 {
     const auto it = std::ranges::find(kAllStrings, config_lang, &Strings::lang_key);
@@ -495,7 +495,7 @@ inline const Strings& S() noexcept
     return *g_strings.load(std::memory_order_acquire);
 }
 
-// 設定ファイルに保存する値。OS に合わせるときは空にし、次回も OS の表示言語で決める。
+// 設定に保存する値。OS に合わせるときは空にし、次回も OS の表示言語で決める。
 inline std::wstring_view ConfigLangKey() noexcept
 {
     const Strings* chosen = ChosenLanguage();

@@ -1,30 +1,6 @@
 #include <gtest/gtest.h>
 #include "utility.h"
 
-// InterProcessFileLock の名前になる値。rapidhash.h を替えてここが落ちたら、旧版と同時に動く間だけロックが互いを排他しない。
-// 長さは rapidhash の分岐 (0・1〜3・4〜7・8〜16・17〜112・113 以上) を一通り通す。
-TEST(RapidHash, KeepsPersistedValues)
-{
-    const std::string x200(200, 'x');
-    struct Case {
-        std::string_view input;
-        uint64_t expected;
-    };
-    const Case kCases[] = {
-        { {},                  0x0338dc4be2cecdaeULL },
-        { "a",                 0x599f47df33a2e1ebULL },
-        { { "\0", 1 },         0x4f23c791b16eba02ULL },
-        { "foobar",            0xd76f53d9bff5e23cULL },
-        { "0123456789abcdef",  0x8b249eb98f29bff6ULL },
-        { "0123456789abcdefg", 0x62b040278b0412a6ULL },
-        { x200,                0x25adb114ca9ea76aULL },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::string{ c.input }));
-        EXPECT_EQ(RapidHash(c.input), c.expected);
-    }
-}
-
 TEST(RapidHash, WideStringHashesUtf16Bytes)
 {
     EXPECT_EQ(RapidHash(L"ab"), RapidHash(std::string_view{ "a\0b\0", 4 }));

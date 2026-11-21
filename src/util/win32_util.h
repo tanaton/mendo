@@ -5,7 +5,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 // MAX_PATH に収まらなければ空。
 template <typename GetPathFn>
@@ -106,9 +105,6 @@ void SetCloaked(HWND hwnd, BOOL cloaked);
 // CRT と CommandLineToArgvW が 1 つの引数に戻す形で引用符に囲む。パスには " が無いが、リンクの見出し (--anchor) にはありうるので、
 // " は \" にし、その前と末尾の \ は 2 倍にする。
 std::wstring QuoteCommandLineArg(std::wstring_view arg);
-// origin と同じクラスのトップレベルのウィンドウ (origin を含む)。mendo の本体の窓を数えるのに使う (前の版も同じクラス)。
-// クラスを引けなければ空。
-std::vector<HWND> SameClassWindows(HWND origin);
 // rect を step ずつ右下へずらす。work からはみ出すなら work の左上へ戻す。
 // 左上が occupied (開いているウィンドウの左上) のどれかと重なる間は、さらにずらす。
 RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept;

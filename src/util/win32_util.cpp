@@ -56,6 +56,21 @@ struct PendingLaunch {
 // UI スレッドだけが触る。
 std::vector<PendingLaunch> g_pending_launches;
 
+// origin と同じクラスのトップレベルのウィンドウ (origin を含む)。クラスを引けなければ空。
+std::vector<HWND> SameClassWindows(HWND origin)
+{
+    std::vector<HWND> windows;
+    // クラス名は最長 256 文字と終端。
+    wchar_t cls[257];
+    if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
+        return windows;
+    }
+    for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) {
+        windows.push_back(h);
+    }
+    return windows;
+}
+
 // 最小化は -32000、最大化は枠の分だけ作業領域の外にあり、ずらした先と重ならないので除く。
 std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 {
@@ -71,20 +86,6 @@ std::vector<POINT> OccupiedOrigins(HWND origin, ULONGLONG now)
 }
 
 } // namespace
-
-std::vector<HWND> SameClassWindows(HWND origin)
-{
-    std::vector<HWND> windows;
-    // クラス名は最長 256 文字と終端。
-    wchar_t cls[257];
-    if (GetClassNameW(origin, cls, static_cast<int>(std::size(cls))) == 0) {
-        return windows;
-    }
-    for (HWND h = nullptr; (h = FindWindowExW(nullptr, h, cls, nullptr)) != nullptr;) {
-        windows.push_back(h);
-    }
-    return windows;
-}
 
 RECT CascadeRect(const RECT& rect, const RECT& work, int step, std::span<const POINT> occupied) noexcept
 {

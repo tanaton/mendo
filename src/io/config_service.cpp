@@ -1,241 +1,277 @@
 #include "config_service.h"
 #include "file_io.h"
 #include "pane_layout.h"
-#include "string_convert.h"
-#include "utf8_codec.h"
+#include "utility.h"
 #include "win32_util.h"
 #include "win_handle.h"
 #include <algorithm>
-#include <charconv>
 #include <cmath>
+#include <cstring>
 #include <optional>
-#include <shlobj.h>
+#include <span>
+#include <vector>
 #include <windows.h>
+#include <ktmw32.h>
 
-namespace ini {
-
-namespace {
-constexpr std::string_view TrimBlanks(std::string_view s) noexcept
-{
-    const size_t first = s.find_first_not_of(" \t");
-    if (first == std::string_view::npos) {
-        return {};
-    }
-    return s.substr(first, s.find_last_not_of(" \t") - first + 1);
-}
-} // namespace
-
-IniData Parse(std::string_view text)
-{
-    IniData data;
-    std::string current_section;
-
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t eol = text.find_first_of("\r\n", pos);
-        if (eol == std::string_view::npos) {
-            eol = text.size();
-        }
-        const std::string_view line = TrimBlanks(text.substr(pos, eol - pos));
-
-        pos = eol;
-        if (pos < text.size() && text[pos] == '\r') {
-            ++pos;
-        }
-        if (pos < text.size() && text[pos] == '\n') {
-            ++pos;
-        }
-
-        if (line.empty() || line[0] == ';' || line[0] == '#') {
-            continue;
-        }
-
-        if (line[0] == '[') {
-            const size_t close = line.find(']', 1);
-            if (close != std::string_view::npos) {
-                current_section = std::string(line.substr(1, close - 1));
-            }
-            else {
-                // 未終端の [ は壊れたセクション開始。後続キーを直前セクションに混ぜないよう無名セクションへ退避する。
-                current_section.clear();
-            }
-            continue;
-        }
-
-        const size_t eq = line.find('=');
-        if (eq == std::string_view::npos) {
-            continue;
-        }
-
-        const std::string_view key = TrimBlanks(line.substr(0, eq));
-        if (key.empty()) {
-            continue;
-        }
-        data[current_section][std::string(key)] = std::string(TrimBlanks(line.substr(eq + 1)));
-    }
-
-    return data;
-}
-
-std::string Serialize(const IniData& data)
-{
-    std::string result;
-    bool first_section = true;
-
-    for (const auto& [section, kvs] : data) {
-        if (kvs.empty()) {
-            continue;
-        }
-        if (!first_section) {
-            result += '\n';
-        }
-        first_section = false;
-
-        if (!section.empty()) {
-            result += '[';
-            result += section;
-            result += "]\n";
-        }
-
-        for (const auto& [key, value] : kvs) {
-            result += key;
-            result += '=';
-            result += value;
-            result += '\n';
-        }
-    }
-
-    return result;
-}
-
-} // namespace ini
-
-// ini のキー。生文字列を散らさず一覧化し、タイポを静的に検出する。既存の ini ファイルと互換を保つため値は変えない。
+// セクションはレジストリのキー、キーは値の名前になる。生文字列を散らさず一覧化し、タイポを静的に検出する。
 namespace {
 using namespace std::literals;
-constexpr auto kSettingsFile = L"settings.ini"sv;
-constexpr auto kSectionSession = "Session"sv;
-constexpr auto kKeyLastFile = "LastFile"sv;
-constexpr auto kKeyScrollNode = "ScrollNode"sv;
-constexpr auto kKeyScrollOffset = "ScrollOffset"sv;
-constexpr auto kSectionPane = "Pane"sv;
-constexpr auto kKeyShowFile = "ShowFile"sv;
-constexpr auto kKeyShowToc = "ShowToc"sv;
-constexpr auto kKeyFileWidth = "FileWidth"sv;
-constexpr auto kKeyTocWidth = "TocWidth"sv;
-constexpr auto kKeyFileZoomLevel = "FileZoomLevel"sv;
-constexpr auto kKeyTocZoomLevel = "TocZoomLevel"sv;
-constexpr auto kSectionGeneral = "General"sv;
-constexpr auto kKeyLanguage = "Language"sv;
-constexpr auto kSectionView = "View"sv;
-constexpr auto kKeyDarkMode = "DarkMode"sv;
-constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
-constexpr auto kSectionWindow = "Window"sv;
-constexpr auto kKeyWindowX = "X"sv;
-constexpr auto kKeyWindowY = "Y"sv;
-constexpr auto kKeyWindowWidth = "Width"sv;
-constexpr auto kKeyWindowHeight = "Height"sv;
-constexpr auto kKeyWindowMaximized = "Maximized"sv;
+constexpr auto kSectionSession = L"Session"sv;
+constexpr auto kKeyLastFile = L"LastFile"sv;
+constexpr auto kKeyScrollNode = L"ScrollNode"sv;
+constexpr auto kKeyScrollOffset = L"ScrollOffset"sv;
+constexpr auto kSectionPane = L"Pane"sv;
+constexpr auto kKeyShowFile = L"ShowFile"sv;
+constexpr auto kKeyShowToc = L"ShowToc"sv;
+constexpr auto kKeyFileWidth = L"FileWidth"sv;
+constexpr auto kKeyTocWidth = L"TocWidth"sv;
+constexpr auto kKeyFileZoomLevel = L"FileZoomLevel"sv;
+constexpr auto kKeyTocZoomLevel = L"TocZoomLevel"sv;
+constexpr auto kSectionGeneral = L"General"sv;
+constexpr auto kKeyLanguage = L"Language"sv;
+constexpr auto kSectionView = L"View"sv;
+constexpr auto kKeyDarkMode = L"DarkMode"sv;
+constexpr auto kKeyZoomLevel = L"ZoomLevel"sv;
+constexpr auto kSectionWindow = L"Window"sv;
+constexpr auto kKeyWindowX = L"X"sv;
+constexpr auto kKeyWindowY = L"Y"sv;
+constexpr auto kKeyWindowWidth = L"Width"sv;
+constexpr auto kKeyWindowHeight = L"Height"sv;
+constexpr auto kKeyWindowMaximized = L"Maximized"sv;
 
 // 組で意味を持つ値のセクション。Flush で 1 つでも変えていたらセクションごと書く。
 // キーごとに重ねると、別のプロセスの値と混ざる (bar.md に foo.md のスクロール位置が付くなど)。
-constexpr std::string_view kWholeSections[] = { kSectionSession, kSectionWindow };
+constexpr std::wstring_view kWholeSections[] = { kSectionSession, kSectionWindow };
+
+// 設定はレジストリに置き、終了時にトランザクション (RegCreateKeyTransactedW) でまとめて書く (ユーザーが選んだ)。
+// 読む側はコミット前の値を見ないので Session / Window の組が書きかけで混ざらず、ファイルの丸ごと置き換えに要った
+// 一時ファイル・FlushFileBuffers・読み書きを囲むプロセス間のロックも要らない。
+// 前の版の settings.ini は取り込まない。項目が少なく、ユーザーが設定し直せば足りる (ユーザーが選んだ)。
+constexpr auto kRegistryPath = L"Software\\tanaton\\mendo"sv;
+// スクリーンショットや計測で本人の設定を書き換えないための場所 (ユーザーが選んだ)。引数でなく環境変数で渡すのは、
+// Ctrl+N の新しいウィンドウ (CreateProcessW) にも環境ごと自動で引き継がれるため。本番のキーの下に置くと
+// セクションとして読まれるので、隣のキーにする。
+constexpr auto kTestRegistryParent = L"Software\\tanaton\\mendo-test\\"sv;
 } // namespace
 
-namespace {
-std::filesystem::path DefaultConfigDir()
+std::wstring DefaultRegistryPath()
 {
-    // SHGetKnownFolderPath は初回に windows.storage.dll のロード等で ms 単位かかるため、環境変数を優先する。
-    if (std::filesystem::path base = QueryPath([](wchar_t* b, UINT n) static { return GetEnvironmentVariableW(L"LOCALAPPDATA", b, n); });
-        base.is_absolute()) {
-        base /= L"mendo";
-        return base;
+    if (const std::wstring name = QueryPath([](wchar_t* b, UINT n) static { return GetEnvironmentVariableW(L"MENDO_SETTINGS_KEY", b, n); });
+        !name.empty()) {
+        return std::wstring(kTestRegistryParent) + name;
     }
-    // 失敗時も解放が必要なので RAII で受ける。
-    UniqueCoTaskMemStr appdata;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
-        return std::filesystem::path(appdata.get()) / L"mendo";
-    }
-    // 必ず絶対パスを返し、設定と図のキャッシュに「置き場所が無い」場合を持ち込まない
-    std::filesystem::path dir = QueryPath([](wchar_t* b, UINT n) static { return static_cast<UINT>(GetTempPathW(n, b)); });
-    // TMP / TEMP / USERPROFILE がすべて空だと GetTempPathW も絶対パスを返さない。書けなくても保存されないだけ。
-    if (!dir.is_absolute()) {
-        dir = QueryPath(GetWindowsDirectoryW);
-    }
-    return dir / L"mendo";
+    return std::wstring(kRegistryPath);
 }
-} // namespace
 
-ConfigService::ConfigService() : config_dir_(DefaultConfigDir())
+ConfigService::ConfigService(std::wstring registry_path) : registry_path_(std::move(registry_path))
 {
 }
 
-void ConfigService::SetConfigDir(const std::filesystem::path& dir)
+void ConfigService::SetFlushHookForTest(FlushHook hook)
 {
-    config_dir_ = dir;
-}
-
-std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) const
-{
-    return config_dir_ / filename;
+    flush_hook_ = std::move(hook);
 }
 
 namespace {
-// 無いファイルは空として返し、読めなかったときだけ nullopt を返す。読めなかったのを空と見なして書くと、他の値を消してしまう。
-std::optional<ini::IniData> ReadIniFile(const std::filesystem::path& path)
+// REG_DWORD と REG_SZ のほかの型 (regedit で書き換えたものなど) は読まない。
+std::optional<ConfigValue> ToConfigValue(DWORD type, const BYTE* data, DWORD size)
 {
-    DWORD error = ERROR_SUCCESS;
-    // 壊れた巨大ファイルで確保に失敗しないよう、上限は設定として十分な大きさに抑える。
-    constexpr LONGLONG kMaxSize = 1 << 20;
-    auto opened = OpenFileForReadShared(path.c_str(), FILE_SHARE_READ, kMaxSize, &error);
-    if (!opened) {
-        if (IsFileMissingError(error)) {
-            return ini::IniData{};
+    if (type == REG_DWORD && size == sizeof(uint32_t)) {
+        uint32_t value = 0;
+        std::memcpy(&value, data, sizeof(value));
+        return value;
+    }
+    if (type == REG_SZ) {
+        std::wstring value(size / sizeof(wchar_t), L'\0');
+        std::memcpy(value.data(), data, value.size() * sizeof(wchar_t));
+        // 終端の NUL は書いたプログラムしだいで有ったり無かったりする。
+        while (!value.empty() && value.back() == L'\0') {
+            value.pop_back();
         }
-        return std::nullopt;
+        return value;
     }
-    std::string buf(opened->size, '\0');
-    if (!ReadExact(opened->handle.get(), buf.data(), buf.size())) {
-        return std::nullopt;
-    }
-    std::string_view content = buf;
-    // 手編集ツールが付ける UTF-8 BOM を除去しないと先頭セクションが認識されない
-    if (content.starts_with(utf8_codec::kBom)) {
-        content.remove_prefix(utf8_codec::kBom.size());
-    }
-    return ini::Parse(content);
+    return std::nullopt;
 }
 
-// 前の版と同じミューテックスの名前になるよう "settings" のまま変えない。
-constexpr std::wstring_view kSettingsLockKind = L"settings";
+// 値を 1 つずつ読むと、間に別のプロセスのコミットが入って Session / Window の組が混ざるので、名前を列挙してから
+// RegQueryMultipleValuesW で 1 度に読む (資料が static key の値をまとめて読むと明記している)。列挙との間に値が
+// 消えたり大きくなったりしたら読み直す。
+ConfigSection ReadSection(HKEY key)
+{
+    constexpr int kReadAttempts = 3;
+    std::vector<BYTE> buf(1024);
+    for (int attempt = 0; attempt < kReadAttempts; ++attempt) {
+        DWORD count = 0;
+        DWORD max_name = 0;
+        if (RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &count, &max_name, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+            return {};
+        }
+        std::vector<std::wstring> names;
+        names.reserve(count);
+        std::wstring name(max_name + 1, L'\0');
+        for (DWORD i = 0; i < count; ++i) {
+            DWORD len = static_cast<DWORD>(name.size());
+            if (RegEnumValueW(key, i, name.data(), &len, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+                break;
+            }
+            names.emplace_back(name.data(), len);
+        }
+        if (names.empty()) {
+            return {};
+        }
+        std::vector<VALENTW> entries(names.size());
+        for (size_t i = 0; i < names.size(); ++i) {
+            entries[i].ve_valuename = names[i].data();
+        }
+        DWORD size = static_cast<DWORD>(buf.size());
+        const LSTATUS status = RegQueryMultipleValuesW(key, entries.data(), static_cast<DWORD>(entries.size()), reinterpret_cast<LPWSTR>(buf.data()), &size);
+        if (status == ERROR_MORE_DATA) {
+            buf.resize(size);
+            continue;
+        }
+        if (status == ERROR_FILE_NOT_FOUND) {
+            continue;
+        }
+        if (status != ERROR_SUCCESS) {
+            return {};
+        }
+        ConfigSection section;
+        for (size_t i = 0; i < names.size(); ++i) {
+            const VALENTW& e = entries[i];
+            if (auto value = ToConfigValue(e.ve_type, reinterpret_cast<const BYTE*>(e.ve_valueptr), e.ve_valuelen)) {
+                section.emplace(std::move(names[i]), std::move(*value));
+            }
+        }
+        return section;
+    }
+    return {};
+}
+
+ConfigData ReadTree(HKEY root)
+{
+    ConfigData data;
+    // キーの名前は 255 文字まで。
+    wchar_t name[256];
+    for (DWORD i = 0;; ++i) {
+        DWORD len = static_cast<DWORD>(std::size(name));
+        if (RegEnumKeyExW(root, i, name, &len, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+            break;
+        }
+        UniqueRegKey section;
+        if (RegOpenKeyExW(root, name, 0, KEY_QUERY_VALUE, section.put()) != ERROR_SUCCESS) {
+            continue;
+        }
+        if (ConfigSection values = ReadSection(section.get()); !values.empty()) {
+            data.emplace(std::wstring(name, len), std::move(values));
+        }
+    }
+    return data;
+}
+
+struct SectionWrite {
+    std::wstring path;
+    // data_ の中の名前と値。
+    std::vector<const ConfigSection::value_type*> values;
+};
+
+LSTATUS SetValue(HKEY key, const ConfigSection::value_type& entry)
+{
+    const wchar_t* name = entry.first.c_str();
+    return std::visit(overloaded{
+                          [&](uint32_t n) {
+        return RegSetValueExW(key, name, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&n), sizeof(n));
+    },
+                          [&](const std::wstring& s) {
+        const auto bytes = static_cast<DWORD>((s.size() + 1) * sizeof(wchar_t));
+        return RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(s.c_str()), bytes);
+    },
+                      },
+                      entry.second);
+}
+
+using FlushHook = ConfigService::FlushHook;
+using FlushStep = ConfigService::FlushStep;
+
+LSTATUS RunHook(const FlushHook& hook, FlushStep step)
+{
+    return hook ? hook(step) : ERROR_SUCCESS;
+}
+
+// tx が無ければトランザクション無しで書く。コミットはしない。
+// トランザクションはどうせ巻き戻すので最初の失敗で止め、トランザクション無しならほかのセクションは書く。
+LSTATUS WriteSections(HANDLE tx, std::span<const SectionWrite> writes, const FlushHook& hook)
+{
+    LSTATUS result = ERROR_SUCCESS;
+    for (const auto& w : writes) {
+        UniqueRegKey key;
+        LSTATUS status = RunHook(hook, tx ? FlushStep::TransactedKey : FlushStep::DirectKey);
+        if (status == ERROR_SUCCESS) {
+            status = tx ? RegCreateKeyTransactedW(HKEY_CURRENT_USER, w.path.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr,
+                                                  key.put(), nullptr, tx, nullptr)
+                        : RegCreateKeyExW(HKEY_CURRENT_USER, w.path.c_str(), 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, key.put(), nullptr);
+        }
+        for (size_t i = 0; status == ERROR_SUCCESS && i < w.values.size(); ++i) {
+            status = SetValue(key.get(), *w.values[i]);
+        }
+        if (status != ERROR_SUCCESS) {
+            if (tx) {
+                return status;
+            }
+            result = status;
+        }
+    }
+    return result;
+}
+
+LSTATUS WriteTransacted(std::span<const SectionWrite> writes, const FlushHook& hook)
+{
+    const UniqueHandle tx(CreateTransaction(nullptr, nullptr, 0, 0, 0, 0, nullptr));
+    if (!tx) {
+        return static_cast<LSTATUS>(GetLastError());
+    }
+    LSTATUS status = WriteSections(tx.get(), writes, hook);
+    if (status == ERROR_SUCCESS) {
+        status = RunHook(hook, FlushStep::Commit);
+    }
+    if (status != ERROR_SUCCESS) {
+        RollbackTransaction(tx.get());
+        return status;
+    }
+    return CommitTransaction(tx.get()) ? ERROR_SUCCESS : static_cast<LSTATUS>(GetLastError());
+}
+
+bool WriteValues(std::span<const SectionWrite> writes, const FlushHook& hook)
+{
+    // 相手のトランザクションは値を十数個書くだけですぐ終わるので、短い間隔で数回書き直せば足りる。
+    constexpr int kTransactedAttempts = 4;
+    constexpr DWORD kRetryDelayMs = 10;
+    for (int attempt = 0; attempt < kTransactedAttempts; ++attempt) {
+        if (attempt > 0) {
+            Sleep(kRetryDelayMs);
+        }
+        const LSTATUS status = WriteTransacted(writes, hook);
+        if (status == ERROR_SUCCESS) {
+            return true;
+        }
+        // 別の mendo が同じキーを書いている最中 (ERROR_TRANSACTIONAL_CONFLICT) か、書いている間に regedit などが
+        // トランザクション無しで書いて中止された (ERROR_TRANSACTION_ALREADY_ABORTED)。ほかの失敗は書き直しても変わらない。
+        if (status != ERROR_TRANSACTIONAL_CONFLICT && status != ERROR_TRANSACTION_ALREADY_ABORTED) {
+            break;
+        }
+    }
+    // トランザクションが使えない (FSLogix のプロファイルで ERROR_RM_NOT_ACTIVE になった報告がある) か、衝突が続いた。
+    // トランザクション無しで書く。まれに Session / Window が別のプロセスの値と混ざるのは受け入れる。
+    return WriteSections(nullptr, writes, hook) == ERROR_SUCCESS;
+}
 } // namespace
 
 void ConfigService::Load()
 {
-    const auto ini_path = GetConfigPath(kSettingsFile);
-    const InterProcessFileLock lock(kSettingsLockKind, ini_path);
-    if (auto data = ReadIniFile(ini_path)) {
-        data_ = std::move(*data);
-    }
+    data_.clear();
     changed_.clear();
-}
-
-void ConfigService::OverlayChanges(ini::IniData& target) const
-{
-    for (const auto& [section, keys] : changed_) {
-        const auto& mine = data_.find(section)->second;
-        auto& dst = target[section];
-        if (std::ranges::contains(kWholeSections, section)) {
-            // 他のバージョンが足したキーを消さないよう、置き換えずに重ねる。
-            for (const auto& [key, value] : mine) {
-                dst[key] = value;
-            }
-        }
-        else {
-            for (const auto& key : keys) {
-                dst[key] = mine.find(key)->second;
-            }
-        }
+    UniqueRegKey root;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, registry_path_.c_str(), 0, KEY_READ, root.put()) == ERROR_SUCCESS) {
+        data_ = ReadTree(root.get());
     }
 }
 
@@ -244,25 +280,24 @@ void ConfigService::Flush()
     if (changed_.empty()) {
         return;
     }
-    const auto ini_path = GetConfigPath(kSettingsFile);
-    std::error_code ec;
-    std::filesystem::create_directories(ini_path.parent_path(), ec);
-    if (ec) {
-        return;
+    std::vector<SectionWrite> writes;
+    writes.reserve(changed_.size());
+    for (const auto& [section, keys] : changed_) {
+        const bool whole = std::ranges::contains(kWholeSections, section);
+        SectionWrite& w = writes.emplace_back();
+        w.path = registry_path_ + L'\\' + section;
+        for (const auto& entry : data_.find(section)->second) {
+            if (whole || keys.contains(entry.first)) {
+                w.values.push_back(&entry);
+            }
+        }
     }
-
-    const InterProcessFileLock lock(kSettingsLockKind, ini_path);
-    // 他のウィンドウが先に閉じて書いた値を、起動時に読んだ古い値で戻さない。読めなければ従来どおり丸ごと書く。
-    auto merged = ReadIniFile(ini_path).value_or(data_);
-    OverlayChanges(merged);
-    const std::string content = ini::Serialize(merged);
-    if (AtomicWriteAllBytes(ini_path, content.data(), content.size())) {
-        data_ = std::move(merged);
+    if (WriteValues(writes, flush_hook_)) {
         changed_.clear();
     }
 }
 
-const std::string* ConfigService::FindValue(std::string_view section, std::string_view key) const
+const ConfigValue* ConfigService::FindValue(std::wstring_view section, std::wstring_view key) const
 {
     const auto sit = data_.find(section);
     if (sit == data_.end()) {
@@ -275,71 +310,67 @@ const std::string* ConfigService::FindValue(std::string_view section, std::strin
     return &kit->second;
 }
 
-void ConfigService::StoreValue(std::string_view section, std::string_view key, std::string value)
+void ConfigService::StoreValue(std::wstring_view section, std::wstring_view key, ConfigValue value)
 {
     if (const auto* current = FindValue(section, key); current && *current == value) {
         return;
     }
-    data_[std::string(section)][std::string(key)] = std::move(value);
+    data_[std::wstring(section)][std::wstring(key)] = std::move(value);
     // 終了時は変えていない値も Save を呼ぶので、値が変わったときだけ記録する。
-    changed_[std::string(section)].emplace(key);
+    changed_[std::wstring(section)].emplace(key);
 }
 
-void ConfigService::SaveBool(std::string_view section, std::string_view key, bool value)
+void ConfigService::SaveBool(std::wstring_view section, std::wstring_view key, bool value)
 {
-    StoreValue(section, key, value ? "1" : "0");
+    StoreValue(section, key, uint32_t{ value ? 1u : 0u });
 }
 
-bool ConfigService::LoadBool(std::string_view section, std::string_view key, bool default_value) const
+bool ConfigService::LoadBool(std::wstring_view section, std::wstring_view key, bool default_value) const
 {
-    const auto* val = FindValue(section, key);
-    return val ? (*val == "1") : default_value;
+    const auto* val = std::get_if<uint32_t>(FindValue(section, key));
+    return val ? (*val != 0) : default_value;
 }
 
-void ConfigService::SaveInt(std::string_view section, std::string_view key, int value)
+void ConfigService::SaveInt(std::wstring_view section, std::wstring_view key, int value)
 {
-    StoreValue(section, key, std::to_string(value));
+    // 負の値は 2 の補数のまま REG_DWORD に入れる。
+    StoreValue(section, key, static_cast<uint32_t>(value));
 }
 
-int ConfigService::LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const
+int ConfigService::LoadInt(std::wstring_view section, std::wstring_view key, int def, int min_v, int max_v) const
 {
-    const auto* val = FindValue(section, key);
+    const auto* val = std::get_if<uint32_t>(FindValue(section, key));
     if (!val) {
         return def;
     }
-    int result = def;
-    const auto [ptr, ec] = std::from_chars(val->data(), val->data() + val->size(), result);
-    // 末尾にゴミが残る部分パース ("300px" 等) は不正値として既定値へ倒す。
-    if (ec != std::errc{} || ptr != val->data() + val->size()) {
-        return def;
-    }
+    const int result = static_cast<int>(*val);
     if (result < min_v || result > max_v) {
         return def;
     }
     return result;
 }
 
-ZoomLevel ConfigService::LoadZoomLevel(std::string_view section, std::string_view key) const
+ZoomLevel ConfigService::LoadZoomLevel(std::wstring_view section, std::wstring_view key) const
 {
     ZoomLevel zoom;
     zoom.SetIndex(LoadInt(section, key, ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1));
     return zoom;
 }
 
-void ConfigService::SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom)
+void ConfigService::SaveZoomLevel(std::wstring_view section, std::wstring_view key, ZoomLevel zoom)
 {
     SaveInt(section, key, zoom.Index());
 }
 
-void ConfigService::SaveWString(std::string_view section, std::string_view key, std::wstring_view value)
+void ConfigService::SaveWString(std::wstring_view section, std::wstring_view key, std::wstring_view value)
 {
-    StoreValue(section, key, string_convert::WideToUtf8(value));
+    StoreValue(section, key, std::wstring(value));
 }
 
-std::wstring ConfigService::LoadWString(std::string_view section, std::string_view key) const
+std::wstring ConfigService::LoadWString(std::wstring_view section, std::wstring_view key) const
 {
-    const auto* val = FindValue(section, key);
-    return val ? string_convert::Utf8ToWide(*val) : std::wstring{};
+    const auto* val = std::get_if<std::wstring>(FindValue(section, key));
+    return val ? *val : std::wstring{};
 }
 
 void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
@@ -372,9 +403,9 @@ std::wstring session::LoadLastFilePath(const ConfigService& config)
 namespace {
 struct PaneKeys {
     PaneTarget target;
-    std::string_view show;
-    std::string_view width;
-    std::string_view zoom;
+    std::wstring_view show;
+    std::wstring_view width;
+    std::wstring_view zoom;
 };
 constexpr PaneKeys kPaneKeys[] = {
     { PaneTarget::File, kKeyShowFile, kKeyFileWidth, kKeyFileZoomLevel },
@@ -397,7 +428,7 @@ void session::LoadPanes(const ConfigService& config, PaneController& panes)
     constexpr int min_int = static_cast<int>(SIDE_PANE_MIN_WIDTH);
     // 過剰幅の表示制限は PaneController::ComputeLayout 側 (side 幅を表示時に clamp して MD ペインとスプリッタを
     // 画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。ウィンドウ幅で上限 clamp すると
-    // 狭いウィンドウ起動時に保存値が min へ潰れ、終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
+    // 狭いウィンドウ起動時に保存値が min へ潰れ、終了時の再保存で恒久喪失するため。壊れた値に備えて実用上限のみ設ける。
     constexpr int kPaneWidthLoadMax = 10000;
     for (const auto& k : kPaneKeys) {
         panes.SetSidePaneVisible(k.target, config.LoadBool(kSectionPane, k.show, true));

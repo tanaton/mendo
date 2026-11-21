@@ -1,57 +1,64 @@
 #pragma once
 #include "ui_types.h"
-#include <filesystem>
+#include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
 #include <string_view>
+#include <variant>
 
-namespace ini {
+// レジストリの REG_DWORD は uint32_t、REG_SZ は std::wstring で持つ。セクション (キー) と値の名前も API に合わせて UTF-16。
+using ConfigValue = std::variant<uint32_t, std::wstring>;
+using ConfigSection = std::map<std::wstring, ConfigValue, std::less<>>;
+using ConfigData = std::map<std::wstring, ConfigSection, std::less<>>;
 
-using IniData = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
+// 設定を置く HKCU の下のキー (Software\tanaton\mendo)。環境変数 MENDO_SETTINGS_KEY があれば、
+// その名前でテスト用の場所 (Software\tanaton\mendo-test\<名前>) にする。
+std::wstring DefaultRegistryPath();
 
-// セクション外のキーは空文字列セクションに格納。
-IniData Parse(std::string_view text);
-std::string Serialize(const IniData& data);
-
-} // namespace ini
-
-// 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
+// 設定 (セクションごとのキー) のメモリ上マップとレジストリへの永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {
 public:
-    ConfigService();
-
-    void SetConfigDir(const std::filesystem::path& dir);
-    // filename は固定の名前だけを渡す (検証しない)。
-    std::filesystem::path GetConfigPath(std::wstring_view filename) const;
+    // registry_path は HKCU の下のキー。テストは本人の設定と別の場所を渡す。
+    explicit ConfigService(std::wstring registry_path = DefaultRegistryPath());
 
     void Load();
     // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。値が変わっていなければ書かない。
-    // 書く直前に読み直し、このインスタンスで変えた値だけを重ねる。
     void Flush();
 
-    void SaveBool(std::string_view section, std::string_view key, bool value);
-    bool LoadBool(std::string_view section, std::string_view key, bool default_value) const;
+    void SaveBool(std::wstring_view section, std::wstring_view key, bool value);
+    bool LoadBool(std::wstring_view section, std::wstring_view key, bool default_value) const;
 
-    void SaveInt(std::string_view section, std::string_view key, int value);
-    int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    void SaveInt(std::wstring_view section, std::wstring_view key, int value);
+    int LoadInt(std::wstring_view section, std::wstring_view key, int def, int min_v, int max_v) const;
     // 無い・不正・範囲外なら等倍。
-    ZoomLevel LoadZoomLevel(std::string_view section, std::string_view key) const;
-    void SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom);
+    ZoomLevel LoadZoomLevel(std::wstring_view section, std::wstring_view key) const;
+    void SaveZoomLevel(std::wstring_view section, std::wstring_view key, ZoomLevel zoom);
 
-    void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::wstring LoadWString(std::string_view section, std::string_view key) const;
+    void SaveWString(std::wstring_view section, std::wstring_view key, std::wstring_view value);
+    std::wstring LoadWString(std::wstring_view section, std::wstring_view key) const;
+
+    // Flush の途中で OS の関数の前に呼ばれ、0 以外を返すとその関数がその値で失敗したことにする。
+    // テストが失敗の経路を起こすためにある。
+    enum class FlushStep {
+        TransactedKey,
+        Commit,
+        DirectKey
+    };
+    using FlushHook = std::function<long(FlushStep step)>;
+    void SetFlushHookForTest(FlushHook hook);
 
 private:
-    [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
-    void StoreValue(std::string_view section, std::string_view key, std::string value);
-    void OverlayChanges(ini::IniData& target) const;
+    [[nodiscard]] const ConfigValue* FindValue(std::wstring_view section, std::wstring_view key) const;
+    void StoreValue(std::wstring_view section, std::wstring_view key, ConfigValue value);
 
-    std::filesystem::path config_dir_;
-    ini::IniData data_;
+    std::wstring registry_path_;
+    ConfigData data_;
     // Load (または Flush) の後に値を変えたキー。
-    std::map<std::string, std::set<std::string>> changed_;
+    std::map<std::wstring, std::set<std::wstring>> changed_;
+    FlushHook flush_hook_;
 };
 
 class PaneController;

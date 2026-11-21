@@ -19,18 +19,6 @@ protected:
         const auto buf = ReadAllBytes(path.c_str());
         return { reinterpret_cast<const char*>(buf.data()), buf.size() };
     }
-
-    static bool Write(const fs::path& path, std::string_view payload)
-    {
-        return WriteAllBytes(path, payload.data(), payload.size());
-    }
-
-    // AtomicWriteAllBytes が使う一時ファイル。
-    static fs::path TmpOf(fs::path path)
-    {
-        path += L".tmp";
-        return path;
-    }
 };
 
 TEST(IsLocalPathTest, RejectsNetworkAndDevicePaths)
@@ -150,25 +138,17 @@ TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
     }
 }
 
-TEST_F(FileIoTest, RoundTripBinary)
+TEST_F(FileIoTest, ReadAllBytesReturnsBinaryAsIs)
 {
     const auto path = temp_dir_ / L"binary.bin";
     std::vector<uint8_t> payload(256);
     std::ranges::iota(payload, uint8_t{ 0 });
 
-    ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
+    ASSERT_TRUE(WriteBinaryFile(path, payload.data(), payload.size()));
 
     const auto buf = ReadAllBytes(path.c_str());
     ASSERT_EQ(buf.size(), payload.size());
     EXPECT_TRUE(std::ranges::equal(buf, payload));
-}
-
-TEST_F(FileIoTest, WriteOverwritesExistingFile)
-{
-    const auto path = temp_dir_ / L"overwrite.bin";
-    ASSERT_TRUE(Write(path, "first-content-longer"));
-    ASSERT_TRUE(Write(path, "short"));
-    EXPECT_EQ(ReadAsString(path), "short");
 }
 
 TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
@@ -177,25 +157,6 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
     EXPECT_TRUE(ReadAllBytes(path.c_str()).empty());
     // 空ファイルは失敗と同じく空を返す。
     EXPECT_TRUE(ReadAllBytes(WriteTempFile(L"empty.bin").c_str()).empty());
-}
-
-// 開けなければ err に理由を入れ、開けたら 0 に戻す契約。
-TEST_F(FileIoTest, OpenFileForReadSharedReportsErrorAndResetsOnSuccess)
-{
-    const auto missing = temp_dir_ / L"does_not_exist.bin";
-    DWORD err = 0xDEADBEEF;
-    EXPECT_FALSE(OpenFileForReadShared(missing.c_str(), FILE_SHARE_READ, 1024, &err));
-    EXPECT_EQ(err, static_cast<DWORD>(ERROR_FILE_NOT_FOUND));
-
-    const auto one = WriteTempFile(L"reset.bin", "x");
-    err = 0xDEADBEEF;
-    EXPECT_TRUE(OpenFileForReadShared(one.c_str(), FILE_SHARE_READ, 1024, &err));
-    EXPECT_EQ(err, 0u);
-}
-
-TEST_F(FileIoTest, WriteToInvalidPathFails)
-{
-    EXPECT_FALSE(Write(temp_dir_ / L"no_such_dir" / L"file.bin", "data"));
 }
 
 // ═══════════════════════════════════════════════
@@ -233,39 +194,10 @@ TEST_F(FileIoTest, IsFileLargerThan_MissingFile_ReturnsFalse)
     EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
-// ═══════════════════════════════════════════════
-// AtomicWriteAllBytes: tmp → MoveFileExW(REPLACE_EXISTING) 経路
-// ═══════════════════════════════════════════════
-
-// 新しく作るときも上書きするとき (0 バイトも) も中身を書き、tmp は MoveFileExW で消費されて残らない。
-TEST_F(FileIoTest, AtomicWrite_CreatesAndOverwritesFile)
-{
-    const auto path = temp_dir_ / L"atomic.bin";
-    for (const std::string_view payload : { "first-content-longer-than-second", "short", "" }) {
-        SCOPED_TRACE(payload);
-        ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
-        EXPECT_TRUE(fs::exists(path));
-        EXPECT_EQ(ReadAsString(path), payload);
-        EXPECT_FALSE(fs::exists(TmpOf(path)));
-    }
-}
-
-TEST_F(FileIoTest, AtomicWrite_ToInvalidPath_FailsAndLeavesNoTmp)
-{
-    // 親ディレクトリが存在しないので tmp 書き込みが失敗し、path も tmp も生成されない。
-    const auto path = temp_dir_ / L"no_such_dir" / L"atomic.bin";
-    const std::string_view payload = "data";
-
-    EXPECT_FALSE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
-    EXPECT_FALSE(fs::exists(path));
-    EXPECT_FALSE(fs::exists(TmpOf(path)));
-}
-
 // 共有を許さずに開かれているファイルは、無いファイルと分けて Locked にする (読み直しで待つ)。
 TEST_F(FileIoTest, OpenFileForReadShared_ReportsLockedWhileOpenedExclusively)
 {
-    const auto path = temp_dir_ / L"locked.md";
-    ASSERT_TRUE(Write(path, "body"));
+    const auto path = WriteTempFile(L"locked.md", "body");
     {
         UniqueHandle exclusive(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
         ASSERT_TRUE(exclusive);
@@ -283,20 +215,16 @@ TEST_F(FileIoTest, OpenFileForReadShared_ReportsLockedWhileOpenedExclusively)
 TEST_F(FileIoTest, AtomicWriteUserFile_LeavesUnrelatedFilesAlone)
 {
     const auto path = temp_dir_ / L"diagram.png";
-    const auto first_tmp = [&] {
-        auto p = path;
-        p += std::format(L".{}-0.tmp", GetCurrentProcessId());
-        return p;
-    }();
-    ASSERT_TRUE(Write(TmpOf(path), "user-file"));
-    ASSERT_TRUE(Write(first_tmp, "user-file-2"));
+    // 一時ファイルによくある名前と、自分が最初に作る一時ファイルの名前。
+    const auto user_tmp = WriteTempFile(L"diagram.png.tmp", "user-file");
+    const auto first_tmp = WriteTempFile(std::format(L"diagram.png.{}-0.tmp", GetCurrentProcessId()), "user-file-2");
 
     for (const std::string_view payload : { "first-content", "second", "" }) {
         SCOPED_TRACE(payload);
         ASSERT_TRUE(AtomicWriteUserFile(path, payload.data(), payload.size()));
         EXPECT_EQ(ReadAsString(path), payload);
     }
-    EXPECT_EQ(ReadAsString(TmpOf(path)), "user-file");
+    EXPECT_EQ(ReadAsString(user_tmp), "user-file");
     EXPECT_EQ(ReadAsString(first_tmp), "user-file-2");
     // 消費された一時ファイル以外は残らない。
     EXPECT_EQ(std::distance(fs::directory_iterator(temp_dir_), fs::directory_iterator{}), 3);
@@ -307,19 +235,6 @@ TEST_F(FileIoTest, AtomicWriteUserFile_ToInvalidPath_Fails)
     const auto path = temp_dir_ / L"no_such_dir" / L"diagram.png";
     EXPECT_FALSE(AtomicWriteUserFile(path, "data", 4));
     EXPECT_FALSE(fs::exists(path));
-}
-
-TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
-{
-    // 既存の `<path>.tmp` が残っていても、AtomicWriteAllBytes は上書きで作り直して MoveFileExW で消費するので残らない。
-    const auto path = temp_dir_ / L"atomic_stale_tmp.bin";
-    const std::string_view payload = "fresh-payload";
-    ASSERT_TRUE(Write(TmpOf(path), "stale-tmp-leftover"));
-
-    ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
-
-    EXPECT_EQ(ReadAsString(path), payload);
-    EXPECT_FALSE(fs::exists(TmpOf(path)));
 }
 
 // ---- path_util::TrimTrailingSeparators ----
