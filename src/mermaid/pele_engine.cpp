@@ -47,17 +47,19 @@ constexpr size_t kJsMemoryBytes = 256 * 1024 * 1024;
 // (16 バイトで境界を保つ)。
 constexpr size_t kJsHeapHeader = 16;
 
-void* JsHeapAlloc(void* heap, size_t size, DWORD flags) noexcept
+// HeapAlloc / HeapReAlloc の結果 base の頭に大きさを書き、使う側の先頭を返す。base が null なら null。
+void* StampJsHeapSize(void* base, size_t size) noexcept
 {
-    if (size > SIZE_MAX - kJsHeapHeader) {
-        return nullptr;
-    }
-    auto* const base = static_cast<std::byte*>(HeapAlloc(heap, flags, size + kJsHeapHeader));
     if (!base) {
         return nullptr;
     }
-    *reinterpret_cast<size_t*>(base) = size;
-    return base + kJsHeapHeader;
+    *static_cast<size_t*>(base) = size;
+    return static_cast<std::byte*>(base) + kJsHeapHeader;
+}
+
+void* JsHeapAlloc(void* heap, size_t size, DWORD flags) noexcept
+{
+    return size > SIZE_MAX - kJsHeapHeader ? nullptr : StampJsHeapSize(HeapAlloc(heap, flags, size + kJsHeapHeader), size);
 }
 
 std::byte* JsHeapBase(void* ptr) noexcept
@@ -90,15 +92,7 @@ void* JsRealloc(void* heap, void* ptr, size_t size) noexcept
     if (!ptr) {
         return JsMalloc(heap, size);
     }
-    if (size > SIZE_MAX - kJsHeapHeader) {
-        return nullptr;
-    }
-    auto* const base = static_cast<std::byte*>(HeapReAlloc(heap, 0, JsHeapBase(ptr), size + kJsHeapHeader));
-    if (!base) {
-        return nullptr;
-    }
-    *reinterpret_cast<size_t*>(base) = size;
-    return base + kJsHeapHeader;
+    return size > SIZE_MAX - kJsHeapHeader ? nullptr : StampJsHeapSize(HeapReAlloc(heap, 0, JsHeapBase(ptr), size + kJsHeapHeader), size);
 }
 
 size_t JsUsableSize(const void* ptr) noexcept
@@ -151,11 +145,6 @@ std::wstring ErrorText(JSContext* ctx, JSValueConst error)
 }
 
 } // namespace
-
-struct PeleSvg {
-    std::string svg;
-    std::vector<PeleMathLabel> labels;
-};
 
 struct PeleContext {
     PeleEngine* engine = nullptr;
@@ -577,17 +566,19 @@ PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width
         out = std::move(svg.error());
     }
     else {
-        auto drawing = DrawingFromPeleSvg(svg->svg, dark, *context->measurer, svg->labels);
+        auto drawing = DrawingFromPeleSvg(*svg, dark, *context->measurer, context->labels);
         out.status = drawing ? Status::Drawn : Status::Unsupported;
         if (drawing) {
             out.drawing = std::move(*drawing);
         }
     }
+    // 使い回すランタイムには、次の図のために空にして返す。
+    context->labels.clear();
     Release(std::move(context));
     return out;
 }
 
-std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale)
+std::expected<std::string, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
     if (!EnsurePele(context)) {
@@ -609,7 +600,7 @@ std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, 
     for (JSValue& arg : args) {
         JS_FreeValue(ctx, arg);
     }
-    std::expected<PeleSvg, PeleOutcome> out = std::unexpected(PeleOutcome{});
+    std::expected<std::string, PeleOutcome> out = std::unexpected(PeleOutcome{});
     if (JS_IsException(svg)) {
         JSValue error = JS_GetException(ctx);
         // 止めた図はコードの誤りではないので、エラーとして確定させない。
@@ -624,15 +615,10 @@ std::expected<PeleSvg, PeleOutcome> PeleEngine::RenderSvg(PeleContext& context, 
     else {
         size_t length = 0;
         if (const char* s = JS_ToCStringLen(ctx, &length, svg)) {
-            out = PeleSvg{
-                .svg = std::string{ s, length },
-                .labels = std::move(context.labels)
-            };
+            out = std::string{ s, length };
             JS_FreeCString(ctx, s);
         }
         JS_FreeValue(ctx, svg);
     }
-    // 使い回すランタイムには、次の図のために空にして返す。
-    context.labels.clear();
     return out;
 }

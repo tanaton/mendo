@@ -106,12 +106,6 @@ public:
     {
     }
 
-    // layout->Draw の後で呼び、貯めたランと線を描く。
-    void Flush()
-    {
-        batch_.Flush(rt_);
-    }
-
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(
         void*, FLOAT x, FLOAT y, DWRITE_MEASURING_MODE mode,
         const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc, IUnknown* effect) noexcept override
@@ -525,7 +519,8 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
                 thread_local GlyphRunBatch batch;
                 VisibleRunRenderer renderer{ rt, b, c, brushes, inline_drawings, math_masks, batch };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
-                renderer.Flush();
+                // Draw の間に貯めたランと線を描く。
+                batch.Flush(rt);
             }
         },
         [&](const DrawBitmapCmd& c) {

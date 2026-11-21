@@ -84,6 +84,10 @@ struct StringTransparentHash {
     {
         return RapidHash(sv);
     }
+    static size_t operator()(std::wstring_view sv) noexcept
+    {
+        return RapidHash(sv);
+    }
 };
 
 // ハッシュ値をキーにする開番地法の表。要素を 1 本の配列に並べ、unordered_map のように要素ごとに確保しない。

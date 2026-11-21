@@ -200,7 +200,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             cache.NoteMaterialized(i, i + 1);
             const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, range.ToLocal(entry_top));
             result.updated |= restored.restored;
-            if (restored.height) {
+            if (restored.height_changed) {
                 height_changed = true;
                 last_measured = i;
             }
@@ -370,15 +370,16 @@ LayoutService::PlacedTables LayoutService::PlaceMeasuredTables(const Document& d
             entry.pending_inline = r.built.pending_inline || stale;
             placed.stale_inline |= stale;
             const bool current_width = r.built.table->GeometryValidAt(node_width);
+            const float height = r.built.table->TotalHeight();
             entry.set_table_layout(std::move(r.built.table));
             cache.NoteMaterialized(r.node, r.node + 1);
             if (current_width) {
                 // 推定の高さのまま表の中を見ていたら、表の中の同じ割合の位置を見せる。推定は折り返しを少なく見積もるので、
                 // ピクセルの位置を保つと別の行へずれる (リロードの差分の位置 CalcScrollYForDiff も、表の中は割合で決めている)。
                 if (const ScrollTarget target = viewport_.GetScrollTarget(); target.node == static_cast<int>(r.node) && entry.height > 0.0f) {
-                    viewport_.SetScrollTarget(target.node, target.offset * r.built.height / entry.height);
+                    viewport_.SetScrollTarget(target.node, target.offset * height / entry.height);
                 }
-                entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), r.built.height);
+                entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), height);
                 committed.Add(r.node);
             }
             else {

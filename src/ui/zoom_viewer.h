@@ -265,10 +265,17 @@ public:
     ZoomViewer(const ZoomViewer&) = delete;
     ZoomViewer& operator=(const ZoomViewer&) = delete;
 
-    // 読み終えた画像は hwnd へ image_msg を投げて知らせ、OnImageDecoded で受け取る。on_update は待っている図を頼み直させる
-    // (本文の図と同じ回の中で RequestDiagram を呼ばせる)。on_failed は開けなかったことを文言で知らせる。
-    void Init(HWND hwnd, UINT image_msg, IDWriteFactory* dw, IWICImagingFactory* wic, TaskScheduler& scheduler, WindowFactory open_window,
-              std::move_only_function<void()> on_update, std::move_only_function<void(std::wstring_view)> on_failed);
+    // App に頼むこと。窓に投げるメッセージの番号は App が決め、ここでは知らない。どれも空にしない。
+    struct Hooks {
+        // 待っている図を頼み直させる (本文の図と同じ回の中で RequestDiagram を呼ばせる)。UI スレッドで呼ぶ。
+        std::move_only_function<void()> on_update;
+        // 読み終えた画像が溜まり始めたときに worker で呼ぶ。UI スレッドに OnImageDecoded を呼ばせるだけにする。
+        std::move_only_function<void()> wake;
+        // 開けなかったことを文言で知らせる。UI スレッドで呼ぶ。
+        std::move_only_function<void(std::wstring_view)> on_failed;
+    };
+    // hwnd は本体の窓で、開く窓の持ち主にする。
+    void Init(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic, TaskScheduler& scheduler, WindowFactory open_window, Hooks hooks);
     // 本体の描画先とそのデバイス。窓はこのデバイスで描き、画像のビットマップは rt で作る。作り直しの再試行中は null。
     void SetRenderTarget(ID2D1RenderTarget* rt, ID3D11Device* d3d, ID2D1Device* device);
     // 窓を閉じ、読んでいる画像を待つ。終了前に呼ぶ。
@@ -300,7 +307,7 @@ public:
     // テーマで呼ぶ (頼んでよいかの判断と、本文と同じ要求になる幅を 1 か所で決める)。
     void RequestDiagram(MermaidRenderer& mermaid, float max_width, bool dark_mode);
 
-    // image_msg を受けた。
+    // Hooks::wake で頼まれた。
     void OnImageDecoded();
     // 本文中の画像のファイルが更新された。開いている画像なら、位置と倍率を保って読み直す (読めなければ前の絵を残す)。
     void OnImageFilesChanged(std::span<const std::wstring> paths);
@@ -335,20 +342,18 @@ private:
     // 結果が使えなかった。出ている絵があれば残し (書き換えの途中で読んだ・描けなかったことが多い)、無ければ閉じて知らせる。
     void FailIfEmpty();
     std::wstring Title() const;
-    // 図の結果を待つ印を付け、on_update で頼ませる (印だけだと窓が読み込み中のまま残る)。
+    // 図の結果を待つ印を付け、Hooks::on_update で頼ませる (印だけだと窓が読み込み中のまま残る)。
     void AwaitDiagram();
     void StartDecode();
     // 読み終えた画像を GPU に載せて窓に渡す。描画先が無ければ捨てる (戻ったときに SetRenderTarget が読み直す)。
     void Upload(FullSizeImage image);
 
     HWND hwnd_ = nullptr;
-    UINT image_msg_ = 0;
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_;
     TaskScheduler* scheduler_ = nullptr;
     WindowFactory open_window_ = nullptr;
-    std::move_only_function<void()> on_update_;
-    std::move_only_function<void(std::wstring_view)> on_failed_;
+    Hooks hooks_;
 
     ID2D1RenderTarget* rt_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_;

@@ -716,7 +716,7 @@ void DWriteTextMeasurer::MeasureTableCells(const Node& node, TableLayoutData& tl
     tl.MarkAllRowsEvicted();
 }
 
-float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const
+void DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData& tl, float max_width, bool& pending_inline) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const auto& tbl = *node.table_data();
@@ -726,7 +726,7 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
     // 収まる表と最小幅でも収まらない表は、どの幅でも自然幅か最小幅を写すだけなので、ここを通る。
     if (tl.HasGeometry() && !layout::TableColumnWidthsChange(tl, max_width)) {
         tl.last_applied_max_width = max_width;
-        return tl.TotalHeight();
+        return;
     }
     layout::ComputeTableColumnWidths(tl, max_width);
 
@@ -761,7 +761,6 @@ float DWriteTextMeasurer::FinalizeTableLayout(const Node& node, TableLayoutData&
 
     // evict 行が残っていても確定させる (dirty に残さない)
     tl.CommitGeometry(max_width);
-    return tl.TotalHeight();
 }
 
 TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node, NodeLayoutEntry& entry, YRange viewport) const
@@ -807,7 +806,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
 
     if (first_changed_row < row_count) {
         tl.RebuildRowCumY(first_changed_row);
-        result.height = tl.TotalHeight();
+        result.height_changed = true;
     }
     return result;
 }
@@ -817,13 +816,16 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     MENDO_PROFILE("MeasureTable");
     // table_layout があれば全セルを測り終えている
     if (auto* tl = entry.table_layout()) {
-        return tl->GeometryValidAt(max_width) ? tl->TotalHeight() : FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
+        if (!tl->GeometryValidAt(max_width)) {
+            FinalizeTableLayout(node, *tl, max_width, entry.pending_inline);
+        }
+        return tl->TotalHeight();
     }
 
     BuiltTable built = BuildTable(node, max_width, {});
     entry.pending_inline = built.pending_inline;
     entry.set_table_layout(std::move(built.table));
-    return built.height;
+    return entry.table_layout()->TotalHeight();
 }
 
 BuiltTable DWriteTextMeasurer::BuildTable(const Node& node, float max_width, std::stop_token stop) const
@@ -850,6 +852,6 @@ BuiltTable DWriteTextMeasurer::BuildTable(const Node& node, float max_width, std
     if (stop.stop_requested()) {
         return {};
     }
-    built.height = FinalizeTableLayout(node, tl, max_width, built.pending_inline);
+    FinalizeTableLayout(node, tl, max_width, built.pending_inline);
     return built;
 }

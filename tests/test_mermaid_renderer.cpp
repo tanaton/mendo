@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "app_constants.h"
 #include "diagram_raster.h"
 #include "document.h"
 #include "fake_zoom_window.h"
@@ -81,11 +80,21 @@ protected:
         ASSERT_HRESULT_SUCCEEDED(d2d_->CreateWicBitmapRenderTarget(bitmap.Get(), D2D1::RenderTargetProperties(), &rt_));
 
         viewer_ = {};
-        renderer_.Init(window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), scheduler_, NewEngine, [this] { OnUpdate(); });
+        renderer_.Init(window_.Get(), d2d_.Get(), wic_.Get(), SharedDWriteFactory(), scheduler_, NewEngine,
+                       {
+                           .on_update = [this] { OnUpdate(); },
+                           .wake = wakes_.Fn(),
+                           .set_trim_timer = [](UINT) {},
+                           .kill_trim_timer = [] {},
+                       });
         renderer_.SetRenderTarget(rt_.Get());
-        // 拡大表示の図は ZoomViewer が本文と同じ結果から受け取る。画像は読まないので、知らせの投函先は使わない。
-        zoom_.Init(window_.Get(), app_msg::VIEWER_IMAGE_DECODED, SharedDWriteFactory(), wic_.Get(), scheduler_, OpenFakeZoomWindow<viewer_>,
-                   [this] { OnUpdate(); }, [this](std::wstring_view) { ++viewer_failed_; });
+        // 拡大表示の図は ZoomViewer が本文と同じ結果から受け取る。画像は読まないので、wake は呼ばれない。
+        zoom_.Init(window_.Get(), SharedDWriteFactory(), wic_.Get(), scheduler_, OpenFakeZoomWindow<viewer_>,
+                   {
+                       .on_update = [this] { OnUpdate(); },
+                       .wake = [] {},
+                       .on_failed = [this](std::wstring_view) { ++viewer_failed_; },
+                   });
         zoom_.SetRenderTarget(rt_.Get(), nullptr, nullptr);
     }
 
@@ -188,6 +197,7 @@ protected:
     ComPtr<ID2D1RenderTarget> rt_;
     TaskScheduler scheduler_{ 2 };
     MessageOnlyWindow window_;
+    WakeCounter wakes_;
     MermaidRenderer renderer_;
     ZoomViewer zoom_;
     int updates_ = 0;
@@ -571,7 +581,7 @@ TEST_F(MermaidRendererTest, KeepsResultsUntilRenderTargetReturns)
     const DiagramDoc d(kAlpha);
     DiagramEntry entry;
     EXPECT_FALSE(Request(d, entry));
-    ASSERT_TRUE(PollUntil([&] { return window_.DrainMessages(app_msg::MERMAID_JOB_DONE) > 0; }, std::chrono::seconds(30)));
+    ASSERT_TRUE(PollUntil([&] { return wakes_.Take() > 0; }, std::chrono::seconds(30)));
     renderer_.ProcessJobResults(kNoDeadline);
     EXPECT_EQ(updates_, 0);
     EXPECT_FALSE(renderer_.HasLeftoverJobResults());
@@ -832,7 +842,7 @@ TEST_F(MermaidRendererTest, ViewerDrawingWaitsForRenderTarget)
 {
     renderer_.SetRenderTarget(nullptr);
     OpenViewer(kAlpha);
-    ASSERT_TRUE(PollUntil([&] { return window_.DrainMessages(app_msg::MERMAID_JOB_DONE) > 0; }, std::chrono::seconds(30)));
+    ASSERT_TRUE(PollUntil([&] { return wakes_.Take() > 0; }, std::chrono::seconds(30)));
     renderer_.ProcessJobResults(kNoDeadline);
     EXPECT_TRUE(viewer_.drawings.empty());
 

@@ -224,6 +224,13 @@ constexpr bool istarts_with(std::string_view s, DocLowercaseLiteral prefix) noex
     return std::ranges::starts_with(s, prefix.value, {}, ToLowerAscii);
 }
 
+// どちらも実行時に決まる (または大文字の混ざる) 文字列の比較。片方が小文字のリテラルなら iequal。
+// iequal の多重定義にしないのは、リテラルを渡すと DocLowercaseLiteral 版と曖昧になるため。
+constexpr bool IEquals(std::string_view a, std::string_view b) noexcept
+{
+    return std::ranges::equal(a, b, {}, ToLowerAscii, ToLowerAscii);
+}
+
 // CSS の #rrggbb。
 inline void AppendHexColor(std::string& out, uint32_t rgb)
 {

@@ -251,6 +251,9 @@ constexpr bool InVScrollbarHitX(float x, float right_edge) noexcept
 // ホイールの生の delta に掛ける DIP。OS の既定の 3 行で 1 ノッチ 96 DIP になり、行数の設定に比例させる。
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
 inline constexpr unsigned DEFAULT_WHEEL_SCROLL_LINES = 3;
+// 矢印キーの 1 回分 (DIP) と、ページ送りの窓に対する割合 (前の画面の端を残す)。本文と拡大表示で揃える。
+inline constexpr float KEY_SCROLL_LINE_AMOUNT = 40.0f;
+inline constexpr float SCROLL_PAGE_FACTOR = 0.9f;
 
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 

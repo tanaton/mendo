@@ -32,19 +32,6 @@ float ParseFloatPrefix(std::string_view s) noexcept
     return ec == std::errc{} ? v : std::numeric_limits<float>::quiet_NaN();
 }
 
-// カンマで区切った数を先頭から out に読む。足りない分は 0 のまま。
-void ParseFloatList(std::string_view s, std::span<float> out) noexcept
-{
-    for (float& v : out) {
-        const auto pos = s.find(',');
-        v = ParseFloatPrefix(s.substr(0, pos));
-        if (pos == std::string_view::npos) {
-            break;
-        }
-        s.remove_prefix(pos + 1);
-    }
-}
-
 // s の先頭から ':' までを切り出して進める。':' が無ければ nullopt。
 std::optional<std::string_view> TakeField(std::string_view& s) noexcept
 {
@@ -57,23 +44,31 @@ std::optional<std::string_view> TakeField(std::string_view& s) noexcept
     return field;
 }
 
+// s の先頭から ':' までの、カンマで区切った数を out に読んで進める。数がちょうど out の個数でなければ false。
+bool TakeNumbers(std::string_view& s, std::span<float> out) noexcept
+{
+    auto numbers = TakeField(s);
+    if (!numbers || static_cast<size_t>(std::ranges::count(*numbers, ',')) + 1 != out.size()) {
+        return false;
+    }
+    for (float& v : out) {
+        const auto pos = numbers->find(',');
+        v = ParseFloatPrefix(numbers->substr(0, pos));
+        numbers->remove_prefix(pos == std::string_view::npos ? numbers->size() : pos + 1);
+    }
+    return true;
+}
+
 // 10 進の数字だけからなる値。max を超えれば nullopt。
 std::optional<uint32_t> ParseDecimal(std::string_view s, uint32_t max) noexcept
 {
-    if (s.empty()) {
+    // 符号なしの from_chars は符号も空白も受け付けない。
+    uint32_t v = 0;
+    const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+    if (ec != std::errc{} || ptr != s.data() + s.size() || v > max) {
         return std::nullopt;
     }
-    uint64_t v = 0;
-    for (const char c : s) {
-        if (c < '0' || c > '9') {
-            return std::nullopt;
-        }
-        v = v * 10 + static_cast<uint64_t>(c - '0');
-        if (v > max) {
-            return std::nullopt;
-        }
-    }
-    return static_cast<uint32_t>(v);
+    return v;
 }
 
 // "<長さ>:<本文>" を切り出して進める。長さは残りを超えられないので、偽った長さで大きく確保することはない。
@@ -121,12 +116,10 @@ void AppendPlacement(Out out, const mermaid_util::DrawingPlacement& p)
 
 std::optional<mermaid_util::DrawingText> ParseDrawingText(std::string_view& s)
 {
-    const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, ',') != kPlacementNumbers + 2) {
+    float v[kPlacementNumbers + 3]{};
+    if (!TakeNumbers(s, v)) {
         return std::nullopt;
     }
-    float v[kPlacementNumbers + 3]{};
-    ParseFloatList(*numbers, v);
     const auto at = ToPlacement(v);
     const float weight = v[11];
     if (!at || !(weight >= mermaid_util::kMinFontWeight && weight <= mermaid_util::kMaxFontWeight) ||(v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
@@ -150,12 +143,10 @@ std::optional<mermaid_util::DrawingText> ParseDrawingText(std::string_view& s)
 
 std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::string_view& s)
 {
-    const auto numbers = TakeField(s);
-    if (!numbers || std::ranges::count(*numbers, ',') != kPlacementNumbers - 1) {
+    float v[kPlacementNumbers]{};
+    if (!TakeNumbers(s, v)) {
         return std::nullopt;
     }
-    float v[kPlacementNumbers]{};
-    ParseFloatList(*numbers, v);
     const auto at = ToPlacement(v);
     const auto tex = at ? TakeText(s) : std::nullopt;
     if (!tex) {

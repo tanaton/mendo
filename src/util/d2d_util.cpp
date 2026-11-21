@@ -12,6 +12,16 @@
 
 using Microsoft::WRL::ComPtr;
 
+D2D1::Matrix3x2F DeviceTransform(ID2D1RenderTarget* rt) noexcept
+{
+    D2D1::Matrix3x2F transform;
+    rt->GetTransform(&transform);
+    float dpi_x = DEFAULT_DPI;
+    float dpi_y = DEFAULT_DPI;
+    rt->GetDpi(&dpi_x, &dpi_y);
+    return transform * D2D1::Matrix3x2F::Scale(DpiScaleFrom(dpi_x), DpiScaleFrom(dpi_y));
+}
+
 namespace {
 
 // COLR の層を順に受け取って塗る。同じ色と原点で続く 1 字形の層は、送り幅 0 の 1 つのランにためてまとめて描く。
@@ -115,13 +125,7 @@ bool DrawColorLayers(ID2D1RenderTarget* rt, D2D1_POINT_2F origin, DWRITE_MEASURI
         return created;
     }();
     // 字形の座標から装置の画素への変換。
-    D2D1::Matrix3x2F transform;
-    rt->GetTransform(&transform);
-    float dpi_x = DEFAULT_DPI;
-    float dpi_y = DEFAULT_DPI;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    const auto world =
-        std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(transform * D2D1::Matrix3x2F::Scale(DpiScaleFrom(dpi_x), DpiScaleFrom(dpi_y))));
+    const auto world = std::bit_cast<DWRITE_MATRIX>(static_cast<D2D1_MATRIX_3X2_F>(DeviceTransform(rt)));
     ComPtr<IDWriteColorGlyphRunEnumerator> layers;
     if (!factory || FAILED(factory->TranslateColorGlyphRun(origin.x, origin.y, &run, desc, mode, &world, 0, &layers))) {
         return false;
@@ -276,8 +280,18 @@ bool WindowSwapTarget::Create(ID3D11Device* d3d, ID2D1Device* device, HWND hwnd,
 
 bool WindowSwapTarget::Resize(UINT width, UINT height, float dpi)
 {
+    width = std::max(width, 1u);
+    height = std::max(height, 1u);
+    // 図の拡大表示は倍率を変えるたび・中身を差し替えるたびに呼ぶ。大きさも DPI も同じなら作り直さない。
+    DXGI_SWAP_CHAIN_DESC1 desc{};
+    float dpi_x = 0.0f;
+    float dpi_y = 0.0f;
+    dc_->GetDpi(&dpi_x, &dpi_y);
+    if (SUCCEEDED(swap_chain_->GetDesc1(&desc)) && desc.Width == width && desc.Height == height && dpi_x == dpi) {
+        return true;
+    }
     dc_->SetTarget(nullptr);
-    if (FAILED(swap_chain_->ResizeBuffers(0, std::max(width, 1u), std::max(height, 1u), DXGI_FORMAT_UNKNOWN, 0)) || FAILED(BindSwapChainTarget(dc_.Get(), swap_chain_.Get(), dpi))) {
+    if (FAILED(swap_chain_->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0)) || FAILED(BindSwapChainTarget(dc_.Get(), swap_chain_.Get(), dpi))) {
         Reset();
         return false;
     }

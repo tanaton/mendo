@@ -169,7 +169,7 @@ TEST_F(TableMeasureJobsTest, BuildTableStopsWhenRequested)
     // 止めなければ組む。
     const auto built = measurer_.BuildTable(node, 700.0f, {});
     EXPECT_NE(built.table, nullptr);
-    EXPECT_GT(built.height, 0.0f);
+    EXPECT_GT(built.table->TotalHeight(), 0.0f);
 }
 
 // 推定の高さのまま表の中を見ていたら、置いた後も表の中の同じ割合の位置を見せる。

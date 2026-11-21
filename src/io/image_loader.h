@@ -9,6 +9,7 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -42,8 +43,9 @@ public:
     ImageLoader() noexcept;
     ~ImageLoader();
 
-    // デコード結果が届いたら hwnd へ msg_id を投げる (hwnd が null なら投げない)。
-    void Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
+    // デコード結果が溜まり始めたら worker で wake を呼ぶ (空なら呼ばない)。UI スレッドに ProcessCompletedDecodes を呼ばせるだけにする。
+    // hwnd は描画先より先に来た要求を、窓の DPI でデコードするのに使う。
+    void Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, std::move_only_function<void()> wake);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
     // デバイスロストでの差し替えでは、旧 rt のビットマップを捨てる。デコードは WIC ビットマップを作るので rt に依らず
     // (縮める上限 max_bitmap_dim_ は始めるときに読む)、待ちのものも受け箱の結果も新しい rt に載せる。
@@ -158,7 +160,7 @@ private:
     DeliveredImages delivered_;
 
     HWND hwnd_ = nullptr;
-    UINT msg_id_ = 0;
+    std::move_only_function<void()> wake_;
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> drop_gen_{ 0 };
     struct ReadingSize {};
@@ -172,8 +174,8 @@ private:
         bool requested_again = false;
         bool invalidated = false;
     };
-    std::unordered_map<std::wstring, PendingDecode> pending_paths_;
-    std::unordered_map<std::wstring, uint32_t> failed_paths_;
+    std::unordered_map<std::wstring, PendingDecode, StringTransparentHash> pending_paths_;
+    std::unordered_map<std::wstring, uint32_t, StringTransparentHash> failed_paths_;
 
     PostedInbox<DecodeResult> completed_;
     WorkerLatch latch_;

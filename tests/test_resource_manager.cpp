@@ -253,7 +253,7 @@ protected:
         Microsoft::WRL::ComPtr<IWICBitmap> target;
         ASSERT_HRESULT_SUCCEEDED(wic_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &target));
         ASSERT_HRESULT_SUCCEEDED(d2d->CreateWicBitmapRenderTarget(target.Get(), D2D1::RenderTargetProperties(), &rt_));
-        image_loader_.Init(wic_.Get(), nullptr, 0, scheduler_);
+        image_loader_.Init(wic_.Get(), nullptr, scheduler_, {});
         image_loader_.SetRenderTarget(rt_.Get());
     }
     void TearDown() override

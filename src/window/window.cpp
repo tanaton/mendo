@@ -190,7 +190,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
     // デバイスを待つ間に起動時の読み込みが終わっていれば、空のフレームを出さずに最初のフレームへ入れる。
     if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
-        app_->OnParseComplete();
+        app_->OnAppMessage(app_msg::PARSE_COMPLETE);
     }
     TakeStartupMessages();
     UpdateWindow(hwnd_);
@@ -210,7 +210,7 @@ void Win32Window::AwaitInitialParseBeforeDevice()
     for (;;) {
         // 先行作成が無くても、Attach の時点で出ていた結果はここで取り込む。
         if (TakePosted(hwnd_, app_msg::PARSE_COMPLETE)) {
-            app_->OnParseComplete();
+            app_->OnAppMessage(app_msg::PARSE_COMPLETE);
             return;
         }
         TakeStartupMessages();
@@ -223,11 +223,10 @@ void Win32Window::AwaitInitialParseBeforeDevice()
 
 void Win32Window::TakeStartupMessages()
 {
-    if (TakePosted(hwnd_, app_msg::FILE_LISTED)) {
-        app_->OnFileListed();
-    }
-    if (TakePosted(hwnd_, app_msg::INLINE_MATH_REQUESTED)) {
-        app_->OnInlineMathRequested();
+    for (const UINT msg : { app_msg::FILE_LISTED, app_msg::INLINE_MATH_REQUESTED }) {
+        if (TakePosted(hwnd_, msg)) {
+            app_->OnAppMessage(msg);
+        }
     }
 }
 
@@ -565,35 +564,13 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return *result;
     }
 
+    // WM_APP から上は、App が自分のワーカーの仕事の終わりを知らせるメッセージだけ。
+    if (msg >= WM_APP && msg <= 0xBFFF) {
+        app_->OnAppMessage(msg);
+        return 0;
+    }
+
     switch (msg) {
-    case app_msg::IMAGE_LOADED:
-        app_->OnAppImageLoaded();
-        return 0;
-
-    case app_msg::PARSE_COMPLETE:
-        app_->OnParseComplete();
-        return 0;
-
-    case app_msg::MERMAID_JOB_DONE:
-        app_->OnMermaidJobDone();
-        return 0;
-
-    case app_msg::FILE_LISTED:
-        app_->OnFileListed();
-        return 0;
-
-    case app_msg::INLINE_MATH_REQUESTED:
-        app_->OnInlineMathRequested();
-        return 0;
-
-    case app_msg::TABLE_MEASURED:
-        app_->OnTableMeasured();
-        return 0;
-
-    case app_msg::VIEWER_IMAGE_DECODED:
-        app_->OnViewerImageDecoded();
-        return 0;
-
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

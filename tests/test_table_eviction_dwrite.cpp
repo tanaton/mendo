@@ -164,7 +164,7 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     const auto result = Restore(vp);
 
     EXPECT_TRUE(result.restored);
-    EXPECT_FALSE(result.height.has_value());
+    EXPECT_FALSE(result.height_changed);
     const size_t after_restore = CountNonNullCells(tl);
     EXPECT_GT(after_restore, after_evict);
     EXPECT_LT(after_restore, total_cells);

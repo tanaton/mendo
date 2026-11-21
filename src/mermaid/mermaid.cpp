@@ -1,5 +1,4 @@
 #include "mermaid.h"
-#include "app_constants.h"
 #include "d2d_util.h"
 #include "diagram_raster.h"
 #include "i18n.h"
@@ -192,11 +191,14 @@ void MermaidRenderer::Shutdown()
     job_results_.TakeAll();
     pele_.reset();
     renders_running_ = 0;
-    KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
+    // App の初期化に失敗したときは Init より前に呼ばれる。
+    if (hooks_.kill_trim_timer) {
+        hooks_.kill_trim_timer();
+    }
 }
 
 void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
-                           std::move_only_function<void()> on_update)
+                           Hooks hooks)
 {
     hwnd_ = hwnd;
     d2d_factory_ = d2d;
@@ -204,12 +206,12 @@ void MermaidRenderer::Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic
     dw_factory_ = dw;
     bg_scheduler_ = &bg_scheduler;
     make_pele_ = std::move(make_pele);
-    on_update_ = std::move(on_update);
+    hooks_ = std::move(hooks);
 }
 
 void MermaidRenderer::TrimIdleRuntimes()
 {
-    KillTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM));
+    hooks_.kill_trim_timer();
     // 描いている途中のものは捨てない
     if (pele_) {
         pele_->Trim(bg_scheduler_);
@@ -348,7 +350,7 @@ void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
         const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && job.drop_gen != drop_gen_.load(std::memory_order_relaxed);
         job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job))) {
-            ::PostMessageW(hwnd_, app_msg::MERMAID_JOB_DONE, 0, 0);
+            hooks_.wake();
         }
     });
 }
@@ -370,11 +372,6 @@ void MermaidRenderer::StartLoad(RenderRequest req, const DiagramCache::Item& ite
         read.texts = LayoutDiagramTexts(dw_factory_.Get(), *read.drawing, i18n::TextLocale());
         return read;
     });
-}
-
-Microsoft::WRL::ComPtr<ID2D1CommandList> MermaidRenderer::RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts)
-{
-    return RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), drawing, i18n::TextLocale(), texts);
 }
 
 Microsoft::WRL::ComPtr<IWICBitmap> MermaidRenderer::DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width)
@@ -411,16 +408,6 @@ void MermaidRenderer::ApplyMathResult(Job& r)
     cb(std::move(result));
 }
 
-bool MermaidRenderer::ApplyJobResult(Job& r)
-{
-    if (std::holds_alternative<MathRequest>(r.req.target)) {
-        // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
-        ApplyMathResult(r);
-        return false;
-    }
-    return ApplyDisplayResult(r);
-}
-
 bool MermaidRenderer::SettleDisplayError(const DisplayTarget& display, const DiagramError& error)
 {
     // 枠に収まらない分は描くときに省略記号で切る (placeholder_text の書式)。pele の文言は長さに上限が無いので、
@@ -444,7 +431,10 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
             return true;
         },
         [&](JobDrawing& d) {
-            DiagramResult result{ .commands = RecordDrawing(*d.drawing, &d.texts), .width = d.drawing->width, .height = d.drawing->height };
+            // 描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
+            DiagramResult result{ .commands = RecordDiagram(record_dc_.Get(), dw_factory_.Get(), wic_factory_.Get(), *d.drawing, i18n::TextLocale(), &d.texts),
+                                  .width = d.drawing->width,
+                                  .height = d.drawing->height };
             // 記録した文字の並びはもう使わない (コマンドリストは並びを参照しない)。数が多いので worker で捨てる。
             if (!d.texts.runs.empty()) {
                 DisposeOnWorker(*bg_scheduler_, std::move(d.texts));
@@ -499,7 +489,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     if (!render_target_) {
         return;
     }
-    // 置いた結果の解いた形は、ここでは手放さない。通知 (on_update_) の中の要求の回で図が受け取り、受け取らなかったもの
+    // 置いた結果の解いた形は、ここでは手放さない。通知 (Hooks::on_update) の中の要求の回で図が受け取り、受け取らなかったもの
     // (届く前に画面外へ出た図) と置き換わった結果は、その回の終わりの ReleaseIdleDrawings で手放す。
     bool resolved = false;
     bool render_done = false;
@@ -508,7 +498,13 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
             --renders_running_;
             render_done = true;
         }
-        resolved |= ApplyJobResult(r);
+        // 数式の結果は呼び出し側に直接渡し、図のキャッシュには入れない。
+        if (std::holds_alternative<MathRequest>(r.req.target)) {
+            ApplyMathResult(r);
+        }
+        else {
+            resolved |= ApplyDisplayResult(r);
+        }
     });
     if (render_done) {
         PumpRenders();
@@ -516,11 +512,11 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
         if (renders_running_ == 0 && math_waiting_.empty() && display_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }
-        SetTimer(hwnd_, std::to_underlying(app_timer::Id::PELE_TRIM), PELE_TRIM_MS, nullptr);
+        hooks_.set_trim_timer(PELE_TRIM_MS);
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
-        on_update_();
+        hooks_.on_update();
     }
 }
 
@@ -531,16 +527,12 @@ std::unique_ptr<PeleEngine> MermaidRenderer::CreateBundledPele(IDWriteFactory* d
     return std::make_unique<PeleEngine>(LoadRcData(IDR_PELE_JS), LoadRcData(IDR_KATEX_JS), std::move(fonts), dw, i18n::TextLocale());
 }
 
-void MermaidRenderer::EnsurePele()
+void MermaidRenderer::StartRender(RenderRequest req)
 {
+    // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に作る。
     if (!pele_) {
         pele_ = make_pele_(dw_factory_.Get());
     }
-}
-
-void MermaidRenderer::StartRender(RenderRequest req)
-{
-    EnsurePele();
     if (std::holds_alternative<MathRequest>(req.target)) {
         math_waiting_.push_back(std::move(req));
     }

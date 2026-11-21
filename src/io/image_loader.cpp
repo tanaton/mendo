@@ -59,12 +59,12 @@ ImageLoader::~ImageLoader()
     Shutdown();
 }
 
-void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
+void ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, TaskScheduler& scheduler, std::move_only_function<void()> wake)
 {
     wic_factory_ = wic;
     hwnd_ = hwnd;
-    msg_id_ = msg_id;
     scheduler_ = &scheduler;
+    wake_ = std::move(wake);
 }
 
 void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
@@ -186,8 +186,8 @@ void ImageLoader::QueueDecode(const std::wstring& abs_path, UINT max_width_px, b
         }
         result.path = std::move(path);
 
-        if (completed_.Push(std::move(result)) && hwnd_) {
-            ::PostMessageW(hwnd_, msg_id_, 0, 0);
+        if (completed_.Push(std::move(result)) && wake_) {
+            wake_();
         }
     });
 }

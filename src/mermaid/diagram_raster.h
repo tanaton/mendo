@@ -1,16 +1,14 @@
 #pragma once
 #include "math_raster.h"
 #include "mermaid_util.h"
+#include "utility.h"
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
-#include <array>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
-#include <variant>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -63,8 +61,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteFactory> dw_;
     std::wstring locale_;
     std::wstring key_;
-    std::unordered_map<std::wstring, FontEntry> entries_;
-    std::unordered_map<std::wstring, float> widths_;
+    std::unordered_map<std::wstring, FontEntry, StringTransparentHash> entries_;
+    std::unordered_map<std::wstring, float, StringTransparentHash> widths_;
 };
 
 // pele の math オプションに返した数式のラベル。pele は {svg} を <svg class="pele-math"> の中に入れるので、

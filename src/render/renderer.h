@@ -215,9 +215,6 @@ private:
     bool CreateFactories(HWND hwnd);
     bool CreateDeviceResources();
     bool CreateSwapChainBitmap();
-    // 表示範囲を描画面の左上 width x height にする。失敗したら false。
-    bool SetSourceSize(UINT width, UINT height) noexcept;
-    void ConfigureFrameLatency() noexcept;
     // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
     // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
     void AcquireFrame() noexcept;

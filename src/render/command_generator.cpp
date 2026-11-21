@@ -614,6 +614,14 @@ const wchar_t* PaneHeaderButtonIcon(PaneHeaderButton button) noexcept
     std::unreachable();
 }
 
+// サイドペインの項目の背景。選んでいる項目は、指していても選んでいる色にする。
+void EmitPaneItemBg(CmdWriter w, const D2D1_RECT_F& row, bool active, bool hovered)
+{
+    if (active || hovered) {
+        w.out.push_back(FillRectCmd{ .rect = row, .brush_id = active ? BrushId::PaneItemActive : BrushId::PaneItemHover });
+    }
+}
+
 void EmitSidePaneHeader(CmdWriter w, const SidePaneFormats& fmts, float header_h, const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text)
 {
     const PaneRect& r = pane.rect;
@@ -674,12 +682,7 @@ void EmitFileExplorer(CmdWriter w, const SidePaneFormats& fmts, float header_h, 
     EmitSidePane(w, fmts, header_h, pane, true, entries.size(), i18n::S().pane_header_files, [&](int i, const D2D1_RECT_F& row) {
         const auto& entry = entries[i];
 
-        if (entry.is_current) {
-            w.out.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemActive });
-        }
-        else if (i == pane.hovered_index) {
-            w.out.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
-        }
+        EmitPaneItemBg(w, row, entry.is_current, i == pane.hovered_index);
 
         w.Text(FileEntryIcon(entry), fmts.file_icon, D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text);
 
@@ -696,10 +699,7 @@ void EmitToc(CmdWriter w, const SidePaneFormats& fmts, float header_h, const Sid
     EmitSidePane(w, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const Node& heading = sp.nodes[entries[i].node_index];
 
-        if (i == active_index || i == pane.hovered_index) {
-            const auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
-            w.out.push_back(FillRectCmd{ .rect = row, .brush_id = bid });
-        }
+        EmitPaneItemBg(w, row, i == active_index, i == pane.hovered_index);
 
         const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         // 項目の文字列は持たない。見えている 40 行を描くたびに変換して 1 フレーム約 4µs (BM_TocFrame)。
@@ -1270,17 +1270,11 @@ struct MdPaneEmitter : CmdWriter {
         vline(offset_x + table_width);
     }
 
-    // 返すメトリクスは共有バッファを指し、次の呼び出しまで有効。
-    std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
-    {
-        const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer);
-        return { hit_test_buffer.data(), count };
-    }
-
     // range の矩形のうち可視 Y 範囲と重なるものを塗る。
     void EmitRangeRects(IDWriteTextLayout* layout, DWRITE_TEXT_RANGE range, float origin_x, float origin_y, BrushId brush)
     {
-        for (const auto& m : HitTestRange(layout, range.startPosition, range.length)) {
+        const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, hit_test_buffer);
+        for (const auto& m : std::span(hit_test_buffer).first(count)) {
             if (const auto r = RectFromHitTest(m, origin_x, origin_y); OverlapsY(r, visible)) {
                 out.emplace_back(FillRectCmd{ r, brush });
             }
@@ -1317,12 +1311,12 @@ struct MdPaneEmitter : CmdWriter {
         return { matches.subspan(first_global, range.size()), first_global, SpillLengthInto(matches, first_global, node_index) };
     }
 
-    // matches[begin, end) の矩形を layout で引き、FillRectCmd を積む。
-    void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y)
+    // nm.matches の一部 sub の矩形を layout で引き、FillRectCmd を積む。
+    void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, std::span<const SearchMatch> sub, float origin_x, float origin_y)
     {
-        for (size_t i = begin; i < end; ++i) {
-            const auto& m = nm.matches[i];
-            EmitSearchSpan(layout, m.start_w, m.length_w, m.on_cluster_bounds, nm.first_global + i, origin_x, origin_y);
+        size_t global_index = nm.first_global + static_cast<size_t>(sub.data() - nm.matches.data());
+        for (const auto& m : sub) {
+            EmitSearchSpan(layout, m.start_w, m.length_w, m.on_cluster_bounds, global_index++, origin_x, origin_y);
         }
     }
 
@@ -1351,8 +1345,7 @@ struct MdPaneEmitter : CmdWriter {
         const auto last = std::ranges::partition_point(first, nm.matches.end(), [e = line_end](const SearchMatch& m) noexcept {
             return m.start_w < e;
         });
-        EmitSearchMatches(nm, entry.text_layout(),
-                          static_cast<size_t>(first - nm.matches.begin()), static_cast<size_t>(last - nm.matches.begin()), origin_x, origin_y);
+        EmitSearchMatches(nm, entry.text_layout(), { first, last }, origin_x, origin_y);
     }
 
     void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y)
@@ -1364,8 +1357,7 @@ struct MdPaneEmitter : CmdWriter {
         const auto cell = std::ranges::equal_range(
             nm.matches, std::pair{ static_cast<int>(row), static_cast<int>(col) }, {},
             [](const SearchMatch& m) static noexcept { return std::pair{ m.table_row, m.table_col }; });
-        EmitSearchMatches(nm, layout,
-                          static_cast<size_t>(cell.begin() - nm.matches.begin()), static_cast<size_t>(cell.end() - nm.matches.begin()), origin_x, origin_y);
+        EmitSearchMatches(nm, layout, cell, origin_x, origin_y);
     }
 };
 

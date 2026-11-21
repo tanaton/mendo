@@ -73,7 +73,7 @@ inline void SetTestText(Node& n, std::string_view text, int32_t line_count)
 inline void SetTestRuns(Node& n, std::span<const TextRun> runs)
 {
     const std::scoped_lock lock{ test_nodes_detail::Mutex() };
-    const auto [urls, kept] = test_nodes_detail::Arena().CopyRefs(n.link_urls_and_image_srcs(), runs);
+    const auto [urls, kept] = test_nodes_detail::Arena().CopyRefs(n.view_link_urls(), n.image_srcs(), runs);
     n.SetRefs(urls, n.view_link_urls().size(), kept);
 }
 
@@ -94,7 +94,7 @@ inline int16_t AddTestLinkUrl(Node& n, std::string_view url)
     auto& arena = test_nodes_detail::Arena();
     std::vector<std::string_view> urls{ n.view_link_urls().begin(), n.view_link_urls().end() };
     urls.push_back(arena.CopyText(url));
-    const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, n.runs());
+    const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, {}, n.runs());
     n.SetRefs(kept_urls, urls.size(), kept_runs);
     return static_cast<int16_t>(urls.size() - 1);
 }
