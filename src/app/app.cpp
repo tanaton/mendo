@@ -21,6 +21,7 @@
 #include <psapi.h>
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory_resource>
 #include <thread>
 #include <utility>
@@ -49,6 +50,13 @@ ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
     return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
 }
 
+// ワーカーが仕事の終わりを知らせる関数。msg を窓に投げ、UI スレッドの OnAppMessage で受け取る。
+// コピーできるように、move_only_function にせずラムダのまま返す (列挙のたびに作るスレッドへ渡す)。
+auto PostTo(HWND hwnd, UINT msg)
+{
+    return [hwnd, msg] { ::PostMessageW(hwnd, msg, 0, 0); };
+}
+
 } // namespace
 
 bool App::Init(HWND hwnd)
@@ -65,12 +73,12 @@ bool App::Init(HWND hwnd)
     measurer_.SetFactory(renderer_.GetDWriteFactory());
     measurer_.SetInlineMath(&inline_math_);
     measurer_.SetInlineImages(&inline_images_);
-    inline_math_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::INLINE_MATH_REQUESTED, 0, 0); });
+    inline_math_.SetWake(PostTo(hwnd_, app_msg::INLINE_MATH_REQUESTED));
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
     }
     layout_engine_.SetTableJobs(&table_jobs_);
-    table_jobs_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::TABLE_MEASURED, 0, 0); });
+    table_jobs_.SetWake(PostTo(hwnd_, app_msg::TABLE_MEASURED));
     renderer_.SetPaneItemFonts(&measurer_.BodyFonts());
 
     measurer_.SetScheduler(&layout_scheduler_);
@@ -83,11 +91,21 @@ bool App::Init(HWND hwnd)
     // 結果を待っていた図と、拡大表示に出す図を要求し直して反映する。
     const auto request_diagrams = [this] { resource_manager_.RequestMermaidRenders(); };
     mermaid_renderer_.Init(hwnd_, renderer_.GetD2DFactory(), renderer_.GetWICFactory(), renderer_.GetDWriteFactory(), scheduler_,
-                           &MermaidRenderer::CreateBundledPele, request_diagrams);
-    zoom_viewer_.Init(hwnd_, app_msg::VIEWER_IMAGE_DECODED, renderer_.GetDWriteFactory(), renderer_.GetWICFactory(), scheduler_, &ZoomWindow::Open,
-                      request_diagrams, [this](std::wstring_view message) { ShowToast(message); });
+                           &MermaidRenderer::CreateBundledPele,
+                           {
+                               .on_update = request_diagrams,
+                               .wake = PostTo(hwnd_, app_msg::MERMAID_JOB_DONE),
+                               .set_trim_timer = [this](UINT ms) { SetTimer(app_timer::Id::PELE_TRIM, ms); },
+                               .kill_trim_timer = [this] { KillTimer(app_timer::Id::PELE_TRIM); },
+                           });
+    zoom_viewer_.Init(hwnd_, renderer_.GetDWriteFactory(), renderer_.GetWICFactory(), scheduler_, &ZoomWindow::Open,
+                      {
+                          .on_update = request_diagrams,
+                          .wake = PostTo(hwnd_, app_msg::VIEWER_IMAGE_DECODED),
+                          .on_failed = [this](std::wstring_view message) { ShowToast(message); },
+                      });
 
-    image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_);
+    image_loader_.Init(renderer_.GetWICFactory(), hwnd_, scheduler_, PostTo(hwnd_, app_msg::IMAGE_LOADED));
 
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
@@ -101,8 +119,8 @@ bool App::Init(HWND hwnd)
 
     // フォルダの列挙はネットワークドライブなどで数百 ms かかるので、描画を待たせずに別スレッドで行う。
     // 共有 scheduler の画像デコード待ちの後ろに並ばないよう専用スレッドにする。
-    state_.file_explorer.SetAsyncLister([hwnd = hwnd_, slot = file_listing_](std::wstring dir, uint32_t request) {
-        std::thread([hwnd, slot, dir = std::move(dir), request] {
+    state_.file_explorer.SetAsyncLister([wake = PostTo(hwnd_, app_msg::FILE_LISTED), slot = file_listing_](std::wstring dir, uint32_t request) {
+        std::thread([wake, slot, dir = std::move(dir), request] {
             auto entries = FileExplorer::List(dir);
             {
                 // 先に始めた遅い列挙が、まだ受け取っていない新しい結果を上書きしないようにする。
@@ -111,7 +129,7 @@ bool App::Init(HWND hwnd)
                     slot->result.emplace(request, std::move(entries));
                 }
             }
-            ::PostMessageW(hwnd, app_msg::FILE_LISTED, 0, 0);
+            wake();
         }).detach();
     });
     // 起動時に表示するなら、D3D デバイスの作成と並行して列挙を始めておく。
@@ -182,7 +200,7 @@ void App::LoadInitialDocument()
     // 窓の大きさが決まったので、先読みに本文の幅を渡す (パースが終わる前なら、推定がこの幅で済む)。
     load_coordinator_.SetContentWidth(MdContentWidth(state_));
     // 結果は出ていても通知で届く。Win32Window::Create が最初のフレームより前に取り込む。
-    if (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
+    if (load_coordinator_.Attach(PostTo(hwnd_, app_msg::PARSE_COMPLETE))) {
         ScheduleLoadingAnimation();
     }
     else {
@@ -383,14 +401,54 @@ void App::OnActivateApp(bool active)
     }
 }
 
-void App::OnAppImageLoaded()
+bool App::OnAppMessage(UINT msg)
 {
-    resource_manager_.OnImagesDecoded();
+    switch (msg) {
+    case app_msg::IMAGE_LOADED:
+        resource_manager_.OnImagesDecoded();
+        return true;
+    case app_msg::PARSE_COMPLETE:
+        OnParseComplete();
+        return true;
+    case app_msg::MERMAID_JOB_DONE:
+        mermaid_renderer_.ProcessJobResults();
+        return true;
+    case app_msg::FILE_LISTED:
+        OnFileListed();
+        return true;
+    case app_msg::INLINE_MATH_REQUESTED:
+        OnInlineMathRequested();
+        return true;
+    case app_msg::TABLE_MEASURED:
+        OnTableMeasured();
+        return true;
+    case app_msg::VIEWER_IMAGE_DECODED:
+        zoom_viewer_.OnImageDecoded();
+        return true;
+    default:
+        return false;
+    }
 }
 
-void App::OnMermaidJobDone()
+bool App::DispatchPosted(UINT msg)
 {
-    mermaid_renderer_.ProcessJobResults();
+    MSG posted;
+    if (!::PeekMessageW(&posted, hwnd_, msg, msg, PM_REMOVE)) {
+        return false;
+    }
+    OnAppMessage(msg);
+    return true;
+}
+
+bool App::TakeParseComplete()
+{
+    return DispatchPosted(app_msg::PARSE_COMPLETE);
+}
+
+void App::TakeStartupMessages()
+{
+    DispatchPosted(app_msg::FILE_LISTED);
+    DispatchPosted(app_msg::INLINE_MATH_REQUESTED);
 }
 
 void App::OnInlineMathRequested()
@@ -413,11 +471,6 @@ void App::OnTableMeasured()
     // 届く前の寸法で組んだかもしれない表は、先に組み直す印を付けて、後始末を 1 回で済ませる。
     const bool remeasure = placed.stale_inline && InvalidatePendingInline(/*force_tables=*/false);
     FinishLayout(remeasure ? LayoutChange::Remeasure : LayoutChange::Reflowed, LayoutCaller::Message);
-}
-
-void App::OnViewerImageDecoded()
-{
-    zoom_viewer_.OnImageDecoded();
 }
 
 bool App::RequestInlineMathChunk(uint64_t key)
@@ -1135,7 +1188,10 @@ void App::SaveSession()
 
     session::SavePanes(config_, state_.view.panes);
     session::SaveLanguage(config_, i18n::ConfigLangKey());
-    // 個別の Save は write を遅らせるので、終了前に明示の flush ですべての設定値を 1 度のディスク書き込みにまとめる。
+    // 切り替えのたびでなくここで写す。切り替えて戻した値は読んだ値と同じなので書かず、ほかの窓の値を上書きしない。
+    session::SaveDarkMode(config_, theme_service_.IsDarkMode());
+    session::SaveZoomLevel(config_, state_.view.viewport.Zoom());
+    // Save* はメモリに写すだけ。変えた値をここで 1 回のトランザクションでレジストリに書く。
     config_.Flush();
 }
 
@@ -1206,7 +1262,6 @@ void App::ApplyZoom()
     // 細る (ブラウザのズームと同じ) が、ズームのたびに組み直して行の高さが揺れるより、こちらをユーザーが選んだ。
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     UpdateTitleBar();
-    session::SaveZoomLevel(config_, state_.view.viewport.Zoom());
 }
 
 void App::ToggleDarkMode()
@@ -1218,7 +1273,6 @@ void App::ToggleDarkMode()
     tooltip_.ApplyDarkMode(dark);
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     zoom_viewer_.SetDarkMode(dark);
-    session::SaveDarkMode(config_, dark);
 }
 
 App::HitResult App::HitTest(int px, int py)

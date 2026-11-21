@@ -253,8 +253,6 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
 
 namespace {
 
-constexpr UINT kParseCompleteMsg = WM_APP + 1;
-
 // AsyncLoadCoordinator に差し込むローダ。1 回目の呼び出しだけ Open まで worker を止めて
 // 指定結果を返し、2 回目以降は実ファイルを読む。関数ポインタで渡すため状態は static に置く。
 struct LoaderGateState {
@@ -344,9 +342,9 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
 {
     const auto tmp1 = WriteTempFile(L"aload_first", "# first\n");
     const auto tmp2 = WriteTempFile(L"aload_second", "# second\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
-    c.Attach(w.Get(), kParseCompleteMsg);
+    c.Attach(w.Fn());
     {
         WorkerGate gate(scheduler_);
         c.Start(tmp1.native(), GetLightTheme());
@@ -356,7 +354,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     // 旧世代の worker が publish すると通知が 2 通になり、App は OnParseComplete を 2 回走らせる。
-    EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 1);
+    EXPECT_EQ(w.Take(), 1);
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
@@ -368,9 +366,9 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
 TEST_F(AsyncLoadCoordinatorTest, CancelWhileQueuedPublishesNothing)
 {
     const auto tmp = WriteTempFile(L"aload_cancel", "# heading\n\nparagraph\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
-    c.Attach(w.Get(), kParseCompleteMsg);
+    c.Attach(w.Fn());
     {
         WorkerGate gate(scheduler_);
         c.Start(tmp.native(), GetLightTheme());
@@ -379,7 +377,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelWhileQueuedPublishesNothing)
     }
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 0);
+    EXPECT_EQ(w.Take(), 0);
     EXPECT_FALSE(c.Take().has_value());
 }
 
@@ -387,10 +385,10 @@ TEST_F(AsyncLoadCoordinatorTest, CancelWhileQueuedPublishesNothing)
 // lock 内の stop 再確認でしか弾けない。
 TEST_F(AsyncLoadCoordinatorTest, CancelDuringLoadDiscardsLateError)
 {
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c(scheduler_, &GatedLoad);
     ArmedLoaderGate gate{ std::unexpected(FileLoadError::NotFound) };
-    c.Attach(w.Get(), kParseCompleteMsg);
+    c.Attach(w.Fn());
 
     c.Start(std::wstring(L"gated.md"), GetLightTheme());
     ASSERT_TRUE(gate.WaitForCalls(1));
@@ -400,7 +398,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelDuringLoadDiscardsLateError)
     gate.Open();
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 0);
+    EXPECT_EQ(w.Take(), 0);
     EXPECT_FALSE(c.Take().has_value());
     EXPECT_FALSE(c.IsActive());
 }
@@ -408,10 +406,10 @@ TEST_F(AsyncLoadCoordinatorTest, CancelDuringLoadDiscardsLateError)
 TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscardsItsError)
 {
     const auto tmp2 = WriteTempFile(L"aload_restart_second", "# second\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c(scheduler_, &GatedLoad);
     ArmedLoaderGate gate{ std::unexpected(FileLoadError::ReadFailed) };
-    c.Attach(w.Get(), kParseCompleteMsg);
+    c.Attach(w.Fn());
 
     c.Start(std::wstring(L"gated.md"), GetLightTheme());
     ASSERT_TRUE(gate.WaitForCalls(1));
@@ -423,7 +421,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscards
 
     ASSERT_EQ(gate.Calls(), 2u);
     EXPECT_FALSE(gate.Token(1).stop_requested()) << "新しい worker の token は作り直した source 由来";
-    EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 1);
+    EXPECT_EQ(w.Take(), 1);
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value()) << "旧世代のエラーが漏れると App は失敗トーストを出す";
@@ -447,11 +445,11 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
     };
     constexpr std::string_view kOpNames[] = { "Start(ok1)", "Start(ok2)", "Start(missing)", "Start(ok1,reload)", "Cancel" };
 
-    MessageOnlyWindow w;
+    WakeCounter w;
     for (const uint32_t seed : { 1u, 7u, 42u, 2024u }) {
         std::mt19937 rng(seed);
         AsyncLoadCoordinator c{ scheduler_ };
-        c.Attach(w.Get(), kParseCompleteMsg);
+        c.Attach(w.Fn());
         for (int burst = 0; burst < 25; ++burst) {
             std::string ops;
             Expect expect = Expect::None;
@@ -492,7 +490,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
             SCOPED_TRACE(::testing::Message() << "seed=" << seed << " burst=" << burst << " ops=" << ops);
             ASSERT_TRUE(DrainScheduler(scheduler_));
 
-            EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), expect == Expect::None ? 0 : 1);
+            EXPECT_EQ(w.Take(), expect == Expect::None ? 0 : 1);
             auto outcome = c.Take();
             switch (expect) {
             case Expect::None:
@@ -549,23 +547,23 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
 
 TEST_F(AsyncLoadCoordinatorTest, AttachReturnsFalseWhenNotStarted)
 {
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
-    MessageOnlyWindow w;
-    EXPECT_FALSE(c.Attach(w.Get(), WM_USER + 1));
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
+    EXPECT_FALSE(c.Attach(w.Fn()));
+    EXPECT_EQ(w.Take(), 0);
 }
 
 // 起動時に読み込まなくても、Attach で渡した通知先へ以後の読み込みの結果を送る。
 TEST_F(AsyncLoadCoordinatorTest, AttachWhenIdleNotifiesLaterStarts)
 {
     const auto tmp = WriteTempFile(L"coord_attach_idle", "# later\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
-    ASSERT_FALSE(c.Attach(w.Get(), WM_USER + 1));
+    ASSERT_FALSE(c.Attach(w.Fn()));
     c.Start(tmp.native(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
+    EXPECT_EQ(w.Take(), 1);
     EXPECT_EQ(ResultPath(c.Take()), tmp.native());
 }
 
@@ -575,16 +573,16 @@ TEST_F(AsyncLoadCoordinatorTest, StartAfterAttachReplacesPreloadResult)
 {
     const auto preload_file = WriteTempFile(L"coord_preload", "# preload doc\n");
     const auto new_file = WriteTempFile(L"coord_newload", "# new doc\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(preload_file.native(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
-    ASSERT_TRUE(c.Attach(w.Get(), WM_USER + 1));
+    ASSERT_TRUE(c.Attach(w.Fn()));
 
     c.Start(new_file.native(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 2);
+    EXPECT_EQ(w.Take(), 2);
     EXPECT_EQ(ResultPath(c.Take()), new_file.native());
     EXPECT_FALSE(c.Take().has_value());
 }
@@ -593,13 +591,13 @@ TEST_F(AsyncLoadCoordinatorTest, StartAfterAttachReplacesPreloadResult)
 TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeNotifiesAtOnce)
 {
     const auto tmp = WriteTempFile(L"coord_preload_sync", "# attach after done\n");
-    MessageOnlyWindow w;
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_ };
     c.Start(tmp.native(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
+    EXPECT_TRUE(c.Attach(w.Fn()));
+    EXPECT_EQ(w.Take(), 1);
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
@@ -615,18 +613,18 @@ TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
     static std::shared_future<void> released;
     std::promise<void> release;
     released = release.get_future().share();
+    WakeCounter w;
     AsyncLoadCoordinator c{ scheduler_, [](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         released.wait();
         return LoadedFileDoc{ .text = std::string{ "# late\n" }, .byte_size = 7 };
     } };
-    MessageOnlyWindow w;
     c.Start(std::wstring(L"unused.md"), GetLightTheme());
-    EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
+    EXPECT_TRUE(c.Attach(w.Fn()));
+    EXPECT_EQ(w.Take(), 0);
     release.set_value();
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
+    EXPECT_EQ(w.Take(), 1);
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     EXPECT_TRUE(outcome->has_value());

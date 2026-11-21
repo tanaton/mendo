@@ -208,11 +208,7 @@ struct ParseContext : NodeStorage {
                 indices.image_indices.push_back(CurrentNodeIndex());
             }
             if (!current_runs.empty() || !current_link_urls.urls.empty() || !current_image_srcs.urls.empty()) {
-                auto& urls = current_link_urls.urls;
-                const size_t link_count = urls.size();
-                urls.append_range(current_image_srcs.urls);
-                const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, current_runs);
-                current_node->SetRefs(kept_urls, link_count, kept_runs);
+                current_node->SetRefs(arena.CopyRefs(current_link_urls.urls, current_image_srcs.urls, current_runs));
             }
         }
         current_text.clear();
@@ -502,18 +498,20 @@ struct ParseContext : NodeStorage {
     void ResolveLinkUrlIndex(std::string_view url)
     {
         assert(current_node);
-        current_link_url_index = !url.empty() ? FindOrAddLinkUrl(url) : int16_t{ -1 };
+        const auto index = !url.empty() ? FindOrAddUrl(current_link_urls, url, kMaxLinkUrls) : std::nullopt;
+        current_link_url_index = index ? static_cast<int16_t>(*index) : int16_t{ -1 };
     }
 
-    int16_t FindOrAddLinkUrl(std::string_view url)
+    // 同じ URL は 1 つの番号にまとめる (表のアイコンの画像など)。max_count を超えたら nullopt。
+    std::optional<size_t> FindOrAddUrl(UrlList& list, std::string_view url, size_t max_count)
     {
-        if (const auto found = current_link_urls.Find(url)) {
-            return static_cast<int16_t>(*found);
+        if (const auto found = list.Find(url)) {
+            return found;
         }
-        if (current_link_urls.urls.size() >= kMaxLinkUrls) {
-            return -1;
+        if (list.urls.size() >= max_count) {
+            return std::nullopt;
         }
-        return static_cast<int16_t>(current_link_urls.Add(InternUrl(url)));
+        return list.Add(InternUrl(url));
     }
 
     // md4c の href / 画像 src は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
@@ -523,18 +521,6 @@ struct ParseContext : NodeStorage {
         return IsSubrangeOf(url, markdown) ? url : arena.CopyText(url);
     }
 
-    // 同じ src は 1 つの image_slot にまとめる (表のアイコンなど)。kMaxImageSlots を超えたら nullopt。
-    std::optional<uint8_t> FindOrAddImageSrc(std::string_view src)
-    {
-        if (const auto found = current_image_srcs.Find(src)) {
-            return static_cast<uint8_t>(*found);
-        }
-        if (current_image_srcs.urls.size() >= kMaxImageSlots) {
-            return std::nullopt;
-        }
-        return static_cast<uint8_t>(current_image_srcs.Add(InternUrl(src)));
-    }
-
     // 最外側の画像に入る。中の文字 (alt) を画像の範囲にする。src が空か登録できない画像は alt を文字のまま出す。
     void BeginImage(const MD_SPAN_IMG_DETAIL& img)
     {
@@ -542,11 +528,11 @@ struct ParseContext : NodeStorage {
         if (src.empty()) {
             return;
         }
-        const auto slot = FindOrAddImageSrc(src);
+        const auto slot = FindOrAddUrl(current_image_srcs, src, kMaxImageSlots);
         if (!slot) {
             return;
         }
-        current_image_slot = *slot;
+        current_image_slot = static_cast<uint8_t>(*slot);
         open_image_start = active_text_buffer->size();
         current_run_flags |= TextRun::kImage;
     }
@@ -620,30 +606,30 @@ struct ParseContext : NodeStorage {
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     void FlushPendingRun()
     {
-        if (has_pending_run) {
-            ReservedArray<char>* const buf = active_text_buffer;
-            assert(buf);
-            if (buf->size() > pending_run_start) {
-                const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
-                const bool plain = current_run_flags == 0 && current_link_url_index < 0;
-                if (buf == &current_text) {
-                    if (!plain && current_runs.size() < kMaxRunsPerText) {
-                        current_runs.push_back(MakeRun(pending_run_start, length));
-                    }
-                }
-                else if (!plain) {
-                    // セル内: cell_text_starts / cell_run_starts の back() は TD/TH 進入時に積んだ現在セルの開始位置。
-                    auto* const tbl = current_node->table_data();
-                    if (tbl->cell_run_starts.empty()) {
-                        StartCellRunStarts(*tbl);
-                    }
-                    if (table_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
-                        table_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
-                    }
-                }
-            }
+        if (!std::exchange(has_pending_run, false)) {
+            return;
         }
-        has_pending_run = false;
+        ReservedArray<char>* const buf = active_text_buffer;
+        assert(buf);
+        const bool plain = current_run_flags == 0 && current_link_url_index < 0;
+        if (plain || buf->size() <= pending_run_start) {
+            return;
+        }
+        const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
+        if (buf == &current_text) {
+            if (current_runs.size() < kMaxRunsPerText) {
+                current_runs.push_back(MakeRun(pending_run_start, length));
+            }
+            return;
+        }
+        // セル内: cell_text_starts / cell_run_starts の back() は TD/TH 進入時に積んだ現在セルの開始位置。
+        auto* const tbl = current_node->table_data();
+        if (tbl->cell_run_starts.empty()) {
+            StartCellRunStarts(*tbl);
+        }
+        if (table_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
+            table_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
+        }
     }
 
     // 装飾もリンクも無い表は cell_run_starts を持たない。セルごとに 4 byte なので、短いセルの多い大きな表で効く。
@@ -798,10 +784,7 @@ void AppendFootnoteBackrefs(std::span<Node> nodes, TextArena& arena, std::span<c
         }
         node.SetText(arena.CopyText(text));
         // 画像の src はリンク URL の後ろに続くので、足したリンク URL の後ろへ移す。
-        const size_t link_count = urls.size();
-        urls.append_range(node.image_srcs());
-        const auto [kept_urls, kept_runs] = arena.CopyRefs(urls, runs);
-        node.SetRefs(kept_urls, link_count, kept_runs);
+        node.SetRefs(arena.CopyRefs(urls, node.image_srcs(), runs));
     }
 }
 
@@ -853,9 +836,7 @@ AlertMarker DetectAlertMarker(std::string_view text)
     }
 
     const auto type_str = text.substr(2, close - 2);
-    const auto it = std::ranges::find_if(kAlertLabels, [type_str](const AlertLabel& e) noexcept {
-        return std::ranges::equal(type_str, e.label, {}, ascii_util::ToLowerAscii, ascii_util::ToLowerAscii);
-    });
+    const auto it = std::ranges::find_if(kAlertLabels, [type_str](const AlertLabel& e) noexcept { return ascii_util::IEquals(type_str, e.label); });
     if (it == std::end(kAlertLabels)) {
         return {};
     }
@@ -921,9 +902,7 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
     node.SetText(arena.CopyText(new_text));
     node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
-    const size_t link_count = node.view_link_urls().size();
-    const auto [kept_urls, kept_runs] = arena.CopyRefs(node.link_urls_and_image_srcs(), new_runs);
-    node.SetRefs(kept_urls, link_count, kept_runs);
+    node.SetRefs(arena.CopyRefs(node.view_link_urls(), node.image_srcs(), new_runs));
     node.alert_type = type;
     node.set_has_alert_label();
 }

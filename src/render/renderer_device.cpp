@@ -57,16 +57,6 @@ HANDLE D3DPrefetchDoneEvent() noexcept
     return g_prefetch_thread.joinable() ? g_prefetch_thread.native_handle() : nullptr;
 }
 
-void Renderer::ConfigureFrameLatency() noexcept
-{
-    frame_latency_waitable_.reset();
-    // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になるので 1 まで詰める
-    if (FAILED(swap_chain_->SetMaximumFrameLatency(1))) {
-        return;
-    }
-    frame_latency_waitable_.reset(swap_chain_->GetFrameLatencyWaitableObject());
-}
-
 // d3d11 / dxgi の型の ComPtr を作って壊すので、それらを読むこの TU で定義する。
 Renderer::Renderer() noexcept = default;
 Renderer::~Renderer() = default;
@@ -183,7 +173,11 @@ bool Renderer::CreateDeviceResources()
         return false;
     }
 
-    ConfigureFrameLatency();
+    // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になるので 1 まで詰める。待つハンドルは CreateDevice が
+    // 先に捨てている。
+    if (SUCCEEDED(swap_chain_->SetMaximumFrameLatency(1))) {
+        frame_latency_waitable_.reset(swap_chain_->GetFrameLatencyWaitableObject());
+    }
     return CreateSwapChainBitmap();
 }
 
@@ -194,11 +188,6 @@ bool Renderer::CreateSwapChainBitmap()
         return false;
     }
     return true;
-}
-
-bool Renderer::SetSourceSize(UINT width, UINT height) noexcept
-{
-    return SUCCEEDED(swap_chain_->SetSourceSize(width, height));
 }
 
 void Renderer::Resize(UINT width, UINT height, bool live) noexcept
@@ -213,7 +202,8 @@ void Renderer::Resize(UINT width, UINT height, bool live) noexcept
     }
     const bool fits = live ? (width <= buffer_width_ && height <= buffer_height_)
                            : (width == buffer_width_ && height == buffer_height_);
-    if (fits && SetSourceSize(width, height)) {
+    // 表示範囲を描画面の左上 width x height にする。
+    if (fits && SUCCEEDED(swap_chain_->SetSourceSize(width, height))) {
         return;
     }
 
@@ -244,7 +234,7 @@ void Renderer::Resize(UINT width, UINT height, bool live) noexcept
     };
     bool ok = resize_buffers(buffer_width, buffer_height);
     // 表示範囲を絞れないと大きいバッファが窓に引き伸ばされるので、ちょうどの大きさで取り直す。
-    if (ok && (buffer_width != width || buffer_height != height) && !SetSourceSize(width, height)) {
+    if (ok && (buffer_width != width || buffer_height != height) && FAILED(swap_chain_->SetSourceSize(width, height))) {
         ok = resize_buffers(width, height);
     }
     // SetTarget(nullptr) のまま戻ると次回 BeginDraw で D2DERR_WRONG_STATE。

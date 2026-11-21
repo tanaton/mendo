@@ -1,10 +1,10 @@
 #pragma once
 #include "text_types.h"
 #include "utility.h"
+#include "worker_latch.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <cstdint>
-#include <functional>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -99,7 +99,7 @@ private:
 class InlineMathTable {
 public:
     // 頼んだ数式が溜まり始めたときに、頼んだスレッド (計測ワーカー) で呼ぶ。UI スレッドへ知らせるだけにする。
-    void SetWake(std::move_only_function<void()> wake);
+    void SetWake(WorkerWake wake);
 
     // 寸法が分かっていれば返す。無ければ描画を頼み (同じキーは結果が出るまで 1 回だけ)、nullopt。
     std::optional<InlineMathMetrics> FindOrRequest(uint64_t key);
@@ -123,7 +123,7 @@ private:
     // entries_ のうち metrics の無いものの数。
     size_t unresolved_ = 0;
     std::vector<uint64_t> requests_;
-    std::move_only_function<void()> wake_;
+    WorkerWake wake_;
 };
 
 // $...$ の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、

@@ -3030,20 +3030,6 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 
 namespace {
 
-// 状態はトークンの中にしか無いので、トークンの外ならどこからでも始められる。ただし行の頭でだけ効くトークンを持つ言語は、
-// 行の途中から始めることを state (kSyntaxMidLine) で受け取る (受け取らないと、長い 1 行を区切った続きのノードの頭の rem や # を
-// 行の頭として読み、続きがまるごとコメントになる)。
-template <LexerConfig Cfg>
-bool Lex(std::string_view text, size_t begin, kw::KeywordTable keywords, kw::KeywordTable types, std::vector<SyntaxToken>& tokens,
-         SyntaxLexState state, SyntaxStateTrace* trace)
-{
-    if (trace) {
-        trace->SetStateless(kHasLineHeadTokens<Cfg>);
-    }
-    TokenizeRange<Cfg>(text, begin, keywords, types, tokens, state != kSyntaxMidLine);
-    return true;
-}
-
 // TokenizeRange で解析する言語なら、その設定とキーワード表で fn.template operator()<Cfg>(keywords, types) を呼んで true を返す。
 template <class Fn>
 bool VisitLexerConfig(SyntaxLanguage language, Fn&& fn)
@@ -3109,15 +3095,6 @@ bool VisitLexerConfig(SyntaxLanguage language, Fn&& fn)
     default:
         return false;
     }
-}
-
-// TokenizeRange で解析する言語なら解析して true を返す。
-bool TokenizeByLexerConfig(std::string_view text, size_t begin, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, SyntaxLexState state,
-                           SyntaxStateTrace* trace)
-{
-    return VisitLexerConfig(language, [&]<LexerConfig Cfg>(kw::KeywordTable keywords, kw::KeywordTable types) {
-        Lex<Cfg>(text, begin, keywords, types, tokens, state, trace);
-    });
 }
 
 // 行をまたぎうるトークンを始める並び (行末の \ を除く) のうち、Cfg の言語で有効なもの。TokenizeRange に行をまたぐトークンを
@@ -3313,10 +3290,18 @@ SyntaxStateTrace::Point SyntaxStateTrace::RestartFor(size_t token_start) const n
 void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens, size_t begin, SyntaxLexState state,
                   SyntaxStateTrace* trace)
 {
-    if (TokenizeByLexerConfig(text, begin, language, tokens, state, trace)) {
-        return;
+    // TokenizeRange で解析する言語は、状態がトークンの中にしか無いので、トークンの外ならどこからでも始められる。ただし行の頭で
+    // だけ効くトークンを持つ言語は、行の途中から始めることを state (kSyntaxMidLine) で受け取る (受け取らないと、長い 1 行を
+    // 区切った続きのノードの頭の rem や # を行の頭として読み、続きがまるごとコメントになる)。
+    const bool by_config = VisitLexerConfig(language, [&]<LexerConfig Cfg>(kw::KeywordTable keywords, kw::KeywordTable types) {
+        if (trace) {
+            trace->SetStateless(kHasLineHeadTokens<Cfg>);
+        }
+        TokenizeRange<Cfg>(text, begin, keywords, types, tokens, state != kSyntaxMidLine);
+    });
+    if (!by_config) {
+        TokenizeStateful(text, language, begin, state, tokens, trace);
     }
-    TokenizeStateful(text, language, begin, state, tokens, trace);
 }
 
 std::optional<bool> EndsAtLineHead(SyntaxLanguage language, std::string_view text) noexcept

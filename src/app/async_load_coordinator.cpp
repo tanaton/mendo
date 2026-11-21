@@ -119,13 +119,12 @@ void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_w
     });
 }
 
-bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
+bool AsyncLoadCoordinator::Attach(WorkerWake wake)
 {
     // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
     // 出ている結果は Publish が通知していないので、ここで送っても二重には届かない。
     const std::lock_guard lock(mutex_);
-    notify_hwnd_ = hwnd;
-    notify_msg_ = msg_id;
+    wake_ = std::move(wake);
     if (outcome_) {
         NotifyLocked();
     }
@@ -215,8 +214,8 @@ void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadO
 
 void AsyncLoadCoordinator::NotifyLocked() const noexcept
 {
-    if (notify_hwnd_) {
-        ::PostMessageW(notify_hwnd_, notify_msg_, 0, 0);
+    if (wake_) {
+        wake_();
     }
 }
 

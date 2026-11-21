@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -116,7 +117,8 @@ public:
     {
         late_content_width_.store(content_width, std::memory_order_relaxed);
     }
-    bool Attach(HWND hwnd, UINT msg_id);
+    // 結果が出たら wake を呼ばせる。もう出ていればここで呼ぶ。worker でも呼ぶので、UI スレッドに Take を呼ばせるだけにする。
+    bool Attach(WorkerWake wake);
     std::optional<AsyncLoadOutcome> Take() noexcept;
 
     void Cancel() noexcept
@@ -146,8 +148,7 @@ private:
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;
     // 結果の通知先。worker が Publish で読むので mutex_ で守る。
-    HWND notify_hwnd_ = nullptr;
-    UINT notify_msg_ = 0;
+    WorkerWake wake_;
 
     // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
     std::stop_source stop_source_;

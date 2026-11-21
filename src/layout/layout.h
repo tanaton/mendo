@@ -20,14 +20,14 @@ class ViewportManager;
 
 struct TableRestoreResult {
     bool restored = false;
-    // 見積もった行高さで evict されていた行を実測し直して高さが変わったときの新しい高さ。
-    std::optional<float> height;
+    // 見積もった行高さで evict されていた行を実測し直して、表の高さ (TotalHeight) が変わった。
+    bool height_changed = false;
 };
 
 // entry に触れずに初めから組んだ表の幾何 (ITextMeasurer::BuildTable)。
 struct BuiltTable {
+    // 高さは table->TotalHeight()。
     std::unique_ptr<TableLayoutData> table;
-    float height = 0.0f;
     // 寸法がまだ無いインライン数式か画像を仮に組んだ。
     bool pending_inline = false;
 };
@@ -105,8 +105,9 @@ inline void MeasureEntry(
 inline TableRestoreResult RestoreEntryTableRows(const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, YRange viewport)
 {
     const TableRestoreResult result = measurer.RestoreEvictedTableRows(node, entry, viewport);
-    if (result.height) {
-        entry.CommitMeasured(entry.table_layout()->last_applied_max_width, *result.height);
+    if (result.height_changed) {
+        const auto* tl = entry.table_layout();
+        entry.CommitMeasured(tl->last_applied_max_width, tl->TotalHeight());
     }
     return result;
 }
@@ -157,7 +158,7 @@ public:
     TableMeasureJobs(const TableMeasureJobs&) = delete;
     TableMeasureJobs& operator=(const TableMeasureJobs&) = delete;
 
-    void SetWake(std::move_only_function<void()> wake)
+    void SetWake(WorkerWake wake)
     {
         wake_ = std::move(wake);
     }
@@ -185,7 +186,7 @@ private:
     std::vector<Running> running_;
     uint64_t last_job_ = 0;
     PostedInbox<Result> results_;
-    std::move_only_function<void()> wake_;
+    WorkerWake wake_;
     WorkerLatch latch_;
 };
 

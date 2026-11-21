@@ -74,8 +74,8 @@ public:
     // Init 前に呼ぶ。初回描画に含まれるため無効化はしない。
     void SetInitialDirectory(std::wstring_view dir_path);
 
-    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で hwnd が解禁されると、worker は
-    // ::PostMessageW(PARSE_COMPLETE) を発行し、通常の async load 経路に合流する。
+    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で通知先を渡すと、worker は
+    // PARSE_COMPLETE を投げ、通常の async load 経路に合流する。
     void StartPreloadAsync(std::wstring path);
 
     // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
@@ -158,15 +158,16 @@ public:
     {
         return load_coordinator_.IsActive();
     }
+    // 起動時の読み込みの結果が届いていれば、最初のフレームより前に取り込んで true を返す。
+    bool TakeParseComplete();
+    // 起動時の、デバイスに依存しない通知を最初のフレームより前に取り込む。デバイスの作成を待つ前に呼ぶと、
+    // ファイルペインの一覧の行の文字レイアウト (CreateRenderDevice の PrepareChrome) と、インライン数式の描画を
+    // 作成と並行して進められる。待つ間に届いた分のため、作成の後にも呼ぶ。
+    void TakeStartupMessages();
     // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に測り、計測を vblank 待ちに隠す。
     void PrepareFrame();
-    void OnAppImageLoaded();
-    void OnParseComplete();
-    void OnMermaidJobDone();
-    void OnInlineMathRequested();
-    void OnTableMeasured();
-    void OnViewerImageDecoded();
-    void OnFileListed();
+    // ワーカーの仕事が終わったことを知らせる app_msg のメッセージ。戻り値: app_msg の番号だった (扱った)。
+    bool OnAppMessage(UINT msg);
     void OnDestroy();
 
     constexpr bool IsSearchBarVisible() const noexcept
@@ -186,6 +187,12 @@ public:
     bool IsOverMdScrollbar(float dip_x, float dip_y);
 
 private:
+    // 窓のキューに msg が届いていれば取り出して OnAppMessage に渡す。
+    bool DispatchPosted(UINT msg);
+    void OnParseComplete();
+    void OnInlineMathRequested();
+    void OnTableMeasured();
+    void OnFileListed();
     void Execute(const SideEffectList& effects)
     {
         for (const auto& e : effects) {

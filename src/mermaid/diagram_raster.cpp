@@ -85,10 +85,9 @@ FamilyChain ChainFor(IDWriteFactory* dw, std::wstring_view css_family)
 {
     static std::mutex mutex;
     // 終了時に DirectWrite のオブジェクトを解放させない (解放の順が決まらない)。
-    static auto* const chains = new std::unordered_map<std::wstring, FamilyChain>();
+    static auto* const chains = new std::unordered_map<std::wstring, FamilyChain, StringTransparentHash, std::equal_to<>>();
     const std::lock_guard lock(mutex);
-    std::wstring key{ css_family };
-    if (const auto it = chains->find(key); it != chains->end()) {
+    if (const auto it = chains->find(css_family); it != chains->end()) {
         return it->second;
     }
     ComPtr<IDWriteFontCollection> fonts;
@@ -108,7 +107,7 @@ FamilyChain ChainFor(IDWriteFactory* dw, std::wstring_view css_family)
             builder->CreateFontFallback(&chain.fallback);
         }
     }
-    return chains->emplace(std::move(key), std::move(chain)).first->second;
+    return chains->emplace(std::wstring{ css_family }, std::move(chain)).first->second;
 }
 
 ComPtr<IDWriteTextFormat> CreateDiagramFormat(IDWriteFactory* dw, const DiagramFont& font, const wchar_t* locale)
@@ -240,11 +239,7 @@ bool HasClass(std::string_view classes, std::string_view name) noexcept
     return AnyClass(classes, [name](std::string_view c) { return c == name; });
 }
 
-// 表の名前のように、どちらも実行時に決まる文字列の比較。片方が小文字のリテラルなら ascii_util::iequal。
-bool IEquals(std::string_view a, std::string_view b) noexcept
-{
-    return a.size() == b.size() && std::ranges::equal(a, b, {}, ascii_util::ToLowerAscii, ascii_util::ToLowerAscii);
-}
+using ascii_util::IEquals;
 
 bool IsSpace(char c) noexcept
 {
@@ -4343,10 +4338,9 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
     ComPtr<ID2D1Factory> factory;
     rt->GetFactory(&factory);
     // 装置の画素に合わせる。描く先の変換は拡大と平行移動だけ (図とインライン数式の縮小) とみなす。
-    float dpi_x = DEFAULT_DPI, dpi_y = DEFAULT_DPI;
-    rt->GetDpi(&dpi_x, &dpi_y);
-    const float scale_x = base._11 * dpi_x / DEFAULT_DPI, scale_y = base._22 * dpi_y / DEFAULT_DPI;
-    const float offset_x = base._31 * dpi_x / DEFAULT_DPI, offset_y = base._32 * dpi_y / DEFAULT_DPI;
+    const D2D1::Matrix3x2F device = DeviceTransform(rt);
+    const float scale_x = device._11, scale_y = device._22;
+    const float offset_x = device._31, offset_y = device._32;
     const auto snap_x = [&](float v) { return scale_x > 0.0f ? (std::round(v * scale_x + offset_x) - offset_x) / scale_x : v; };
     const auto snap_y = [&](float v) { return scale_y > 0.0f ? (std::round(v * scale_y + offset_y) - offset_y) / scale_y : v; };
     // 罫線の太さ。Chrome の border と同じく CSS px に切り捨て、1px 未満は 1px にする (分数の線 0.04em は DPR 1.5 で 1.5 画素)。
@@ -4376,23 +4370,17 @@ void DrawMath(ID2D1RenderTarget* rt, const MathDrawing& math, float x, float y, 
         if (g) {
             // ベースラインは装置の画素に合わせ、横は合わせない (Chrome と同じ。横も合わせると Chrome の絵から離れた)。
             const float gy = snap_y(y + g->y);
+            const DWRITE_GLYPH_RUN run{
+                .fontFace = g->face.Get(),
+                .fontEmSize = g->size,
+                .glyphCount = static_cast<UINT32>(g->glyphs.size()),
+                .glyphIndices = g->glyphs.data(),
+                .glyphAdvances = g->advances.data(),
+            };
             if (!g->color && !g->mirror && !g->color_font) {
-                const DWRITE_GLYPH_RUN run{
-                    .fontFace = g->face.Get(),
-                    .fontEmSize = g->size,
-                    .glyphCount = static_cast<UINT32>(g->glyphs.size()),
-                    .glyphIndices = g->glyphs.data(),
-                    .glyphAdvances = g->advances.data(),
-                };
                 merger.Add(x + g->x, gy, run, brush, DWRITE_MEASURING_MODE_NATURAL);
                 continue;
             }
-            DWRITE_GLYPH_RUN run{};
-            run.fontFace = g->face.Get();
-            run.fontEmSize = g->size;
-            run.glyphCount = static_cast<UINT32>(g->glyphs.size());
-            run.glyphIndices = g->glyphs.data();
-            run.glyphAdvances = g->advances.data();
             if (g->mirror) {
                 rt->SetTransform(D2D1::Matrix3x2F::Scale(-1.0f, 1.0f, D2D1::Point2F(x + g->x + RunWidth(*g) / 2, gy)) * base);
             }

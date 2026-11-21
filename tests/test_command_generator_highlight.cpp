@@ -242,9 +242,8 @@ protected:
         std::vector<D2D1_RECT_F> expected;
         std::vector<DWRITE_HIT_TEST_METRICS> buf;
         for (const auto& m : search_.GetMatches()) {
-            const UINT32 n = FetchHitTestMetrics(layout, m.start_w, m.length_w, buf);
-            for (UINT32 k = 0; k < n; ++k) {
-                const auto r = RectFromHitTest(buf[k], text_cmd->origin.x, text_cmd->origin.y);
+            for (const auto& hit : FetchHitTestMetrics(layout, m.start_w, m.length_w, buf)) {
+                const auto r = RectFromHitTest(hit, text_cmd->origin.x, text_cmd->origin.y);
                 if (!IsOffscreen(r.top, r.bottom - r.top, 0.0f, PANE.height)) {
                     expected.push_back(r);
                 }
@@ -306,7 +305,7 @@ TEST_F(VisibleHighlightTest, SearchHighlightCoversWholeCluster)
     ASSERT_EQ(search_.GetMatchCount(), 1);
     ASSERT_EQ(search_.GetMatches()[0].length_w, 1u);
     std::vector<DWRITE_HIT_TEST_METRICS> buf;
-    ASSERT_EQ(FetchHitTestMetrics(pl.cache[0].text_layout(), 1, 2, buf), 1u);
+    ASSERT_EQ(FetchHitTestMetrics(pl.cache[0].text_layout(), 1, 2, buf).size(), 1u);
     const float cluster_width = buf[0].width;
     ASSERT_GT(cluster_width, 0.0f);
     const auto rect = FindFirstFillRectByBrush(Generate(pl, 0.0f), { BrushId::SearchHighlight });

@@ -402,16 +402,11 @@ struct Node {
     {
         return { urls(), link_url_count_ };
     }
-    // リンク URL と、その後ろに続く画像の src。
-    std::span<const std::string_view> link_urls_and_image_srcs() const noexcept
+    // refs.runs は refs.urls の直後に続くこと (TextArena::CopyRefs。urls が空なら runs の頭を持つ)。どれも各文字列も、
+    // SetText と同じくノードより長く生きる領域を指すこと。
+    void SetRefs(const NodeRefs& refs) noexcept
     {
-        return { urls(), size_t{ link_url_count_ } + image_src_count_ };
-    }
-
-    // urls は先頭 link_count 個がリンク URL、残りが画像の src (image_slot の順)。runs は urls の直後に続くこと
-    // (TextArena::CopyRefs。urls が空なら runs の頭を持つ)。どれも各文字列も、SetText と同じくノードより長く生きる領域を指すこと。
-    void SetRefs(std::span<const std::string_view> urls_value, size_t link_count, std::span<const TextRun> runs_value) noexcept
-    {
+        const auto& [urls_value, link_count, runs_value] = refs;
         assert(link_count <= kMaxLinkUrls && link_count <= urls_value.size() && urls_value.size() - link_count <= kMaxImageSlots);
         assert(urls_value.empty() || runs_value.empty() || static_cast<const void*>(urls_value.data() + urls_value.size()) == runs_value.data());
         refs_ = urls_value.empty() ? static_cast<const void*>(runs_value.data()) : urls_value.data();

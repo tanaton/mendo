@@ -16,9 +16,6 @@
 
 namespace {
 
-// キーボードスクロール量（DIP）
-constexpr float SCROLL_LINE_AMOUNT = 40.0f;
-constexpr float SCROLL_PAGE_FACTOR = 0.9f;
 // 横ホイール (Shift+Wheel / WM_MOUSEHWHEEL) の 1 ノッチ (delta の WHEEL_DELTA = 120) あたりの DIP スクロール量。
 constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
@@ -188,10 +185,10 @@ void On(ReduceContext& c, const KeyScrollAction& a)
     const float max_scroll = info.max_scroll;
     switch (a.type) {
     case ScrollType::LineUp:
-        viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT, max_scroll);
+        viewport.DirectScrollBy(-KEY_SCROLL_LINE_AMOUNT, max_scroll);
         return;
     case ScrollType::LineDown:
-        viewport.DirectScrollBy(SCROLL_LINE_AMOUNT, max_scroll);
+        viewport.DirectScrollBy(KEY_SCROLL_LINE_AMOUNT, max_scroll);
         return;
     case ScrollType::PageUp:
         viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR, max_scroll);

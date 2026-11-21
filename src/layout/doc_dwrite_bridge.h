@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -56,8 +57,9 @@ private:
 // out の内容は置き換え、容量は再利用する。
 void DecodeForDWrite(std::string_view text, std::wstring& out);
 
-// HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
-inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length, std::vector<DWRITE_HIT_TEST_METRICS>& buffer)
+// HitTestTextRange をバッファ再利用付きで呼び出し、取れた分を返す。返す範囲は buffer を指し、次に buffer を使うまで有効。
+inline std::span<const DWRITE_HIT_TEST_METRICS> FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length,
+                                                                    std::vector<DWRITE_HIT_TEST_METRICS>& buffer)
 {
     // 範囲が折り返しで分かれる箱の数の想定。描画中の resize を避ける。
     constexpr size_t kInitialCapacity = 64;
@@ -70,7 +72,7 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
         buffer.resize(count);
         layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
     }
-    return count;
+    return { buffer.data(), count };
 }
 
 // [start, start+length) を、両端を含むクラスタの境目まで広げる。インライン数式は 1 つのクラスタで、途中だけを指す範囲

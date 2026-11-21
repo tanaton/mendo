@@ -139,9 +139,21 @@ public:
     using PeleFactory = std::unique_ptr<PeleEngine> (*)(IDWriteFactory* dw);
     static std::unique_ptr<PeleEngine> CreateBundledPele(IDWriteFactory* dw);
 
+    // App に頼むこと。窓に投げるメッセージやタイマーの番号は App が決め、ここでは知らない。wake のほかは空にしない。
+    struct Hooks {
+        // 待っていた図と、拡大表示に出す図を要求し直させる。UI スレッドで呼ぶ。
+        std::move_only_function<void()> on_update;
+        // 結果が溜まり始めたときに worker で呼ぶ。UI スレッドに ProcessJobResults を呼ばせるだけにする。空なら呼ばない。
+        WorkerWake wake;
+        // ms 後に TrimIdleRuntimes を呼ばせる。掛け直すとそこから数え直す。
+        std::move_only_function<void(UINT ms)> set_trim_timer;
+        std::move_only_function<void()> kill_trim_timer;
+    };
+
     // d2d・wic・dw は Renderer と共有し、保存・コピーの画像の描画先 (d2d) と画像 (wic)、図の文字 (dw) を作るのに使う。
+    // hwnd は本体の窓の DPI を読むのに使う。
     void Init(HWND hwnd, ID2D1Factory* d2d, IWICImagingFactory* wic, IDWriteFactory* dw, TaskScheduler& bg_scheduler, PeleFactory make_pele,
-              std::move_only_function<void()> on_update);
+              Hooks hooks);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     std::optional<mermaid_util::DiagramSize> KnownSize(const Node& node, float max_width, bool dark_mode) const override;
@@ -153,7 +165,7 @@ public:
     Microsoft::WRL::ComPtr<IWICBitmap> DiagramBitmap(const mermaid_util::DiagramDrawing& drawing, float max_width) override;
     // deadline を過ぎた分は残し、HasLeftoverJobResults が真になる。描画先が無い間は何もしないので、戻ったら呼ぶ。
     void ProcessJobResults(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kImportSliceBudget);
-    // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
+    // 新しい結果は Hooks::wake で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverJobResults() const noexcept
     {
         return render_target_ && job_results_.HasLeftover();
@@ -171,7 +183,7 @@ public:
     }
     // 描画待ちのインライン数式の要求を取り消す。数式の寸法表を捨てたときに、もう使わない組を描かせない。
     void DropQueuedMath();
-    // PeleEngine の使っていないランタイムを捨てる。PELE_TRIM のタイマーと、別のアプリへ切り替わったときに呼ぶ。
+    // PeleEngine の使っていないランタイムを捨てる。Hooks::set_trim_timer の時間が来たときと、別のアプリへ切り替わったときに呼ぶ。
     void TrimIdleRuntimes();
 
     // 拡大表示 (ZoomViewer) の図。本文と同じ結果 (cache_) を使い、本文が描いた図はその描画命令をそのまま出し、無ければ
@@ -265,8 +277,6 @@ private:
 
     void ApplyMathResult(Job& r);
 
-    // 最初に図か数式を描くときに作る。bg のワーカーが使うので、UI スレッドで投げる前に呼ぶ。
-    void EnsurePele();
     // bg のワーカーで PeleEngine に描かせ、結果をキャッシュの読み込みと同じ経路で返す。
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
@@ -283,12 +293,9 @@ private:
     // 解いた形が無ければ、先に直列化した形を解いてラベルの数式を差し込む。
     void StartLoad(RenderRequest req, const DiagramCache::Item& item);
     // 戻り値: 結果 (描画命令かエラー) が出たか。
-    bool ApplyJobResult(Job& r);
     bool ApplyDisplayResult(Job& r);
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
-    // UI スレッドで呼ぶ。描画中の Renderer とは別の DeviceContext で記録する。記録できなければ null。
-    Microsoft::WRL::ComPtr<ID2D1CommandList> RecordDrawing(const mermaid_util::DiagramDrawing& drawing, const DiagramTextLayouts* texts);
     // 結果 (解いた描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
     // cached_key があれば、当たった結果のキーを書く。
     DiagramCache::Item* FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key = nullptr);
@@ -298,7 +305,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
-    std::move_only_function<void()> on_update_;
+    Hooks hooks_;
 
     std::unordered_set<uint64_t> inflight_;
     // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む) と描画命令の

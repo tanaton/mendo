@@ -128,9 +128,25 @@ void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point dead
 
 void ResourceManager::RequestMermaidRenders()
 {
+    const float content_width = MdContentWidth(state_);
+    // 図は届いた結果の反映も RequestRender が行うので、読み込み中に届いた結果は差し替えずに終わった後の要求で反映する。
+    // 解いた形も手放さない (読み込みが失敗して戻ったときに解き直さない)。
+    if (content_width <= 0.0f || host_.IsLoadingOtherDocument()) {
+        return;
+    }
+
+    const bool dark_mode = state_.theme->dark;
+    InvalidateDiagramsForRequestChange(content_width, dark_mode);
+    DropQueuesIfJumped();
+    mermaid_.BeginRequestPass();
+    // 拡大表示の図は本文の範囲の外にもあるので、範囲に依らず頼む。見ている窓の図なので本文より先に並べる。
+    host_.RequestViewerDrawing(content_width, dark_mode);
     // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。Y の再計算は変わった範囲に限る。
     IndexRange changed;
-    RequestVisibleDiagrams(changed);
+    const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
+    for (const size_t i : slices | std::views::join) {
+        RequestDiagramRender(i, content_width, dark_mode, changed);
+    }
     // この回で置き換わった結果 (テーマ・幅・コードの変更)、範囲の外へ出た図 (EvictOffscreenResources) と、届いたが
     // どの図も受け取らなかった結果の解いた形を、まとめて手放す。
     mermaid_.ReleaseIdleDrawings();
@@ -336,26 +352,6 @@ void ResourceManager::NotifyInlineImages(const InlineImageUpdate& update)
 {
     if (update.pending_resolved || update.sizes_changed || update.bitmaps_changed) {
         host_.OnInlineImagesUpdated(update.pending_resolved, update.sizes_changed);
-    }
-}
-
-void ResourceManager::RequestVisibleDiagrams(IndexRange& changed)
-{
-    const float content_width = MdContentWidth(state_);
-    // 図は届いた結果の反映も RequestRender が行うので、読み込み中に届いた結果は差し替えずに終わった後の要求で反映する。
-    if (content_width <= 0.0f || host_.IsLoadingOtherDocument()) {
-        return;
-    }
-
-    const bool dark_mode = state_.theme->dark;
-    InvalidateDiagramsForRequestChange(content_width, dark_mode);
-    DropQueuesIfJumped();
-    mermaid_.BeginRequestPass();
-    // 拡大表示の図は本文の範囲の外にもあるので、範囲に依らず頼む。見ている窓の図なので本文より先に並べる。
-    host_.RequestViewerDrawing(content_width, dark_mode);
-    const auto slices = PrioritizedSlices(state_.document.doc.GetDiagramNodeIndices());
-    for (const size_t i : slices | std::views::join) {
-        RequestDiagramRender(i, content_width, dark_mode, changed);
     }
 }
 

@@ -4,7 +4,6 @@
 #include "layout.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
-#include "app_constants.h"
 #include "fake_zoom_window.h"
 #include "i18n.h"
 #include "file_io.h"
@@ -347,8 +346,8 @@ protected:
         render_target_ = CreateRenderTarget();
         ASSERT_TRUE(render_target_) << "レンダーターゲット作成に失敗";
 
-        // テストでは PostMessage を受け取れないため HWND は nullptr にし、ProcessCompletedDecodes を手動で呼ぶ
-        loader_.Init(wic_factory_.Get(), nullptr, 0, scheduler_);
+        // 知らせ (wake) は渡さず、ProcessCompletedDecodes を手動で呼ぶ。HWND は無いので DPI は描画先から読む
+        loader_.Init(wic_factory_.Get(), nullptr, scheduler_, {});
         loader_.SetRenderTarget(render_target_.Get());
     }
 
@@ -616,7 +615,7 @@ TEST_F(ImageLoaderTest, UndecodableFileReturnsFalse)
 TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
 {
     ImageLoader loader_null;
-    loader_null.Init(wic_factory_.Get(), nullptr, 0, scheduler_);
+    loader_null.Init(wic_factory_.Get(), nullptr, scheduler_, {});
     ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
     LoadedImage entry;
@@ -767,7 +766,7 @@ TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
         const auto rt = CreateRenderTarget(c.dpi);
         ASSERT_TRUE(rt);
         ImageLoader loader;
-        loader.Init(wic_factory_.Get(), nullptr, 0, scheduler_);
+        loader.Init(wic_factory_.Get(), nullptr, scheduler_, {});
         loader.SetRenderTarget(rt.Get());
 
         const auto filename = L"dpi" + std::to_wstring(static_cast<int>(c.dpi)) + L".png";
@@ -1468,15 +1467,19 @@ TEST_F(ImageLoaderAsyncTest, InvalidateWhilePendingKeepsResultStale)
 // 拡大表示の画像 (ZoomViewer)
 // ============================================================
 
-// 窓は作らない。読み終えた知らせ (投函) は受け取らず、ワーカーを待ってから OnImageDecoded を呼ぶ。
+// 窓は作らない。読み終えた知らせ (wake) は数えるだけで、ワーカーを待ってから OnImageDecoded を呼ぶ。
 class ZoomViewerImageTest : public ImageLoaderTest {
 protected:
     void SetUp() override
     {
         ImageLoaderTest::SetUp();
         log_ = {};
-        viewer_.Init(window_.Get(), app_msg::VIEWER_IMAGE_DECODED, nullptr, wic_factory_.Get(), scheduler_, OpenFakeZoomWindow<log_>, [] {},
-                     [this](std::wstring_view message) { failures_.emplace_back(message); });
+        viewer_.Init(nullptr, nullptr, wic_factory_.Get(), scheduler_, OpenFakeZoomWindow<log_>,
+                     {
+                         .on_update = [] {},
+                         .wake = wakes_.Fn(),
+                         .on_failed = [this](std::wstring_view message) { failures_.emplace_back(message); },
+                     });
         viewer_.SetRenderTarget(render_target_.Get(), nullptr, nullptr);
     }
     void TearDown() override
@@ -1498,7 +1501,7 @@ protected:
     }
 
     static inline ZoomWindowLog log_;
-    MessageOnlyWindow window_;
+    WakeCounter wakes_;
     ZoomViewer viewer_;
     std::vector<std::wstring> failures_;
 };
@@ -1514,7 +1517,7 @@ TEST_F(ZoomViewerImageTest, OpensImageAtFullSize)
     EXPECT_TRUE(log_.images.empty());
 
     Settle();
-    EXPECT_EQ(window_.DrainMessages(app_msg::VIEWER_IMAGE_DECODED), 1);
+    EXPECT_EQ(wakes_.Take(), 1);
     ASSERT_EQ(log_.images.size(), 1u);
     EXPECT_EQ(log_.images[0].pixel_width, 3000u);
     EXPECT_EQ(log_.images[0].pixel_height, 200u);

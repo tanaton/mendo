@@ -9,6 +9,7 @@
 #include <dwrite.h>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -27,6 +28,7 @@
 #include "test_nodes.h"
 #include "theme.h"
 #include "ui_types.h"
+#include "worker_latch.h"
 
 // 区切って進める処理 (ContinueSearch など) を、最初の区切りで止める期限。
 inline constexpr auto kExpiredDeadline = std::chrono::steady_clock::time_point::min();
@@ -557,8 +559,7 @@ inline IDWriteFactory* SharedDWriteFactory()
     return factory.Get();
 }
 
-// worker から PostMessage される HWND の提供と、届いた通知の計数に使う。
-// HWND_MESSAGE 親で可視化されず、メッセージループ不要 (作成スレッドのキューに積まれる)。
+// 窓を受け取る API (DPI を読む、開く窓の持ち主にする) に渡す HWND。HWND_MESSAGE 親で可視化されない。
 class MessageOnlyWindow {
 public:
     MessageOnlyWindow()
@@ -587,19 +588,25 @@ public:
         return hwnd_;
     }
 
-    // キューに溜まった msg_id を取り出して数える。
-    int DrainMessages(UINT msg_id) const noexcept
+private:
+    HWND hwnd_ = nullptr;
+};
+
+// worker が仕事の終わりを知らせる関数 (wake) の呼ばれた回数を数える。
+class WakeCounter {
+public:
+    WorkerWake Fn() noexcept
     {
-        int n = 0;
-        MSG m;
-        while (::PeekMessageW(&m, hwnd_, msg_id, msg_id, PM_REMOVE)) {
-            ++n;
-        }
-        return n;
+        return [this] { count_.fetch_add(1, std::memory_order_relaxed); };
+    }
+    // 数えた回数を返し、0 に戻す。
+    int Take() noexcept
+    {
+        return count_.exchange(0, std::memory_order_relaxed);
     }
 
 private:
-    HWND hwnd_ = nullptr;
+    std::atomic<int> count_ = 0;
 };
 
 // COM apartment 初期化を管理する基底フィクスチャ。他スイートが別モードで初期化済み (RPC_E_CHANGED_MODE) なら

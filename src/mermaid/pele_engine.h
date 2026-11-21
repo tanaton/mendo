@@ -18,7 +18,6 @@ class TaskScheduler;
 struct IDWriteFactory;
 struct MathDrawing;
 struct PeleContext;
-struct PeleSvg;
 
 struct PeleOutcome {
     enum class Status : uint8_t {
@@ -92,7 +91,8 @@ private:
     bool EnsurePele(PeleContext& context);
     bool EnsureKatex(PeleContext& context);
     KatexAssets* Assets();
-    std::expected<PeleSvg, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale);
+    // ラベルの数式は context.labels に残る。
+    std::expected<std::string, PeleOutcome> RenderSvg(PeleContext& context, std::string_view code, float max_width, StaleWhen stale);
     // 覚えていなければ nullopt。KaTeX が描けなかった TeX は null を覚えている。
     std::optional<std::shared_ptr<const std::string>> FindHtml(uint64_t key);
     void StoreHtml(uint64_t key, std::shared_ptr<const std::string> html);

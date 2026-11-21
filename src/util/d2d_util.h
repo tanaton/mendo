@@ -115,6 +115,9 @@ inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
     return rt ? rt->GetMaximumBitmapSize() : kWithoutTarget;
 }
 
+// rt の今の変換に DPI を掛けた、DIP から装置の画素への変換。
+D2D1::Matrix3x2F DeviceTransform(ID2D1RenderTarget* rt) noexcept;
+
 // Present の結果が、デバイスを失ったことを表すか。TDR / ドライバ内部障害もデバイスの作り直しで戻るので REMOVED/RESET と同じに
 // 扱う。OCCLUDED (成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるので拾わない。
 constexpr bool IsDeviceLostOnPresent(HRESULT hr) noexcept

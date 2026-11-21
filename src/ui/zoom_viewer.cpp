@@ -44,10 +44,6 @@ constexpr float kButtonHeight = 28.0f;
 constexpr float kLabelWidth = 48.0f;
 constexpr float kBarCorner = 6.0f;
 constexpr float kButtonCorner = 4.0f;
-// 矢印キーとスクロールバーの矢印の 1 回分。ホイールは 1 行をこの長さとして SPI_GETWHEELSCROLLLINES 行。
-constexpr float kLineStep = 40.0f;
-// ページ単位の送りは窓の 9 割にして、前の画面の端を残す。
-constexpr float kPageRatio = 0.9f;
 // 端まで送る。ScrollTo が範囲に収める。
 constexpr float kFar = 1.0e9f;
 
@@ -595,8 +591,8 @@ void ZoomWindow::UpdateScrollBars()
         scroll = std::clamp(scroll, 0.0f, max_scroll);
         SCROLLINFO si{ .cbSize = sizeof(si), .fMask = SIF_RANGE | SIF_PAGE | SIF_POS };
         if (max_scroll > 0.0f) {
-            si.nMax = static_cast<int>(std::ceil(content * scale)) - 1;
-            si.nPage = static_cast<UINT>(std::floor(view * scale));
+            si.nMax = DipToPixelCeil(content, scale) - 1;
+            si.nPage = static_cast<UINT>(DipToPixel(view, scale));
             si.nPos = static_cast<int>(std::lround(scroll * scale));
         }
         SetScrollInfo(hwnd_, bar, &si, TRUE);
@@ -628,14 +624,14 @@ void ZoomWindow::ScrollTo(float x, float y)
 void ZoomWindow::Scroll(int bar, WORD request)
 {
     const bool horizontal = bar == SB_HORZ;
-    const float page = (horizontal ? view_width_ : view_height_) * kPageRatio;
+    const float page = (horizontal ? view_width_ : view_height_) * SCROLL_PAGE_FACTOR;
     float delta = 0.0f;
     switch (request) {
     case SB_LINEUP:
-        delta = -kLineStep;
+        delta = -KEY_SCROLL_LINE_AMOUNT;
         break;
     case SB_LINEDOWN:
-        delta = kLineStep;
+        delta = KEY_SCROLL_LINE_AMOUNT;
         break;
     case SB_PAGEUP:
         delta = -page;
@@ -653,7 +649,7 @@ void ZoomWindow::Scroll(int bar, WORD request)
     case SB_THUMBPOSITION: {
         SCROLLINFO si{ .cbSize = sizeof(si), .fMask = SIF_TRACKPOS };
         GetScrollInfo(hwnd_, bar, &si);
-        delta = static_cast<float>(si.nTrackPos) / Scale() - (horizontal ? scroll_x_ : scroll_y_);
+        delta = PixelToDip(static_cast<float>(si.nTrackPos), Scale()) - (horizontal ? scroll_x_ : scroll_y_);
         break;
     }
     default:
@@ -771,7 +767,8 @@ bool ZoomWindow::HandleMessage(UINT msg, WPARAM wparam, LPARAM lparam, LRESULT& 
         const UINT lines = WheelScrollLines();
         const float notches = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA;
         const bool horizontal = msg == WM_MOUSEHWHEEL || (GET_KEYSTATE_WPARAM(wparam) & MK_SHIFT);
-        const float step = lines == WHEEL_PAGESCROLL ? (horizontal ? view_width_ : view_height_) * kPageRatio : kLineStep * static_cast<float>(lines);
+        // 1 行を矢印キーの 1 回分として SPI_GETWHEELSCROLLLINES 行 (本文のホイールの量とは違う)。
+        const float step = lines == WHEEL_PAGESCROLL ? (horizontal ? view_width_ : view_height_) * SCROLL_PAGE_FACTOR : KEY_SCROLL_LINE_AMOUNT * static_cast<float>(lines);
         // 縦のホイールは前へ回すと上へ、横のホイールは右へ倒すと右へ。
         const float amount = (msg == WM_MOUSEHWHEEL ? notches : -notches) * step;
         ScrollBy(horizontal ? amount : 0.0f, horizontal ? 0.0f : amount);
@@ -935,17 +932,14 @@ ZoomViewer::~ZoomViewer()
     Shutdown();
 }
 
-void ZoomViewer::Init(HWND hwnd, UINT image_msg, IDWriteFactory* dw, IWICImagingFactory* wic, TaskScheduler& scheduler, WindowFactory open_window,
-                      std::move_only_function<void()> on_update, std::move_only_function<void(std::wstring_view)> on_failed)
+void ZoomViewer::Init(HWND hwnd, IDWriteFactory* dw, IWICImagingFactory* wic, TaskScheduler& scheduler, WindowFactory open_window, Hooks hooks)
 {
     hwnd_ = hwnd;
-    image_msg_ = image_msg;
     dw_ = dw;
     wic_ = wic;
     scheduler_ = &scheduler;
     open_window_ = open_window;
-    on_update_ = std::move(on_update);
-    on_failed_ = std::move(on_failed);
+    hooks_ = std::move(hooks);
 }
 
 void ZoomViewer::Shutdown()
@@ -1026,7 +1020,7 @@ void ZoomViewer::Fail()
     const auto& s = i18n::S();
     const std::wstring_view message = std::holds_alternative<ImageSubject>(subject_) ? s.toast_image_view_failed : s.toast_diagram_view_failed;
     Close();
-    on_failed_(message);
+    hooks_.on_failed(message);
 }
 
 void ZoomViewer::FailIfEmpty()
@@ -1097,7 +1091,7 @@ void ZoomViewer::UpdateDiagramCode(std::string_view code)
 void ZoomViewer::AwaitDiagram()
 {
     std::get<DiagramSubject>(subject_).pending = true;
-    on_update_();
+    hooks_.on_update();
 }
 
 void ZoomViewer::RequestDiagram(MermaidRenderer& mermaid, float max_width, bool dark_mode)
@@ -1128,7 +1122,8 @@ void ZoomViewer::StartDecode()
     const uint32_t generation = ++generation_;
     // 縮める辺の上限は頼むときの描画先で決める (デバイスが変われば読み直す)。
     const UINT max_dim = MaxBitmapDim(rt_);
-    scheduler_->Post([this, path = image.path, generation, max_dim, guard = latch_.Acquire()] {
+    // クリックで頼んだものなので、本文の画像のデコードや図の読み込みが溜まっていても先に読む。
+    scheduler_->PostFront([this, path = image.path, generation, max_dim, guard = latch_.Acquire()] {
         // 閉じたか別のものを開いたなら読まない。
         if (generation_.load() != generation) {
             return;
@@ -1139,8 +1134,8 @@ void ZoomViewer::StartDecode()
         if (generation_.load() != generation) {
             return;
         }
-        if (decoded_.Push({ .generation = generation, .image = std::move(image) }) && hwnd_) {
-            ::PostMessageW(hwnd_, image_msg_, 0, 0);
+        if (decoded_.Push({ .generation = generation, .image = std::move(image) }) && hooks_.wake) {
+            hooks_.wake();
         }
     });
 }
