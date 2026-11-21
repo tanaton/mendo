@@ -76,7 +76,7 @@ LayoutCache EstimateHeights(std::span<const Node> nodes, const Theme& theme)
     return cache;
 }
 
-float GapAfter(const LayoutCache& cache, size_t i)
+double GapAfter(const LayoutCache& cache, size_t i)
 {
     return cache.Top(i + 1) - (cache.Top(i) + cache[i].height);
 }
@@ -386,7 +386,7 @@ TEST(ComputeTotalContentHeightTest, SingleNode)
     LayoutCache cache(1);
     cache.SetTop(0, 15.0f);
     cache[0].height = 50.0f;
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 15.0f), 80.0f);
+    EXPECT_DOUBLE_EQ(ComputeTotalContentHeight(cache, 15.0f), 80.0);
 }
 
 TEST(ComputeTotalContentHeightTest, MultipleNodes)
@@ -399,7 +399,26 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes)
     cache.SetTop(2, 80.0f);
     cache[2].height = 25.0f;
     // 最後のノードのみが関係: 80 + 25 + 10 = 115
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 10.0f), 115.0f);
+    EXPECT_DOUBLE_EQ(ComputeTotalContentHeight(cache, 10.0f), 115.0);
+}
+
+// 文書の Y が 2^24 DIP を超えても、ノードの間の余白は丸まらない (float で積むと 2 DIP 刻みになった)。
+TEST(RecomputeYPositionsTest, GapsStayExactFarDown)
+{
+    const Theme theme = GetLightTheme();
+    std::vector<Node> nodes(40000);
+    LayoutCache cache(nodes.size());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        nodes[i].type = NodeType::Paragraph;
+        cache[i].height = 500.25f;
+        cache[i].layout_dirty = false;
+    }
+    RecomputeYPositions(nodes, cache, theme);
+    ASSERT_GT(cache.Top(nodes.size() - 1), 1 << 24);
+    const double gap = static_cast<double>(layout::GetSpacingBelow(nodes[0], theme)) + layout::GetSpacingAbove(nodes[1], theme);
+    for (const size_t i : { 0uz, 4095uz, 4096uz, 20000uz, 39998uz }) {
+        EXPECT_DOUBLE_EQ(GapAfter(cache, i), gap) << "i=" << i;
+    }
 }
 
 // 先頭ノードは margin_top から、見出しならその上の間隔を足した位置に置く。
@@ -415,7 +434,7 @@ TEST(RecomputeYPositionsTest, FirstNodeTop)
         auto nodes = MakeNodes({ spec });
         auto cache = MakeMeasuredCache({ 20.0f });
         RecomputeYPositions(nodes, cache, theme);
-        EXPECT_FLOAT_EQ(cache.Top(0), expected_top);
+        EXPECT_FLOAT_EQ(static_cast<float>(cache.Top(0)), expected_top);
     }
 }
 
@@ -450,7 +469,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 TEST_F(LayoutTest, PartialLayoutAfterInvalidateAllDropsStaleHeights)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
-    const float baseline_total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
+    const double baseline_total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     ASSERT_GT(baseline_total, 0.0f);
 
     // 後半のノードを、旧倍率で測った大きな高さにする。
@@ -560,7 +579,7 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
         auto nodes = MakeNodes({ c.first, c.second });
         auto cache = MakeMeasuredCache({ c.first_height, c.second_height });
         RecomputeYPositions(nodes, cache, theme);
-        EXPECT_FLOAT_EQ(GapAfter(cache, 0), c.expected_gap(theme));
+        EXPECT_FLOAT_EQ(static_cast<float>(GapAfter(cache, 0)), c.expected_gap(theme));
     }
 }
 
@@ -576,10 +595,10 @@ TEST(RecomputeYPositionsTest, FromIndexMatchesFullRecompute)
         auto cache = MakeMeasuredCache({ 50.0f, 20.0f });
 
         RecomputeYPositions(nodes, cache, theme);
-        const float expected_y1 = cache.Top(1);
+        const double expected_y1 = cache.Top(1);
 
         RecomputeYPositions(nodes, cache, theme, 1);
-        EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
+        EXPECT_DOUBLE_EQ(cache.Top(1), expected_y1);
     }
 }
 
@@ -741,7 +760,7 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     ASSERT_GT(lc, 0u);
 
     // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    float expected_y = SnapToPhysicalPixel(cache.Top(0) + lm.height * 0.5f, 1.0f);
+    double expected_y = SnapToPhysicalPixel(cache.Top(0) + lm.height * 0.5f, 1.0f);
 
     CommandGenerator gen;
     InitWithoutText(gen, theme_);
@@ -812,7 +831,7 @@ TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
         EXPECT_FLOAT_EQ(cache[i].height, expected);
         EXPECT_FLOAT_EQ(estimated[i].height, expected);
     }
-    EXPECT_FLOAT_EQ(cache.Top(1) - cache.Top(0), estimated.Top(1) - estimated.Top(0));
+    EXPECT_DOUBLE_EQ(cache.Top(1) - cache.Top(0), estimated.Top(1) - estimated.Top(0));
 }
 
 // loose list の LI は最初の段落を自分で持ち (issue#237 の空の LI と段落の 2 ノードにしない)、記号は 1 行目の中央に置く。
@@ -835,7 +854,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnItsFirstLine)
     InitWithoutText(gen, theme_);
     const auto cmds = GenerateMdPaneAt(gen, nodes, cache, PaneRect{ 0, 0, 800.0f, 2000.0f });
 
-    const float expected_y = cache.Top(0) + lm.height * 0.5f;
+    const double expected_y = cache.Top(0) + lm.height * 0.5f;
     const auto bullet = FindFirst<FillRoundedRectCmd>(cmds, kDisc);
     ASSERT_TRUE(bullet.has_value()) << "● が見つからない";
     EXPECT_NEAR(RectCenter(bullet->rect).y, expected_y, 0.5f);
@@ -888,7 +907,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
 TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(200, " with some words"));
-    std::vector<float> ref_tops(nodes.size());
+    std::vector<double> ref_tops(nodes.size());
     for (size_t i = 0; i < nodes.size(); i++) {
         ref_tops[i] = cache.Top(i);
     }
@@ -917,12 +936,13 @@ TEST_F(LayoutTest, RecomputeYPositionsWithRangeMatchesFull)
 
     cache[20].height += 50.0f;
     RecomputeYPositions(nodes, cache, theme_, 20, 20);
-    std::vector<float> ranged(nodes.size());
+    std::vector<double> ranged(nodes.size());
     for (size_t i = 0; i < nodes.size(); i++) {
         ranged[i] = cache.Top(i);
     }
     RecomputeYPositions(nodes, cache, theme_);
     for (size_t i = 0; i < nodes.size(); i++) {
-        EXPECT_FLOAT_EQ(ranged[i], cache.Top(i)) << "i=" << i;
+        // 範囲の外はブロック内の float に差を足すので、全件の積み直しとは float の丸めの分だけ違いうる。
+        EXPECT_FLOAT_EQ(static_cast<float>(ranged[i]), static_cast<float>(cache.Top(i))) << "i=" << i;
     }
 }

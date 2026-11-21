@@ -198,7 +198,7 @@ struct MdPaneFormats {
 // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height,
                                                bool may_grow = false) noexcept;
-std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, float scroll_y, bool may_grow = false) noexcept;
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, const PaneScrollInfo& info, double scroll_y, bool may_grow = false) noexcept;
 
 // 番号付きリストの番号の文字列 ("3." / "iii." / "c.")。段ごとに 10 進・小文字ローマ数字・小文字アルファベットの順で、
 // 4 段目からは繰り返す (箇条書きの記号と同じ)。

@@ -78,7 +78,7 @@ struct ScrollPosition {
     int node = -1;
     int offset = 0;
 };
-void SaveScrollPosition(ConfigService& config, int node, float offset);
+void SaveScrollPosition(ConfigService& config, int node, double offset);
 ScrollPosition LoadScrollPosition(const ConfigService& config);
 
 // 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。

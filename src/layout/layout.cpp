@@ -184,7 +184,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     std::vector<size_t> dirty_indices;
     for (size_t i = lo; i < node_count; i++) {
         auto& entry = cache[i];
-        const float entry_top = cache.Top(i);
+        const double entry_top = cache.Top(i);
         if (entry_top > range.bottom) {
             break;
         }
@@ -223,7 +223,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     return result;
 }
 
-bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(std::span<const Node> nodes, LayoutCache& cache, float viewport_width, double viewport_top, double viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const YRange range{ viewport_top, viewport_bottom };
@@ -282,7 +282,7 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     // ズームや幅変更で推定し直すと Y がずれるので、計測の前に見ていた位置を当て直す。
     // 古い scroll_y のまま計測すると、見えない範囲を 1 画面分ムダに計測してしまう。
     viewport_.ApplyScrollTarget(cache);
-    const float scroll_y = viewport_.GetScrollY();
+    const double scroll_y = viewport_.GetScrollY();
     if (basis_changed) {
         // 列幅が変わる表は、残っている行 (上下 8 画面分) が全部組み直しになるので、画面の外の行は捨てて見えたときに作らせる。
         // 列幅の変わらない表 (収まる表の大半) の行はそのまま使える。ズームは表の幾何ごと捨てているので、ここに残るのは幅の変化だけ。
@@ -311,14 +311,14 @@ LayoutEngine::PassResult LayoutService::ProcessDirtyBatch(const Document& doc, L
     });
 }
 
-bool LayoutService::EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom)
+bool LayoutService::EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, double top, double bottom)
 {
     return KeepingAnchor(cache, [&] { return engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, top, bottom); });
 }
 
 bool LayoutService::EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height)
 {
-    const float scroll_y = viewport_.GetScrollY();
+    const double scroll_y = viewport_.GetScrollY();
     return EnsureRangeLayout(doc, cache, width, scroll_y, scroll_y + height);
 }
 
@@ -327,7 +327,7 @@ void LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, fl
     if (node < 0 || static_cast<size_t>(node) >= cache.size() || !cache[node].layout_dirty) {
         return;
     }
-    const float top = cache.Top(static_cast<size_t>(node));
+    const double top = cache.Top(static_cast<size_t>(node));
     EnsureRangeLayout(doc, cache, width, top, top);
 }
 

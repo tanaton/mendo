@@ -82,7 +82,7 @@ struct MdPaneParams {
     const LayoutCache& cache;
     const TextSelection& selection;
     PaneRect md_pane_rect;
-    float scroll_y = 0.0f;
+    double scroll_y = 0.0;
     OverlayButtonHit hovered;
     int hovered_diagram = -1;
     // ブロック単位の横スクロール。値で持ち、ポインタで AppState 側 map を参照する。
@@ -94,13 +94,29 @@ struct MdPaneParams {
 
 // 本文ペインの縦スクロールバー。描画 (つまみ) とヒット判定 (バーの上か) で同じものを使う。
 struct MdScrollbar {
+    // つまみの寸法。サイドペインと同じ float で、大きな文書では max_scroll も丸まる。スクロール位置を収めるのは
+    // MdPaneScrollRange の max_scroll。
     PaneScrollInfo info;
     // 計測待ちのノードがあり、内容が伸びうる (ShowsVScrollbar)。
     bool may_grow = false;
 };
 inline MdScrollbar MdPaneScrollbar(const LayoutCache& cache, const PaneRect& md_rect, float margin_bottom) noexcept
 {
-    return { ComputeScrollInfo(md_rect, 0.0f, ComputeTotalContentHeight(cache, margin_bottom)), cache.HasDirtyNodes() };
+    return { ComputeScrollInfo(md_rect, 0.0f, static_cast<float>(ComputeTotalContentHeight(cache, margin_bottom))), cache.HasDirtyNodes() };
+}
+
+// 本文ペインのスクロール位置の範囲。スクロール位置を動かす処理 (ホイール・キー・検索) はつまみの寸法が要らないので、
+// MdPaneScrollbar を組まずにこれだけ求める。
+struct MdScrollRange {
+    // 表示の高さ (ComputeScrollInfo の content_height と同じ。本文ペインにヘッダーは無い)。
+    float page_height;
+    // スクロール位置の上限。丸めない文書の Y。
+    double max_scroll;
+};
+inline MdScrollRange MdPaneScrollRange(const LayoutCache& cache, const PaneRect& md_rect, float margin_bottom) noexcept
+{
+    const float page_height = std::max(0.0f, md_rect.height);
+    return { page_height, MaxScroll(ComputeTotalContentHeight(cache, margin_bottom), page_height) };
 }
 
 struct RenderParams {

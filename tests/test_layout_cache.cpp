@@ -27,7 +27,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsDropsMeasurement)
         EXPECT_EQ(cache[i].text_layout(), nullptr);
         EXPECT_FALSE(cache[i].is_measured());
         EXPECT_FLOAT_EQ(cache[i].height, 0.0f);
-        EXPECT_FLOAT_EQ(cache.Top(i), 100.0f + static_cast<float>(i) * 50.0f);
+        EXPECT_DOUBLE_EQ(cache.Top(i), 100.0 + static_cast<double>(i) * 50.0);
     }
 
     // 空のキャッシュでも落ちない
@@ -155,7 +155,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     }
 
     layout::EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
-    std::vector<float> expected;
+    std::vector<double> expected;
     for (size_t i = 0; i < cache.size(); ++i) {
         cache[i].layout_dirty = false;
         expected.push_back(cache.Top(i));
@@ -165,13 +165,13 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     layout::RecomputeYPositions(nodes, cache, theme, 0, 2);
 
     for (size_t i = 0; i < cache.size(); ++i) {
-        EXPECT_FLOAT_EQ(cache.Top(i), expected[i]) << "after early-exit, index " << i;
+        EXPECT_DOUBLE_EQ(cache.Top(i), expected[i]) << "after early-exit, index " << i;
     }
 }
 
 TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
 {
-    EXPECT_FLOAT_EQ(NodeOffsetToScrollY(LayoutCache{}, 0, 50.0f), 0.0f);
+    EXPECT_DOUBLE_EQ(NodeOffsetToScrollY(LayoutCache{}, 0, 50.0), 0.0);
 
     const auto cache = MakeUniformCache(3);
     struct Case {
@@ -188,7 +188,7 @@ TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::Message() << c.node << "," << c.offset);
-        EXPECT_FLOAT_EQ(NodeOffsetToScrollY(cache, c.node, c.offset), c.expected);
+        EXPECT_DOUBLE_EQ(NodeOffsetToScrollY(cache, c.node, c.offset), c.expected);
     }
 }
 
@@ -276,10 +276,54 @@ TEST(LayoutCacheTops, ShiftAcrossBlocksKeepsPositions)
     cache.ShiftTops(3000, 5.0f);
     cache.ShiftTops(8000, -1.0f);
     const auto expected = [](size_t i) {
-        return static_cast<float>(i) * 2.0f + (i >= 3000 ? 5.0f : 0.0f) + (i >= 8000 ? -1.0f : 0.0f);
+        return static_cast<double>(i) * 2.0 + (i >= 3000 ? 5.0 : 0.0) + (i >= 8000 ? -1.0 : 0.0);
     };
     for (const size_t i : { 0uz, 2999uz, 3000uz, 4095uz, 4096uz, 7999uz, 8000uz, 8191uz, 8192uz, 9999uz }) {
-        EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
+        EXPECT_DOUBLE_EQ(cache.Top(i), expected(i)) << "i=" << i;
+    }
+}
+
+// float では 2 DIP 刻みになる文書の Y (2^24 DIP 超) でも、丸ごと書いたブロックは先頭からの差で持つので細かい刻みが残る。
+TEST(LayoutCacheTops, KeepsFineStepsFarDown)
+{
+    LayoutCache cache(10000);
+    const auto y = [](size_t i) { return 3.0e7 + static_cast<double>(i) * 30.25; };
+    cache.WriteTops(0, cache.size(), y);
+    for (const size_t i : { 0uz, 1uz, 4095uz, 4096uz, 4097uz, 9999uz }) {
+        EXPECT_DOUBLE_EQ(cache.Top(i), y(i)) << "i=" << i;
+    }
+    // 1 DIP 未満のずらしも残る。ブロックの途中からと、ブロックの先頭から。
+    cache.ShiftTops(5000, 0.25);
+    cache.ShiftTops(8192, 0.5);
+    for (const size_t i : { 4999uz, 5000uz, 8191uz, 8192uz, 9999uz }) {
+        const double shift = (i >= 5000 ? 0.25 : 0.0) + (i >= 8192 ? 0.5 : 0.0);
+        EXPECT_DOUBLE_EQ(cache.Top(i), y(i) + shift) << "i=" << i;
+    }
+}
+
+// ブロックの途中で止まる書き込みでも、ブロックの先頭から書けばオフセットを置き直すので、区切り方によらず細かい刻みが残る。
+TEST(LayoutCacheTops, WriteStoppingMidBlockKeepsFineSteps)
+{
+    LayoutCache cache(10000);
+    const auto y = [](size_t i) { return 3.0e7 + static_cast<double>(i) * 30.25; };
+    cache.WriteTops(0, 5000, y);
+    cache.WriteTops(5000, cache.size(), y);
+    for (const size_t i : { 4096uz, 4999uz, 5000uz, 8191uz, 9999uz }) {
+        EXPECT_DOUBLE_EQ(cache.Top(i), y(i)) << "i=" << i;
+    }
+}
+
+// 途中から書き直しても、書かないノードの Top は変わらない (ブロックの先頭から書き始めて途中で止まるブロックは、残りの差を直す)。
+TEST(LayoutCacheTops, PartialWriteKeepsOtherTops)
+{
+    LayoutCache cache(10000);
+    const auto y = [](size_t i) { return 3.0e7 + static_cast<double>(i) * 30.25; };
+    cache.WriteTops(0, cache.size(), y);
+    // [3000, 9000) はブロック 1 (4096〜8191) を丸ごと含み、ブロック 0 と 2 は途中まで。
+    cache.WriteTops(3000, 9000, [&](size_t i) { return y(i) + 1.5; });
+    for (const size_t i : { 2999uz, 3000uz, 4095uz, 4096uz, 8191uz, 8192uz, 8999uz, 9000uz, 9999uz }) {
+        const double shift = (i >= 3000 && i < 9000) ? 1.5 : 0.0;
+        EXPECT_DOUBLE_EQ(cache.Top(i), y(i) + shift) << "i=" << i;
     }
 }
 

@@ -152,7 +152,7 @@ void EmitScrollChangedSideEffects(ReduceContext& c)
     }
 }
 
-void ScrollToNode(AppState& state, int node, float offset)
+void ScrollToNode(AppState& state, int node, double offset)
 {
     auto& viewport = state.view.viewport;
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
@@ -180,9 +180,9 @@ void SetBlockScrollX(ReduceContext& c, float new_value, const BlockHScrollGeomet
 void On(ReduceContext& c, const KeyScrollAction& a)
 {
     auto& viewport = c.state.view.viewport;
-    const auto info = MdScrollInfo(c.state);
-    const float page_size = info.content_height;
-    const float max_scroll = info.max_scroll;
+    const auto range = MdScrollRangeOf(c.state);
+    const float page_size = range.page_height;
+    const double max_scroll = range.max_scroll;
     switch (a.type) {
     case ScrollType::LineUp:
         viewport.DirectScrollBy(-KEY_SCROLL_LINE_AMOUNT, max_scroll);
@@ -237,8 +237,8 @@ void ReduceWheelScroll(ReduceContext& c, const MouseWheelAction& a)
     };
     const auto pane = ToPaneTarget(a.zone);
     if (!pane) {
-        const auto info = MdScrollInfo(c.state);
-        c.state.view.viewport.DirectScrollBy(amount(info.content_height), info.max_scroll);
+        const auto range = MdScrollRangeOf(c.state);
+        c.state.view.viewport.DirectScrollBy(amount(range.page_height), range.max_scroll);
         return;
     }
     const auto ctx = GetSidePaneContext(c.state, *pane);
@@ -573,20 +573,19 @@ void MoveSearchInputDrag(ReduceContext& c, int anchor, int caret)
 
 void On(ReduceContext& c, const MdScrollbarDragStartedAction& a)
 {
-    const auto info = MdScrollInfo(c.state);
+    const auto bar = MdScrollbarOf(c.state);
     auto& viewport = c.state.view.viewport;
-    const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
+    const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(bar.info, viewport.GetScrollY()), bar.info.thumb_height, a.dip_y);
     c.state.view.drag = left_drag::MdScrollbar{ grip.drag_offset };
     if (!grip.inside_thumb) {
-        viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), info.max_scroll);
+        viewport.ScrollTo(ScrollFromThumbY(bar.info, a.dip_y - grip.drag_offset), MdMaxScroll(c.state));
     }
 }
 
 void MoveMdScrollbarDrag(AppState& state, float grip_offset, float dip_y)
 {
     const float new_thumb_y = dip_y - grip_offset;
-    const auto info = MdScrollInfo(state);
-    state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y), info.max_scroll);
+    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollbarOf(state).info, new_thumb_y), MdMaxScroll(state));
 }
 
 void On(ReduceContext& c, const PaneScrollbarDragStartedAction& a)
@@ -691,18 +690,18 @@ void ScrollToCurrentMatch(ReduceContext& c)
 
     // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
     c.layout.EnsureNodeLayout(match.node_index);
-    const auto info = MdScrollInfo(c.state);
+    const auto range = MdScrollRangeOf(c.state);
     const auto& entry = cache[match.node_index];
     // ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
     // 「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
     const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache.Top(static_cast<size_t>(match.node_index)));
-    const float visible_height = info.content_height - (ss.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+    const float visible_height = range.page_height - (ss.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
     auto& viewport = c.state.view.viewport;
-    const float scroll_y = viewport.GetScrollY();
-    const float effective_bottom = scroll_y + visible_height;
+    const double scroll_y = viewport.GetScrollY();
+    const double effective_bottom = scroll_y + visible_height;
 
     if (match_y < scroll_y || match_y + match_h > effective_bottom) {
-        viewport.ScrollTo(match_y - visible_height / 3.0f, info.max_scroll);
+        viewport.ScrollTo(match_y - visible_height / 3.0f, range.max_scroll);
     }
 }
 
@@ -1137,7 +1136,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     ReduceContext c{ state, effects, layout };
     // viewport を動かす経路 (キー・ホイール・スクロールバー・履歴・検索のマッチ移動など) を問わず、
     // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
-    const float old_scroll = state.view.viewport.GetScrollY();
+    const double old_scroll = state.view.viewport.GetScrollY();
     const bool had_capture = CaptureRequired(state);
     const auto nav_buttons = [&history = state.view.nav_history] { return std::pair{ history.CanGoBack(), history.CanGoForward() }; };
     const auto old_nav_buttons = nav_buttons();

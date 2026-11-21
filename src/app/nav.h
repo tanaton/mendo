@@ -7,7 +7,7 @@
 struct NavEntry {
     std::wstring file_path;
     int node = -1;
-    float offset = 0.0f;
+    double offset = 0.0; // ScrollTarget::offset と同じ (巨大な表の中では大きくなる)
 };
 
 class NavHistory {

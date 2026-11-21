@@ -16,7 +16,7 @@ namespace {
 constexpr float Y_POSITION_EPSILON = 0.01f;
 
 // nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
-float NodeStartY(std::span<const Node> nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
+double NodeStartY(std::span<const Node> nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
 {
     if (index == 0) {
         return theme.margin_top;
@@ -26,10 +26,10 @@ float NodeStartY(std::span<const Node> nodes, const LayoutCache& cache, const Th
 
 // 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
 // catastrophic cancellation を避けるため厳密に保つ。
-float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
+double AdvanceNodeY(double& y, float spacing_above, float height, float spacing_below) noexcept
 {
     y += spacing_above;
-    const float text_top = y;
+    const double text_top = y;
     y += height;
     y += spacing_below;
     return text_top;
@@ -38,12 +38,16 @@ float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_be
 // nodes[from, end) の高さを height_fn(i) で決めながら Top を積む。y は nodes[from] の spacing_above を足す前の Y で、
 // 戻ると nodes[end] の手前の Y になる。height_fn は高さを書き換えてよい。
 template <class HeightFn>
-void AccumulateTops(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
+void AccumulateTops(std::span<const Node> nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, double& y, HeightFn&& height_fn)
 {
-    for (size_t i = from; i < end; i++) {
-        const float h = height_fn(i);
-        cache.SetTop(i, AdvanceNodeY(y, GetSpacingAbove(nodes[i], theme), h, GetSpacingBelow(nodes[i], theme)));
-    }
+    cache.WriteTops(from, end, [&](size_t i) {
+        // 余白の関数は呼び出しの入れ子が深く、そのままでは展開されない。1 ノードごとの呼び出しが残ると
+        // Reload/RecomputeYPositions が 1.4 → 2.1ms と遅いので、展開させる。
+        [[msvc::forceinline_calls]] {
+            const float h = height_fn(i);
+            return AdvanceNodeY(y, GetSpacingAbove(nodes[i], theme), h, GetSpacingBelow(nodes[i], theme));
+        }
+    });
 }
 
 // 余白を決めるブロックの種類。loose の LI は吸った段落と同じ余白にする (IsLooseListItem)。
@@ -213,7 +217,7 @@ void EstimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, const 
     MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
 
     constexpr size_t kStopCheckInterval = 4096;
-    float y = theme.margin_top;
+    double y = theme.margin_top;
     for (size_t from = 0; from < node_count; from += kStopCheckInterval) {
         if (stop_token.stop_requested()) {
             return;
@@ -229,7 +233,7 @@ void ReestimateNodeHeights(std::span<const Node> nodes, LayoutCache& cache, cons
 {
     MENDO_PROFILE("ReestimateNodeHeights");
     assert(cache.size() == nodes.size());
-    float y = theme.margin_top;
+    double y = theme.margin_top;
     AccumulateTops(nodes, cache, theme, 0, nodes.size(), y, [&](size_t i) {
         auto& entry = cache[i];
         entry.layout_dirty = true;
@@ -287,28 +291,28 @@ void RecomputeYPositions(
 {
     MENDO_PROFILE("RecomputeYPositions");
     const auto node_count = nodes.size();
-    float y = NodeStartY(nodes, cache, theme, from_index);
+    double y = NodeStartY(nodes, cache, theme, from_index);
 
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
 
     AccumulateTops(nodes, cache, theme, from_index, tail_start, y, [&cache](size_t i) noexcept { return cache[i].height; });
 
     if (tail_start < node_count) {
-        const float new_text_top = y + GetSpacingAbove(nodes[tail_start], theme);
-        const float delta = new_text_top - cache.Top(tail_start);
+        const double new_text_top = y + GetSpacingAbove(nodes[tail_start], theme);
+        const double delta = new_text_top - cache.Top(tail_start);
         if (std::abs(delta) >= Y_POSITION_EPSILON) {
             cache.ShiftTops(tail_start, delta);
         }
     }
 }
 
-float CalcScrollYForDiff(
+double CalcScrollYForDiff(
     std::span<const Node> nodes,
     const LayoutCache& cache,
     size_t content_size,
     size_t diff_pos,
     float viewport_height,
-    float fallback_scroll) noexcept
+    double fallback_scroll) noexcept
 {
     if (diff_pos == std::string_view::npos) {
         return fallback_scroll;
@@ -319,7 +323,7 @@ float CalcScrollYForDiff(
         return fallback_scroll;
     }
 
-    float node_y = cache.Top(static_cast<size_t>(changed_node));
+    double node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
     const auto node_start = nodes[changed_node].SourceOffset();
@@ -330,13 +334,13 @@ float CalcScrollYForDiff(
     }
 
     const float margin = viewport_height * 0.2f;
-    return std::max(0.0f, node_y - margin);
+    return std::max(0.0, node_y - margin);
 }
 
-int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, double scroll_y, float margin) noexcept
 {
     // cache.Top(entries[i].node_index) <= scroll_y + margin を満たす最大の i を求める。
-    const float threshold = scroll_y + margin;
+    const double threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries, [&](const TocEntry& e) noexcept {
         return cache.Top(static_cast<size_t>(e.node_index)) <= threshold;
     });

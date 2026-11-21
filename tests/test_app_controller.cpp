@@ -244,7 +244,7 @@ protected:
     // 本文のノード i の中ほど (画面の DIP)。scroll_y は 0。
     float NodeMidY(int i) const
     {
-        return layout_.md_rect.y + h_.state.document.layout_cache.Top(static_cast<size_t>(i)) + ReducerHarness::kNodeHeight / 2.0f;
+        return layout_.md_rect.y + static_cast<float>(h_.state.document.layout_cache.Top(static_cast<size_t>(i))) + ReducerHarness::kNodeHeight / 2.0f;
     }
 
     std::string md_ = MakeHarnessMarkdown(20);
@@ -335,7 +335,7 @@ TEST_F(PointerHitTest, OverlayButtonWinsOverScrollbarHitPadding)
     ASSERT_GE(code, 0);
     const auto& node = h_.state.document.doc.GetNodes()[code];
     const auto& theme = h_.theme;
-    const float top = h_.state.document.layout_cache.Top(static_cast<size_t>(code));
+    const auto top = static_cast<float>(h_.state.document.layout_cache.Top(static_cast<size_t>(code)));
     D2D1_RECT_F button{};
     layout::ForEachOverlayButton(node, h_.state.document.layout_cache, static_cast<size_t>(code), layout::NodeBlockX(node, theme),
                                  layout::NodeContentWidth(node, theme, theme.ContentWidth(layout_.md_rect.width)), top, theme,
@@ -382,7 +382,7 @@ TEST(PointerHover, DiagramButtonOutsideImageKeepsButtonsShown)
     const auto& theme = h.theme;
     const float x = layout::NodeBlockX(node, theme);
     const float w = layout::NodeContentWidth(node, theme, theme.ContentWidth(layout.md_rect.width));
-    const float top = cache.Top(static_cast<size_t>(index));
+    const auto top = static_cast<float>(cache.Top(static_cast<size_t>(index)));
     D2D1_RECT_F button{};
     layout::ForEachOverlayButton(node, cache, static_cast<size_t>(index), x, w, top, theme, [&](const D2D1_RECT_F& r, OverlayButton kind) {
         if (kind == OverlayButton::DiagramView) {

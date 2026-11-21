@@ -66,7 +66,7 @@ protected:
 
     // 次の呼び出しまで有効。
     const DrawCommandList& Draw(const ParsedLayout& pl, const TextSelection& sel = {}, std::span<const SearchMatch> matches = {},
-                                int current_match = -1, const PaneRect& pane = kPane, float scroll_y = 0.0f)
+                                int current_match = -1, const PaneRect& pane = kPane, double scroll_y = 0.0)
     {
         cmds_.clear();
         gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .scroll_y = scroll_y,
@@ -225,7 +225,7 @@ protected:
     }
 
     // 次の呼び出しまで有効。
-    const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, const TextSelection& sel = {})
+    const DrawCommandList& Generate(const ParsedLayout& pl, double scroll_y, const TextSelection& sel = {})
     {
         return Draw(pl, sel, search_.GetMatches(), current_match_, PANE, scroll_y);
     }
@@ -335,7 +335,7 @@ TEST_F(VisibleHighlightTest, SearchMatchAcrossChunkSeamHighlightsBothNodes)
     current_match_ = static_cast<int>(seam - matches.begin());
 
     const float seam_y = 100.0f;
-    const float scroll_y = pl.cache.Top(1) - seam_y;
+    const double scroll_y = pl.cache.Top(1) - seam_y;
     const auto& cmds = Generate(pl, scroll_y);
     const auto current = CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent });
     EXPECT_TRUE(std::ranges::any_of(current, [&](const D2D1_RECT_F& r) { return r.bottom <= seam_y + 0.5f; })) << "前のノードの末尾";
@@ -372,7 +372,7 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     ASSERT_EQ(pl.nodes.size(), 1u);
     Search(pl, "cell");
 
-    const float far_top = pl.cache.Top(0) - 10000.0f;
+    const double far_top = pl.cache.Top(0) - 10000.0f;
     pl.cache.EvictInvisibleTableRows(std::array{ size_t{ 0 } }, YRange{ far_top, far_top + 1000.0f });
     ASSERT_TRUE(pl.cache[0].table_layout()->HasEvictedRows());
 

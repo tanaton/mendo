@@ -7,6 +7,7 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <string_view>
 
 // DirectWrite なしで LayoutEngine をテストするモックテキスト計測器。テキスト長とノード種別から高さを決定論的に計算する。
@@ -90,9 +91,22 @@ protected:
 
     // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f,
-                                float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
+                                double viewport_top = -YRange::kInf, double viewport_bottom = YRange::kInf)
     {
         return sources_.ParseAndLayout(engine_, md, viewport_w, viewport_top, viewport_bottom);
+    }
+
+    // 表 table_idx の先頭の行を 2^24 DIP を超える高さにして、後ろの行の表の中の Y を float では 2 DIP 刻みになる大きさに
+    // する。表の上端 (文書の Y) を返す。
+    double MakeFirstTableRowGiant(std::span<const Node> nodes, LayoutCache& cache, size_t table_idx) const
+    {
+        auto& entry = cache[table_idx];
+        auto& tl = *entry.table_layout();
+        tl.row_heights[0] = 2.0e7f;
+        tl.RebuildRowCumY(0);
+        entry.height = tl.TotalHeight();
+        layout::RecomputeYPositions(nodes, cache, theme_);
+        return cache.Top(table_idx);
     }
 
 private:

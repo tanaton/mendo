@@ -47,8 +47,9 @@ protected:
     // 先頭の段落の UTF-16 位置 pos の文字の中ほど (窓の DIP)。スクロールしていない。
     DipPoint CharCenter(uint32_t pos) const
     {
+        // スクロールしていないので、文書の Y は窓の DIP に収まる。
         const auto [x, y] = PointInChar(state_.document.doc.GetNodes(), state_.document.layout_cache, 0, pos, 0.5f);
-        return { layout_.md_rect.x + x, layout_.md_rect.y + y };
+        return { layout_.md_rect.x + x, layout_.md_rect.y + static_cast<float>(y) };
     }
 
     app_controller::PointerHoverResult HoverAt(DipPoint p) const

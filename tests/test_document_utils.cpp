@@ -1221,7 +1221,7 @@ TEST(CalcScrollYForDiff, ScrollsToDiffWithMargin)
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
         const auto cache = MakeUniformCache(static_cast<int>(c.nodes.size()), c.node_height);
-        EXPECT_FLOAT_EQ(CalcScrollYForDiff(c.nodes, cache, c.content_size, c.diff_pos, c.viewport_h, c.fallback), c.expected);
+        EXPECT_FLOAT_EQ(static_cast<float>(CalcScrollYForDiff(c.nodes, cache, c.content_size, c.diff_pos, c.viewport_h, c.fallback)), c.expected);
     }
 }
 
@@ -1236,7 +1236,7 @@ TEST(CalcScrollYForDiff, DiffBeforeFirstTextUsesLeadingRule)
 
     const auto cache = MakeUniformCache(2, 1000.0f);
     // fraction = 2/5, node_y = 1000 * 0.4 = 400, margin = 500 * 0.2 = 100
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md.size(), 2, 500.0f, 42.0f), 300.0f);
+    EXPECT_FLOAT_EQ(static_cast<float>(CalcScrollYForDiff(nodes, cache, md.size(), 2, 500.0f, 42.0f)), 300.0f);
 }
 
 // ============================================================

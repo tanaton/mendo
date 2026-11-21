@@ -15,10 +15,10 @@
 // 列 c は左罫線を含む [col_cum_x[c] - border, col_cum_x[c+1] - border)。
 struct TableRowHit {
     int row = -1;
-    float row_top = 0.0f;
+    double row_top = 0.0;
 };
 
-inline TableRowHit FindTableRow(const TableLayoutData& tl, float local_y) noexcept
+inline TableRowHit FindTableRow(const TableLayoutData& tl, double local_y) noexcept
 {
     const int idx = tl.RowIndexAt(local_y);
     if (idx < 0) {
@@ -42,17 +42,35 @@ inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexce
     return { static_cast<int>(idx), tl.col_cum_x[idx] };
 }
 
+// 本文ペインの点。X は本文ペインの左端から、Y は文書の先頭から (DIP)。Y は float では刻みが粗くなる大きさになりうるので
+// double で持ち、当てるノードの上端との差にしてから float の局所座標にする。
+struct DocPoint {
+    float x = 0.0f;
+    double y = 0.0;
+};
+
 struct MdPaneHitContext {
     std::span<const Node> nodes;
     const LayoutCache& cache;
     const Theme& theme;
-    float scroll_y;
-    // 当てる点。X は本文ペインの左端から、Y は文書の先頭から (DIP)。
-    DipPoint point;
+    double scroll_y;
+    // 当てる点。
+    DocPoint point;
     // ボタン位置とブロック横スクロールの clamp に使う。
     float content_width = 0.0f;
     // ブロック単位の横スクロール状態。null なら全 0 扱い。
     const std::unordered_map<int, float>* block_scroll_x = nullptr;
+
+    // 点の Y を、ノード node の上端からの Y にする。差は double で取る。表の中は float の刻みが粗くなる大きさになるので
+    // Exact のまま使い、ほかは上端を 0 にした系の矩形と float で比べる。
+    double LocalYExact(size_t node) const noexcept
+    {
+        return point.y - cache.Top(node);
+    }
+    float LocalY(size_t node) const noexcept
+    {
+        return static_cast<float>(LocalYExact(node));
+    }
 };
 
 // MD ペインのヒットテスト。状態を持たない純粋関数群。
@@ -77,10 +95,9 @@ int HitNode(const MdPaneHitContext& ctx) noexcept;
 
 HitResult HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
-    float entry_text_top,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y, float h_scroll_x) noexcept;
+    float dip_x, double table_y, float h_scroll_x) noexcept;
 
 NavDirection NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 

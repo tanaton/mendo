@@ -5,6 +5,7 @@
 #include "win32_util.h"
 #include "win_handle.h"
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -577,14 +578,33 @@ TEST_F(SessionTest, SaveAndLoadScrollPosition)
     }
 }
 
-// node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
-TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
+// 100 万ノードを超える文書や、巨大な表の奥 (数千万 DIP) の位置も戻す。int に収まらない offset は端に寄せる。
+TEST_F(SessionTest, SaveAndLoadScrollPosition_LargeValues)
 {
-    config_.SaveInt(L"Session", L"ScrollNode", 10000000);
-    config_.SaveInt(L"Session", L"ScrollOffset", 99999999);
-    const auto pos = session::LoadScrollPosition(config_);
-    EXPECT_EQ(pos.node, -1);
-    EXPECT_EQ(pos.offset, 0);
+    struct Case {
+        int node;
+        double offset;
+        int expected_offset;
+    };
+    constexpr Case kCases[] = {
+        { 2000000, 3.0e7 + 0.4, 30000000 },
+        { 1, 1.0e10, std::numeric_limits<int>::max() },
+        { 1, -1.0e10, std::numeric_limits<int>::min() },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.offset);
+        session::SaveScrollPosition(config_, c.node, c.offset);
+        const auto pos = session::LoadScrollPosition(config_);
+        EXPECT_EQ(pos.node, c.node);
+        EXPECT_EQ(pos.offset, c.expected_offset);
+    }
+}
+
+// node は -1 未満を既定値 (-1) に倒す。
+TEST_F(SessionTest, LoadScrollPosition_NegativeNodeFallsBackToDefault)
+{
+    config_.SaveInt(L"Session", L"ScrollNode", -5);
+    EXPECT_EQ(session::LoadScrollPosition(config_).node, -1);
 }
 
 // 保存したパスを読み戻し、空のパスでは上書きしない。LoadLastFilePath は実在しないパスを弾くので実ファイルを作る。

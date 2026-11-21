@@ -643,9 +643,9 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
         auto outcome = c.Take();
         const bool ok = outcome && outcome->has_value();
         EXPECT_TRUE(ok);
-        return ok ? (*outcome)->cache.Top(1) : 0.0f;
+        return ok ? (*outcome)->cache.Top(1) : 0.0;
     };
-    EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
+    EXPECT_DOUBLE_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0);
 }
 
 // 幅を知らずに始めた先読みでも、推定の前に幅が届けばその幅で推定する (開いたときに UI で推定し直さない)。

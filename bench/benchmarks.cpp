@@ -774,7 +774,7 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
         l.engine.Reestimate(nodes, cache, kWidth);
         double s = SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kWidth, 0.0f, kScreen); });
         if (phase != OpenPhase::FirstScreen) {
-            const float mid = cache.Bottom(nodes.size() - 1) * 0.5f;
+            const double mid = cache.Bottom(nodes.size() - 1) * 0.5;
             s = SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kWidth, mid, mid + kScreen); });
         }
         if (phase == OpenPhase::Rest) {
@@ -954,10 +954,10 @@ void BM_FindActiveTocIndex(benchmark::State& state)
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const Theme theme = GetLightTheme();
     const LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, theme.ContentWidth(kViewWidth));
-    const float bottom = cache.Bottom(cache.size() - 1);
-    float y = 0.0f;
+    const double bottom = cache.Bottom(cache.size() - 1);
+    double y = 0.0;
     for (auto _ : state) {
-        y += bottom / 997.0f;
+        y += bottom / 997.0;
         if (y > bottom) {
             y -= bottom;
         }
@@ -1033,7 +1033,7 @@ void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, flo
     const auto& doc = opened->doc;
     MdPaneFrame frame(*opened);
     auto& [cache, viewport, service, generator, cmds] = frame;
-    const float start_y = cache.Bottom(cache.size() - 1) * 0.5f;
+    const double start_y = cache.Bottom(cache.size() - 1) * 0.5;
     viewport.SetScrollY(start_y);
     service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
     const auto last = static_cast<int>(doc.GetNodes().size()) - 1;
@@ -1354,11 +1354,11 @@ void BM_DocFrameDraw(benchmark::State& state, std::string md, bool toc)
     auto& [cache, viewport, service, generator, cmds] = frame;
     // 組むと下のノードの位置が動くので、2 周目で各位置を組み終えた状態に揃える。
     constexpr int kPositions = 16;
-    std::array<float, kPositions> ys{};
+    std::array<double, kPositions> ys{};
     for (int pass = 0; pass < 2; ++pass) {
         for (int i = 0; i < kPositions; ++i) {
             if (pass == 0) {
-                ys[i] = cache.Bottom(cache.size() - 1) * static_cast<float>(i + 1) / (kPositions + 1);
+                ys[i] = cache.Bottom(cache.size() - 1) * static_cast<double>(i + 1) / (kPositions + 1);
             }
             viewport.SetScrollY(ys[i]);
             service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
@@ -1780,7 +1780,7 @@ BENCHMARK_DEFINE_F(TableMeasure, ResizeViewport)(benchmark::State& state)
     for (auto _ : state) {
         LayoutCache cache(doc_->GetNodes().size());
         ComputeLayout(layout_->engine, doc_->GetNodes(), cache, 1300.0f, 0.0f, kScreen);
-        const float mid = cache.Bottom(cache.size() - 1) / 2.0f;
+        const double mid = cache.Bottom(cache.size() - 1) / 2.0;
         layout_->engine.EnsureVisibleLayout(doc_->GetNodes(), cache, 1300.0f, mid - 8.0f * kScreen, mid + 9.0f * kScreen);
         viewport.SetScrollY(mid);
         state.SetIterationTime(SecondsOf([&] { service.ViewportLayout(*doc_, cache, width, kScreen); }));

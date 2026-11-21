@@ -108,9 +108,9 @@ TEST_F(TableMeasureJobsTest, DefersGiantTableAndPlacesSameGeometry)
     ASSERT_NE(entry.table_layout(), nullptr);
     EXPECT_FLOAT_EQ(entry.height, SyncHeight());
     // 後ろの段落の位置も組み直してある (全部を組み直しても動かない)。
-    const float after = cache_.Top(table_ + 1);
+    const double after = cache_.Top(table_ + 1);
     layout::RecomputeYPositions(doc_->GetNodes(), cache_, theme_);
-    EXPECT_FLOAT_EQ(cache_.Top(table_ + 1), after);
+    EXPECT_DOUBLE_EQ(cache_.Top(table_ + 1), after);
     EXPECT_GT(after, cache_.Top(table_) + cache_[table_].height);
 }
 
@@ -202,7 +202,7 @@ TEST_F(TableMeasureJobsTest, WidthChangedDuringJobLeavesDirty)
 
     // 幾何があるので、ワーカーに回さず列幅だけ組み直してその場で確定する。
     engine_.Reestimate(doc_->GetNodes(), cache_, kNarrow);
-    const float top = cache_.Top(table_);
+    const double top = cache_.Top(table_);
     engine_.EnsureVisibleLayout(doc_->GetNodes(), cache_, kNarrow, top, top + kScreen);
     EXPECT_FALSE(cache_[table_].layout_dirty);
     EXPECT_TRUE(cache_[table_].table_layout()->GeometryValidAt(NodeWidth(kNarrow)));

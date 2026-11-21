@@ -44,7 +44,7 @@ TEST(ReducerHomeKey, ReturnsToAbsoluteTopIncludingTopMargin)
 
     const auto effects = h.Dispatch(KeyScrollAction{ ScrollType::Home });
 
-    EXPECT_FLOAT_EQ(h.state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(h.state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -151,7 +151,7 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
 {
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(lc.sections), .md_height = lc.md_height });
     if (lc.max_scroll) {
-        h.ResizeMdPane(MdScrollInfo(h.state).total_content - *lc.max_scroll);
+        h.ResizeMdPane(MdScrollbarOf(h.state).info.total_content - *lc.max_scroll);
     }
     const auto anchors = CollectHeadingAnchors(h);
     std::mt19937 rng(seed);
@@ -170,10 +170,10 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
         for (const auto& la : seq) {
             history += " " + la.label;
             SCOPED_TRACE(std::format("case={} seed={} step={} action={}", lc.name, seed, step, la.label));
-            const float before = h.state.view.viewport.GetScrollY();
+            const double before = h.state.view.viewport.GetScrollY();
             const auto effects = h.Dispatch(la.action);
-            const float y = h.state.view.viewport.GetScrollY();
-            const float max_y = MdMaxScroll(h.state);
+            const double y = h.state.view.viewport.GetScrollY();
+            const double max_y = MdMaxScroll(h.state);
             ASSERT_GE(y, 0.0f) << "history:" << history;
             ASSERT_LE(y, max_y) << "history:" << history;
             if (y != before) {

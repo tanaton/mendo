@@ -214,7 +214,7 @@ struct DocumentOpenedAction {
 // scroll_y (変更箇所が見える位置。App が実測の高さで求める) へスクロールする。
 struct DocumentReloadedAction {
     UnchangedEnds unchanged;
-    float scroll_y = 0.0f;
+    double scroll_y = 0.0;
 };
 // リロード後のスクロール位置と見えている範囲のレイアウトが決まった。検索中なら新しい文書で検索し直す。
 struct ReloadSettledAction {};

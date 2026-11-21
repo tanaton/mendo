@@ -3,6 +3,7 @@
 #include <d2d1.h>
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 
 // layout_cache.h と theme.h を通じて大半の TU が読むので、文書のレイアウトと DPI の換算に要るものだけを置く。
 // ペインの配置は pane_layout.h、本文ペインに重ねる部品 (検索バー・ナビボタン・リンク先の表示など) の幾何は chrome_layout.h。
@@ -32,11 +33,12 @@ constexpr float ShrinkKeepingMinContent(float width, float inset) noexcept
     return std::max(width - inset, std::min(width, MIN_NODE_CONTENT_WIDTH));
 }
 
-// ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
+// ブロック横スクロールバーの bar 上端 Y 座標。entry_bottom はエントリの下端 (text_top + height) で、ペインローカルか
+// ノードの上端を 0 にした系で渡す (巨大な表の上端は float の刻みが粗くなるので、下端は呼び出し側が double で求める)。
 // extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
-constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept
+constexpr float BlockHScrollbarBarY(float entry_bottom, float extra_padding) noexcept
 {
-    return entry_text_top + entry_height + extra_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    return entry_bottom + extra_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 }
 
 // thumb の幅 (DIP)。track の縦と異なり最小幅張り付き時もドラッグ範囲を可動域に揃える必要があるので、
@@ -79,7 +81,9 @@ inline constexpr float DISABLED_UI_ALPHA = 0.35f;
 // DIP 値を物理ピクセル境界にスナップする。スクロール位置に使えば ClearType ヒンティングのフレーム間の変動による
 // テキストのガタつきを防げる。bullet 等の小半径図形にも効く。
 // dpi_scale: DPI / DEFAULT_DPI（例: 100%→1.0, 150%→1.5, 200%→2.0）
-inline float SnapToPhysicalPixel(float v, float dpi_scale) noexcept
+// 文書の Y (スクロール位置) は double で渡す。float では大きな文書で物理ピクセルの倍数を表せない。
+template <std::floating_point T>
+inline T SnapToPhysicalPixel(T v, float dpi_scale) noexcept
 {
     return std::round(v * dpi_scale) / dpi_scale;
 }

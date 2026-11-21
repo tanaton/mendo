@@ -62,7 +62,7 @@ protected:
 
 TEST_F(ReducerTest, KeyScrollLineDown)
 {
-    const float old_scroll = state.view.viewport.GetScrollY();
+    const double old_scroll = state.view.viewport.GetScrollY();
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
@@ -75,13 +75,13 @@ TEST_F(ReducerTest, KeyScrollLineUp_AtTop_NoEffect)
     state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineUp });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(ReducerTest, KeyScrollPageDown)
 {
-    const float old_scroll = state.view.viewport.GetScrollY();
+    const double old_scroll = state.view.viewport.GetScrollY();
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::PageDown });
 
     // ページスクロールはラインスクロールより大きい
@@ -93,7 +93,7 @@ TEST_F(ReducerTest, KeyScrollEnd)
 {
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::End });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -116,37 +116,37 @@ TEST_F(ReducerTest, MouseWheel_ScrollsMdPane)
 {
     auto effects = Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 
     Reduce(state, MouseWheelAction{ .delta = WHEEL_DELTA, .zone = PaneZone::Splitter1 });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
 // OS の「一度にスクロールする行数」に比例させ、「1 画面ずつ」は PageDown と同じだけ進める。
 TEST_F(ReducerTest, MouseWheel_FollowsSystemScrollLines)
 {
     Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = 6 });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll * 2);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), kWheelNotchScroll * 2);
 
     Reduce(state, MouseWheelAction{ .delta = WHEEL_DELTA, .scroll_lines = 6 });
     Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = 0 });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 
     Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA, .scroll_lines = WHEEL_PAGESCROLL });
-    const float paged = state.view.viewport.GetScrollY();
+    const double paged = state.view.viewport.GetScrollY();
     state.view.viewport.SetScrollY(0.0f);
     Reduce(state, KeyScrollAction{ ScrollType::PageDown });
     EXPECT_GT(paged, 0.0f);
-    EXPECT_FLOAT_EQ(paged, state.view.viewport.GetScrollY());
+    EXPECT_DOUBLE_EQ(paged, state.view.viewport.GetScrollY());
 }
 
 TEST_F(ReducerTest, MouseWheel_ClampedAtMax)
 {
     auto effects = Reduce(state, MouseWheelAction{ .delta = -WHEEL_DELTA * 1000 });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -159,7 +159,7 @@ TEST(ReducerWheelTest, ScrollsSidePaneUnderPointer)
 
     EXPECT_FLOAT_EQ(h.state.view.panes.SidePaneScroll(PaneTarget::Toc), kWheelNotchScroll);
     EXPECT_FLOAT_EQ(h.state.view.panes.SidePaneScroll(PaneTarget::File), 0.0f);
-    EXPECT_FLOAT_EQ(h.state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(h.state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -312,7 +312,7 @@ TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
 
     auto effects = Reduce(state, SearchTextChangedAction{ std::wstring(L"target") });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }
 
@@ -638,7 +638,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
     state.view.viewport.ScrollTo(200.0f, MdMaxScroll(state));
 
     auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 50.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::ResourceManage>(effects));
 }
@@ -722,7 +722,7 @@ TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutResourceManage)
 
     const auto effects = Reduce(state, ResizeAction{ 800, 500 });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_FALSE(HasEffect<effect::ResourceManage>(effects));
 }
 
@@ -954,14 +954,14 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
     // fixture で md_rect = { y 32, 高さ 500 }, total_height = 1000 → content_height=500, max_scroll=500
     // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 32
     const float dip_y = 132.0f; // thumb 内（32〜282）
-    const float old_scroll = state.view.viewport.GetScrollY();
+    const double old_scroll = state.view.viewport.GetScrollY();
 
     auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
     EXPECT_TRUE(std::holds_alternative<left_drag::MdScrollbar>(state.view.drag));
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_FLOAT_EQ(std::get<left_drag::MdScrollbar>(state.view.drag).grip_offset, 100.0f);
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), old_scroll);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), old_scroll);
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -1452,11 +1452,11 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
     SetDocument(state, "# First\n\n# Second\n\n# Tail", L"C:\\file.md", 450.0f);
     const int tail = static_cast<int>(state.document.doc.GetNodes().size()) - 1;
-    ASSERT_FLOAT_EQ(state.document.layout_cache.Top(tail), 900.0f);
+    ASSERT_DOUBLE_EQ(state.document.layout_cache.Top(tail), 900.0f);
 
     Reduce(state, TocItemClickedAction{ tail });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_FALSE(state.view.viewport.GetScrollTarget().IsValid());
 }
 
@@ -1519,9 +1519,9 @@ TEST_F(ReducerTest, SyncActiveToc_TocClickWithoutScrollIsConsumedByItsRedraw)
     SyncActiveTocIndex(state);
     ASSERT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
 
-    const float scroll_y = state.view.viewport.GetScrollY();
+    const double scroll_y = state.view.viewport.GetScrollY();
     const auto effects = Reduce(state, TocItemClickedAction{ heading });
-    ASSERT_FLOAT_EQ(state.view.viewport.GetScrollY(), scroll_y);
+    ASSERT_DOUBLE_EQ(state.view.viewport.GetScrollY(), scroll_y);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     SyncActiveTocIndex(state);
 
@@ -1548,7 +1548,7 @@ TEST_F(ReducerTest, SyncActiveToc_TocClickDoesNotCarryOverToNextDocument)
 TEST_F(ReducerTest, SyncActiveToc_FollowsLayoutChangeWithoutScroll)
 {
     SetupTocFollow(state);
-    const float scroll_y = state.view.viewport.GetScrollY();
+    const double scroll_y = state.view.viewport.GetScrollY();
     auto& cache = state.document.layout_cache;
     const auto& toc = state.document.doc.GetToc();
     ASSERT_EQ(state.view.active_toc_index, 0);
@@ -1559,7 +1559,7 @@ TEST_F(ReducerTest, SyncActiveToc_FollowsLayoutChangeWithoutScroll)
         cache[i].height = 0.0f;
     }
     layout::RecomputeYPositions(state.document.doc.GetNodes(), cache, *state.theme);
-    ASSERT_FLOAT_EQ(state.view.viewport.GetScrollY(), scroll_y);
+    ASSERT_DOUBLE_EQ(state.view.viewport.GetScrollY(), scroll_y);
     ASSERT_LE(cache.Top(static_cast<size_t>(toc[1].node_index)), scroll_y + state.theme->heading_spacing_above);
 
     SyncActiveTocIndex(state);
@@ -1595,7 +1595,7 @@ TEST_F(ReducerTest, DocumentOpened_HasPendingRestore_SetsScrollTarget)
     Reduce(state, DocumentOpenedAction{});
 
     // ApplyScrollTarget 後は scroll_target が消費され得るので ScrollY 側で検証する (cache.Top(1) + offset)。
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 107.0f);
     EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
@@ -1605,7 +1605,7 @@ TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
 
     Reduce(state, DocumentOpenedAction{});
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
 // 戻る先のファイルが削除済み等でロードに失敗したとき、その復元情報を次に開く別ファイルへ持ち越すと、無関係なノード位置へ
@@ -1627,7 +1627,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     SetDocument(state, "# X\n\n# Y\n\n# Z", L"C:\\other.md");
     Reduce(state, DocumentOpenedAction{});
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
 // 戻る先が開けなかったら、その履歴だけを外す。残すと、戻るを押すたびに同じファイルで失敗し、その先へ戻れない。
@@ -1722,7 +1722,7 @@ TEST_F(ReducerTest, NavigateAnchor_WithoutScrollRedrawsForBackButton)
 
     auto effects = Reduce(state, NavigateAnchorAction{ std::string("first") });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -1736,7 +1736,7 @@ TEST_F(ReducerTest, NavigateHistory_WithoutScrollRedrawsForNavButtons)
 
     auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(state.view.nav_history.CanGoForward());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1788,7 +1788,7 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(state.view.HasPendingScroll());
     EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
@@ -1802,7 +1802,7 @@ TEST_F(ReducerTest, OpenWhileStartupLoading_DoesNotCarryRestoreOver)
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(state.view.HasPendingScroll());
 }
 
@@ -1812,12 +1812,12 @@ TEST_F(ReducerTest, OpenWithAnchor_ScrollsToHeadingAfterLoad)
     ResetToDocument(state, L"C:\\current.md");
     Reduce(state, OpenPathAction{ L"C:\\other.md", "C" });
     CompleteLoad(state, L"C:\\other.md");
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) - state.theme->heading_spacing_above);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) - state.theme->heading_spacing_above);
     EXPECT_FALSE(state.view.HasPendingScroll());
 
     Reduce(state, OpenPathAction{ L"C:\\third.md", "typo" });
     CompleteLoad(state, L"C:\\third.md");
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
 // 同じファイルはリロードとして終わり、開き終えた文書の扱いを通らないので、見出しを残さない。
@@ -1867,13 +1867,13 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
     const auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
 
     Reduce(state, LoadFailedAction{});
     EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
     Reduce(state, NavigateHistoryAction{ .forward = true });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 250.0f);
 }
 
 // 開く (ロード中) → 別ファイルへ戻る: 開く分を取り消して戻る先をロードする。
@@ -1899,7 +1899,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");
-        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) + 10.0f);
+        EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) + 10.0f);
         EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
         EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = true })), L"C:\\current.md");
@@ -1950,7 +1950,7 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");
-        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(3) + 10.0f);
+        EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(3) + 10.0f);
         EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
     }
@@ -1962,16 +1962,16 @@ TEST_F(ReducerTest, TocJumpWhileOpenLoading_KeepsBothPositions)
     ResetToDocument(state, L"C:\\current.md");
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
     Reduce(state, TocItemClickedAction{ state.document.doc.GetToc()[2].node_index });
-    const float jumped = state.view.viewport.GetScrollY();
+    const double jumped = state.view.viewport.GetScrollY();
     ASSERT_GT(jumped, 0.0f);
     CompleteLoad(state, L"C:\\big.md");
 
     EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = false })), L"C:\\current.md");
     CompleteLoad(state, L"C:\\current.md");
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), jumped);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), jumped);
 
     Reduce(state, NavigateHistoryAction{ .forward = false });
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_DOUBLE_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 2u);
 }
