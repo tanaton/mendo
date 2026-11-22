@@ -487,33 +487,28 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
 }
 
-// 組は結果を待つ間は取り出せず、描けたらまた取り出せる。
-TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
+// 読み直しで計画を作り直しても、描き終えた数式と結果を待つ数式は描画に出し直さない。
+TEST(InlineMathPlan, RebuiltPlanSendsOnlyUnsentMath)
 {
-    InlineMathPlan plan;
-    const auto parsed = ParseMarkdown("$a$ $b$\n");
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    ASSERT_EQ(plan.Chunks().size(), 1u);
-    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
-    EXPECT_EQ(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, plan.Generation());
-    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
-}
-
-// 計画を作り直す前に頼んだ組の結果は、同じ中身に作り直した組でも状態を変えない。
-TEST(InlineMathPlan, StaleChunksDoNotFinish)
-{
-    InlineMathPlan plan;
-    const auto parsed = ParseMarkdown("$a$\n");
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    const uint64_t stale = plan.Generation();
-    ASSERT_NE(plan.TakeChunk(0), nullptr);
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    ASSERT_NE(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, stale);
-    EXPECT_EQ(plan.TakeChunk(0), nullptr) << "作り直した後に頼んだ組はまだ待っている";
-    plan.FinishChunk(0, plan.Generation());
-    EXPECT_NE(plan.TakeChunk(0), nullptr);
+    const Theme theme = GetLightTheme();
+    InlineMathTable table;
+    const auto send = [&](std::string_view md) {
+        InlineMathPlan plan;
+        const auto parsed = ParseMarkdown(md);
+        plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
+        std::string sent;
+        for (const auto& item : table.TakeUnsent(plan.Chunks().front().items)) {
+            sent += item.tex;
+        }
+        return sent;
+    };
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "abc");
+    table.Resolve(InlineMathKey("a", theme.font_size_body), { 10.0f, 5.0f, 4.0f });
+    table.Resolve(InlineMathKey("b", theme.font_size_body), {});
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "") << "描けた・描けなかった・待っている";
+    EXPECT_EQ(send("$a$ $b$ $x$ $c$\n"), "x");
+    table.Clear();
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "abc") << "別の文書を開いたら描き直す";
 }
 
 // 文書の順に、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
@@ -544,14 +539,14 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
 }
 
 // 組ごと描くとき、まだ測っていない数式も頼んだことにして、計測から二重に頼ませない。描けた数式は上書きしない。
-TEST(InlineMathTable, MarkRequestedSuppressesRequestsFromMeasuring)
+TEST(InlineMathTable, TakeUnsentSuppressesRequestsFromMeasuring)
 {
     InlineMathTable table;
     table.FindOrRequest(1);
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
     table.TakeRequests();
     const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
-    table.MarkRequested(items);
+    EXPECT_EQ(table.TakeUnsent(items).size(), 1u);
     EXPECT_TRUE(table.FindOrRequest(1));
     EXPECT_FALSE(table.FindOrRequest(2));
     EXPECT_TRUE(table.TakeRequests().empty());
@@ -568,6 +563,19 @@ TEST(InlineMathTable, ResolveAfterClearIsIgnored)
     EXPECT_FALSE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
     EXPECT_FALSE(table.FindOrRequest(1)) << "忘れたので頼み直す";
     EXPECT_TRUE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
+}
+
+// 計測が頼んだ数式は描画に 1 回だけ出す。同じ組の数式を続けて頼まれても仕事を増やさない。
+TEST(InlineMathTable, TakeUnsentSendsMeasuredRequestOnce)
+{
+    InlineMathTable table;
+    table.FindOrRequest(1);
+    table.FindOrRequest(2);
+    const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
+    EXPECT_EQ(table.TakeUnsent(items).size(), 2u);
+    EXPECT_TRUE(table.TakeUnsent(items).empty());
+    EXPECT_FALSE(table.FindOrRequest(1)) << "出しただけでは寸法は無い";
+    EXPECT_TRUE(table.HasUnresolved());
 }
 
 // 頼まなかったことにした数式は待ちから外れ、また測られたら頼み直す。結果が分かっている数式は残す。

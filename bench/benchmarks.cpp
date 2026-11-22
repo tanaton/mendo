@@ -641,14 +641,15 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
         l.measurer.SetInlineMath(&table);
         LayoutCache cache(nodes.size());
         ComputeLayout(l.engine, nodes, cache, kWidth, 0.0f, kRange);
-        std::deque<size_t> queue;
-        std::vector<bool> asked(plan.Chunks().size());
+        std::deque<std::vector<InlineMathItem>> queue;
         const auto ask = [&] {
+            std::vector<bool> visited(plan.Chunks().size());
             for (const uint64_t key : table.TakeRequests()) {
-                if (const auto c = plan.ChunkOf(key); c && !asked[*c]) {
-                    asked[*c] = true;
-                    table.MarkRequested(plan.Chunks()[*c].items);
-                    queue.push_back(*c);
+                if (const auto c = plan.ChunkOf(key); c && !visited[*c]) {
+                    visited[*c] = true;
+                    if (auto items = table.TakeUnsent(plan.Chunks()[*c].items); !items.empty()) {
+                        queue.push_back(std::move(items));
+                    }
                 }
             }
         };
@@ -657,7 +658,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
         remeasured = 0;
         while (!queue.empty()) {
             std::vector<uint64_t> keys;
-            for (const auto& item : plan.Chunks()[queue.front()].items) {
+            for (const auto& item : queue.front()) {
                 table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
                 keys.push_back(item.key);
             }
@@ -684,7 +685,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
 BENCHMARK_CAPTURE(BM_InlineMathArrival, all_pending, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_InlineMathArrival, affected, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
-// 文書を開く・読み直すたびに UI スレッドで作る、インライン数式の組。
+// 開いた・読み直した文書で初めて数式を頼まれたときに UI スレッドで作る、インライン数式の組。
 void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
 {
     auto md = math ? InlineMathMd(2000) : bytes ? RepeatTestMd(state, 0, bytes) : RepeatTestMd(state, 8);
@@ -1305,7 +1306,7 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
         const auto sources = chunk.items | std::views::transform([](const InlineMathItem& item) {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
-        table.MarkRequested(chunk.items);
+        table.TakeUnsent(chunk.items);
         auto results = engine->RenderMaths(sources);
         for (auto&& [item, drawing] : std::views::zip(chunk.items, results)) {
             if (drawing) {

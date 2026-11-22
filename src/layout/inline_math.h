@@ -61,11 +61,10 @@ inline constexpr size_t kInlineMathFirstChunk = 16;
 
 struct InlineMathChunk {
     std::vector<InlineMathItem> items;
-    // 描画を頼んで結果を待っている (TakeChunk から FinishChunk まで)。
-    bool requested = false;
 };
 
-// 文書の数式を組に分ける。描画 (bg のワーカーの 1 つの仕事) はこの組を単位にする。
+// 文書の数式を組に分ける。計測が数式を頼んだら、その組のうちまだ描画に出していない分をまとめて 1 つの仕事で描く
+// (InlineMathTable::TakeUnsent)。近くの数式を先に描くので、スクロールで見えたときの組み直しが減る。
 // 文書の順に重複を除いて並べ、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
@@ -77,20 +76,10 @@ public:
     }
     // key の数式を含む組の番号。計画に無ければ nullopt。
     std::optional<size_t> ChunkOf(uint64_t key) const noexcept;
-    // Build のたびに変わる。頼んだ組の結果が今の計画のものかを見分ける。
-    uint64_t Generation() const noexcept
-    {
-        return generation_;
-    }
-    // 組を描くために取り出す。結果を待っている組は nullptr。描けた組はまた取り出せる。
-    const InlineMathChunk* TakeChunk(size_t chunk) noexcept;
-    // TakeChunk した組の結果が届いた。generation は頼んだときの Generation()。作り直す前の計画で頼んだ組は何もしない。
-    void FinishChunk(size_t chunk, uint64_t generation) noexcept;
 
 private:
     std::vector<InlineMathChunk> chunks_;
-    uint64_t generation_ = 0;
-    // 開く・読み直すたびに数式の数だけ足すので、要素ごとに確保しない
+    // 数式の数だけ足すので、要素ごとに確保しない
     // (BM_InlineMathPlanBuild/math_12000 が 1598 → 1076µs)。
     FlatHashMap<uint32_t> chunk_of_;
 };
@@ -104,8 +93,9 @@ public:
     // 寸法が分かっていれば返す。無ければ描画を頼み (同じキーは結果が出るまで 1 回だけ)、nullopt。
     std::optional<InlineMathMetrics> FindOrRequest(uint64_t key);
     std::vector<uint64_t> TakeRequests();
-    // 組ごと描くとき、まだ計測で見つかっていない数式も頼んだことにして、計測から二重に頼ませない。
-    void MarkRequested(std::span<const InlineMathItem> items);
+    // items のうちまだ描画に出していないものを、出したことにして返す。計測でまだ見つかっていない数式も表に入れ、
+    // 計測から二重に頼ませない。描き終えた数式と結果を待つ数式は返さないので、読み直した文書の組でも変わった数式だけを描く。
+    std::vector<InlineMathItem> TakeUnsent(std::span<const InlineMathItem> items);
 
     // 戻り値: key が表にある。Clear の前に頼んだ結果が後から届いたら false。
     bool Resolve(uint64_t key, InlineMathMetrics metrics);
@@ -117,10 +107,22 @@ public:
     void Clear();
 
 private:
+    enum class State : uint8_t {
+        // 計測が頼んだ。
+        Wanted,
+        // 描画に出して結果を待っている。
+        Sent,
+        Done,
+    };
+    struct Entry {
+        InlineMathMetrics metrics;
+        State state = State::Wanted;
+    };
+
     std::mutex mutex_;
-    // nullopt の間は描画を頼んで待っている。計測は DirectWrite が律速で、FlatHashMap にしても時間は変わらない。
-    std::unordered_map<uint64_t, std::optional<InlineMathMetrics>> entries_;
-    // entries_ のうち metrics の無いものの数。
+    // 計測は DirectWrite が律速で、FlatHashMap にしても時間は変わらない。
+    std::unordered_map<uint64_t, Entry> entries_;
+    // entries_ のうち Done でないものの数。
     size_t unresolved_ = 0;
     std::vector<uint64_t> requests_;
     WorkerWake wake_;

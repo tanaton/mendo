@@ -64,7 +64,6 @@ bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint
 
 void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
 {
-    ++generation_;
     chunks_.clear();
     chunk_of_.Clear();
     InlineMathChunk current;
@@ -104,31 +103,26 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
     close();
 }
 
-const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk) noexcept
-{
-    InlineMathChunk& c = chunks_[chunk];
-    return std::exchange(c.requested, true) ? nullptr : &c;
-}
-
-void InlineMathPlan::FinishChunk(size_t chunk, uint64_t generation) noexcept
-{
-    if (generation == generation_) {
-        chunks_[chunk].requested = false;
-    }
-}
-
 std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
 {
     const uint32_t* const chunk = chunk_of_.Find(key);
     return chunk ? std::optional<size_t>{ *chunk } : std::nullopt;
 }
 
-void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
+std::vector<InlineMathItem> InlineMathTable::TakeUnsent(std::span<const InlineMathItem> items)
 {
+    std::vector<InlineMathItem> unsent;
+    unsent.reserve(items.size());
     const std::lock_guard lock(mutex_);
     for (const auto& item : items) {
-        unresolved_ += entries_.try_emplace(item.key).second;
+        const auto [it, added] = entries_.try_emplace(item.key);
+        unresolved_ += added;
+        if (it->second.state == State::Wanted) {
+            it->second.state = State::Sent;
+            unsent.push_back(item);
+        }
     }
+    return unsent;
 }
 
 void InlineMathTable::SetWake(WorkerWake wake)
@@ -149,7 +143,8 @@ std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key)
             wake_();
         }
     }
-    return it->second;
+    const Entry& entry = it->second;
+    return entry.state == State::Done ? std::optional{ entry.metrics } : std::nullopt;
 }
 
 std::vector<uint64_t> InlineMathTable::TakeRequests()
@@ -165,10 +160,10 @@ bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
     if (it == entries_.end()) {
         return false;
     }
-    if (!it->second) {
+    if (it->second.state != State::Done) {
         --unresolved_;
     }
-    it->second = metrics;
+    it->second = { .metrics = metrics, .state = State::Done };
     return true;
 }
 
@@ -176,7 +171,7 @@ void InlineMathTable::ForgetRequest(uint64_t key)
 {
     const std::lock_guard lock(mutex_);
     const auto it = entries_.find(key);
-    if (it != entries_.end() && !it->second) {
+    if (it != entries_.end() && it->second.state != State::Done) {
         entries_.erase(it);
         --unresolved_;
     }
