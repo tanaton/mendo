@@ -303,19 +303,15 @@ private:
     void FinishLayout(LayoutChange change, LayoutCaller caller);
     // 可視範囲を計測し、変わっていれば後始末をする。
     void EnsureFrameLayout(const PaneLayout& layout);
-    // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。
-    bool RequestInlineMathChunk(uint64_t key);
-    // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk は頼んだ組、generation は頼んだときの計画の世代。
-    void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation);
+    // 描画命令を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。
+    void OnInlineMathRendered(InlineMathBatchResult result);
     // 数式か画像の寸法を待って組んだレイアウトを、見ている位置を保って捨てる。表は force_tables でなければ間引く。捨てたら true。
     // arrived (昇順) があれば、表でないノードはそのキーの数式を待つものだけを捨てる (届いた数式の組)。
     bool InvalidatePendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
     // InvalidatePendingInline で捨てた分を組み直す。
     void RelayoutPendingInline(bool force_tables, const std::vector<uint64_t>* arrived = nullptr);
-    // 描いた数式の描画命令と寸法を捨て、計画を作り直す。別の文書を開いたときに呼ぶ。
+    // 描いた数式の描画命令と寸法を捨てる。別の文書を開いたときに呼ぶ。
     void ForgetInlineMath();
-    // 文書が変わったら作り直す (キーはズーム前の大きさなので、ズームでは作り直さない)。
-    void RebuildInlineMathPlan();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトをワーカーで解放する。
     void DisposeReleasedLayouts();
@@ -409,8 +405,9 @@ private:
     InlineImageTable inline_images_;
     // インライン数式の描画命令と画像のビットマップ。描画が読む。
     InlineDrawings inline_drawings_;
-    // 文書の数式の組。組ごとに bg のワーカーで描く。
-    InlineMathPlan inline_math_plan_;
+    // 今の文書の数式の組。計測が初めて数式を頼んだときに作り、文書を差し替えたら捨てる (新しい数式の無い読み直しでは
+    // 作らない)。キーはズーム前の大きさなので、ズームでは作り直さない。
+    std::optional<InlineMathPlan> inline_math_plan_;
     // 数式か画像を待つ表を組み直した時刻と、その間隔 (InvalidatePendingInline)。
     static constexpr std::chrono::milliseconds kInlineTableRelayoutInterval{ 1000 };
     std::chrono::steady_clock::time_point last_inline_table_relayout_{};

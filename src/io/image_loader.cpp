@@ -22,7 +22,7 @@ constexpr size_t kImageHeadBytes = 64 * 1024;
 // 寸法だけを、ファイルの先頭から読む。足りなければ全体を読む。
 std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const std::wstring& path, LONGLONG max_size)
 {
-    const auto file = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, max_size);
+    const auto file = OpenFileForReadShared(path.c_str(), max_size);
     if (!file || file->size == 0) {
         return std::nullopt;
     }
@@ -33,7 +33,7 @@ std::optional<wic_util::PixelSize> ReadImageSize(IWICImagingFactory* wic, const 
     if (const auto size = wic_util::ReadImageFileSizeFromMemory(wic, std::as_const(head)); size || head.size() == file->size) {
         return size;
     }
-    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, max_size);
+    const auto bytes = ReadAllBytes(path.c_str(), max_size);
     return wic_util::ReadImageFileSizeFromMemory(wic, bytes);
 }
 
@@ -204,7 +204,7 @@ ImageLoader::SizeRead ImageLoader::ReadSize(const std::wstring& path) const
 ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px) const
 {
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
-    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
+    const auto bytes = ReadAllBytes(path.c_str(), MAX_IMAGE_FILE_SIZE);
     const auto decoded = wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     if (!decoded) {
         return {};
@@ -221,7 +221,7 @@ ImageLoader::Decoded ImageLoader::DecodeForDisplay(const std::wstring& path, UIN
 FullSizeImage ImageLoader::DecodeFullSize(IWICImagingFactory* wic, const std::wstring& path, UINT max_dim, uint64_t max_pixels)
 {
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
-    const auto bytes = ReadAllBytes(path.c_str(), path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
+    const auto bytes = ReadAllBytes(path.c_str(), MAX_IMAGE_FILE_SIZE);
     const auto decoded = wic_util::DecodeImageFileFromMemory(wic, bytes);
     if (!decoded) {
         return {};

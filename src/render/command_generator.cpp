@@ -527,7 +527,6 @@ namespace chrome {
 void EmitTitleBar(CmdWriter w, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt, ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb)
 {
     const TitleBar& bar = tb.bar;
-    // 完全不透明でガラス効果を隠す
     w.out.push_back(FillRectCmd{ .rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, TitleBar::BASE_HEIGHT), .brush_id = BrushId::TitleBarBg });
 
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;

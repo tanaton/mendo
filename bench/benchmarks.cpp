@@ -631,8 +631,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
     }
     auto& [doc, l] = *opened;
     const auto nodes = doc.GetNodes();
-    InlineMathPlan plan;
-    plan.Build(nodes, doc.GetMathNodeIndices(), l.theme);
+    const InlineMathPlan plan(nodes, doc.GetMathNodeIndices(), l.theme);
     constexpr float kWidth = 1100.0f;
     constexpr float kRange = 950.0f * 5.0f;
     size_t remeasured = 0;
@@ -641,15 +640,10 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
         l.measurer.SetInlineMath(&table);
         LayoutCache cache(nodes.size());
         ComputeLayout(l.engine, nodes, cache, kWidth, 0.0f, kRange);
-        std::deque<size_t> queue;
-        std::vector<bool> asked(plan.Chunks().size());
+        std::deque<InlineMathChunk> queue;
         const auto ask = [&] {
-            for (const uint64_t key : table.TakeRequests()) {
-                if (const auto c = plan.ChunkOf(key); c && !asked[*c]) {
-                    asked[*c] = true;
-                    table.MarkRequested(plan.Chunks()[*c].items);
-                    queue.push_back(*c);
-                }
+            for (auto& items : table.TakeUnsentChunks(plan, table.TakeRequests())) {
+                queue.push_back(std::move(items));
             }
         };
         ask();
@@ -657,7 +651,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
         remeasured = 0;
         while (!queue.empty()) {
             std::vector<uint64_t> keys;
-            for (const auto& item : plan.Chunks()[queue.front()].items) {
+            for (const auto& item : queue.front()) {
                 table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
                 keys.push_back(item.key);
             }
@@ -684,7 +678,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
 BENCHMARK_CAPTURE(BM_InlineMathArrival, all_pending, false)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_InlineMathArrival, affected, true)->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
 
-// 文書を開く・読み直すたびに UI スレッドで作る、インライン数式の組。
+// 開いた・読み直した文書で初めて数式を頼まれたときに UI スレッドで作る、インライン数式の組。
 void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
 {
     auto md = math ? InlineMathMd(2000) : bytes ? RepeatTestMd(state, 0, bytes) : RepeatTestMd(state, 8);
@@ -693,17 +687,20 @@ void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
     }
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const Theme theme = GetLightTheme();
-    InlineMathPlan plan;
+    size_t chunks = 0;
     for (auto _ : state) {
-        plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), theme);
-        benchmark::DoNotOptimize(plan.Chunks().data());
+        // App と同じく毎回空から作る。捨てるのは worker の仕事 (App::ReplaceDocument) なので測らない。
+        std::optional<InlineMathPlan> plan;
+        state.SetIterationTime(SecondsOf([&] { plan.emplace(doc.GetNodes(), doc.GetMathNodeIndices(), theme); }));
+        benchmark::DoNotOptimize(plan->Chunks().data());
+        chunks = plan->Chunks().size();
     }
     state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
-    state.counters["chunks"] = static_cast<double>(plan.Chunks().size());
+    state.counters["chunks"] = static_cast<double>(chunks);
 }
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false, 0)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false, 0)->UseManualTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->UseManualTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->UseManualTime()->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
 void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, std::span<const Node> nodes)
@@ -1297,17 +1294,16 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
         return;
     }
     const auto engine = assets.NewEngine(l.factory.Get());
-    InlineMathPlan plan;
-    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
+    const InlineMathPlan plan(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
     InlineMathTable table;
     InlineDrawings drawings;
     for (const auto& chunk : plan.Chunks()) {
-        const auto sources = chunk.items | std::views::transform([](const InlineMathItem& item) {
+        const auto sources = chunk | std::views::transform([](const InlineMathItem& item) {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
-        table.MarkRequested(chunk.items);
+        table.TakeUnsent(chunk);
         auto results = engine->RenderMaths(sources);
-        for (auto&& [item, drawing] : std::views::zip(chunk.items, results)) {
+        for (auto&& [item, drawing] : std::views::zip(chunk, results)) {
             if (drawing) {
                 table.Resolve(item.key, { drawing->width, drawing->height + drawing->depth, drawing->height });
                 *drawings.math.TryEmplace(item.key).first = std::move(drawing);
@@ -1524,7 +1520,7 @@ void BM_DiagramRender(benchmark::State& state)
 BENCHMARK(BM_DiagramRender)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
-// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。
+// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と、画面に戻った図)。layout は worker で組む時間。
 enum class DiagramRecordPart : uint8_t { Record, Prepared, Layout };
 void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 {
@@ -1560,37 +1556,6 @@ void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
-
-// 図の結果のキャッシュに置く形に書く・解く (解くのは手放した図を読み直すワーカーの仕事)。test.md の図をすべて。
-void BM_DiagramCacheFormat(benchmark::State& state, bool parse)
-{
-    DiagramBench bench;
-    if (!bench.Init(state)) {
-        return;
-    }
-    std::vector<std::string> serialized;
-    size_t bytes = 0;
-    for (const auto& d : bench.drawings) {
-        bytes += serialized.emplace_back(mermaid_util::SerializeDrawing(*d)).size();
-    }
-    for (auto _ : state) {
-        if (parse) {
-            for (const auto& s : serialized) {
-                benchmark::DoNotOptimize(mermaid_util::ParseDrawing(s));
-            }
-        }
-        else {
-            for (const auto& d : bench.drawings) {
-                benchmark::DoNotOptimize(mermaid_util::SerializeDrawing(*d));
-            }
-        }
-    }
-    state.counters["diagrams"] = static_cast<double>(bench.drawings.size());
-    state.counters["KB"] = static_cast<double>(bytes) / 1024.0;
-}
-BENCHMARK_CAPTURE(BM_DiagramCacheFormat, serialize, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_DiagramCacheFormat, parse, true)->Unit(benchmark::kMicrosecond);
-
 
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
 void BM_DiagramFrameDraw(benchmark::State& state)
@@ -1665,11 +1630,10 @@ void BM_MathRender(benchmark::State& state, bool resized)
         return;
     }
     const auto doc = Document::FromMarkdown(InlineMathMd(64) + ShapeMathMd(160), L"bench.md");
-    InlineMathPlan plan;
-    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), GetLightTheme());
+    const InlineMathPlan plan(doc.GetNodes(), doc.GetMathNodeIndices(), GetLightTheme());
     std::vector<PeleEngine::MathSource> sources;
     for (const auto& chunk : plan.Chunks()) {
-        for (const auto& item : chunk.items) {
+        for (const auto& item : chunk) {
             sources.push_back({ item.tex, 16.0f });
         }
     }

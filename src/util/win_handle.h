@@ -75,6 +75,6 @@ using UniqueHandle = UniqueResource<HANDLE, InvalidHandleValue, CloseHandle>;
 // 無効値が nullptr のカーネルハンドル (イベント・ミューテックス・待機オブジェクト)。
 using UniqueNullHandle = UniqueResource<HANDLE, NullHandle<HANDLE>, CloseHandle>;
 using UniqueFindHandle = UniqueResource<HANDLE, InvalidHandleValue, FindClose>;
-// SetClipboardData / CreateStreamOnHGlobal への所有権移譲時は release() を使う。
+// SetClipboardData への所有権移譲時は release() を使う。
 using UniqueGlobalMem = UniqueResource<HGLOBAL, NullHandle<HGLOBAL>, GlobalFree>;
 using UniqueRegKey = UniqueResource<HKEY, NullHandle<HKEY>, RegCloseKey>;

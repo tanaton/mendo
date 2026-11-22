@@ -1,7 +1,6 @@
 #pragma once
 #include <array>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,7 +41,7 @@ bool IsFlowchartCode(std::string_view code) noexcept;
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
-// 図の文字と数式のラベルの大きさ (CSS px) の上限 (IsStorable)。文字の大きさは CSS の計算値をここへ丸める。
+// 図の文字と数式のラベルの大きさ (CSS px) の上限。文字の大きさは CSS の計算値をここへ丸める。
 // 数式のラベルは、pele が style や fontSize の指定によらず決まった大きさで組ませるので外れない。
 inline constexpr float kMaxFontSize = 1000.0f;
 
@@ -59,42 +58,35 @@ struct DrawingPlacement {
 
     bool operator==(const DrawingPlacement&) const = default;
 };
-// 図の結果のキャッシュ (DiagramCache) に書ける置き方か。変換と位置が有限で、大きさが 0 より大きく kMaxFontSize 以下、色が 24 ビット、
-// 不透明度が 0〜1。図を作る側は満たさない文字と数式を描かず、読む側は満たさないものを壊れた値として読まない。
-// 両側の値域をここでそろえる (外れたものを書くと読み戻せず、画面に戻るたびに描き直す)。
-bool IsStorable(const DrawingPlacement& p) noexcept;
-// 図の大きさ (DiagramDrawing の width・height) を書けるか。0 より大きく有限。IsStorable と同じく両側でそろえる。
-bool IsStorableSize(float width, float height) noexcept;
 // 図の文字の線 (CSS の text-decoration) のビット。overline は DirectWrite に無いので描かない。
 inline constexpr uint8_t kTextUnderline = 1;
 inline constexpr uint8_t kTextLineThrough = 2;
 inline constexpr uint8_t kTextDecorationBits = kTextUnderline | kTextLineThrough;
-// 図の文字の太さ (CSS の font-weight の数) の値域。CSS と同じ 1〜1000 で、図を作る側はこの外の指定を読まず、読む側は
-// 壊れた値として読まない。IsStorable と同じく両側でそろえる。
-inline constexpr uint16_t kMinFontWeight = 1;
-inline constexpr uint16_t kMaxFontWeight = 1000;
+// DiagramDrawing::chars の中の範囲。
+struct DrawingChars {
+    uint32_t begin = 0;
+    uint32_t length = 0;
+
+    std::wstring_view In(std::wstring_view chars) const noexcept
+    {
+        return { chars.data() + begin, length };
+    }
+};
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
 struct DrawingText {
     DrawingPlacement at;
     uint16_t weight = 400;
     bool italic = false;
     uint8_t decoration = 0; // kTextUnderline・kTextLineThrough
-    std::wstring family;    // CSS の font-family (候補の並び)
-    std::wstring text;
-
-    bool operator==(const DrawingText&) const = default;
+    DrawingChars family;    // CSS の font-family (候補の並び)
+    DrawingChars text;
 };
 // 図のラベルの数式 ($$...$$)。KaTeX で組んだ描画命令を、文字の色で置く。
 struct DrawingMath {
     DrawingPlacement at;
-    std::string tex; // UTF-8。直列化した形には数式の描画命令でなくこれを置く (読み直すときは覚えた描画命令を差し込む)
-    // 組めなかった (読んだ後にまだ組んでいない) なら null。比べない。
+    std::string tex; // UTF-8。クリップボードの SVG に書く
+    // KaTeX で組んだ描画命令。null にしない。
     std::shared_ptr<const MathDrawing> drawing;
-
-    bool operator==(const DrawingMath& o) const noexcept
-    {
-        return at == o.at && tex == o.tex;
-    }
 };
 // 図形を描いてから文字を描く 1 層。図形は文字を除き、色・不透明度・変換を属性に確定させた SVG (UTF-8) の <svg> の中身で、
 // ID2D1SvgDocument が読める要素だけを使う。<svg> と <defs> は描くときに付ける (層ごとに同じものを持たない)。
@@ -102,29 +94,30 @@ struct DrawingLayer {
     std::string shapes;
     std::vector<DrawingText> texts;
     std::vector<DrawingMath> maths; // 文字の後に描く
-
-    bool operator==(const DrawingLayer&) const = default;
 };
 // pele の SVG から作った描画命令。層で SVG の文書の順の重なりを保ち、図形がその層の文字と重なるときだけ次の層を始める。
+// 作った後は変えず、表示・キャッシュ・保存が同じものを共有する。文字の本文と書体は図ごとに 1 本にまとめて持ち
+// (書体は同じものを重ねない)、画面外の図も別の小さな形に直さずにこのまま覚える。
 struct DiagramDrawing {
     float width = 0.0f; // 図の縮めない大きさ (CSS px、切り上げ済み)。幅の上限より広いことがある
     float height = 0.0f;
     uint32_t background = 0; // 0xRRGGBB
     std::string defs;        // 層の図形が参照する <defs> の中身 (グラデーション)
     std::vector<DrawingLayer> layers;
+    std::wstring chars; // DrawingText の family と text
 
-    bool operator==(const DiagramDrawing&) const = default;
+    std::wstring_view Chars(DrawingChars range) const noexcept
+    {
+        return range.In(chars);
+    }
 };
-// 図の結果のキャッシュ (DiagramCache) に置く書式。
-// "<幅>:<高さ>:<背景 (10 進)>:<defs の長さ>:<defs><層の数>:" に続けて、層ごとに "<図形の長さ>:<図形><文字の並びの数>:" と並び、
-// "<数式の数>:" と数式を置く。
-// 置き方は "<a>,<b>,<c>,<d>,<e>,<f>,<x>,<y>,<大きさ>,<色 (10 進)>,<不透明度>"。
-// 並びは "<置き方>,<太さ>,<斜体 0/1>,<線のビット 0〜3 (kTextUnderline | kTextLineThrough)>:<書体の長さ>:<書体><文字の長さ>:<文字>"。
-// 数式は "<置き方>:<TeX の長さ>:<TeX>" で、drawing は null のまま返す。
-// 長さは UTF-8 のバイト数。欠け・余り・ありえない値 (IsStorable を満たさない置き方など) があれば nullopt。
-std::optional<DiagramDrawing> ParseDrawing(std::string_view payload);
-// ParseDrawing が読む形の UTF-8。描画命令をキャッシュに置くのに使う。
-std::string SerializeDrawing(const DiagramDrawing& drawing);
+DrawingChars AppendChars(std::wstring& chars, std::wstring_view s);
+// 作り終えた描画命令の、書き足しで伸ばした余りを捨てる。
+void ShrinkToFit(DiagramDrawing& drawing);
+// 描画命令が使うバイト数の見込み (ラベルの数式の描画命令は別)。図の結果のキャッシュの上限に数える。
+size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
+// 描画命令の中身のハッシュ (別の幅で描いた図が同じかを比べる)。
+uint64_t DrawingHash(const DiagramDrawing& drawing) noexcept;
 
 // 図を描く大きさ (CSS px)。
 struct DiagramSize {

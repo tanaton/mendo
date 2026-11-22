@@ -15,11 +15,8 @@
 
 namespace path_util {
 
-// 外部エディタとの同時アクセスを許す共有モード。編集中のファイルを開いたまま読み直せるよう、Markdown / 画像の経路で使う。
+// 外部エディタとの同時アクセスを許す共有モード。編集中のファイルを開いたまま読み直せるよう、読み取りと監視はどれもこれで開く。
 inline constexpr DWORD kFileShareRWDelete = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-
-// ReadAllBytes の既定の上限。
-inline constexpr size_t MAX_READABLE_FILE_SIZE = std::numeric_limits<uint32_t>::max();
 
 // NTFS と挙動が一致する、Unicode 込みの ordinal case-insensitive 比較。
 inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
@@ -175,13 +172,12 @@ struct OpenedFile {
     size_t size = 0;
 };
 
-// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。
+// CreateFileW (kFileShareRWDelete) + GetFileSizeEx + サイズ上限チェックを束ねる。
 // 読み取り系は wstring から filesystem::path を作るヒープ確保を避けるため、NUL 終端文字列で受ける。
-[[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size) noexcept;
+[[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, LONGLONG max_size) noexcept;
 
 // 失敗時と空ファイルは空を返す。読めなかった理由が要るときは OpenFileForReadShared を使う。
-[[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD share_mode = FILE_SHARE_READ,
-                                      LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
+[[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, LONGLONG max_size);
 
 // size バイトを ReadFile の DWORD 上限ごとに分けて読み切る。EOF・パイプ切断 (bytes_read == 0) は失敗として false。
 [[nodiscard]] inline bool ReadExact(HANDLE file, void* dst, size_t size) noexcept

@@ -430,11 +430,10 @@ TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
                                      "$a$ **$b$** `c` $$d$$\n\n> $e$\n\n- $f$\n\n| $g$ |\n|---|\n| $h$ |\n";
     auto [nodes, cache] = ParseAndLayout(kMd);
     const auto requests = table_.TakeRequests();
-    InlineMathPlan plan;
-    plan.Build(nodes, ParseMarkdown(kMd).indices.math_indices, theme_);
+    const InlineMathPlan plan(nodes, ParseMarkdown(kMd).indices.math_indices, theme_);
     size_t planned = 0;
     for (const auto& c : plan.Chunks()) {
-        planned += c.items.size();
+        planned += c.size();
     }
     EXPECT_EQ(requests.size(), planned);
     for (const uint64_t key : requests) {
@@ -469,11 +468,10 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
 {
     const Theme theme = GetLightTheme();
     const auto parsed = ParseMarkdown("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
-    InlineMathPlan plan;
-    plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
+    const InlineMathPlan plan(parsed.nodes, parsed.indices.math_indices, theme);
     std::vector<std::pair<std::string, float>> items;
     for (const auto& c : plan.Chunks()) {
-        for (const auto& item : c.items) {
+        for (const auto& item : c) {
             items.emplace_back(item.tex, item.font_size);
             EXPECT_EQ(item.key, InlineMathKey(item.tex, item.font_size));
             EXPECT_EQ(plan.ChunkOf(item.key), std::optional<size_t>{ static_cast<size_t>(&c - plan.Chunks().data()) });
@@ -487,33 +485,27 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
 }
 
-// 組は結果を待つ間は取り出せず、描けたらまた取り出せる。
-TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
+// 読み直しで計画を作り直しても、描き終えた数式と結果を待つ数式は描画に出し直さない。
+TEST(InlineMathPlan, RebuiltPlanSendsOnlyUnsentMath)
 {
-    InlineMathPlan plan;
-    const auto parsed = ParseMarkdown("$a$ $b$\n");
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    ASSERT_EQ(plan.Chunks().size(), 1u);
-    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
-    EXPECT_EQ(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, plan.Generation());
-    EXPECT_EQ(plan.TakeChunk(0), plan.Chunks().data());
-}
-
-// 計画を作り直す前に頼んだ組の結果は、同じ中身に作り直した組でも状態を変えない。
-TEST(InlineMathPlan, StaleChunksDoNotFinish)
-{
-    InlineMathPlan plan;
-    const auto parsed = ParseMarkdown("$a$\n");
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    const uint64_t stale = plan.Generation();
-    ASSERT_NE(plan.TakeChunk(0), nullptr);
-    plan.Build(parsed.nodes, parsed.indices.math_indices, GetLightTheme());
-    ASSERT_NE(plan.TakeChunk(0), nullptr);
-    plan.FinishChunk(0, stale);
-    EXPECT_EQ(plan.TakeChunk(0), nullptr) << "作り直した後に頼んだ組はまだ待っている";
-    plan.FinishChunk(0, plan.Generation());
-    EXPECT_NE(plan.TakeChunk(0), nullptr);
+    const Theme theme = GetLightTheme();
+    InlineMathTable table;
+    const auto send = [&](std::string_view md) {
+        const auto parsed = ParseMarkdown(md);
+        const InlineMathPlan plan(parsed.nodes, parsed.indices.math_indices, theme);
+        std::string sent;
+        for (const auto& item : table.TakeUnsent(plan.Chunks().front())) {
+            sent += item.tex;
+        }
+        return sent;
+    };
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "abc");
+    table.Resolve(InlineMathKey("a", theme.font_size_body), { 10.0f, 5.0f, 4.0f });
+    table.Resolve(InlineMathKey("b", theme.font_size_body), {});
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "") << "描けた・描けなかった・待っている";
+    EXPECT_EQ(send("$a$ $b$ $x$ $c$\n"), "x");
+    table.Clear();
+    EXPECT_EQ(send("$a$ $b$ $c$\n"), "abc") << "別の文書を開いたら描き直す";
 }
 
 // 文書の順に、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ区切る。最後の組は残りの数式。
@@ -526,32 +518,31 @@ TEST(InlineMathPlan, SplitsInDocumentOrder)
     for (size_t i = 0; i < count; ++i) {
         text += std::format("${}x$ ", i);
     }
-    InlineMathPlan plan;
     const auto parsed = ParseMarkdown(text);
-    plan.Build(parsed.nodes, parsed.indices.math_indices, theme);
+    const InlineMathPlan plan(parsed.nodes, parsed.indices.math_indices, theme);
     const auto chunks = plan.Chunks();
     ASSERT_EQ(chunks.size(), 4u);
-    EXPECT_EQ(chunks[0].items.size(), kInlineMathFirstChunk);
-    EXPECT_EQ(chunks[1].items.size(), kInlineMathPerChunk);
-    EXPECT_EQ(chunks[2].items.size(), kInlineMathPerChunk);
-    EXPECT_EQ(chunks[3].items.size(), 10u);
+    EXPECT_EQ(chunks[0].size(), kInlineMathFirstChunk);
+    EXPECT_EQ(chunks[1].size(), kInlineMathPerChunk);
+    EXPECT_EQ(chunks[2].size(), kInlineMathPerChunk);
+    EXPECT_EQ(chunks[3].size(), 10u);
     size_t n = 0;
     for (const auto& c : chunks) {
-        for (const auto& item : c.items) {
+        for (const auto& item : c) {
             EXPECT_EQ(item.tex, std::format("{}x", n++));
         }
     }
 }
 
 // 組ごと描くとき、まだ測っていない数式も頼んだことにして、計測から二重に頼ませない。描けた数式は上書きしない。
-TEST(InlineMathTable, MarkRequestedSuppressesRequestsFromMeasuring)
+TEST(InlineMathTable, TakeUnsentSuppressesRequestsFromMeasuring)
 {
     InlineMathTable table;
     table.FindOrRequest(1);
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
     table.TakeRequests();
     const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
-    table.MarkRequested(items);
+    EXPECT_EQ(table.TakeUnsent(items).size(), 1u);
     EXPECT_TRUE(table.FindOrRequest(1));
     EXPECT_FALSE(table.FindOrRequest(2));
     EXPECT_TRUE(table.TakeRequests().empty());
@@ -568,6 +559,38 @@ TEST(InlineMathTable, ResolveAfterClearIsIgnored)
     EXPECT_FALSE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
     EXPECT_FALSE(table.FindOrRequest(1)) << "忘れたので頼み直す";
     EXPECT_TRUE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
+}
+
+// 計測が頼んだ数式は描画に 1 回だけ出す。同じ組の数式を続けて頼まれても仕事を増やさない。
+TEST(InlineMathTable, TakeUnsentSendsMeasuredRequestOnce)
+{
+    InlineMathTable table;
+    table.FindOrRequest(1);
+    table.FindOrRequest(2);
+    const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
+    EXPECT_EQ(table.TakeUnsent(items).size(), 2u);
+    EXPECT_TRUE(table.TakeUnsent(items).empty());
+    EXPECT_FALSE(table.FindOrRequest(1)) << "出しただけでは寸法は無い";
+    EXPECT_TRUE(table.HasUnresolved());
+}
+
+// 頼まれた数式は組ごとに残りも一緒に出し、計画に無い数式は待ちから外す。
+TEST(InlineMathTable, TakeUnsentChunksSendsWholeChunkAndForgetsUnplanned)
+{
+    const Theme theme = GetLightTheme();
+    const auto parsed = ParseMarkdown("$a$ $b$ $c$\n");
+    const InlineMathPlan plan(parsed.nodes, parsed.indices.math_indices, theme);
+    InlineMathTable table;
+    for (const std::string_view tex : { "a", "gone", "b" }) {
+        table.FindOrRequest(InlineMathKey(tex, theme.font_size_body));
+    }
+    const auto batches = table.TakeUnsentChunks(plan, table.TakeRequests());
+    ASSERT_EQ(batches.size(), 1u);
+    EXPECT_EQ(batches[0].size(), 3u) << "頼まれていない c も一緒に出す";
+    for (const auto& item : batches[0]) {
+        table.Resolve(item.key, {});
+    }
+    EXPECT_FALSE(table.HasUnresolved()) << "計画に無い数式は待たない";
 }
 
 // 頼まなかったことにした数式は待ちから外れ、また測られたら頼み直す。結果が分かっている数式は残す。

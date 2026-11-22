@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory_resource>
 #include <thread>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -453,11 +454,16 @@ void App::TakeStartupMessages()
 
 void App::OnInlineMathRequested()
 {
-    for (const uint64_t key : inline_math_.TakeRequests()) {
-        // 計画に無いのは、リロードの前に測って今の文書には無くなった数式だけ。描かずに待ちから外す。
-        if (!RequestInlineMathChunk(key)) {
-            inline_math_.ForgetRequest(key);
-        }
+    const std::vector<uint64_t> keys = inline_math_.TakeRequests();
+    if (keys.empty()) {
+        return;
+    }
+    if (!inline_math_plan_) {
+        const Document& doc = state_.document.doc;
+        inline_math_plan_.emplace(doc.GetNodes(), doc.GetMathNodeIndices(), theme_service_.GetTheme());
+    }
+    for (auto& items : inline_math_.TakeUnsentChunks(*inline_math_plan_, keys)) {
+        mermaid_renderer_.RequestMathBatch(std::move(items), [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); });
     }
 }
 
@@ -473,32 +479,8 @@ void App::OnTableMeasured()
     FinishLayout(remeasure ? LayoutChange::Remeasure : LayoutChange::Reflowed, LayoutCaller::Message);
 }
 
-bool App::RequestInlineMathChunk(uint64_t key)
+void App::OnInlineMathRendered(InlineMathBatchResult result)
 {
-    const auto chunk = inline_math_plan_.ChunkOf(key);
-    if (!chunk) {
-        return false;
-    }
-    // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
-    if (const auto* c = inline_math_plan_.TakeChunk(*chunk)) {
-        inline_math_.MarkRequested(c->items);
-        const size_t index = *chunk;
-        const uint64_t generation = inline_math_plan_.Generation();
-        mermaid_renderer_.RequestMathBatch(c->items, [this, index, generation](InlineMathBatchResult result) {
-            OnInlineMathRendered(std::move(result), index, generation);
-        });
-    }
-    return true;
-}
-
-void App::RebuildInlineMathPlan()
-{
-    inline_math_plan_.Build(state_.document.doc.GetNodes(), state_.document.doc.GetMathNodeIndices(), theme_service_.GetTheme());
-}
-
-void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t generation)
-{
-    inline_math_plan_.FinishChunk(chunk, generation);
     table_jobs_.NoteInlineChanged();
     std::vector<uint64_t> arrived;
     arrived.reserve(result.items.size());
@@ -559,8 +541,6 @@ void App::ForgetInlineMath()
     inline_math_.Clear();
     inline_drawings_.math = {};
     mermaid_renderer_.DropQueuedMath();
-    // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
-    RebuildInlineMathPlan();
 }
 
 void App::OnFileListed()
@@ -832,7 +812,7 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     table_jobs_.SetDocument(state_.document.doc.ShareData());
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
     old_cache.ReleaseDiagrams();
-    DisposeOnWorker(scheduler_, std::pair{ std::move(old), std::move(old_cache) });
+    DisposeOnWorker(scheduler_, std::tuple{ std::move(old), std::move(old_cache), std::exchange(inline_math_plan_, std::nullopt) });
 }
 
 void App::BeginAsyncLoad(std::wstring path, bool show_animation)
@@ -988,8 +968,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     resource_manager_.DropQueues();
     // 拡大表示は前の文書の図か画像なので一緒に閉じる
     zoom_viewer_.Close();
-    // 前の文書の図の解いた描画命令とコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図が
-    // あれば、手放す前に受け取って解き直さない)。
+    // 前の文書の図のコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図があれば、手放す前に
+    // 受け取って記録し直さない)。
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
@@ -1019,9 +999,8 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
     const size_t carried = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
     FollowViewerNode(next, ends);
+    // 描いた数式は残すので、描くのは新しい数式と、その組のまだ描いていない数式だけ。
     ReplaceDocument(std::move(next), std::move(estimated));
-    // 描いた数式は残し、変わった数式を含む組だけが描き直しになる。
-    RebuildInlineMathPlan();
 
     // 図と画像はコードやパスがキーなので、描画・デコード待ちも結果もそのまま使える。
     // 編集で画像が置かれた可能性があるので失敗記録は消す。

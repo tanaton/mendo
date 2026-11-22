@@ -6,6 +6,7 @@
 #include <wrl/implements.h>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 std::optional<std::string_view> InlineMathTex(std::string_view text, const TextRun& run)
 {
@@ -62,26 +63,24 @@ bool HasInlineMathKey(const Node& node, const Theme& theme, std::span<const uint
                          [&](uint64_t key, std::string_view) { return std::ranges::binary_search(sorted_keys, key); });
 }
 
-void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
+InlineMathPlan::InlineMathPlan(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme)
 {
-    ++generation_;
-    chunks_.clear();
-    chunk_of_.Clear();
     InlineMathChunk current;
     const auto close = [&] {
-        if (current.items.empty()) {
+        if (current.empty()) {
             return;
         }
-        chunks_.push_back(std::move(current));
-        current = {};
+        // 大きさちょうどの組に写す (current の確保は次の組に使い回す)。伸ばしながら積んだものを持つと余りが残る。
+        chunks_.emplace_back(std::make_move_iterator(current.begin()), std::make_move_iterator(current.end()));
+        current.clear();
     };
     const auto add_runs = [&](std::string_view text, std::span<const TextRun> runs, float font_size) {
         VisitMathRuns(text, runs, font_size, [&](uint64_t key, std::string_view tex) {
             const auto [chunk, added] = chunk_of_.TryEmplace(key);
             if (added) {
                 *chunk = static_cast<uint32_t>(chunks_.size());
-                current.items.push_back({ key, std::string{ tex }, font_size });
-                if (current.items.size() >= (chunks_.empty() ? kInlineMathFirstChunk : kInlineMathPerChunk)) {
+                current.push_back({ key, std::string{ tex }, font_size });
+                if (current.size() >= (chunks_.empty() ? kInlineMathFirstChunk : kInlineMathPerChunk)) {
                     close();
                 }
             }
@@ -104,31 +103,51 @@ void InlineMathPlan::Build(std::span<const Node> nodes, std::span<const size_t> 
     close();
 }
 
-const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk) noexcept
-{
-    InlineMathChunk& c = chunks_[chunk];
-    return std::exchange(c.requested, true) ? nullptr : &c;
-}
-
-void InlineMathPlan::FinishChunk(size_t chunk, uint64_t generation) noexcept
-{
-    if (generation == generation_) {
-        chunks_[chunk].requested = false;
-    }
-}
-
 std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
 {
     const uint32_t* const chunk = chunk_of_.Find(key);
     return chunk ? std::optional<size_t>{ *chunk } : std::nullopt;
 }
 
-void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
+std::vector<InlineMathItem> InlineMathTable::TakeUnsent(std::span<const InlineMathItem> items)
 {
+    std::vector<InlineMathItem> unsent;
+    unsent.reserve(items.size());
     const std::lock_guard lock(mutex_);
     for (const auto& item : items) {
-        unresolved_ += entries_.try_emplace(item.key).second;
+        const auto [it, added] = entries_.try_emplace(item.key);
+        unresolved_ += added;
+        if (it->second.state == State::Wanted) {
+            it->second.state = State::Sent;
+            unsent.push_back(item);
+        }
     }
+    return unsent;
+}
+
+std::vector<InlineMathChunk> InlineMathTable::TakeUnsentChunks(const InlineMathPlan& plan, std::span<const uint64_t> keys)
+{
+    const auto chunks = plan.Chunks();
+    std::vector<InlineMathChunk> taken;
+    // 表は 1 回に何千個も頼むので、頼まれた数式ごとに組をたどらず、同じ組は 1 回だけたどる。
+    std::vector<bool> visited(chunks.size());
+    for (const uint64_t key : keys) {
+        const auto chunk = plan.ChunkOf(key);
+        // 計画に無いのは、リロードの前に測って今の文書には無くなった数式だけ。描かずに待ちから外す。
+        if (!chunk) {
+            ForgetRequest(key);
+            continue;
+        }
+        if (visited[*chunk]) {
+            continue;
+        }
+        visited[*chunk] = true;
+        // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
+        if (auto unsent = TakeUnsent(chunks[*chunk]); !unsent.empty()) {
+            taken.push_back(std::move(unsent));
+        }
+    }
+    return taken;
 }
 
 void InlineMathTable::SetWake(WorkerWake wake)
@@ -149,7 +168,8 @@ std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key)
             wake_();
         }
     }
-    return it->second;
+    const Entry& entry = it->second;
+    return entry.state == State::Done ? std::optional{ entry.metrics } : std::nullopt;
 }
 
 std::vector<uint64_t> InlineMathTable::TakeRequests()
@@ -165,10 +185,10 @@ bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
     if (it == entries_.end()) {
         return false;
     }
-    if (!it->second) {
+    if (it->second.state != State::Done) {
         --unresolved_;
     }
-    it->second = metrics;
+    it->second = { .metrics = metrics, .state = State::Done };
     return true;
 }
 
@@ -176,7 +196,7 @@ void InlineMathTable::ForgetRequest(uint64_t key)
 {
     const std::lock_guard lock(mutex_);
     const auto it = entries_.find(key);
-    if (it != entries_.end() && !it->second) {
+    if (it != entries_.end() && it->second.state != State::Done) {
         entries_.erase(it);
         --unresolved_;
     }

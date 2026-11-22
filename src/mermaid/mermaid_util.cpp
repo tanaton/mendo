@@ -1,16 +1,9 @@
 #include "mermaid_util.h"
 #include "document_types.h"
 #include "utility.h"
-#include "string_convert.h"
 #include <algorithm>
-#include <charconv>
 #include <cmath>
-#include <format>
-#include <iterator>
-#include <limits>
-#include <span>
-
-using namespace std::literals;
+#include <type_traits>
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept
 {
@@ -21,141 +14,6 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
     }
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
 }
-
-namespace {
-
-// 数として読めない値と float に収まらない値は NaN にする。有限でない値もそのまま返し、範囲は呼ぶ側が確かめる。
-float ParseFloatPrefix(std::string_view s) noexcept
-{
-    float v = 0.0f;
-    const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
-    return ec == std::errc{} ? v : std::numeric_limits<float>::quiet_NaN();
-}
-
-// s の先頭から ':' までを切り出して進める。':' が無ければ nullopt。
-std::optional<std::string_view> TakeField(std::string_view& s) noexcept
-{
-    const auto pos = s.find(':');
-    if (pos == std::string_view::npos) {
-        return std::nullopt;
-    }
-    const auto field = s.substr(0, pos);
-    s.remove_prefix(pos + 1);
-    return field;
-}
-
-// s の先頭から ':' までの、カンマで区切った数を out に読んで進める。数がちょうど out の個数でなければ false。
-bool TakeNumbers(std::string_view& s, std::span<float> out) noexcept
-{
-    auto numbers = TakeField(s);
-    if (!numbers || static_cast<size_t>(std::ranges::count(*numbers, ',')) + 1 != out.size()) {
-        return false;
-    }
-    for (float& v : out) {
-        const auto pos = numbers->find(',');
-        v = ParseFloatPrefix(numbers->substr(0, pos));
-        numbers->remove_prefix(pos == std::string_view::npos ? numbers->size() : pos + 1);
-    }
-    return true;
-}
-
-// 10 進の数字だけからなる値。max を超えれば nullopt。
-std::optional<uint32_t> ParseDecimal(std::string_view s, uint32_t max) noexcept
-{
-    // 符号なしの from_chars は符号も空白も受け付けない。
-    uint32_t v = 0;
-    const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
-    if (ec != std::errc{} || ptr != s.data() + s.size() || v > max) {
-        return std::nullopt;
-    }
-    return v;
-}
-
-// "<長さ>:<本文>" を切り出して進める。長さは残りを超えられないので、偽った長さで大きく確保することはない。
-std::optional<std::string_view> TakeText(std::string_view& s) noexcept
-{
-    const auto len_field = TakeField(s);
-    const auto len = len_field ? ParseDecimal(*len_field, std::numeric_limits<uint32_t>::max()) : std::nullopt;
-    if (!len || *len > s.size()) {
-        return std::nullopt;
-    }
-    const auto text = s.substr(0, *len);
-    s.remove_prefix(*len);
-    return text;
-}
-
-constexpr uint32_t kMaxRgb = 0xFFFFFF;
-
-// 置き方の数 (変換 6・x・y・大きさ・色・不透明度)。文字と数式の数の並びの先頭に書く。
-constexpr size_t kPlacementNumbers = 11;
-
-// 数の並びのうち先頭 kPlacementNumbers 個を読む。書けない置き方 (IsStorable) なら nullopt。
-std::optional<mermaid_util::DrawingPlacement> ToPlacement(std::span<const float> v) noexcept
-{
-    const float rgb = v[9];
-    if (!(rgb >= 0.0f && rgb <= static_cast<float>(kMaxRgb))) {
-        return std::nullopt;
-    }
-    const mermaid_util::DrawingPlacement p{
-        .transform = { v[0], v[1], v[2], v[3], v[4], v[5] },
-        .x = v[6],
-        .y = v[7],
-        .font_size = v[8],
-        .rgb = static_cast<uint32_t>(rgb),
-        .alpha = v[10],
-    };
-    return mermaid_util::IsStorable(p) ? std::optional{ p } : std::nullopt;
-}
-
-template <class Out>
-void AppendPlacement(Out out, const mermaid_util::DrawingPlacement& p)
-{
-    const auto& m = p.transform;
-    std::format_to(out, "{},{},{},{},{},{},{},{},{},{},{}", m[0], m[1], m[2], m[3], m[4], m[5], p.x, p.y, p.font_size, p.rgb, p.alpha);
-}
-
-std::optional<mermaid_util::DrawingText> ParseDrawingText(std::string_view& s)
-{
-    float v[kPlacementNumbers + 3]{};
-    if (!TakeNumbers(s, v)) {
-        return std::nullopt;
-    }
-    const auto at = ToPlacement(v);
-    const float weight = v[11];
-    if (!at || !(weight >= mermaid_util::kMinFontWeight && weight <= mermaid_util::kMaxFontWeight) ||(v[12] != 0.0f && v[12] != 1.0f) || !(v[13] >= 0.0f && v[13] <= mermaid_util::kTextDecorationBits) ||
-        v[13] != std::floor(v[13])) {
-        return std::nullopt;
-    }
-    const auto family = TakeText(s);
-    const auto text = family ? TakeText(s) : std::nullopt;
-    if (!text) {
-        return std::nullopt;
-    }
-    return mermaid_util::DrawingText{
-        .at = *at,
-        .weight = static_cast<uint16_t>(weight),
-        .italic = v[12] != 0.0f,
-        .decoration = static_cast<uint8_t>(v[13]),
-        .family = string_convert::Utf8ToWide(*family),
-        .text = string_convert::Utf8ToWide(*text),
-    };
-}
-
-std::optional<mermaid_util::DrawingMath> ParseDrawingMath(std::string_view& s)
-{
-    float v[kPlacementNumbers]{};
-    if (!TakeNumbers(s, v)) {
-        return std::nullopt;
-    }
-    const auto at = ToPlacement(v);
-    const auto tex = at ? TakeText(s) : std::nullopt;
-    if (!tex) {
-        return std::nullopt;
-    }
-    return mermaid_util::DrawingMath{ .at = *at, .tex = std::string{ *tex } };
-}
-
-} // namespace
 
 bool mermaid_util::IsFlowchartCode(std::string_view code) noexcept
 {
@@ -187,42 +45,77 @@ bool mermaid_util::IsFlowchartCode(std::string_view code) noexcept
     return false;
 }
 
-bool mermaid_util::IsStorable(const DrawingPlacement& p) noexcept
-{
-    return std::ranges::all_of(p.transform, [](float v) static { return std::isfinite(v); }) && std::isfinite(p.x) && std::isfinite(p.y) &&
-           p.font_size > 0.0f && p.font_size <= kMaxFontSize && p.rgb <= kMaxRgb && p.alpha >= 0.0f && p.alpha <= 1.0f;
-}
+namespace {
 
-bool mermaid_util::IsStorableSize(float width, float height) noexcept
+// 描画命令の可変長の置き場をどれも visit に渡す (数える所と詰める所でそろえる)。構造化束縛で受けるので、メンバーを足すと
+// コンパイルが止まる。
+template <class Drawing, class Visit>
+void ForEachBuffer(Drawing& drawing, Visit&& visit)
 {
-    return width > 0.0f && height > 0.0f && std::isfinite(width) && std::isfinite(height);
-}
-
-std::string mermaid_util::SerializeDrawing(const DiagramDrawing& drawing)
-{
-    std::string out;
-    const auto out_it = std::back_inserter(out);
-    // {} の浮動小数は最短の往復表記なので、from_chars で同じ値に読み戻せる。長さは UTF-8 のバイト数。
-    std::format_to(out_it, "{}:{}:{}:{}:{}{}:", drawing.width, drawing.height, drawing.background, drawing.defs.size(), drawing.defs,
-                   drawing.layers.size());
-    for (const auto& layer : drawing.layers) {
-        std::format_to(out_it, "{}:{}{}:", layer.shapes.size(), layer.shapes, layer.texts.size());
-        for (const auto& t : layer.texts) {
-            AppendPlacement(out_it, t.at);
-            std::format_to(out_it, ",{},{},{}:", t.weight, t.italic ? 1 : 0, t.decoration);
-            // 文字は SVG の UTF-8 から Utf8ToWide で作る (不正な並びは U+FFFD にする) ので孤立したサロゲートを含まず、
-            // 読み戻すと同じ文字になる。含めば U+FFFD に変わり、画面外から戻った図の文字が変わる。
-            const std::string family = string_convert::WideToUtf8(t.family);
-            const std::string text = string_convert::WideToUtf8(t.text);
-            std::format_to(out_it, "{}:{}{}:{}", family.size(), family, text.size(), text);
-        }
-        std::format_to(out_it, "{}:", layer.maths.size());
-        for (const auto& m : layer.maths) {
-            AppendPlacement(out_it, m.at);
-            std::format_to(out_it, ":{}:{}", m.tex.size(), m.tex);
+    auto& [width, height, background, defs, layers, chars] = drawing;
+    visit(defs);
+    visit(chars);
+    visit(layers);
+    for (auto& layer : layers) {
+        auto& [shapes, texts, maths] = layer;
+        visit(shapes);
+        visit(texts);
+        visit(maths);
+        for (auto& math : maths) {
+            auto& [at, tex, math_drawing] = math;
+            visit(tex);
         }
     }
-    return out;
+}
+
+} // namespace
+
+mermaid_util::DrawingChars mermaid_util::AppendChars(std::wstring& chars, std::wstring_view s)
+{
+    const DrawingChars range{ static_cast<uint32_t>(chars.size()), static_cast<uint32_t>(s.size()) };
+    chars.append(s);
+    return range;
+}
+
+void mermaid_util::ShrinkToFit(DiagramDrawing& drawing)
+{
+    ForEachBuffer(drawing, [](auto& buffer) static { buffer.shrink_to_fit(); });
+}
+
+size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
+{
+    size_t bytes = sizeof(drawing);
+    ForEachBuffer(drawing, [&bytes](const auto& buffer) noexcept { bytes += buffer.size() * sizeof(*buffer.data()); });
+    return bytes;
+}
+
+uint64_t mermaid_util::DrawingHash(const DiagramDrawing& drawing) noexcept
+{
+    // 詰め物が無いのでバイト列のまま混ぜられる。
+    static_assert(sizeof(DrawingPlacement) == 11 * 4);
+    static_assert(sizeof(DrawingText) == sizeof(DrawingText::at) + sizeof(DrawingText::weight) + sizeof(DrawingText::italic) +
+                                             sizeof(DrawingText::decoration) + sizeof(DrawingText::family) + sizeof(DrawingText::text));
+    static_assert(std::is_trivially_copyable_v<DrawingText>);
+    uint64_t hash = 0;
+    const auto mix = [&hash](const void* data, size_t size) noexcept { hash = rapidhash_withSeed(data, size, hash); };
+    // ForEachBuffer と同じく、メンバーを足すとコンパイルが止まるように受ける。
+    const auto& [width, height, background, defs, layers, chars] = drawing;
+    mix(&width, sizeof(width));
+    mix(&height, sizeof(height));
+    mix(&background, sizeof(background));
+    mix(defs.data(), defs.size());
+    mix(chars.data(), chars.size() * sizeof(wchar_t));
+    for (const auto& layer : layers) {
+        const auto& [shapes, texts, maths] = layer;
+        mix(shapes.data(), shapes.size());
+        mix(texts.data(), texts.size() * sizeof(DrawingText));
+        for (const auto& math : maths) {
+            const auto& [at, tex, math_drawing] = math;
+            mix(&at, sizeof(at));
+            mix(tex.data(), tex.size());
+        }
+    }
+    return hash;
 }
 
 mermaid_util::DiagramSize mermaid_util::FittedDiagramSize(const DiagramDrawing& drawing, float max_width) noexcept
@@ -235,70 +128,6 @@ mermaid_util::DiagramSize mermaid_util::FittedDiagramSize(const DiagramDrawing& 
     h = h * max_width / w;
     w = max_width;
     return { std::ceil(std::floor(w * 64.0f) / 64.0f), std::ceil(std::floor(h * 64.0f) / 64.0f) };
-}
-
-std::optional<mermaid_util::DiagramDrawing> mermaid_util::ParseDrawing(std::string_view payload)
-{
-    std::string_view s = payload;
-    const auto width_field = TakeField(s);
-    const auto height_field = width_field ? TakeField(s) : std::nullopt;
-    if (!height_field) {
-        return std::nullopt;
-    }
-    const float width = ParseFloatPrefix(*width_field);
-    const float height = ParseFloatPrefix(*height_field);
-    // 数だけ大きく偽って確保させないよう、数の上限は残りの長さから決める (層は少なくとも 4 文字、並びは 30 文字ある)。
-    const auto take_count = [&s](uint32_t min_chars) {
-        const auto field = TakeField(s);
-        return field ? ParseDecimal(*field, static_cast<uint32_t>(std::min<size_t>(s.size() / min_chars, std::numeric_limits<uint32_t>::max())))
-                     : std::nullopt;
-    };
-    const auto background_field = TakeField(s);
-    const auto background = background_field ? ParseDecimal(*background_field, kMaxRgb) : std::nullopt;
-    const auto defs = background ? TakeText(s) : std::nullopt;
-    const auto layer_count = defs ? take_count(4) : std::nullopt;
-    if (!layer_count || !IsStorableSize(width, height)) {
-        return std::nullopt;
-    }
-    DiagramDrawing out{
-        .width = width,
-        .height = height,
-        .background = *background,
-        .defs = std::string{ *defs },
-    };
-    out.layers.reserve(*layer_count);
-    for (uint32_t i = 0; i < *layer_count; ++i) {
-        const auto svg = TakeText(s);
-        const auto text_count = svg ? take_count(30) : std::nullopt;
-        if (!text_count) {
-            return std::nullopt;
-        }
-        auto& layer = out.layers.emplace_back(DrawingLayer{ .shapes = std::string{ *svg } });
-        layer.texts.reserve(*text_count);
-        for (uint32_t k = 0; k < *text_count; ++k) {
-            auto text = ParseDrawingText(s);
-            if (!text) {
-                return std::nullopt;
-            }
-            layer.texts.push_back(std::move(*text));
-        }
-        const auto math_count = take_count(16);
-        if (!math_count) {
-            return std::nullopt;
-        }
-        layer.maths.reserve(*math_count);
-        for (uint32_t k = 0; k < *math_count; ++k) {
-            auto math = ParseDrawingMath(s);
-            if (!math) {
-                return std::nullopt;
-            }
-            layer.maths.push_back(std::move(*math));
-        }
-    }
-    if (!s.empty()) {
-        return std::nullopt;
-    }
-    return out;
 }
 
 std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)

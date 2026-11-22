@@ -34,6 +34,8 @@
 inline constexpr auto kExpiredDeadline = std::chrono::steady_clock::time_point::min();
 // 区切らずに最後まで進める期限。
 inline constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
+// ReadAllBytes に渡す上限。テストの入力はこれより小さい。
+inline constexpr long long kMaxTestFileBytes = 64LL * 1024 * 1024;
 
 // 表示言語を切り替え、抜けるときに表示中の言語と選んだ言語を元に戻す。ASSERT で抜けても後続のテストへ漏らさない。
 // 既定の構築は切り替えずに戻すだけ (テストの中で Init や SetLanguage を呼ぶフィクスチャ用)。

@@ -581,7 +581,8 @@ struct DiagramEntry : DiagramResult {
         SetResult({ .width = width, .height = height });
     }
 
-    // 画面外へ出た図のコマンドリストと描画命令を捨てる。寸法は残し、戻ったら読み直させる (NeedsRender)。
+    // 画面外へ出た図のコマンドリストと描画命令を手放す (描画命令は図の結果のキャッシュが覚えている)。寸法は残し、戻ったら
+    // 記録し直させる (NeedsRender)。
     // 仮表示中の絵も捨てる。保持範囲の外では見えず、先読み範囲に入れば描き直しを頼み、届くまでは同じ高さのプレースホルダーで
     // 足りる。残すと、テーマや幅を変えたときに先読み範囲の外にいた図が、頼まれないまま前の結果を持ち続ける。
     void ReleaseImage() noexcept
@@ -701,7 +702,7 @@ public:
     }
 
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
-    // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
+    // 図の結果はズームに依らないので残す。
     void InvalidateAllLayouts(std::span<const Node> nodes) noexcept;
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
@@ -741,7 +742,7 @@ public:
     // [to, to + count) へ移す。Y 位置は呼び出し側が組み直す。
     void TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count);
     // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
-    // 描いた結果 (コマンドリストを捨てた描画命令を含む) が無ければ何もせず false を返す。
+    // 描いた結果 (画面外へ出て寸法だけ残した図を含む) が無ければ何もせず false を返す。
     bool TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to);
 
     // 遅延レイアウトで計測する dirty が残っているかもしれない。LayoutEngine が計測のたびに決め直す。

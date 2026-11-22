@@ -164,10 +164,9 @@ struct PeleContext {
     // 描いている図のラベルの数式。pele の math オプションが足し、DrawingFromPeleSvg が読む。
     std::vector<PeleMathLabel> labels;
 
-    // 終了で取り消したか、描いている図が古くなった。
     bool Stopped() const noexcept
     {
-        return engine->Cancelled() || (stale.generation && stale.generation->load(std::memory_order_relaxed) != stale.value);
+        return engine->Stopped(stale);
     }
 
     PeleContext() = default;
@@ -554,7 +553,8 @@ std::vector<std::shared_ptr<const MathDrawing>> PeleEngine::RenderMaths(std::spa
 PeleOutcome PeleEngine::Render(std::string_view code, bool dark, float max_width, StaleWhen stale)
 {
     using Status = PeleOutcome::Status;
-    if (Cancelled()) {
+    // 割り込みはときどきしか届かず、短い図は届く前に描き終えるので、始める前にも確かめる。
+    if (Stopped(stale)) {
         return { .status = Status::Cancelled };
     }
     auto context = Acquire();

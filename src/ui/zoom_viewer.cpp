@@ -1100,14 +1100,13 @@ void ZoomViewer::RequestDiagram(MermaidRenderer& mermaid, float max_width, bool 
     if (!diagram || !diagram->pending) {
         return;
     }
-    const DiagramResult* result = mermaid.RequestViewerDrawing(diagram->code, max_width, dark_mode);
+    const DiagramResult* result = mermaid.FindOrRequest(diagram->code, max_width, dark_mode);
     if (!result) {
         return;
     }
     diagram->pending = false;
     if (result->drawing) {
-        // デバイスが変わって外したコマンドリストは、窓が自分で記録する (ここで記録してキャッシュに入れると、本文の図が
-        // 表示していなくても残る)。
+        // 結果はコマンドリスト付きで届く。窓のデバイスが変わって外した分は、窓が自分で記録する。
         window_->SetDrawing(result->drawing, result->commands);
     }
     // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。
@@ -1122,7 +1121,7 @@ void ZoomViewer::StartDecode()
     const uint32_t generation = ++generation_;
     // 縮める辺の上限は頼むときの描画先で決める (デバイスが変われば読み直す)。
     const UINT max_dim = MaxBitmapDim(rt_);
-    // クリックで頼んだものなので、本文の画像のデコードや図の読み込みが溜まっていても先に読む。
+    // クリックで頼んだものなので、本文の画像のデコードや図の描画・文字の組みが溜まっていても先に読む。
     scheduler_->PostFront([this, path = image.path, generation, max_dim, guard = latch_.Acquire()] {
         // 閉じたか別のものを開いたなら読まない。
         if (generation_.load() != generation) {
