@@ -107,6 +107,27 @@ TEST_F(DiagramRasterTest, DrawsWholeDrawingShrunkToGivenSize)
     EXPECT_EQ(Pixel(bitmap.Get(), 19, 9), 0xFFFF0000u);
 }
 
+// 大きさ x dpr が端数なら画素数は切り上げる。余りの乗る右端と下端の画素も背景で不透明に塗る (保存した PNG の端が透けない)。
+TEST_F(DiagramRasterTest, FillsFractionalEdgePixelsOpaque)
+{
+    for (const uint32_t background : { kDiagramLightBackground, kDiagramDarkBackground }) {
+        const mermaid_util::DiagramDrawing drawing{ .width = 31.0f, .height = 17.0f, .background = background, .layers = { {} } };
+        for (const float dpr : { 1.0f, 1.25f, 1.5f, 1.75f }) {
+            // 縮めない大きさと、幅 23 に縮めた大きさ。
+            for (const float max_width : { 31.0f, 23.0f }) {
+                SCOPED_TRACE(std::format("background={:06x} dpr={} max_width={}", background, dpr, max_width));
+                const auto size = mermaid_util::FittedDiagramSize(drawing, max_width);
+                const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, size, dpr, L"ja-jp");
+                ASSERT_NE(bitmap, nullptr);
+                UINT w = 0;
+                UINT h = 0;
+                ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&w, &h));
+                EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, w, h, 0xFF000000u | background), 0);
+            }
+        }
+    }
+}
+
 // 層の図形は図に 1 つの <defs> を参照できる。
 TEST_F(DiagramRasterTest, DrawsLayersWithSharedDefs)
 {

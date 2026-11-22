@@ -4755,6 +4755,9 @@ Microsoft::WRL::ComPtr<IWICBitmap> RasterizeDiagram(
         return nullptr;
     }
     dc->BeginDraw();
+    // 画素数は切り上げるので、先に面ごと背景で塗る。図の大きさの矩形 (DrawDiagram) だけでは、端数の乗る右端と下端の画素が
+    // 半透明になる。記録するコマンドリストは範囲が無限になるので Clear しない。
+    dc->Clear(D2D1::ColorF(drawing.background));
     dc->SetTransform(D2D1::Matrix3x2F::Scale(size.width / drawing.width, size.height / drawing.height));
     const bool ok = DrawDiagram(dc.Get(), dw, wic, drawing, locale, nullptr);
     if (FAILED(dc->EndDraw()) || !ok) {
