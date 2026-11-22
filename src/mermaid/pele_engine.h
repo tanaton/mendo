@@ -49,11 +49,17 @@ public:
     // max_width は pele が折り返しと並べ方を決める幅の上限。描画命令は縮めない大きさで、上限より広いことがある。
     // ラベルの $$...$$ は KaTeX で描く。pele の出力 (SVG) はテーマに依らないが覚えない。テーマを切り替えるたびに JS で
     // 描き直すが、切り替えのためだけにプロセスの間ずっと最大 4MB を持つより手放すほうをユーザーが選んだ。
-    // stale があれば、JS を動かしている間に *generation が value から変わったら止めて Cancelled で返す (幅・テーマ・位置が
-    // 変わって古くなった表示用の描画に、ワーカーを使い続けない)。
+    // stale があれば、*generation が value から変わっていれば描かずに、描いている間に変われば割り込みで止めて Cancelled で
+    // 返す (幅・テーマ・位置が変わって古くなった表示用の描画に、ワーカーを使い続けない)。割り込みが届く前に描き終えた図は
+    // そのまま返す。
     struct StaleWhen {
         const std::atomic<uint32_t>* generation = nullptr;
         uint32_t value = 0;
+
+        bool Changed() const noexcept
+        {
+            return generation && generation->load(std::memory_order_relaxed) != value;
+        }
     };
     PeleOutcome Render(std::string_view code, bool dark, float max_width, StaleWhen stale = {});
 

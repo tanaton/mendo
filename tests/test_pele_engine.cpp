@@ -439,15 +439,43 @@ TEST_F(PeleEngineTest, WideDiagramKeepsNaturalSizeWithoutBakedScale)
     EXPECT_EQ(texts, 4u);
 }
 
-// 描く前から古くなっていた図は、JS を止めて Cancelled で返し、エラーにしない。ランタイムはそのまま次の図に使える。
+// 描く前から古くなっていた図は、描かずに Cancelled で返し、エラーにしない。割り込みが届く前に描き終える短い図を続けて頼み、
+// 割り込みの届く時期に依らないことを確かめる。
 TEST_F(PeleEngineTest, StaleRenderIsCancelledAndRuntimeStaysUsable)
 {
-    constexpr std::string_view kCode = "flowchart LR\n  A[開始] --> B[終了]";
+    constexpr std::string_view kShort = "flowchart LR\n  A";
     const std::atomic<uint32_t> generation{ 1 };
-    const auto stale = engine_->Render(kCode, false, 600.0f, { &generation, 0 });
-    EXPECT_EQ(stale.status, Status::Cancelled);
-    EXPECT_TRUE(stale.error.empty());
-    EXPECT_EQ(engine_->Render(kCode, false, 600.0f, { &generation, 1 }).status, Status::Drawn);
+    for (int i = 0; i < 4; ++i) {
+        const auto stale = engine_->Render(kShort, false, 600.0f, { &generation, 0 });
+        EXPECT_EQ(stale.status, Status::Cancelled) << i;
+        EXPECT_TRUE(stale.error.empty());
+    }
+    EXPECT_EQ(engine_->Render(kShort, false, 600.0f, { &generation, 1 }).status, Status::Drawn);
+}
+
+// 描いている途中で古くなった図は、割り込みで JS を止めて Cancelled で返す。ランタイムはそのまま次の図に使える。
+TEST_F(PeleEngineTest, RenderGoingStaleMidwayIsInterrupted)
+{
+    constexpr std::string_view kShort = "flowchart LR\n  A";
+    const auto engine = NewEngine();
+    ASSERT_EQ(engine->Render(kShort, false, 600.0f).status, Status::Drawn);
+    ASSERT_EQ(engine->IdleRuntimes(), 1u);
+    // 止めなければ、下の待ちよりずっと長くかかる図。
+    std::string code = "flowchart TD\n";
+    for (int i = 0; i < 2000; ++i) {
+        code += std::format("  N{} --> N{}\n", i, i + 1);
+    }
+    std::atomic<uint32_t> generation{ 0 };
+    PeleOutcome out;
+    std::thread worker([&] { out = engine->Render(code, false, 600.0f, { &generation, 0 }); });
+    // 待機のランタイムを取った後なら、始める前の確認は済んでいる。
+    const bool started = PollUntil([&] { return engine->IdleRuntimes() == 0; });
+    generation.store(1);
+    worker.join();
+    ASSERT_TRUE(started);
+    EXPECT_EQ(out.status, Status::Cancelled);
+    EXPECT_TRUE(out.error.empty());
+    EXPECT_EQ(engine->Render(kShort, false, 600.0f).status, Status::Drawn);
 }
 
 // 幅の上限に収まる図は、上限が変わっても同じ描画命令になる (幅に縛られない結果のキャッシュの前提)。
