@@ -172,7 +172,9 @@ void ResourceManager::EvictOffscreenResources()
     // 覚えている結果からは、続く要求の回 (FlushPendingResources) の終わりに外す。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
-    for (const auto part : { std::span(diagrams.begin(), kept_diagrams.begin()), std::span(kept_diagrams.end(), diagrams.end()) }) {
+    // 2 つの span の反復子は混ぜられない (Debug の検査で止まる)。
+    const auto before_kept = static_cast<size_t>(kept_diagrams.data() - diagrams.data());
+    for (const auto part : { diagrams.first(before_kept), diagrams.subspan(before_kept + kept_diagrams.size()) }) {
         for (const size_t i : part) {
             if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
                 diagram->ReleaseImage();
