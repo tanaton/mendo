@@ -68,7 +68,7 @@ function Update-NpmPackage([string]$name, [string]$version, [hashtable]$files) {
 }
 
 # pele は ESM の 1 ファイル版 (全種類の図を含む)。KaTeX は UMD の縮小版 (QuickJS で globalThis.katex になる) と、
-# 描画に使う書体 20 個の woff2 (DirectWrite が展開して読む)。書体の一覧は diagram_raster.h の kKatexFontFiles と同じ。
+# 描画に使う書体 20 個の woff2 (DirectWrite が展開して読む)。書体の一覧は math_raster.h の kKatexFontFiles と同じ。
 $katexFonts = @(
     'AMS-Regular', 'Caligraphic-Bold', 'Caligraphic-Regular', 'Fraktur-Bold', 'Fraktur-Regular',
     'Main-Bold', 'Main-BoldItalic', 'Main-Italic', 'Main-Regular', 'Math-BoldItalic',

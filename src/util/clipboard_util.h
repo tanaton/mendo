@@ -57,13 +57,12 @@ private:
 
 // EmptyClipboard より前にバッファを確保できるよう、構築と SetClipboardData を分離する。
 // 確保失敗時に既存クリップボードを破壊しないための土台 (WriteClipboardDiagram 参照)。
-template <typename CharT>
-inline UniqueGlobalMem BuildGlobalZeroTerminated(std::basic_string_view<CharT> text) noexcept
+inline UniqueGlobalMem BuildGlobalZeroTerminated(std::string_view text) noexcept
 {
-    return AllocGlobalFilled((text.size() + 1) * sizeof(CharT), [text](void* p) noexcept {
-        auto* dest = static_cast<CharT*>(p);
-        std::char_traits<CharT>::copy(dest, text.data(), text.size());
-        dest[text.size()] = CharT{};
+    return AllocGlobalFilled(text.size() + 1, [text](void* p) noexcept {
+        auto* dest = static_cast<char*>(p);
+        std::char_traits<char>::copy(dest, text.data(), text.size());
+        dest[text.size()] = '\0';
         return true;
     });
 }
@@ -174,7 +173,7 @@ inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
 }
 
 // ダイアグラム (Mermaid) をクリップボードへコピーする統合書き込み。
-// "image/svg+xml": Office 2016+ や Inkscape がベクタ画像として認識 (SVG を取得できたときだけ)。
+// "image/svg+xml": Office 2016+ や Inkscape がベクタ画像として認識。
 // CF_DIB:          画像。Paint / チャット / Office などへの貼り付け用。基本形式。
 // CF_UNICODETEXT:  SVG マークアップ原文のテキストフォールバック。
 // 並び順 = 優先度。ベクタを優先する貼り付け先のため SVG を先頭に積む。
@@ -185,13 +184,9 @@ inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::string_vi
     if (!dib) {
         return false;
     }
-    // EmptyClipboard より前に各バッファを確保する (HTML/SVG 経路と同じ「揃ってから開く」方針)。
-    UniqueGlobalMem svg_unicode;
-    UniqueGlobalMem svg_utf8_mem;
-    if (!svg_utf8.empty()) {
-        svg_unicode = BuildGlobalWideFromUtf8(svg_utf8);
-        svg_utf8_mem = BuildGlobalZeroTerminated(svg_utf8);
-    }
+    // EmptyClipboard より前に各バッファを確保する (HTML 経路と同じ「揃ってから開く」方針)。
+    UniqueGlobalMem svg_unicode = BuildGlobalWideFromUtf8(svg_utf8);
+    UniqueGlobalMem svg_utf8_mem = BuildGlobalZeroTerminated(svg_utf8);
 
     ClipboardSession session(hwnd);
     if (!session) {

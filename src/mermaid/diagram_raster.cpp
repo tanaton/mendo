@@ -2822,7 +2822,7 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
 
 // ---------------------------------------------------------------------------------------------------------------
 // KaTeX の HTML 出力の配置。katex.css が使う範囲の CSS (vlist の表・inline-block・相対位置・絶対位置の SVG) だけを解く。
-// KaTeX は縦の位置 (vlist の top と pstrut) と高さを自分で決めて em で書くので、ブラウザに頼るのは横の並びと字幅だけ。
+// KaTeX は縦の位置 (vlist の top と pstrut) と高さを自分で決めて em で書くので、ここで求めるのは横の並びと字幅。
 // KaTeX の書体は GSUB・GPOS・kern の表を持たないので、字幅は hmtx の送り幅の和になる (Chrome の HarfBuzz と同じ)。
 
 enum class KFamily : uint8_t {

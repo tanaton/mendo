@@ -28,8 +28,8 @@ inline std::string WideToUtf8(std::wstring_view wide)
     if (wide.empty() || wide.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
         return out;
     }
-    // 上限 (wchar 数 * 3) で確保すると、MSVC の resize_and_overwrite は縮めないので ASCII では容量が 3 倍のまま残る
-    // (図のキャッシュの SVG 本文が、予算に数える大きさの 3 倍のヒープを持っていた)。先に長さを問い合わせる。
+    // 上限 (wchar 数 * 3) で確保すると、MSVC の resize_and_overwrite は縮めないので ASCII では容量が 3 倍のまま残る。
+    // 先に長さを問い合わせる。
     const int src_len = static_cast<int>(wide.size());
     const int n = WideCharToMultiByte(CP_UTF8, 0, wide.data(), src_len, nullptr, 0, nullptr, nullptr);
     if (n <= 0) {

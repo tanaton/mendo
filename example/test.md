@@ -2813,7 +2813,7 @@ UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill);
 クリップボード関連のユーティリティは `src/util/clipboard_util.h` に分離されている。どの書き込みも、バッファを全部確保してからクリップボードを開く（確保に失敗しても既存の内容を壊さない）:
 
 - `ClipboardSession`: RAII で `OpenClipboard` + `EmptyClipboard` / `CloseClipboard` を扱う
-- `BuildGlobalZeroTerminated<CharT>(text)`: 末尾 NUL 付きの `UniqueGlobalMem` を作る
+- `BuildGlobalZeroTerminated(text)`: 末尾 NUL 付きの `UniqueGlobalMem` を作る
 - `BuildGlobalWideFromUtf8(utf8)`: UTF-8 を GlobalAlloc 先へ直接 UTF-16 変換する（巨大な全選択コピーで中間 wstring を持たない）
 - `BuildGlobalCfHtml(fragment_utf8)`: CF_HTML 形式のペイロードを GlobalAlloc 先に直接組み立てる
 - `CommitClipboardGlobal(format, mem)`: `SetClipboardData` に成功したら所有権を手放す
@@ -3389,7 +3389,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 ### 6.4 pele と KaTeX の埋め込み
 
-図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き（KaTeX は描画に使う 20 書体の woff2 も `third_party/katex/fonts` に置く）、JS はビルド時に `mendo_js_compile` が QuickJS-ng のバイトコード（`pele.qbc` / `katex.qbc`）にして実行時のコンパイル（約 60ms と約 20ms）を省き、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`、書体は `IDR_KATEX_FONT_FIRST` から `kKatexFontFiles` の順）の RCDATA として無圧縮のまま EXE に埋め込む。どちらも `PeleEngine` が QuickJS-ng で動かす。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開の方が高くつくためである。
+図は [pele](https://pele.run/)（mermaid 記法を SVG に描くライブラリ。ESM の 1 ファイル版 `pele.mjs`）、数式は KaTeX（UMD の縮小版 `katex.min.js`）で描く。どちらも `scripts/update_js_libs.ps1` が npm の tarball を integrity で検証してから `third_party/pele` と `third_party/katex` に置き（KaTeX は描画に使う 20 書体の woff2 も `third_party/katex/fonts` に置く）、JS はビルド時に `mendo_js_compile` が QuickJS-ng のバイトコード（`pele.qbc` / `katex.qbc`）にして実行時のコンパイル（約 60ms と約 20ms）を省き、`res/mendo.rc` が数値 ID（`IDR_PELE_JS` / `IDR_KATEX_JS`、書体は `IDR_KATEX_FONT_FIRST` から `kKatexFontFiles` の順）の RCDATA として無圧縮のまま EXE に埋め込む。どちらも `PeleEngine` が QuickJS-ng で動かす。JS はビルド時に圧縮しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開の方が高くつくためである。
 
 pele の見た目は mermaid.js と違う（文字を 16px に保って折り返すので、図全体を縮めて文字を読めなくすることはない）。ダークテーマの配色は `DrawingFromPeleSvg` が SVG のルートの style の先頭に CSS 変数として足す（`kDarkVars`）。
 
@@ -3638,7 +3638,7 @@ inline constexpr UINT TABLE_MEASURED = WM_APP + 10; // 巨大な表を計測ワ�
 | 項目 | 要件 |
 |:-----|:-----|
 | OS | Windows 10 1809 以降 / Windows 11（WebP 画像のデコーダ WebP Image Extension が 1809 以降のため） |
-| アーキテクチャ | x64 / arm64 |
+| アーキテクチャ | x64 |
 | コンパイラ | MSVC (C++23) |
 | ビルドツール | CMake 4.2+（Visual Studio 2026 ジェネレータ） |
 

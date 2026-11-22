@@ -701,7 +701,7 @@ public:
     }
 
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
-    // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
+    // 図の結果はズームに依らないので残す。
     void InvalidateAllLayouts(std::span<const Node> nodes) noexcept;
 
     // インライン数式か画像の寸法を待って仮に組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。

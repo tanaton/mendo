@@ -453,20 +453,6 @@ TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
     EXPECT_EQ(loader_.FindImageInfo(path), nullptr);
 }
 
-// 呼び出し側が指定した形式のデコーダだけを使い、別形式のバイト列は読まない (Mermaid の PNG 等)。
-TEST_F(ImageLoaderTest, DecodeFromMemoryUsesOnlyRequestedContainer)
-{
-    ASSERT_TRUE(CreateTestImage(L"mem.bmp", GUID_ContainerFormatBmp, 50, 40));
-    const auto bytes = ReadAllBytes(GetTestImagePath(L"mem.bmp").c_str());
-    ASSERT_FALSE(bytes.empty());
-
-    EXPECT_FALSE(wic_util::DecodeFromMemory(wic_factory_.Get(), bytes, GUID_ContainerFormatPng).has_value());
-    const auto bmp = wic_util::DecodeFromMemory(wic_factory_.Get(), bytes, GUID_ContainerFormatBmp);
-    ASSERT_TRUE(bmp.has_value());
-    EXPECT_EQ(bmp->pixel_width, 50u);
-    EXPECT_EQ(bmp->pixel_height, 40u);
-}
-
 // ---- 正常系: 画像フォーマット ----
 
 TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
@@ -647,7 +633,7 @@ protected:
     // 戻り値はファイルのバイト列を参照するので、フィクスチャの寿命まで保持する。
     std::optional<wic_util::DecodeResult> Decode(std::wstring_view filename)
     {
-        const auto& bytes = files_.emplace_back(ReadAllBytes(GetTestImagePath(filename).c_str()));
+        const auto& bytes = files_.emplace_back(ReadAllBytes(GetTestImagePath(filename).c_str(), kMaxTestFileBytes));
         return wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     }
 
@@ -699,7 +685,7 @@ TEST_F(WicDecodeTest, ReadImageFileSizeFromMemoryNeedsHeader)
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.name }));
         ASSERT_TRUE(CreateTestImage(c.name, c.format, 64, 48));
-        const auto bytes = ReadAllBytes(GetTestImagePath(c.name).c_str());
+        const auto bytes = ReadAllBytes(GetTestImagePath(c.name).c_str(), kMaxTestFileBytes);
         EXPECT_EQ(wic_util::ReadImageFileSizeFromMemory(wic_factory_.Get(), bytes), (wic_util::PixelSize{ 64, 48 }));
         EXPECT_EQ(wic_util::ReadImageFileSizeFromMemory(wic_factory_.Get(), std::span(bytes).first(12)), std::nullopt);
     }

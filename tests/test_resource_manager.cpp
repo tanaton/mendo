@@ -954,7 +954,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImageSizesDoesNotCarryChangeRange)
 }
 
 // 量子化幅が変わると旧幅の描画待ちを捨て、エラーもクリアして再試行する (issue #271)。
-// メモリキャッシュは幅込みのキーなので残す。
+// 図の結果のキャッシュは幅込みのキーなので残す。
 TEST_F(ResourceManagerTest, DiagramWidthChangeClearsError)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -999,7 +999,7 @@ TEST_F(ResourceManagerTest, DiagramWidthChangeKeepsCommandsAsStale)
 }
 
 // テーマが変わると、幅に収まって幅の変化では残す図も含めて全部を仮表示にし、旧テーマの描画待ちを捨てる。
-// 仮表示の間は旧テーマの絵を保存・コピーさせない (コピーの SVG は新しいテーマで描くので食い違う)。
+// 仮表示の間は旧テーマの絵を保存・コピーさせない (今のテーマの図と食い違う)。
 TEST_F(ResourceManagerTest, DiagramThemeChangeMarksAllStale)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");

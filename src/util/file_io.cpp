@@ -3,9 +3,9 @@
 #include <format>
 #include <new>
 
-std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size) noexcept
+std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, LONGLONG max_size) noexcept
 {
-    UniqueHandle hFile(CreateFileW(path, GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    UniqueHandle hFile(CreateFileW(path, GENERIC_READ, path_util::kFileShareRWDelete, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
         const DWORD error = GetLastError();
         return std::unexpected(error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION ? FileLoadError::Locked : FileLoadError::NotFound);
@@ -20,9 +20,9 @@ std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* pa
     return OpenedFile{ std::move(hFile), static_cast<size_t>(file_size.QuadPart) };
 }
 
-ByteBuffer ReadAllBytes(const wchar_t* path, DWORD share_mode, LONGLONG max_size)
+ByteBuffer ReadAllBytes(const wchar_t* path, LONGLONG max_size)
 {
-    auto r = OpenFileForReadShared(path, share_mode, max_size);
+    auto r = OpenFileForReadShared(path, max_size);
     if (!r || r->size == 0) {
         return {};
     }

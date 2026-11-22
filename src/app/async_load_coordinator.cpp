@@ -44,7 +44,7 @@ std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, c
 {
     MENDO_PROFILE("LoadFile");
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
-    auto opened = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, MAX_FILE_SIZE);
+    auto opened = OpenFileForReadShared(path.c_str(), MAX_FILE_SIZE);
     if (!opened) {
         return std::unexpected(opened.error());
     }

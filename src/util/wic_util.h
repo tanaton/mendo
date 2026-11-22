@@ -104,11 +104,15 @@ inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagin
     return frame;
 }
 
-// bytes をコピーせずに参照して container 形式の画像をデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す
-inline std::optional<DecodeResult> DecodeFromMemory(
-    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
+// 文書から指定された画像ファイルを、bytes をコピーせずに参照してデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す。
+// SniffImageContainer で選んだ形式のデコーダだけを使う。
+inline std::optional<DecodeResult> DecodeImageFileFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
-    const auto frame = DecodeFirstFrame(wic, bytes, container);
+    const GUID* container = SniffImageContainer(bytes);
+    if (!container) {
+        return std::nullopt;
+    }
+    const auto frame = DecodeFirstFrame(wic, bytes, *container);
     if (!frame) {
         return std::nullopt;
     }
@@ -128,16 +132,6 @@ inline std::optional<DecodeResult> DecodeFromMemory(
         result.opaque_frame = frame;
     }
     return result;
-}
-
-// 文書から指定された画像ファイル。SniffImageContainer で選んだ形式のデコーダだけを使う。
-inline std::optional<DecodeResult> DecodeImageFileFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
-{
-    const GUID* container = SniffImageContainer(bytes);
-    if (!container) {
-        return std::nullopt;
-    }
-    return DecodeFromMemory(wic, bytes, *container);
 }
 
 struct PixelSize {

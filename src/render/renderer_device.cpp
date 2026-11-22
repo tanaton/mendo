@@ -94,7 +94,7 @@ bool Renderer::CreateFactories(HWND hwnd)
         return false;
     }
 
-    // Renderer・ImageLoader で共有。アイコン／画像／ダイアグラムは WIC が無いと機能しないため fail-fast。
+    // 画像・図・拡大表示・保存で共有。アイコン／画像／ダイアグラムは WIC が無いと機能しないため fail-fast。
     wic_factory_ = wic_util::CreateWicFactory("WIC ImagingFactory creation");
     return wic_factory_ != nullptr;
 }

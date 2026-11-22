@@ -16,7 +16,7 @@ class FileIoTest : public TempDirTestBase {
 protected:
     static std::string ReadAsString(const fs::path& path)
     {
-        const auto buf = ReadAllBytes(path.c_str());
+        const auto buf = ReadAllBytes(path.c_str(), kMaxTestFileBytes);
         return { reinterpret_cast<const char*>(buf.data()), buf.size() };
     }
 };
@@ -146,7 +146,7 @@ TEST_F(FileIoTest, ReadAllBytesReturnsBinaryAsIs)
 
     ASSERT_TRUE(WriteBinaryFile(path, payload.data(), payload.size()));
 
-    const auto buf = ReadAllBytes(path.c_str());
+    const auto buf = ReadAllBytes(path.c_str(), kMaxTestFileBytes);
     ASSERT_EQ(buf.size(), payload.size());
     EXPECT_TRUE(std::ranges::equal(buf, payload));
 }
@@ -154,9 +154,9 @@ TEST_F(FileIoTest, ReadAllBytesReturnsBinaryAsIs)
 TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
-    EXPECT_TRUE(ReadAllBytes(path.c_str()).empty());
+    EXPECT_TRUE(ReadAllBytes(path.c_str(), kMaxTestFileBytes).empty());
     // 空ファイルは失敗と同じく空を返す。
-    EXPECT_TRUE(ReadAllBytes(WriteTempFile(L"empty.bin").c_str()).empty());
+    EXPECT_TRUE(ReadAllBytes(WriteTempFile(L"empty.bin").c_str(), kMaxTestFileBytes).empty());
 }
 
 // ═══════════════════════════════════════════════
@@ -201,12 +201,12 @@ TEST_F(FileIoTest, OpenFileForReadShared_ReportsLockedWhileOpenedExclusively)
     {
         UniqueHandle exclusive(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
         ASSERT_TRUE(exclusive);
-        const auto r = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, 1024);
+        const auto r = OpenFileForReadShared(path.c_str(), 1024);
         ASSERT_FALSE(r);
         EXPECT_EQ(r.error(), FileLoadError::Locked);
     }
-    EXPECT_TRUE(OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, 1024));
-    const auto missing = OpenFileForReadShared((temp_dir_ / L"missing.md").c_str(), path_util::kFileShareRWDelete, 1024);
+    EXPECT_TRUE(OpenFileForReadShared(path.c_str(), 1024));
+    const auto missing = OpenFileForReadShared((temp_dir_ / L"missing.md").c_str(), 1024);
     ASSERT_FALSE(missing);
     EXPECT_EQ(missing.error(), FileLoadError::NotFound);
 }
