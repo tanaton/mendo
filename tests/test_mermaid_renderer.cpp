@@ -66,7 +66,9 @@ protected:
 
     static std::unique_ptr<PeleEngine> NewEngine(IDWriteFactory* dw)
     {
-        return assets_.NewEngine(dw);
+        auto engine = assets_.NewEngine(dw);
+        engine_ = engine.get();
+        return engine;
     }
 
     void SetUp() override
@@ -121,6 +123,7 @@ protected:
     {
         zoom_.Shutdown();
         renderer_.Shutdown();
+        engine_ = nullptr;
     }
 
     // 結果を受け取りながら pred が成り立つのを待つ。
@@ -192,6 +195,8 @@ protected:
     }
 
     static inline PeleTestAssets assets_;
+    // renderer_ が最初に描くときに作ったエンジン。描き始めたかを待機のランタイムの数で見る。
+    static inline PeleEngine* engine_ = nullptr;
     static inline ZoomWindowLog viewer_;
     int viewer_failed_ = 0;
 
@@ -503,16 +508,79 @@ TEST_F(MermaidRendererTest, DropQueuedCancelsDisplayRequestsAndKeepsMath)
         EXPECT_FALSE(Request(beta, eb));
         renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [&](InlineMathBatchResult r) { math = std::move(r); });
         renderer_.DropQueued();
+        EXPECT_EQ(renderer_.WaitingRequests(), std::vector<uint64_t>{ 0 }) << "待ちには数式だけが残る";
     }
     ASSERT_TRUE(Await([&] { return math.has_value(); }));
     EXPECT_NE(math->items.at(0).drawing, nullptr);
     EXPECT_GT(updates_, 0);
     EXPECT_FALSE(ea.HasImage());
+    EXPECT_EQ(renderer_.ResultCache().EntryCount(), 0u) << "投入済みの図も描かない";
 
     ASSERT_TRUE(RenderUntilSettled(alpha, ea));
     ASSERT_TRUE(RenderUntilSettled(beta, eb));
     EXPECT_TRUE(ea.HasImage());
     EXPECT_TRUE(eb.HasImage());
+}
+
+// 投入済みのインライン数式も取り消さない (頼み直す契機が無い)。
+TEST_F(MermaidRendererTest, DropQueuedKeepsPostedMath)
+{
+    std::optional<InlineMathBatchResult> math;
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        renderer_.RequestMathBatch({ { .key = 1, .tex = "x", .font_size = 16.0f } }, [&](InlineMathBatchResult r) { math = std::move(r); });
+        ASSERT_TRUE(renderer_.WaitingRequests().empty()) << "枠が空いているので投入済み";
+        renderer_.DropQueued();
+    }
+    ASSERT_TRUE(Await([&] { return math.has_value(); }));
+    EXPECT_NE(math->items.at(0).drawing, nullptr);
+}
+
+// 投入済みの文字の組み (画面に戻った図) も取り消す。覚えた描画命令は残すので、頼み直せば描き直さずに記録し直す。
+TEST_F(MermaidRendererTest, DropQueuedCancelsPostedLayout)
+{
+    const DiagramDoc d(kAlpha);
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    Release(entry);
+    const auto* item = CachedItem(d.WidthFreeHash());
+    ASSERT_NE(item, nullptr);
+    ASSERT_EQ(item->commands, nullptr) << "戻ったら文字を組む";
+    const auto drawing = item->drawing;
+    const int updates = updates_;
+    {
+        WorkerGate gate(scheduler_, 2);
+        ASSERT_TRUE(gate.ready());
+        EXPECT_FALSE(Request(d, entry));
+        renderer_.DropQueued();
+    }
+    ASSERT_TRUE(Await([&] { return updates_ > updates; }));
+    item = CachedItem(d.WidthFreeHash());
+    ASSERT_NE(item, nullptr) << "覚えた描画命令は残す";
+    EXPECT_EQ(item->commands, nullptr) << "取り消した図は記録しない";
+    ASSERT_TRUE(RenderUntilSettled(d, entry));
+    EXPECT_EQ(entry.drawing, drawing) << "描き直さない";
+}
+
+// 描いている途中の図も止める。描きかけはキャッシュに置かず、エラーにもしない。
+TEST_F(MermaidRendererTest, DropQueuedInterruptsRenderingDiagram)
+{
+    const DiagramDoc alpha(kAlpha);
+    DiagramEntry ea;
+    ASSERT_TRUE(RenderUntilSettled(alpha, ea));
+    ASSERT_NE(engine_, nullptr);
+    ASSERT_EQ(engine_->IdleRuntimes(), 1u);
+
+    const DiagramDoc slow(SlowFlowchart());
+    DiagramEntry es;
+    const int updates = updates_;
+    EXPECT_FALSE(Request(slow, es));
+    // 待機のランタイムを取った後なら始める前の確認は済んでいて、止められるのは割り込みだけ。
+    ASSERT_TRUE(PollUntil([&] { return engine_->IdleRuntimes() == 0; }, std::chrono::seconds(30)));
+    renderer_.DropQueued();
+    ASSERT_TRUE(Await([&] { return updates_ > updates; })) << "描き終えるまで止まらない";
+    EXPECT_EQ(renderer_.ResultCache().EntryCount(), 1u) << "描きかけもエラーも置かない";
 }
 
 // 見えている図から順に頼み直す回 (BeginRequestPass) では、待ちの表示用の要求をその回に頼まれた順へ並べ直す。新しい要求も

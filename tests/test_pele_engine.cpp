@@ -457,11 +457,7 @@ TEST_F(PeleEngineTest, RenderGoingStaleMidwayIsInterrupted)
     const auto engine = NewEngine();
     ASSERT_EQ(engine->Render(kShort, false, 600.0f).status, Status::Drawn);
     ASSERT_EQ(engine->IdleRuntimes(), 1u);
-    // 止めなければ、下の待ちよりずっと長くかかる図。
-    std::string code = "flowchart TD\n";
-    for (int i = 0; i < 2000; ++i) {
-        code += std::format("  N{} --> N{}\n", i, i + 1);
-    }
+    const std::string code = SlowFlowchart();
     std::atomic<uint32_t> generation{ 0 };
     PeleOutcome out;
     std::thread worker([&] { out = engine->Render(code, false, 600.0f, { &generation, 0 }); });

@@ -4,6 +4,7 @@
 #include "pele_engine.h"
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -39,3 +40,23 @@ struct PeleTestAssets {
         return std::make_unique<PeleEngine>(std::as_bytes(std::span{ pele }), std::as_bytes(std::span{ katex }), std::move(spans), dw, L"ja-jp");
     }
 };
+
+// 止めなければ描き終えるまで何秒もかかる図。描いている途中の取り消しを試す。段の間を全部つなぐ (辺は pele の上限 5000 の内)。
+// 一列の鎖は字数の上限 (5 万字) いっぱいでもすぐ描き終え、取り消しが少し遅れると間に合わない。
+inline std::string SlowFlowchart()
+{
+    constexpr int kPerRow = 20;
+    constexpr int kRows = 12;
+    const auto row = [](int r) {
+        std::string nodes = std::format("N{}_0", r);
+        for (int i = 1; i < kPerRow; ++i) {
+            nodes += std::format(" & N{}_{}", r, i);
+        }
+        return nodes;
+    };
+    std::string code = "flowchart TD\n";
+    for (int r = 1; r < kRows; ++r) {
+        code += std::format("  {} --> {}\n", row(r - 1), row(r));
+    }
+    return code;
+}
