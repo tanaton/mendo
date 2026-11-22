@@ -10,18 +10,12 @@
 
 namespace {
 
-// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると worker の生成・join で合計数百 ms かかる。
+// scheduler はテストごとに作る。Shutdown すると使い直せないので、スイートで共有すると --gtest_repeat の 2 周目から失敗する。
+// worker は Post まで起動せず COM も要るまで初期化しないので、テストごとに作っても軽い。
 class AsyncLoadCoordinatorTest : public TempDirTestBase {
 protected:
-    static TaskScheduler scheduler_;
-
-    static void TearDownTestSuite()
-    {
-        scheduler_.Shutdown();
-    }
+    TaskScheduler scheduler_{ 1 };
 };
-
-TaskScheduler AsyncLoadCoordinatorTest::scheduler_{ 1 };
 
 // Start が積むタスクは 1 つだけなので、scheduler を空にすれば結果が出ている。
 std::optional<AsyncLoadOutcome> WaitForOutcome(TaskScheduler& scheduler, AsyncLoadCoordinator& c)
