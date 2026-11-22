@@ -984,8 +984,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     resource_manager_.DropQueues();
     // 拡大表示は前の文書の図か画像なので一緒に閉じる
     zoom_viewer_.Close();
-    // 前の文書の図の解いた描画命令とコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図が
-    // あれば、手放す前に受け取って解き直さない)。
+    // 前の文書の図のコマンドリストは、下の FinishLayout の要求の回の終わりに手放す (新しい文書に同じ図があれば、手放す前に
+    // 受け取って記録し直さない)。
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();

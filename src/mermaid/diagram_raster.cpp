@@ -140,17 +140,19 @@ void Place(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const D2D1::Matr
 }
 
 // 文字の並びを 1 行の layout に組む。整形 (GetLineMetrics) まで済ませる。空か組めなければ layout は null。
-DiagramTextLayouts::Run LayoutRun(IDWriteFactory* dw, DiagramTextMeasurer& formats, const mermaid_util::DrawingText& t)
+DiagramTextLayouts::Run LayoutRun(IDWriteFactory* dw, DiagramTextMeasurer& formats, const mermaid_util::DiagramDrawing& drawing,
+                                 const mermaid_util::DrawingText& t)
 {
-    if (t.text.empty()) {
+    const std::wstring_view text = drawing.Chars(t.text);
+    if (text.empty()) {
         return {};
     }
-    IDWriteTextFormat* format = formats.Format({ .family = t.family, .size = t.at.font_size, .weight = t.weight, .italic = t.italic });
+    IDWriteTextFormat* format = formats.Format({ .family = drawing.Chars(t.family), .size = t.at.font_size, .weight = t.weight, .italic = t.italic });
     ComPtr<IDWriteTextLayout> layout;
-    if (!format || FAILED(dw->CreateTextLayout(t.text.data(), static_cast<UINT32>(t.text.size()), format, 1.0e6f, 1.0e6f, &layout))) {
+    if (!format || FAILED(dw->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), format, 1.0e6f, 1.0e6f, &layout))) {
         return {};
     }
-    const DWRITE_TEXT_RANGE all{ 0, static_cast<UINT32>(t.text.size()) };
+    const DWRITE_TEXT_RANGE all{ 0, static_cast<UINT32>(text.size()) };
     if (t.decoration & mermaid_util::kTextUnderline) {
         layout->SetUnderline(TRUE, all);
     }
@@ -1967,6 +1969,18 @@ private:
     std::vector<std::pair<std::string, std::string>> gradients_; // (id|alpha, 名前。空は塗れない参照)
     std::string defs_;
     std::vector<mermaid_util::DrawingLayer> layers_{ 1 };
+    // DiagramDrawing::chars と、その中に置いた書体 (図に 2〜3 通りなので探す)。
+    std::wstring chars_;
+    std::vector<mermaid_util::DrawingChars> families_;
+    mermaid_util::DrawingChars FamilyChars(std::wstring_view family)
+    {
+        for (const auto range : families_) {
+            if (std::wstring_view{ chars_ }.substr(range.begin, range.length) == family) {
+                return range;
+            }
+        }
+        return families_.emplace_back(mermaid_util::AppendChars(chars_, family));
+    }
     std::vector<Bounds> text_bounds_; // 今の層の文字と数式
     Style root_style_;
     std::vector<const ScopedVars*> scoped_; // この図に当てる kLightScopedVars の行
@@ -2664,8 +2678,8 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .rgb = ToRgb(*color),
             .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
         };
-        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。書くとキャッシュの直列化した形から読み戻せず、画面に戻るたびに描き直す。
-        if (!mermaid_util::IsStorable(at)) {
+        // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。
+        if (!mermaid_util::IsDrawable(at)) {
             continue;
         }
         const auto [ascent, descent] = measurer_.Extent(ps.Font());
@@ -2678,8 +2692,8 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .weight = ps.weight,
             .italic = ps.italic,
             .decoration = piece.decoration,
-            .family = std::wstring{ ps.font_family },
-            .text = std::move(piece.text),
+            .family = FamilyChars(ps.font_family),
+            .text = mermaid_util::AppendChars(chars_, piece.text),
         });
     }
     return true;
@@ -2714,8 +2728,8 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
         .rgb = ToRgb(s.color),
         .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
     };
-    // 文字と同じく、キャッシュの直列化した形に書けない数式は描かない。
-    if (!mermaid_util::IsStorable(at)) {
+    // 文字と同じく、描けない置き方の数式は描かない。
+    if (!mermaid_util::IsDrawable(at)) {
         return true;
     }
     Bounds box;
@@ -2799,9 +2813,8 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
     // SVG の style の max-width:100% (幅の上限まで縮める) は読まず、縮めない大きさで作る
     const float w = std::floor(attr_w.value_or(0.0f) * 64.0f) / 64.0f;
     const float h = std::floor(attr_h.value_or(0.0f) * 64.0f) / 64.0f;
-    // 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない。描くとキャッシュの直列化した形から
-    // 読み戻せず、画面に戻るたびに JS で描き直す (切り上げても書けるかは変わらない)。
-    if (!mermaid_util::IsStorableSize(w, h)) {
+    // 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない (切り上げても変わらない)。
+    if (!mermaid_util::IsDrawableSize(w, h)) {
         return std::nullopt;
     }
     Mat root_ctm;
@@ -2817,6 +2830,7 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
         .background = dark ? kDiagramDarkBackground : kDiagramLightBackground,
         .defs = std::move(defs_),
         .layers = std::move(layers_),
+        .chars = std::move(chars_),
     };
 }
 
@@ -4582,7 +4596,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
     for (const auto& layer : drawing.layers) {
         out += layer.shapes;
         for (const auto& t : layer.texts) {
-            open_text(t.at, string_convert::WideToUtf8(t.family));
+            open_text(t.at, string_convert::WideToUtf8(drawing.Chars(t.family)));
             AppendAttrUnlessInitial(out, "font-weight", t.weight, 400.0);
             if (t.italic) {
                 out += " font-style=\"italic\"";
@@ -4593,7 +4607,7 @@ std::string DrawingToSvg(const mermaid_util::DiagramDrawing& drawing)
                 AppendAttr(out, "text-decoration", kLines[t.decoration & mermaid_util::kTextDecorationBits]);
             }
             fill(t.at);
-            ascii_util::AppendHtmlEscaped(out, string_convert::WideToUtf8(t.text));
+            ascii_util::AppendHtmlEscaped(out, string_convert::WideToUtf8(drawing.Chars(t.text)));
             out += "</text>";
         }
         // 数式は Office や Inkscape で読めるよう、ラベルに書いたとおりの $$TeX$$ にする。書体は総称の読み替えと同じ本文の書体。
@@ -4617,7 +4631,19 @@ std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(
     if (!ParseXml(svg, doc)) {
         return std::nullopt;
     }
-    return PeleSvgResolver(doc, measurer, maths).Run(dark);
+    auto drawing = PeleSvgResolver(doc, measurer, maths).Run(dark);
+    if (drawing) {
+        // 画面外の図もこのまま覚えるので、書き足しで伸ばした余りを持たない。
+        drawing->defs.shrink_to_fit();
+        drawing->chars.shrink_to_fit();
+        drawing->layers.shrink_to_fit();
+        for (auto& layer : drawing->layers) {
+            layer.shapes.shrink_to_fit();
+            layer.texts.shrink_to_fit();
+            layer.maths.shrink_to_fit();
+        }
+    }
+    return drawing;
 }
 
 ComPtr<ID2D1DeviceContext5> CreateRecordContext(ID2D1RenderTarget* target)
@@ -4685,9 +4711,6 @@ bool DrawDiagram(
             }
         }
         for (const auto& m : layer.maths) {
-            if (!m.drawing) {
-                continue;
-            }
             Place(dc, brush.Get(), base, m.at);
             DrawMath(dc, *m.drawing, m.at.x, m.at.y, brush.Get());
         }
@@ -4707,7 +4730,7 @@ DiagramTextLayouts LayoutDiagramTexts(IDWriteFactory* dw, const mermaid_util::Di
     DiagramTextMeasurer formats(dw, locale);
     for (const auto& layer : drawing.layers) {
         for (const auto& t : layer.texts) {
-            out.runs.push_back(LayoutRun(dw, formats, t));
+            out.runs.push_back(LayoutRun(dw, formats, drawing, t));
         }
     }
     return out;

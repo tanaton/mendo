@@ -871,7 +871,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
     EXPECT_EQ(mock_mermaid_.release_idle_count, 0);
 }
 
-// 要求の回の終わりに、どの図も持たなくなった解いた形を覚えている結果から外させる。この回で受け取って置き換わった結果も
+// 要求の回の終わりに、どの図も持たなくなったコマンドリストを覚えている結果から外させる。この回で受け取って置き換わった結果も
 // 外せるよう、図を頼んだ後に呼ぶ。
 TEST_F(ResourceManagerTest, RequestMermaidRendersReleasesIdleDrawingsAfterRequests)
 {
@@ -1186,7 +1186,7 @@ TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 
 // 別の文書を読み込んでいる間は、結果の到着・スクロール・RESOURCE_MANAGE のどれからも表示中の文書の図を頼まない。
 // 始まった描画は取り消せず、開いた文書の最初の図を待たせる。差し替えずに終わったら頼み直す。
-// 届いた結果の解いた形も、受け取る図がいないうちは手放さない (失敗して戻ったときに解き直さない)。
+// 届いた結果のコマンドリストも、受け取る図がいないうちは手放さない (失敗して戻ったときに記録し直さない)。
 TEST_F(ResourceManagerTest, NoDiagramRequestsWhileLoadingOtherDocument)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");

@@ -1525,7 +1525,7 @@ void BM_DiagramRender(benchmark::State& state)
 BENCHMARK(BM_DiagramRender)->UseManualTime()->Iterations(3)->Unit(benchmark::kMillisecond);
 
 // 図の描画命令を毎フレーム描くコマンドリストに記録する (UI スレッドの仕事)。test.md の図をすべて記録する時間。
-// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と読んだ結果)。layout は worker で組む時間。
+// prepared は文字の並びを worker で組んでおいた記録 (アプリの描いた結果と、画面に戻った図)。layout は worker で組む時間。
 enum class DiagramRecordPart : uint8_t { Record, Prepared, Layout };
 void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 {
@@ -1561,37 +1561,6 @@ void BM_DiagramRecord(benchmark::State& state, DiagramRecordPart part)
 BENCHMARK_CAPTURE(BM_DiagramRecord, record, DiagramRecordPart::Record)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, prepared, DiagramRecordPart::Prepared)->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_DiagramRecord, layout, DiagramRecordPart::Layout)->Unit(benchmark::kMillisecond);
-
-// 図の結果のキャッシュに置く形に書く・解く (解くのは手放した図を読み直すワーカーの仕事)。test.md の図をすべて。
-void BM_DiagramCacheFormat(benchmark::State& state, bool parse)
-{
-    DiagramBench bench;
-    if (!bench.Init(state)) {
-        return;
-    }
-    std::vector<std::string> serialized;
-    size_t bytes = 0;
-    for (const auto& d : bench.drawings) {
-        bytes += serialized.emplace_back(mermaid_util::SerializeDrawing(*d)).size();
-    }
-    for (auto _ : state) {
-        if (parse) {
-            for (const auto& s : serialized) {
-                benchmark::DoNotOptimize(mermaid_util::ParseDrawing(s));
-            }
-        }
-        else {
-            for (const auto& d : bench.drawings) {
-                benchmark::DoNotOptimize(mermaid_util::SerializeDrawing(*d));
-            }
-        }
-    }
-    state.counters["diagrams"] = static_cast<double>(bench.drawings.size());
-    state.counters["KB"] = static_cast<double>(bytes) / 1024.0;
-}
-BENCHMARK_CAPTURE(BM_DiagramCacheFormat, serialize, false)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_DiagramCacheFormat, parse, true)->Unit(benchmark::kMicrosecond);
-
 
 // 記録した図を 1 枚ずつ 1 フレームで描く (スクロール中の毎フレームの仕事)。test.md の図をすべて描く時間。
 void BM_DiagramFrameDraw(benchmark::State& state)

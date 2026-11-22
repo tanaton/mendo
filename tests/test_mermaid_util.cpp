@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "mermaid_util.h"
 #include "parser.h"
-#include "string_convert.h"
 #include "test_nodes.h"
 #include <algorithm>
 #include <vector>
@@ -36,131 +35,43 @@ TEST(QuantizeWidth, RoundsUpToMultipleOf32)
     }
 }
 
-// 文字の並びの本文と書体、数式の TeX は長さで切るので、区切りの ':' や ',' を含んでもそのまま読める。
-TEST(ParseDrawing, ParsesShapesTextRunsAndMaths)
+// 描画命令の中身のどれが違ってもハッシュが変わる (別の幅で描いた図が同じかの判定)。ラベルの数式の描画命令は見ない。
+TEST(DrawingHash, DependsOnEveryPart)
 {
-    const auto d = mermaid_util::ParseDrawing(
-        "400:300.5:2039583:10:<g>い</g>2:"
-        "14:<svg>あ</svg>2:"
-        "1,0,0,1,10.5,20,3,4.25,16,16711680,0.5,700,1,0:10:Segoe UI,x5:a:b,c"
-        "0,1,-1,0,0,0,0,0,12,0,1,400,0,3:0:0:"
-        "1:1,0,0,1,0,0,7,8.5,14,255,0.75:9:x_{a:b},c"
-        "0:0:0:"sv);
-    ASSERT_TRUE(d.has_value());
-    EXPECT_EQ(d->width, 400.0f);
-    EXPECT_EQ(d->height, 300.5f);
-    EXPECT_EQ(d->background, 0x1F1F1Fu);
-    EXPECT_EQ(d->defs, "<g>\xE3\x81\x84</g>");
-    ASSERT_EQ(d->layers.size(), 2u);
-    EXPECT_EQ(d->layers[0].shapes, "<svg>\xE3\x81\x82</svg>");
-    EXPECT_TRUE(d->layers[1].shapes.empty());
-    EXPECT_TRUE(d->layers[1].texts.empty());
-    const auto& texts = d->layers[0].texts;
-    ASSERT_EQ(texts.size(), 2u);
-    const auto& t = texts[0];
-    EXPECT_EQ(t.at.transform, (std::array{ 1.0f, 0.0f, 0.0f, 1.0f, 10.5f, 20.0f }));
-    EXPECT_EQ(t.at.x, 3.0f);
-    EXPECT_EQ(t.at.y, 4.25f);
-    EXPECT_EQ(t.at.font_size, 16.0f);
-    EXPECT_EQ(t.weight, 700);
-    EXPECT_TRUE(t.italic);
-    EXPECT_EQ(t.decoration, 0);
-    EXPECT_EQ(t.at.rgb, 0xFF0000u);
-    EXPECT_EQ(t.at.alpha, 0.5f);
-    EXPECT_EQ(t.family, L"Segoe UI,x"sv);
-    EXPECT_EQ(t.text, L"a:b,c"sv);
-    EXPECT_EQ(texts[1].decoration, mermaid_util::kTextUnderline | mermaid_util::kTextLineThrough);
-    EXPECT_TRUE(texts[1].family.empty());
-    EXPECT_TRUE(texts[1].text.empty());
-    ASSERT_EQ(d->layers[0].maths.size(), 1u);
-    const auto& m = d->layers[0].maths[0];
-    EXPECT_EQ(m.at.x, 7.0f);
-    EXPECT_EQ(m.at.y, 8.5f);
-    EXPECT_EQ(m.at.font_size, 14.0f);
-    EXPECT_EQ(m.at.rgb, 0xFFu);
-    EXPECT_EQ(m.at.alpha, 0.75f);
-    EXPECT_EQ(m.tex, "x_{a:b},c");
-    EXPECT_EQ(m.drawing, nullptr) << "描画命令は読んだ後に組み直す";
-    EXPECT_TRUE(d->layers[1].maths.empty());
-}
-
-// 数式も書いた形のまま読み戻せる (長さは UTF-8 のバイト数で、BMP 外の文字は 4 バイト)。
-TEST(ParseDrawing, SerializedMathsParseBack)
-{
-    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF, .defs = "<linearGradient id=\"g0\"/>" };
-    drawing.layers.push_back({ .maths = { { .at = { .transform = { 2.0f, 0.0f, 0.0f, 2.0f, 1.0f, 2.0f },
-                                                    .x = 0.5f,
-                                                    .y = 12.25f,
-                                                    .font_size = 16.0f,
-                                                    .rgb = 0x123456,
-                                                    .alpha = 1.0f },
-                                            .tex = "\\mathcal{A}\xF0\x9D\x91\xA5" } } });
-    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(drawing));
-    ASSERT_TRUE(back);
-    EXPECT_EQ(*back, drawing);
-}
-
-// 書体と TeX は長くても読み戻せる (図を作る側に長さの上限は無い)。
-TEST(ParseDrawing, LongFamilyAndTexParseBack)
-{
-    mermaid_util::DiagramDrawing drawing{ .width = 10.0f, .height = 20.0f };
-    drawing.layers.push_back({
-        .texts = { { .at = { .font_size = 16.0f }, .family = std::wstring(2000, L'a'), .text = L"x" } },
-        .maths = { { .at = { .font_size = 16.0f }, .tex = std::string(70000, 'x') } },
-    });
-    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(drawing));
-    ASSERT_TRUE(back);
-    EXPECT_EQ(*back, drawing);
-}
-
-// ファイルは壊れていることがあるので、欠け・余り・ありえない値は全体を捨てる。
-TEST(ParseDrawing, RejectsMalformedPayloads)
-{
-    constexpr std::string_view kRun = "1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:1:a"sv;
-    const auto with_run = [&](std::string_view run) { return std::string{ "10:20:0:0:1:0:1:" } + std::string{ run } + "0:"; };
-    const auto with_math = [&](std::string_view math) { return std::string{ "10:20:0:0:1:0:0:1:" } + std::string{ math }; };
-    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run(kRun)).has_value());
-    // 太さは図を作る側 (CSS の font-weight) と同じ値域の両端まで読む。
-    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1,0,0:0:1:a")).has_value());
-    EXPECT_TRUE(mermaid_util::ParseDrawing(with_run("1,0,0,1,0,0,0,0,16,0,1,1000,0,0:0:1:a")).has_value());
-    EXPECT_TRUE(mermaid_util::ParseDrawing(with_math("1,0,0,1,0,0,0,0,16,0,1:1:x")).has_value());
-    const std::string kBad[] = {
-        "",
-        "10:x",                          // 高さが無い
-        "nan:20:0:0:1:0:0:0:",             // 幅が数でない
-        "inf:20:0:0:1:0:0:0:",           // 幅が有限でない
-        "0:20:0:0:1:0:0:0:",             // 幅が 0
-        "10:20:16777216:0:1:0:0:0:",     // 背景が 24 ビットを超える
-        "10:20:0:5:<g/>1:0:0:0:",        // defs の長さが合わない
-        "10:20:0:1:0:0:0:",              // defs が無い
-        "10:20:0:0:1:9:<svg>0:0:",       // SVG の長さが足りない
-        "10:20:0:0:1:0:0:0:x",           // 余り
-        "10:20:0:0:2:0:0:0:",            // 層が足りない
-        "10:20:0:0:1:0:0:",              // 数式の数が無い
-        "10:20:0:0:1:0:2:" + std::string{ kRun } + "0:", // 並びが足りない
-        with_math(""),                                  // 数式が足りない
-        with_math("1,0,0,1,0,0,0,0,16,0:1:x"),           // 数式の数が 10 個
-        with_math("1,0,0,1,0,0,0,0,0,0,1:1:x"),          // 数式の大きさが 0
-        with_math("inf,0,0,1,0,0,0,0,16,0,1:1:x"),       // 数式の変換が有限でない
-        with_math("1,0,0,1,0,0,0,0,16,16777216,1:1:x"),  // 数式の色が 24 ビットを超える
-        with_math("1,0,0,1,0,0,0,0,16,0,1:2:x"),         // TeX の長さが足りない
-        with_run("1,0,0,1,0,0,0,0,16,400,0,0,0:0:1:a"),        // 数が 13 個
-        with_run("1,0,0,1,0,0,0,0,0,0,1,400,0,0:0:1:a"),       // 大きさが 0
-        with_run("1,0,0,1,0,0,0,0,1001,0,1,400,0,0:0:1:a"),    // 大きさが上限を超える
-        with_run("1,0,0,1,0,0,1e39,0,16,0,1,400,0,0:0:1:a"),   // 位置が float に収まらない
-        with_run("1,0,0,1,0,0,0,0,16,0,5,400,0,0:0:1:a"),      // 不透明度が 1 を超える
-        with_run("1,0,0,1,0,0,0,0,16,0,1,0,0,0:0:1:a"),        // 太さが 0
-        with_run("1,0,0,1,0,0,0,0,16,0,1,1001,0,0:0:1:a"),     // 太さが上限を超える
-        with_run("1,0,0,1,0,0,0,0,16,0,1,400,2,0:0:1:a"),      // 斜体が 0/1 でない
-        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,4:0:1:a"),      // 線のビットが下線と取り消し線の外
-        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,1.5:0:1:a"),    // 線のビットが整数でない
-        with_run("1,0,0,1,0,0,0,0,16,16777216,1,400,0,0:0:1:a"), // 色が 24 ビットを超える
-        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,0:0:2:a"),      // 文字の長さが足りない
-        with_run("1,0,0,1,0,0,0,0,16,0,1,400,0,0:-1:1:a"),     // 長さが数字でない
+    using Drawing = mermaid_util::DiagramDrawing;
+    const auto make = [] {
+        Drawing d{ .width = 10.0f, .height = 20.0f, .background = 0xFFFFFF, .defs = "<g/>" };
+        auto& layer = d.layers.emplace_back();
+        layer.shapes = "<rect/>";
+        layer.texts.push_back({ .at = { .font_size = 16.0f }, .family = mermaid_util::AppendChars(d.chars, L"Segoe UI"), .text = mermaid_util::AppendChars(d.chars, L"x") });
+        layer.maths.push_back({ .at = { .font_size = 16.0f }, .tex = "y" });
+        return d;
     };
-    for (const auto& payload : kBad) {
-        SCOPED_TRACE(::testing::PrintToString(payload));
-        EXPECT_FALSE(mermaid_util::ParseDrawing(payload).has_value());
+    const uint64_t base = mermaid_util::DrawingHash(make());
+    EXPECT_EQ(mermaid_util::DrawingHash(make()), base);
+    void (*const kEdits[])(Drawing&) = {
+        [](Drawing& d) { d.width = 11.0f; },
+        [](Drawing& d) { d.height = 21.0f; },
+        [](Drawing& d) { d.background = 0; },
+        [](Drawing& d) { d.defs = "<g />"; },
+        [](Drawing& d) { d.chars.back() = L'z'; },
+        [](Drawing& d) { d.layers[0].shapes = "<path/>"; },
+        [](Drawing& d) { d.layers[0].texts[0].at.x = 1.0f; },
+        [](Drawing& d) { d.layers[0].texts[0].weight = 700; },
+        [](Drawing& d) { d.layers[0].texts[0].italic = true; },
+        [](Drawing& d) { d.layers[0].texts[0].decoration = mermaid_util::kTextUnderline; },
+        [](Drawing& d) { d.layers[0].texts[0].family.length = 1; },
+        [](Drawing& d) { d.layers[0].texts[0].text.length = 0; },
+        [](Drawing& d) { d.layers[0].texts.clear(); },
+        [](Drawing& d) { d.layers[0].maths.clear(); },
+        [](Drawing& d) { d.layers.emplace_back(); },
+        [](Drawing& d) { d.layers[0].maths[0].at.y = 1.0f; },
+        [](Drawing& d) { d.layers[0].maths[0].tex = "z"; },
+    };
+    for (const auto edit : kEdits) {
+        Drawing d = make();
+        edit(d);
+        EXPECT_NE(mermaid_util::DrawingHash(d), base);
     }
 }
 

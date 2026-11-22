@@ -130,7 +130,7 @@ void ResourceManager::RequestMermaidRenders()
 {
     const float content_width = MdContentWidth(state_);
     // 図は届いた結果の反映も RequestRender が行うので、読み込み中に届いた結果は差し替えずに終わった後の要求で反映する。
-    // 解いた形も手放さない (読み込みが失敗して戻ったときに解き直さない)。
+    // コマンドリストも手放さない (読み込みが失敗して戻ったときに記録し直さない)。
     if (content_width <= 0.0f || host_.IsLoadingOtherDocument()) {
         return;
     }
@@ -148,7 +148,7 @@ void ResourceManager::RequestMermaidRenders()
         RequestDiagramRender(i, content_width, dark_mode, changed);
     }
     // この回で置き換わった結果 (テーマ・幅・コードの変更)、範囲の外へ出た図 (EvictOffscreenResources) と、届いたが
-    // どの図も受け取らなかった結果の解いた形を、まとめて手放す。
+    // どの図も受け取らなかった結果のコマンドリストを、まとめて手放す。
     mermaid_.ReleaseIdleDrawings();
     if (!changed.empty()) {
         host_.RecomputeLayout(changed);
@@ -168,8 +168,8 @@ void ResourceManager::EvictOffscreenResources()
     // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストと描画命令も保持範囲の図の分だけ残す。戻ったら読み直して記録し直すが、メモリを返すほうをユーザーが選んだ。
-    // 覚えている結果からは、続く要求の回 (FlushPendingResources) の終わりに外す。
+    // 図のコマンドリストは保持範囲の図の分だけ残す。戻ったら記録し直すが、メモリを返すほうをユーザーが選んだ。図が描画命令も
+    // 手放すと表示中でなくなり、覚えている結果からも、続く要求の回 (FlushPendingResources) の終わりにコマンドリストを外す。
     const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
     const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
     // 2 つの span の反復子は混ぜられない (Debug の検査で止まる)。

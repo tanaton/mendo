@@ -145,29 +145,28 @@ protected:
         return Await([&] { return Request(d, entry, max_width); });
     }
 
-    // bytes を key の直列化した形として置く (表示していない項目)。
-    void StoreBytesAs(uint64_t key, std::string bytes, float width, float height)
-    {
-        renderer_.ResultCache().Put(key, { .result = { .width = width, .height = height }, .bytes = std::make_shared<const std::string>(std::move(bytes)) });
-    }
-
-    // 別の図の描画命令を、key の直列化した形として置く。キャッシュから読んだ図はその描画命令で出るので、描き直したのと見分けられる。
+    // 別の図の描画命令を、key の結果として置く (表示していない項目)。キャッシュから読んだ図はその描画命令で出るので、描き直した
+    // のと見分けられる。
     void StoreDrawingAs(const DiagramEntry& drawn, uint64_t key)
     {
-        StoreBytesAs(key, mermaid_util::SerializeDrawing(*drawn.drawing), drawn.width, drawn.height);
+        renderer_.ResultCache().Put(key, { .width = drawn.width,
+                                           .height = drawn.height,
+                                           .drawing = std::make_shared<const mermaid_util::DiagramDrawing>(*drawn.drawing) });
     }
 
     // 記録できない (SVG として読めない) 描画命令を、key の結果として置く。any_width なら幅の上限より広い。
     void StoreUnrecordableAs(uint64_t key, bool any_width)
     {
-        mermaid_util::DiagramDrawing drawing{ .width = any_width ? kMaxWidth * 2 : 10.0f, .height = 10.0f };
-        drawing.layers.emplace_back().shapes = "<rect";
-        renderer_.ResultCache().Put(key, { .result = { .width = drawing.width, .height = drawing.height, .any_width = any_width },
-                                           .bytes = std::make_shared<const std::string>(mermaid_util::SerializeDrawing(drawing)) });
+        auto drawing = std::make_shared<mermaid_util::DiagramDrawing>();
+        drawing->width = any_width ? kMaxWidth * 2 : 10.0f;
+        drawing->height = 10.0f;
+        drawing->layers.emplace_back().shapes = "<rect";
+        const float width = drawing->width;
+        renderer_.ResultCache().Put(key, { .width = width, .height = 10.0f, .drawing = std::move(drawing), .any_width = any_width });
     }
 
     // key の項目。無ければ null。
-    const DiagramCache::Item* CachedItem(uint64_t key)
+    const DiagramResult* CachedItem(uint64_t key)
     {
         return renderer_.ResultCache().Peek(key);
     }
@@ -230,8 +229,8 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_TRUE(SvgOf(entry).contains("Alpha"));
     const auto* item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_NE(item->bytes, nullptr) << "直列化した形を置く";
-    EXPECT_EQ(item->result.drawing, entry.drawing) << "表示している間は解いた形も持つ";
+    EXPECT_EQ(item->drawing, entry.drawing) << "表示中も同じ 1 つを持つ";
+    EXPECT_NE(item->commands, nullptr);
     // 描く前に高さを決めるのに、描いた図の寸法を引ける。
     const auto size = renderer_.KnownSize(d.node(), kMaxWidth, /*dark_mode=*/false);
     ASSERT_TRUE(size.has_value());
@@ -239,9 +238,9 @@ TEST_F(MermaidRendererTest, RendersDiagramThenAnswersFromCache)
     EXPECT_EQ(size->height, entry.height);
 }
 
-// 画面外へ出て絵と描画命令を捨てた図は、覚えている結果からも解いた形を外し、戻ったら直列化した形から読み直す (描き直さない)。
-// 直列化した形を別の図のものに置き換えておき、読み直したことを見分ける。
-TEST_F(MermaidRendererTest, ReleasedDrawingIsReadBackFromSerializedForm)
+// 画面外へ出て絵と描画命令を捨てた図は、覚えている結果からもコマンドリストを外し、戻ったら覚えた描画命令から記録し直す
+// (描き直さない)。描画命令を別の図のものに置き換えておき、描き直していないことを見分ける。
+TEST_F(MermaidRendererTest, ReleasedDrawingIsRecordedAgainFromCache)
 {
     const DiagramDoc alpha(kAlpha);
     DiagramEntry entry;
@@ -257,9 +256,8 @@ TEST_F(MermaidRendererTest, ReleasedDrawingIsReadBackFromSerializedForm)
     EXPECT_EQ(entry.height, height);
     const auto* item = CachedItem(alpha.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.drawing, nullptr) << "覚えている結果からも解いた形を外す";
-    EXPECT_EQ(item->result.commands, nullptr);
-    EXPECT_NE(item->bytes, nullptr) << "直列化した形は残す";
+    EXPECT_EQ(item->commands, nullptr) << "覚えている結果からもコマンドリストを外す";
+    EXPECT_NE(item->drawing, nullptr) << "描画命令は残す";
 
     const DiagramDoc beta(kBeta);
     DiagramEntry other;
@@ -267,11 +265,11 @@ TEST_F(MermaidRendererTest, ReleasedDrawingIsReadBackFromSerializedForm)
     StoreDrawingAs(other, alpha.WidthFreeHash());
     EXPECT_FALSE(Request(alpha, entry)) << "UI では解かない";
     ASSERT_TRUE(RenderUntilSettled(alpha, entry));
-    EXPECT_TRUE(SvgOf(entry).contains("Beta")) << "直列化した形から読む";
+    EXPECT_TRUE(SvgOf(entry).contains("Beta")) << "覚えた描画命令から記録する";
 }
 
-// テーマを切り替えて置き換わった結果は、どの図も持たなくなるので、覚えている結果からも解いた形とコマンドリストを外す。
-// 直列化した形は残し、テーマを戻したら描き直さずに読み直す。
+// テーマを切り替えて置き換わった結果は、どの図も持たなくなるので、覚えている結果からもコマンドリストを外す。
+// 描画命令は残し、テーマを戻したら描き直さずに記録し直す。
 TEST_F(MermaidRendererTest, ReplacedResultReleasesItsDrawing)
 {
     const DiagramDoc d(kAlpha);
@@ -285,8 +283,8 @@ TEST_F(MermaidRendererTest, ReplacedResultReleasesItsDrawing)
     renderer_.ReleaseIdleDrawings();
     const auto* light = CachedItem(d.WidthFreeHash());
     ASSERT_NE(light, nullptr);
-    EXPECT_EQ(light->result.drawing, nullptr) << "明るいテーマの解いた形は外す";
-    EXPECT_NE(light->bytes, nullptr);
+    EXPECT_EQ(light->commands, nullptr) << "明るいテーマのコマンドリストは外す";
+    EXPECT_NE(light->drawing, nullptr);
     EXPECT_EQ(renderer_.ResultCache().CommandLists(), 1u);
 
     entry.MarkStale();
@@ -297,8 +295,8 @@ TEST_F(MermaidRendererTest, ReplacedResultReleasesItsDrawing)
     EXPECT_EQ(renderer_.ResultCache().CommandLists(), 1u) << "暗いテーマの結果も外す";
 }
 
-// 同じコードの図が 2 つあれば、片方が画面外へ出てももう片方が持つ解いた形は外さず、戻った図はそれをそのまま使う。
-// どちらも持たなくなったら (文書を切り替えた) 外し、直列化した形は残して、また開いたら読み直す。
+// 同じコードの図が 2 つあれば、片方が画面外へ出てももう片方が持つコマンドリストは外さず、戻った図はそれをそのまま使う。
+// どちらも持たなくなったら (文書を切り替えた) 外し、描画命令は残して、また開いたら記録し直す。
 TEST_F(MermaidRendererTest, DrawingIsKeptWhileAnyDiagramHoldsIt)
 {
     const DiagramDoc d(kAlpha);
@@ -310,8 +308,8 @@ TEST_F(MermaidRendererTest, DrawingIsKeptWhileAnyDiagramHoldsIt)
     Release(first);
     const auto* item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.drawing, second.drawing) << "もう片方が表示している";
-    EXPECT_TRUE(Request(d, first)) << "解き直さない";
+    EXPECT_NE(item->commands, nullptr) << "もう片方が表示している";
+    EXPECT_TRUE(Request(d, first)) << "記録し直さない";
     EXPECT_EQ(first.drawing, second.drawing);
 
     const std::string svg = SvgOf(first);
@@ -321,15 +319,14 @@ TEST_F(MermaidRendererTest, DrawingIsKeptWhileAnyDiagramHoldsIt)
     EXPECT_EQ(renderer_.ResultCache().CommandLists(), 0u);
     item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.drawing, nullptr);
-    EXPECT_NE(item->bytes, nullptr);
+    EXPECT_NE(item->drawing, nullptr);
     DiagramEntry reopened;
     EXPECT_FALSE(Request(d, reopened));
     ASSERT_TRUE(RenderUntilSettled(d, reopened));
     EXPECT_EQ(SvgOf(reopened), svg);
 }
 
-// 拡大表示が持つ間は、本文の図が持たなくても解いた形を外さない。閉じたら外す。
+// 拡大表示が持つ間は、本文の図が持たなくてもコマンドリストを外さない。閉じたら外す。
 TEST_F(MermaidRendererTest, ViewerHoldsDrawingUntilClosed)
 {
     const DiagramDoc d(kAlpha);
@@ -338,18 +335,18 @@ TEST_F(MermaidRendererTest, ViewerHoldsDrawingUntilClosed)
     renderer_.ReleaseIdleDrawings();
     const auto* item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_NE(item->result.drawing, nullptr);
+    EXPECT_NE(item->commands, nullptr);
 
     zoom_.Close();
     viewer_.drawings.clear();
     renderer_.ReleaseIdleDrawings();
     item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.drawing, nullptr);
+    EXPECT_EQ(item->commands, nullptr);
 }
 
-// ラベルの数式の描画命令も覚え、手放した図を読み直すときは KaTeX で組み直さずに同じ描画命令を差し込む。
-TEST_F(MermaidRendererTest, ReloadedDiagramReusesLabelMaths)
+// ラベルの数式の描画命令は図の描画命令が持つので、手放した図を記録し直すときに KaTeX で組み直さない。
+TEST_F(MermaidRendererTest, ReleasedDiagramKeepsLabelMaths)
 {
     const DiagramDoc d("flowchart LR\n  A[\"$$x^2$$\"] --> B\n");
     DiagramEntry entry;
@@ -358,12 +355,12 @@ TEST_F(MermaidRendererTest, ReloadedDiagramReusesLabelMaths)
     ASSERT_NE(math, nullptr);
 
     Release(entry);
-    ASSERT_EQ(CachedItem(d.WidthFreeHash())->result.drawing, nullptr) << "直列化した形から読み直す";
+    ASSERT_EQ(CachedItem(d.WidthFreeHash())->commands, nullptr) << "記録し直す";
     ASSERT_TRUE(RenderUntilSettled(d, entry));
     EXPECT_EQ(FirstLabelMath(*entry.drawing), math);
 }
 
-// 届いた結果をどの図も受け取らないまま要求の回が終わったら (届く前に画面外へ出た図)、解いた形を持ち続けない。
+// 届いた結果をどの図も受け取らないまま要求の回が終わったら (届く前に画面外へ出た図)、コマンドリストを持ち続けない。
 // 結果を受け取るだけでは手放さない (通知の外で頼み直す呼び出し側もある)。
 TEST_F(MermaidRendererTest, UnclaimedResultReleasesItsDrawing)
 {
@@ -374,13 +371,13 @@ TEST_F(MermaidRendererTest, UnclaimedResultReleasesItsDrawing)
     renderer_.ProcessJobResults(kNoDeadline);
     const auto* item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_NE(item->result.drawing, nullptr) << "要求の回が終わるまでは受け取れる";
+    EXPECT_NE(item->commands, nullptr) << "要求の回が終わるまでは受け取れる";
 
     renderer_.ReleaseIdleDrawings();
     item = CachedItem(d.WidthFreeHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.drawing, nullptr);
-    EXPECT_NE(item->bytes, nullptr);
+    EXPECT_EQ(item->commands, nullptr);
+    EXPECT_NE(item->drawing, nullptr);
     ASSERT_TRUE(RenderUntilSettled(d, entry));
     EXPECT_TRUE(SvgOf(entry).contains("Alpha"));
 }
@@ -445,12 +442,12 @@ TEST_F(MermaidRendererTest, SettlesRenderError)
     EXPECT_FALSE(entry.error.message.empty());
     const auto* item = CachedItem(d.RequestHash());
     ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->result.error.kind, DiagramError::Kind::Render);
-    EXPECT_EQ(item->bytes, nullptr);
+    EXPECT_EQ(item->error.kind, DiagramError::Kind::Render);
+    EXPECT_EQ(item->drawing, nullptr);
 }
 
-// キャッシュの直列化した形に当たれば描かずに読む。
-TEST_F(MermaidRendererTest, LoadsFromSerializedForm)
+// キャッシュの描画命令に当たれば描かずに記録する。
+TEST_F(MermaidRendererTest, LoadsFromCachedDrawing)
 {
     const DiagramDoc alpha(kAlpha);
     DiagramEntry drawn;
@@ -462,24 +459,6 @@ TEST_F(MermaidRendererTest, LoadsFromSerializedForm)
     ASSERT_TRUE(RenderUntilSettled(beta, entry));
     EXPECT_TRUE(SvgOf(entry).contains("Alpha"));
     EXPECT_EQ(entry.width, drawn.width);
-}
-
-// キャッシュの描画命令を解けなければ、その項目を捨てて描き直す。描いた結果が別のキー (幅なし) に置かれても、解けない項目は
-// 残らない。次は解ける描画命令が当たる。
-TEST_F(MermaidRendererTest, RerendersWhenCachedDrawingIsBroken)
-{
-    const DiagramDoc beta(kBeta);
-    const uint64_t key = beta.RequestHash();
-    StoreBytesAs(key, "not a drawing", 10.0f, 10.0f);
-
-    DiagramEntry entry;
-    ASSERT_TRUE(RenderUntilSettled(beta, entry));
-    EXPECT_TRUE(entry.HasImage());
-    EXPECT_TRUE(SvgOf(entry).contains("Beta"));
-    EXPECT_EQ(CachedItem(key), nullptr);
-    const auto hit = renderer_.ResultCache().Find(beta.WidthFreeHash(), key, kMaxWidth);
-    ASSERT_NE(hit.item, nullptr);
-    EXPECT_TRUE(mermaid_util::ParseDrawing(*hit.item->bytes).has_value());
 }
 
 // 覚えた描画命令を記録できなければ、その項目を捨てて描き直す。どの幅でも使える印も、描き直した結果に持ち越さない。
@@ -934,28 +913,26 @@ TEST(ZoomViewerZoom, StepsThroughStopsIncludingFit)
 
 // ===== DiagramCache =====
 
-// 直列化した形だけの項目 (表示していない図)。中身は読まないので何でもよい。
-DiagramCache::Item Serialized(size_t size, float width = 100.0f, bool any_width = false)
+// 描画命令が size バイトの項目 (表示していない図)。
+DiagramResult Stored(size_t size, float width = 100.0f, bool any_width = false)
 {
-    DiagramCache::Item item;
-    item.result.width = width;
-    item.result.height = 50.0f;
-    item.result.any_width = any_width;
-    item.bytes = std::make_shared<const std::string>(size, 'x');
-    return item;
+    auto drawing = std::make_shared<mermaid_util::DiagramDrawing>();
+    drawing->defs.assign(size > sizeof(*drawing) ? size - sizeof(*drawing) : 0, 'x');
+    return { .width = width, .height = 50.0f, .drawing = std::move(drawing), .any_width = any_width };
 }
 
-// 表示している図の項目 (解いた形も持つ)。
-DiagramCache::Item Displayed(size_t size, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing)
+// 表示している図の項目 (コマンドリストがあり、ほかに持ち主がいる)。
+DiagramResult Displayed(size_t size, std::shared_ptr<const mermaid_util::DiagramDrawing>& owner)
 {
-    auto item = Serialized(size);
-    item.result.drawing = std::move(drawing);
-    return item;
+    auto result = Stored(size);
+    result.commands = &SharedStubCommandList();
+    owner = result.drawing;
+    return result;
 }
 
-DiagramCache::Item Error()
+DiagramResult Error()
 {
-    return { .result = { .error = { DiagramError::Kind::Render, L"syntax error" } } };
+    return { .error = { DiagramError::Kind::Render, L"syntax error" } };
 }
 
 bool Has(const DiagramCache& cache, uint64_t key)
@@ -970,32 +947,32 @@ constexpr size_t kTwoItems = 3000;
 TEST(DiagramCache, PutAddsAndReplaces)
 {
     DiagramCache cache;
-    cache.Put(1, Serialized(1000));
+    cache.Put(1, Stored(1000));
     const size_t one = cache.TotalBytes();
     EXPECT_GT(one, 1000u) << "項目の器も数える";
-    cache.Put(2, Serialized(2000));
+    cache.Put(2, Stored(2000));
     EXPECT_EQ(cache.EntryCount(), 2u);
     EXPECT_EQ(cache.TotalBytes(), one * 2 + 1000);
 
-    cache.Put(1, Serialized(512, 300.0f));
+    cache.Put(1, Stored(512, 300.0f));
     EXPECT_EQ(cache.EntryCount(), 2u);
     EXPECT_EQ(cache.TotalBytes(), one * 2 + 512);
     const auto hit = cache.Find(1, 1, 0.0f);
-    ASSERT_NE(hit.item, nullptr);
+    ASSERT_NE(hit.result, nullptr);
     EXPECT_EQ(hit.key, 1u);
-    EXPECT_EQ(hit.item->result.width, 300.0f);
-    EXPECT_EQ(hit.item->bytes->size(), 512u);
+    EXPECT_EQ(hit.result->width, 300.0f);
+    EXPECT_EQ(mermaid_util::DrawingBytes(*hit.result->drawing), 512u);
 }
 
 // 上限を超えたら、引いた (Find した) ものを残して最も古いものから捨てる。
 TEST(DiagramCache, EvictsLeastRecentlyUsedOverLimit)
 {
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
-    cache.Put(2, Serialized(1000));
-    ASSERT_NE(cache.Find(1, 1, 0.0f).item, nullptr);
+    cache.Put(1, Stored(1000));
+    cache.Put(2, Stored(1000));
+    ASSERT_NE(cache.Find(1, 1, 0.0f).result, nullptr);
 
-    cache.Put(3, Serialized(1000));
+    cache.Put(3, Stored(1000));
     cache.ReleaseIdleDrawings();
     EXPECT_TRUE(Has(cache, 1));
     EXPECT_FALSE(Has(cache, 2));
@@ -1005,12 +982,12 @@ TEST(DiagramCache, EvictsLeastRecentlyUsedOverLimit)
 // 大きな図を手放して大きく溢れたら、上限に収まるまで古い順にまとめて捨てる。
 TEST(DiagramCache, EvictsManyInLeastRecentlyUsedOrder)
 {
-    const size_t one = DiagramCache::ITEM_BYTES + 100;
+    const size_t one = DiagramCache::ITEM_BYTES + 400;
     DiagramCache cache(one * 5);
     for (uint64_t key = 1; key <= 10; ++key) {
-        cache.Put(key, Serialized(100));
+        cache.Put(key, Stored(400));
     }
-    ASSERT_NE(cache.Find(3, 3, 0.0f).item, nullptr);
+    ASSERT_NE(cache.Find(3, 3, 0.0f).result, nullptr);
 
     cache.ReleaseIdleDrawings();
     EXPECT_EQ(cache.EntryCount(), 5u);
@@ -1019,50 +996,47 @@ TEST(DiagramCache, EvictsManyInLeastRecentlyUsedOrder)
     }
 }
 
-// 置くものが無い (上限より大きくて直列化した形を持てず、表示もしていない) 結果は、同じキーの項目を消さない。
+// 描画命令もエラーも無い結果は、同じキーの項目を消さない。
 TEST(DiagramCache, PutWithNothingToStoreKeepsExisting)
 {
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
-    cache.Put(1, Serialized(kTwoItems));
+    cache.Put(1, Stored(1000));
     cache.Put(1, {});
     const auto* item = cache.Peek(1);
     ASSERT_NE(item, nullptr);
-    ASSERT_NE(item->bytes, nullptr);
-    EXPECT_EQ(item->bytes->size(), 1000u);
+    EXPECT_EQ(mermaid_util::DrawingBytes(*item->drawing), 1000u);
 }
 
 // 高さを決めるために見る (Peek) だけなら、捨てる順を変えない。
 TEST(DiagramCache, PeekKeepsOrder)
 {
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
-    cache.Put(2, Serialized(1000));
+    cache.Put(1, Stored(1000));
+    cache.Put(2, Stored(1000));
     EXPECT_TRUE(Has(cache, 1));
 
-    cache.Put(3, Serialized(1000));
+    cache.Put(3, Stored(1000));
     cache.ReleaseIdleDrawings();
     EXPECT_FALSE(Has(cache, 1));
     EXPECT_TRUE(Has(cache, 2));
 }
 
-// 表示している (ほかに持ち主のいる) 図の項目は、古くても捨てない。持ち主がいなくなったら解いた形を外し、その時を使った時
+// 表示している (ほかに持ち主のいる) 図の項目は、古くても捨てない。持ち主がいなくなったら、その時を使った時
 // として捨てる順に入る。
 TEST(DiagramCache, KeepsDisplayedItemsAndOrdersReleasedAsNewest)
 {
-    auto drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     DiagramCache cache(kTwoItems);
     cache.Put(1, Displayed(1000, drawing));
-    cache.Put(2, Serialized(1000));
-    cache.Put(3, Serialized(1000));
+    cache.Put(2, Stored(1000));
+    cache.Put(3, Stored(1000));
     cache.ReleaseIdleDrawings();
     EXPECT_TRUE(Has(cache, 1));
     EXPECT_FALSE(Has(cache, 2));
 
     drawing.reset();
     cache.ReleaseIdleDrawings();
-    EXPECT_EQ(cache.Peek(1)->result.drawing, nullptr);
-    cache.Put(4, Serialized(1000));
+    cache.Put(4, Stored(1000));
     cache.ReleaseIdleDrawings();
     EXPECT_TRUE(Has(cache, 1)) << "手放したばかりの図は残す";
     EXPECT_FALSE(Has(cache, 3));
@@ -1074,24 +1048,22 @@ TEST(DiagramCache, DisplayedItemsMayExceedLimit)
     std::vector<std::shared_ptr<const mermaid_util::DiagramDrawing>> shown;
     DiagramCache cache(kTwoItems);
     for (uint64_t key = 1; key <= 3; ++key) {
-        cache.Put(key, Displayed(1000, shown.emplace_back(std::make_shared<const mermaid_util::DiagramDrawing>())));
+        cache.Put(key, Displayed(1000, shown.emplace_back()));
     }
     cache.ReleaseIdleDrawings();
     EXPECT_EQ(cache.EntryCount(), 3u);
     EXPECT_GT(cache.TotalBytes(), kTwoItems);
 }
 
-// 上限より大きい図は直列化した形を持たず、表示している間だけ置く。手放したら項目ごと捨てる。
+// 上限より大きい図は上限に数えず、表示している間だけ置く。手放したら項目ごと捨てる。
 TEST(DiagramCache, OversizedDrawingIsKeptOnlyWhileDisplayed)
 {
-    auto drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
+    cache.Put(1, Stored(1000));
     cache.Put(2, Displayed(kTwoItems, drawing));
     cache.ReleaseIdleDrawings();
-    const auto* item = cache.Peek(2);
-    ASSERT_NE(item, nullptr);
-    EXPECT_EQ(item->bytes, nullptr);
+    EXPECT_TRUE(Has(cache, 2));
     EXPECT_TRUE(Has(cache, 1)) << "ほかを捨てない";
 
     drawing.reset();
@@ -1100,17 +1072,18 @@ TEST(DiagramCache, OversizedDrawingIsKeptOnlyWhileDisplayed)
     EXPECT_TRUE(Has(cache, 1));
 }
 
-// 引いたバイト列は、worker が解く前に捨てられても残る。
-TEST(DiagramCache, FoundBytesOutliveEviction)
+// worker が組んでいる (引いた描画命令を持つ) 項目は、コマンドリストが無くても上限で捨てない。
+TEST(DiagramCache, KeepsItemsWorkerIsLayingOut)
 {
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
-    const auto bytes = cache.Find(1, 1, 0.0f).item->bytes;
-    cache.Put(2, Serialized(1000));
-    cache.Put(3, Serialized(1000));
+    cache.Put(1, Stored(1000));
+    const auto taken = cache.Find(1, 1, 0.0f).result->drawing;
+    cache.Put(2, Stored(1000));
+    cache.Put(3, Stored(1000));
     cache.ReleaseIdleDrawings();
-    EXPECT_FALSE(Has(cache, 1));
-    EXPECT_EQ(*bytes, std::string(1000, 'x'));
+    EXPECT_TRUE(Has(cache, 1));
+    EXPECT_FALSE(Has(cache, 2));
+    EXPECT_TRUE(Has(cache, 3));
 }
 
 // エラーもほかの項目と同じく上限に数え、古いものから捨てる。
@@ -1119,8 +1092,8 @@ TEST(DiagramCache, ErrorsCountTowardLimit)
     DiagramCache cache(kTwoItems);
     cache.Put(1, Error());
     EXPECT_GT(cache.TotalBytes(), 0u);
-    cache.Put(2, Serialized(1200));
-    cache.Put(3, Serialized(1200));
+    cache.Put(2, Stored(1200));
+    cache.Put(3, Stored(1200));
     cache.ReleaseIdleDrawings();
     EXPECT_FALSE(Has(cache, 1));
     EXPECT_TRUE(Has(cache, 2));
@@ -1132,10 +1105,10 @@ TEST(DiagramCache, ErrorsCountTowardLimit)
 TEST(DiagramCache, PutDoesNotEvict)
 {
     DiagramCache cache(kTwoItems);
-    cache.Put(1, Serialized(1000));
-    cache.Put(2, Serialized(1000));
+    cache.Put(1, Stored(1000));
+    cache.Put(2, Stored(1000));
     cache.Put(3, Error());
-    cache.Put(4, Serialized(1000));
+    cache.Put(4, Stored(1000));
     EXPECT_EQ(cache.EntryCount(), 4u);
     EXPECT_GT(cache.TotalBytes(), kTwoItems);
 
@@ -1147,34 +1120,38 @@ TEST(DiagramCache, PutDoesNotEvict)
     EXPECT_LE(cache.TotalBytes(), kTwoItems);
 }
 
-// 持ち主のいない解いた形だけを外す。直列化した形を持たない項目は捨てる。
-TEST(DiagramCache, ReleaseIdleDrawingsKeepsSerializedForm)
+// 持ち主のいない図も描画命令は残す。上限より大きい図は捨てる。
+TEST(DiagramCache, ReleaseIdleDrawingsKeepsDrawingWithinLimit)
 {
-    const auto held = std::make_shared<const mermaid_util::DiagramDrawing>();
+    std::shared_ptr<const mermaid_util::DiagramDrawing> held;
     DiagramCache cache;
-    cache.Put(1, Displayed(1000, std::make_shared<const mermaid_util::DiagramDrawing>()));
-    cache.Put(2, Displayed(DiagramCache::MAX_BYTES, std::make_shared<const mermaid_util::DiagramDrawing>()));
+    auto left_screen = Stored(1000);
+    left_screen.commands = &SharedStubCommandList();
+    cache.Put(1, std::move(left_screen));
+    // コマンドリストが無くても (デバイスの作り直しの後)、上限より大きい図は捨てる。
+    cache.Put(2, Stored(DiagramCache::MAX_BYTES));
     cache.Put(3, Displayed(1000, held));
     cache.ReleaseIdleDrawings();
     ASSERT_TRUE(Has(cache, 1));
-    EXPECT_EQ(cache.Peek(1)->result.drawing, nullptr);
-    EXPECT_NE(cache.Peek(1)->bytes, nullptr);
+    EXPECT_NE(cache.Peek(1)->drawing, nullptr);
+    EXPECT_EQ(cache.Peek(1)->commands, nullptr) << "コマンドリストは外す";
     EXPECT_FALSE(Has(cache, 2));
     ASSERT_TRUE(Has(cache, 3));
-    EXPECT_EQ(cache.Peek(3)->result.drawing, held);
+    EXPECT_EQ(cache.Peek(3)->drawing, held);
+    EXPECT_NE(cache.Peek(3)->commands, nullptr);
 }
 
-// デバイスが変わったら、旧デバイスで確定したかもしれないエラーを捨てる。解いた形は残し、記録し直させる。
+// デバイスが変わったら、旧デバイスで確定したかもしれないエラーを捨てる。描画命令は残し、記録し直させる。
 TEST(DiagramCache, ResetDeviceDropsErrorsAndKeepsDrawings)
 {
-    const auto drawing = std::make_shared<const mermaid_util::DiagramDrawing>();
+    std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
     DiagramCache cache;
     cache.Put(1, Error());
     cache.Put(2, Displayed(1000, drawing));
     cache.ResetDevice();
     EXPECT_FALSE(Has(cache, 1));
     ASSERT_TRUE(Has(cache, 2));
-    EXPECT_EQ(cache.Peek(2)->result.drawing, drawing);
+    EXPECT_EQ(cache.Peek(2)->drawing, drawing);
 }
 
 // 幅なしの結果は max_width より狭いときだけ使い、使えなければ幅つきを引く。
@@ -1183,32 +1160,32 @@ TEST(DiagramCache, FindPrefersWidthFreeOnlyWhenNarrower)
     constexpr uint64_t kFree = 10;
     constexpr uint64_t kSized = 20;
     DiagramCache cache;
-    cache.Put(kFree, Serialized(64, 300.0f));
+    cache.Put(kFree, Stored(64, 300.0f));
 
     auto hit = cache.Find(kFree, kSized, 600.0f);
-    ASSERT_NE(hit.item, nullptr);
+    ASSERT_NE(hit.result, nullptr);
     EXPECT_EQ(hit.key, kFree);
 
     // 幅なしの図が上限いっぱいなら使わない。幅つきが無ければ外れ。
-    EXPECT_EQ(cache.Find(kFree, kSized, 300.0f).item, nullptr);
+    EXPECT_EQ(cache.Find(kFree, kSized, 300.0f).result, nullptr);
 
-    cache.Put(kSized, Serialized(64, 280.0f));
+    cache.Put(kSized, Stored(64, 280.0f));
     hit = cache.Find(kFree, kSized, 300.0f);
-    ASSERT_NE(hit.item, nullptr);
+    ASSERT_NE(hit.result, nullptr);
     EXPECT_EQ(hit.key, kSized);
-    EXPECT_EQ(hit.item->result.width, 280.0f);
+    EXPECT_EQ(hit.result->width, 280.0f);
 }
 
 // どの幅でも使える印のある図は、幅の上限より広くても幅なしのキーで当たる。印の無い広い図は幅つきのキーでしか引けない。
 TEST(DiagramCache, AnyWidthItemHitsAtEveryWidth)
 {
     DiagramCache cache;
-    cache.Put(100, Serialized(64, 640.0f, /*any_width=*/true));
-    cache.Put(200, Serialized(64, 640.0f));
+    cache.Put(100, Stored(64, 640.0f, /*any_width=*/true));
+    cache.Put(200, Stored(64, 640.0f));
     const auto hit = cache.Find(100, 1, 300.0f);
-    ASSERT_NE(hit.item, nullptr);
+    ASSERT_NE(hit.result, nullptr);
     EXPECT_EQ(hit.key, 100u);
-    EXPECT_EQ(cache.Find(200, 2, 300.0f).item, nullptr);
+    EXPECT_EQ(cache.Find(200, 2, 300.0f).result, nullptr);
 }
 
 } // namespace

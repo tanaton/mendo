@@ -1106,8 +1106,7 @@ void ZoomViewer::RequestDiagram(MermaidRenderer& mermaid, float max_width, bool 
     }
     diagram->pending = false;
     if (result->drawing) {
-        // デバイスが変わって外したコマンドリストは、窓が自分で記録する (ここで記録してキャッシュに入れると、本文の図が
-        // 表示していなくても残る)。
+        // 結果はコマンドリスト付きで届く。窓のデバイスが変わって外した分は、窓が自分で記録する。
         window_->SetDrawing(result->drawing, result->commands);
     }
     // 書き換えの途中の図はよく構文エラーになるので、出ている図があれば閉じずに残す。エラーの文言は本文の図に出る。

@@ -42,51 +42,44 @@ struct InlineMathBatchResult {
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
 
 // 図の結果のキャッシュ。キーは DiagramRequestHash か DiagramWidthFreeHash。UI スレッドから使う。
-// 描けた図は直列化した描画命令 (SerializeDrawing) とラベルの数式の描画命令を持ち、表示している間だけ解いた描画命令と
-// コマンドリストも持つ。画面外へ出た・置き換わった・前の文書の図など、どの図も拡大表示も持たなくなった解いた形は手放し
-// (ReleaseIdleDrawings)、戻ったら worker で解き直す (JS は動かさない)。解いた形は直列化した形より大きいので、表示中の図の
-// 分だけにする (ユーザーが選んだ)。表示中かどうかは持ち主の数で決め、表示が終わる経路ごとに知らせてもらわない。
+// 描けた図は描画命令 (DiagramDrawing) を持ち、表示している間だけコマンドリストも持つ。どの図も拡大表示も持たなくなったら
+// コマンドリストを手放し (ReleaseIdleDrawings)、戻ったら worker で文字を組んで記録し直す (JS は動かさない)。表示中かどうかは
+// 描画命令の持ち主の数で決め、表示が終わる経路ごとに知らせてもらわない。
+// 描画命令は画面外でも詰めた 1 つの形で持つ (ユーザーが選んだ)。表示中の二重持ちと戻るときの解き直しが無い。文字列に
+// 直して持つより、長い英字・数式ラベルの図と極小の図は大きい。
 // ファイルを書かないよう (設定はレジストリ)、ディスクには置かず RAM だけに持つ (ユーザーが選んだ)。起動し直すと空から始まる。
 class DiagramCache {
 public:
-    // 直列化した描画命令・ラベルの数式・エラーの文言・項目の器を数える上限 (ユーザーが選んだ)。表示中の解いた形と
-    // コマンドリストは数えず、表示中の項目は捨てない (画面に出ている図の数で決まる)。
+    // 描画命令・ラベルの数式・エラーの文言・項目の器を数える上限 (ユーザーが選んだ)。コマンドリストは数えず、表示中の項目は
+    // 捨てない (画面に出ている図の数で決まる)。
     static constexpr size_t MAX_BYTES = 4u * 1024 * 1024;
     // 上限に数える、項目の器 (表の節・結果・共有の管理ブロック) の見込み。
     static constexpr size_t ITEM_BYTES = 256;
     // 上限に数える、ラベルの数式 1 つの描画命令の見込み (図のラベルの数式は短い)。
     static constexpr size_t LABEL_MATH_BYTES = 1024;
 
-    struct Item {
-        // 寸法・どの幅でも使えるか・エラー。表示している間は解いた描画命令 (drawing) とコマンドリストも。
-        DiagramResult result;
-        // 直列化した描画命令。エラーと、上限より大きい図は持たない。worker で解く間に捨てられても残るよう共有する。
-        std::shared_ptr<const std::string> bytes;
-        // ラベルの数式の描画命令 (層と数式の順)。直列化した形は TeX だけを持つので、解いた後に差し込み、KaTeX を動かさない。
-        std::vector<std::shared_ptr<const MathDrawing>> maths;
-    };
     struct Hit {
         uint64_t key = 0;
-        Item* item = nullptr;
+        const DiagramResult* result = nullptr;
     };
 
     explicit DiagramCache(size_t max_bytes = MAX_BYTES) noexcept : max_bytes_(max_bytes)
     {}
 
     // 幅に縛られない結果 (max_width より狭いか、どの幅でも使えるときだけ) を先に、無ければ幅つきで引き、使ったことにする。
-    // item は次に表を変えるまで使える。
+    // result は次に表を変えるまで使える。
     Hit Find(uint64_t width_free_key, uint64_t sized_key, float max_width);
     // Find と同じく引くが、寸法を見るだけなので捨てる順を変えない。
-    const Item* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
+    const DiagramResult* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
     // key の項目を、捨てる順を変えずに見る (テスト用)。
-    const Item* Peek(uint64_t key) const;
-    // 同じキーは置き換える (置くものが無ければ残す)。上限より大きい図は直列化した形を持たない。上限を超えても置くときには捨てず、次の
-    // ReleaseIdleDrawings で捨てる。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に捨て、
-    // 同じ図を JS で描き直し続けてしまう。
-    void Put(uint64_t key, Item item);
+    const DiagramResult* Peek(uint64_t key) const;
+    // 同じキーは置き換える (描画命令もエラーも無ければ残す)。上限より大きい図は表示している間だけ持つ。上限を超えても置くときには
+    // 捨てず、次の ReleaseIdleDrawings で捨てる。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に
+    // 捨て、同じ図を JS で描き直し続けてしまう。
+    void Put(uint64_t key, DiagramResult result);
     void Erase(uint64_t key);
-    // どの図も拡大表示も worker の仕事も持たなくなった (この表だけが持つ) 解いた描画命令とコマンドリストを外し、直列化した形も
-    // エラーも無くなった項目は捨てる。その後、上限を超えていれば、表示していない項目を使っていない順に捨てる。
+    // どの図も拡大表示も worker の仕事も持たなくなった (描画命令をこの表だけが持つ) 図のコマンドリストを外し、上限より大きい図は捨てる。
+    // その後、上限を超えていれば、表示していない項目を使っていない順に捨てる。
     void ReleaseIdleDrawings();
     // 描画デバイスが変わった。旧デバイスのコマンドリストと、旧デバイスで確定したかもしれないエラーを捨てる。
     void ResetDevice();
@@ -105,10 +98,12 @@ public:
 
 private:
     struct Slot {
-        Item item;
+        DiagramResult result;
         // 上限に数える大きさ。
         size_t cost = 0;
         uint64_t last_used = 0;
+        // 上限より大きいので、表示している間だけ持つ。
+        bool oversized = false;
     };
     using Slots = std::unordered_map<uint64_t, Slot>;
     // 次の項目を返す。
@@ -229,34 +224,28 @@ private:
     enum class JobWork : uint8_t {
         // PeleEngine で描く。同時に描く数の枠を 1 つ使い、結果を受け取ったときに返す (PumpRenders)。
         Render,
-        // キャッシュにある描画命令の文字を組む (解いた形が無ければ直列化した形から解く)。表示用の要求だけ。
-        Load,
+        // キャッシュにある描画命令の文字を組む。表示用の要求だけ。
+        Layout,
     };
-    // 描かず・読まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
+    // 描かず・組まずに返した。投入後に drop_gen_ が進んだ表示用の要求か、PeleEngine が取り消した (終了)。
     struct JobDropped {};
-    // 描いたか読んだ (か文字を組み直した) 描画命令。UI で commands にしてキャッシュに置く。
+    // 描いたか、キャッシュにあった描画命令。UI で commands にしてキャッシュに置く。
     struct JobDrawing {
         std::shared_ptr<const mermaid_util::DiagramDrawing> drawing;
         // drawing の文字の並びを worker で組んだもの。記録したら捨てる (キャッシュには持たない)。
         DiagramTextLayouts texts;
-        // キャッシュに置く直列化した描画命令とラベルの数式 (DiagramCache::Item)。描いたときは worker で作り、読んだときは
-        // キャッシュにあったものを引き継ぐ。
-        std::shared_ptr<const std::string> bytes;
-        std::vector<std::shared_ptr<const MathDrawing>> maths;
-        // 描いたときだけ、bytes のハッシュ (last_drawn_)。
+        // 描いたときだけ、描画命令のハッシュ (last_drawn_)。
         uint64_t drawing_hash = 0;
     };
     // PeleEngine で描けなかった。描き直しても同じ。
     struct JobFailed {
         DiagramError error;
     };
-    // キャッシュにある直列化した描画命令を解けなかった。同じプロセスで書いたものなので、直列化と解析が食い違ったときの保険。
-    struct JobUnreadable {};
     // MathRequest::items と同じ順で、描けなかった数式は null。
     struct JobMaths {
         std::vector<std::shared_ptr<const MathDrawing>> drawings;
     };
-    using JobOutcome = std::variant<JobDropped, JobDrawing, JobFailed, JobUnreadable, JobMaths>;
+    using JobOutcome = std::variant<JobDropped, JobDrawing, JobFailed, JobMaths>;
 
     // bg のワーカーの仕事 1 つとその結果。
     struct Job {
@@ -277,7 +266,7 @@ private:
 
     void ApplyMathResult(Job& r);
 
-    // bg のワーカーで PeleEngine に描かせ、結果をキャッシュの読み込みと同じ経路で返す。
+    // bg のワーカーで PeleEngine に描かせ、結果を StartLayout と同じ経路で返す。
     void StartRender(RenderRequest req);
     // 同時に描く数の上限まで、待ちから bg へ出す。
     void PumpRenders();
@@ -289,16 +278,14 @@ private:
     // worker で呼ぶ。
     JobOutcome RenderJob(Job& job);
 
-    // item の描画命令の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
-    // 解いた形が無ければ、先に直列化した形を解いてラベルの数式を差し込む。
-    void StartLoad(RenderRequest req, const DiagramCache::Item& item);
-    // 戻り値: 結果 (描画命令かエラー) が出たか。
+    // drawing の文字を worker で組み、UI では組んだ文字で記録するだけにする (文字の組みが記録の大半を占める)。
+    void StartLayout(RenderRequest req, std::shared_ptr<const mermaid_util::DiagramDrawing> drawing);
+    // 戻り値: 結果 (記録した図かエラー) が出たか。
     bool ApplyDisplayResult(Job& r);
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
-    // 結果 (解いた描画命令かエラー) が出ていれば返す。まだなら読み込みか描画を始めて null (始めていれば何もしない)。
-    // cached_key があれば、当たった結果のキーを書く。
-    DiagramCache::Item* FindOrRequest(std::string_view code, float max_width, bool dark_mode, DisplayTarget* cached_key = nullptr);
+    // 結果 (記録した図かエラー) が出ていれば返す。まだなら文字の組みか描画を始めて null (始めていれば何もしない)。
+    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -310,7 +297,7 @@ private:
     std::unordered_set<uint64_t> inflight_;
     // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む) と描画命令の
     // ハッシュ。別の幅で描き直してハッシュが同じなら、幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに
-    // 置く (追加の JS は要らない)。前の幅の結果がキャッシュから捨てられても、上限より大きくて直列化した形を持たなくても比べられる
+    // 置く (追加の JS は要らない)。前の幅の結果がキャッシュから捨てられても (上限より大きい図は手放すと捨てる) 比べられる
     // よう、ハッシュで覚える。描くたびに引くので開番地法の表で持ち、キャッシュの上限には数えない (どちらも速さをユーザーが選んだ)。
     struct LastDrawn {
         uint64_t request_hash = 0;

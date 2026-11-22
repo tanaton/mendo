@@ -103,7 +103,7 @@ TEST_F(PeleEngineTest, RendersDiagramToDrawing)
     std::wstring all;
     for (const auto& layer : out.drawing.layers) {
         for (const auto& t : layer.texts) {
-            all += t.text;
+            all += out.drawing.Chars(t.text);
         }
     }
     EXPECT_NE(all.find(L"開始"), std::wstring::npos);
@@ -129,7 +129,7 @@ TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
             maths.push_back(&m);
         }
         for (const auto& t : layer.texts) {
-            texts += t.text;
+            texts += out.drawing.Chars(t.text);
         }
     }
     ASSERT_EQ(maths.size(), 1u);
@@ -140,20 +140,27 @@ TEST_F(PeleEngineTest, RendersMathLabelsWithKatex)
     EXPECT_NE(texts.find(L"\\frac{a}"), std::wstring::npos);
 }
 
-// C++ で作った描画命令はキャッシュに置く形に書き、ParseDrawing で同じものに読み戻せる (下付き・太字・絵文字・円のノードも)。
-// 直列化した形はラベルの数式の TeX だけを持ち、描画命令は持たない (キャッシュが覚えたものを差し込む)。
-TEST_F(PeleEngineTest, SerializedDrawingParsesBackWithMathTex)
+// 描画命令は画面外の図もそのまま覚えるので、文字は 1 本に詰め、書体は繰り返さない。ラベルの数式は TeX と描画命令を持つ。
+TEST_F(PeleEngineTest, DrawingPacksTextAndKeepsLabelMath)
 {
     auto out = engine_->Render("flowchart TD\n  A[\"$$x^2$$\"] --> B[\"x<sub>2</sub> & <b>y</b> 🦆\"] --> C((円))", true, 800.0f);
     ASSERT_EQ(out.status, Status::Drawn);
-    auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(out.drawing));
-    ASSERT_TRUE(back);
-    EXPECT_EQ(*back, out.drawing);
+    const auto& drawing = out.drawing;
+    EXPECT_LT(drawing.chars.capacity() - drawing.chars.size(), 16u) << "書き足しで伸ばした余りを持たない (確保の丸めは残る)";
+    std::vector<std::pair<std::wstring_view, uint32_t>> families;
     size_t maths = 0;
-    for (const auto& layer : back->layers) {
+    for (const auto& layer : drawing.layers) {
+        for (const auto& t : layer.texts) {
+            for (const auto& [name, begin] : families) {
+                if (name == drawing.Chars(t.family)) {
+                    EXPECT_EQ(t.family.begin, begin) << "同じ書体は 1 つ";
+                }
+            }
+            families.emplace_back(drawing.Chars(t.family), t.family.begin);
+        }
         for (const auto& m : layer.maths) {
             EXPECT_EQ(m.tex, "x^2");
-            EXPECT_EQ(m.drawing, nullptr);
+            EXPECT_NE(m.drawing, nullptr);
             ++maths;
         }
     }
@@ -425,7 +432,7 @@ TEST_F(PeleEngineTest, WideDiagramKeepsNaturalSizeWithoutBakedScale)
         EXPECT_EQ(layer.shapes.find("matrix("), std::string::npos) << layer.shapes;
         for (const auto& t : layer.texts) {
             const auto& m = t.at.transform;
-            EXPECT_EQ((std::array{ m[0], m[1], m[2], m[3] }), (std::array{ 1.0f, 0.0f, 0.0f, 1.0f })) << string_convert::WideToUtf8(t.text);
+            EXPECT_EQ((std::array{ m[0], m[1], m[2], m[3] }), (std::array{ 1.0f, 0.0f, 0.0f, 1.0f })) << string_convert::WideToUtf8(out.drawing.Chars(t.text));
             ++texts;
         }
     }
@@ -452,7 +459,7 @@ TEST_F(PeleEngineTest, FittingDiagramDoesNotDependOnMaxWidth)
     ASSERT_EQ(narrow.status, Status::Drawn);
     ASSERT_EQ(wide.status, Status::Drawn);
     ASSERT_LT(narrow.drawing.width, 600.0f);
-    EXPECT_EQ(narrow.drawing, wide.drawing);
+    EXPECT_EQ(mermaid_util::DrawingHash(narrow.drawing), mermaid_util::DrawingHash(wide.drawing));
 }
 
 // クリップボードの SVG は 1 枚の svg に、図形と 1 行ずつの <text> を CSS なしで書く。

@@ -57,9 +57,15 @@ protected:
         return count;
     }
 
-    static mermaid_util::DrawingText Text(std::wstring text, float x, float y)
+    // drawing の層 0 に文字の並びを 1 本足したもの。
+    static mermaid_util::DiagramDrawing WithText(mermaid_util::DiagramDrawing drawing, std::wstring_view text, float x, float y,
+                                                 std::array<float, 6> transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f })
     {
-        return { .at = { .x = x, .y = y, .font_size = 16.0f }, .family = L"\"Segoe UI\", \"Yu Gothic UI\"", .text = std::move(text) };
+        const auto family = mermaid_util::AppendChars(drawing.chars, L"\"Segoe UI\", \"Yu Gothic UI\"");
+        drawing.layers.front().texts.push_back({ .at = { .transform = transform, .x = x, .y = y, .font_size = 16.0f },
+                                                 .family = family,
+                                                 .text = mermaid_util::AppendChars(drawing.chars, text) });
+        return drawing;
     }
 
     ComPtr<ID2D1Factory1> d2d_;
@@ -131,16 +137,16 @@ TEST_F(DiagramRasterTest, FillsFractionalEdgePixelsOpaque)
 // 層の図形は図に 1 つの <defs> を参照できる。
 TEST_F(DiagramRasterTest, DrawsLayersWithSharedDefs)
 {
-    const mermaid_util::DiagramDrawing drawing{
+    const auto drawing = WithText({
         .width = 20.0f,
         .height = 10.0f,
         .background = 0xFFFFFF,
         .defs = R"svg(<linearGradient id="g0"><stop offset="0" stop-color="#00ff00"/></linearGradient>)svg",
         .layers = {
-            { .texts = { Text(L"A", 0.0f, 8.0f) } },
+            {  },
             { .shapes = R"svg(<rect x="0" y="0" width="20" height="10" fill="url(#g0)"/>)svg" },
         },
-    };
+    }, L"A", 0.0f, 8.0f);
     const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 20, 10, 0xFF00FF00u), 0);
@@ -149,14 +155,12 @@ TEST_F(DiagramRasterTest, DrawsLayersWithSharedDefs)
 // 文字はベースラインの始点に置く。変換で平行移動した先に描かれる。
 TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
 {
-    auto text = Text(L"日本語 ABC", 0.0f, 16.0f);
-    text.at.transform = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f };
-    const mermaid_util::DiagramDrawing drawing{
+    const auto drawing = WithText({
         .width = 100.0f,
         .height = 40.0f,
         .background = 0xFFFFFF,
-        .layers = { { .texts = { text } } },
-    };
+        .layers = { {  } },
+    }, L"日本語 ABC", 0.0f, 16.0f, { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 20.0f });
     const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     // 変換で 20px 下げたので上半分には何も無く、ベースライン (y=36) の上に字がある
@@ -167,15 +171,15 @@ TEST_F(DiagramRasterTest, DrawsTextAtBaselineWithTransform)
 // 後の層の図形は前の層の文字の上に描く (SVG の文書の順の重なり)。
 TEST_F(DiagramRasterTest, LaterLayerShapesCoverEarlierText)
 {
-    const mermaid_util::DiagramDrawing drawing{
+    const auto drawing = WithText({
         .width = 100.0f,
         .height = 40.0f,
         .background = 0xFFFFFF,
         .layers = {
-            { .texts = { Text(L"ABCDEF", 0.0f, 30.0f) } },
+            {  },
             { .shapes = R"svg(<rect x="0" y="0" width="100" height="40" fill="#00ff00"/>)svg" },
         },
-    };
+    }, L"ABCDEF", 0.0f, 30.0f);
     const auto bitmap = Rasterize(drawing);
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, 100, 40, 0xFF00FF00u), 0);
@@ -195,15 +199,15 @@ TEST_F(DiagramRasterTest, ReturnsNullForMalformedSvg)
 // クリップボードの SVG は <defs> を 1 つにし、層の図形と文字を順に並べる。初期値と同じ属性は書かない。
 TEST_F(DiagramRasterTest, WritesDrawingAsSingleSvg)
 {
-    const mermaid_util::DiagramDrawing drawing{
+    const auto drawing = WithText({
         .width = 20.0f,
         .height = 10.0f,
         .defs = R"svg(<linearGradient id="g0"/>)svg",
         .layers = {
-            { .shapes = R"svg(<rect width="1" height="1"/>)svg", .texts = { Text(L"A<", 1.0f, 2.0f) } },
+            { .shapes = R"svg(<rect width="1" height="1"/>)svg" },
             { .shapes = R"svg(<circle r="1"/>)svg" },
         },
-    };
+    }, L"A<", 1.0f, 2.0f);
     EXPECT_EQ(DrawingToSvg(drawing),
               R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><defs><linearGradient id="g0"/></defs>)svg"
               R"svg(<rect width="1" height="1"/><text x="1" y="2" font-family="&quot;Segoe UI&quot;, &quot;Yu Gothic UI&quot;" font-size="16")svg"
@@ -295,14 +299,26 @@ protected:
         }
         return drawing->layers[0].shapes;
     }
+    // 文字の並び 1 本と、その本文・書体。
+    struct ResolvedText {
+        mermaid_util::DrawingPlacement at;
+        uint16_t weight = 400;
+        bool italic = false;
+        uint8_t decoration = 0;
+        std::wstring family;
+        std::wstring text;
+
+        bool operator==(const ResolvedText&) const = default;
+    };
     // body の文字がちょうど 1 本のときの、その文字。
-    std::optional<mermaid_util::DrawingText> OnlyTextOf(std::string_view body)
+    std::optional<ResolvedText> OnlyTextOf(std::string_view body)
     {
         const auto drawing = Resolve(body);
         if (!drawing || drawing->layers.size() != 1 || drawing->layers[0].texts.size() != 1) {
             return std::nullopt;
         }
-        return drawing->layers[0].texts[0];
+        const auto& t = drawing->layers[0].texts[0];
+        return ResolvedText{ t.at, t.weight, t.italic, t.decoration, std::wstring{ drawing->Chars(t.family) }, std::wstring{ drawing->Chars(t.text) } };
     }
     // 図形が前の文字に重なって次の層へ送られたか (図形の範囲は外から見えないので、層の数で確かめる)。
     bool SplitsLayer(std::string_view body)
@@ -392,7 +408,7 @@ TEST_F(PeleSvgTest, WritesDecodedLabelsEscaped)
     ASSERT_TRUE(drawing);
     ASSERT_EQ(drawing->layers.size(), 1u);
     ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
-    EXPECT_EQ(drawing->layers[0].texts[0].text, L"a]]>b'c&");
+    EXPECT_EQ(drawing->Chars(drawing->layers[0].texts[0].text), L"a]]>b'c&");
     const auto svg = DrawingToSvg(*drawing);
     EXPECT_NE(svg.find(R"svg(xml:space="preserve">a]]&gt;b&#39;c&amp;</text>)svg"), std::string::npos) << svg;
 }
@@ -497,7 +513,7 @@ TEST_F(PeleSvgTest, PlacesTextChunksByAnchor)
     EXPECT_EQ(texts[2].at.y, 5.0f);
     EXPECT_NEAR(texts[1].at.font_size, 16.0f / 1.2f, 1e-4f);
     EXPECT_EQ(texts[0].at.rgb, 0x1F1F1Fu);
-    EXPECT_EQ(texts[0].family, L"\"Segoe UI\", \"Yu Gothic UI\"");
+    EXPECT_EQ(drawing->Chars(texts[0].family), L"\"Segoe UI\", \"Yu Gothic UI\"");
     EXPECT_EQ(texts[0].at.transform[4], 100.0f);
     EXPECT_EQ(texts[0].at.transform[5], 50.0f);
     EXPECT_EQ(texts[3].at.x, 10.0f);
@@ -511,7 +527,7 @@ TEST_F(PeleSvgTest, CollapsesWhitespace)
     const auto drawing = Resolve("<text x=\"0\" y=\"20\">  a \n\t b  </text>");
     ASSERT_TRUE(drawing);
     ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
-    EXPECT_EQ(drawing->layers[0].texts[0].text, L"a b");
+    EXPECT_EQ(drawing->Chars(drawing->layers[0].texts[0].text), L"a b");
 }
 
 // 図形が前の文字に重なるときだけ次の層にする。
@@ -594,21 +610,19 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
     EXPECT_NE(drawing->layers[0].shapes.find(R"svg(rx="3" ry="3")svg"), std::string::npos) << drawing->layers[0].shapes;
 }
 
-// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。書くとキャッシュの直列化した形から読み戻せず、
-// 画面に戻るたびに描き直す。
-TEST_F(PeleSvgTest, SkipsUnstorableTextAndParsesBack)
+// 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。
+TEST_F(PeleSvgTest, SkipsUnstorableText)
 {
     const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:0">a</text><text x="0" y="40">b</text>)svg"
                                  R"svg(<g transform="scale(1e39)"><text x="0" y="20">c</text></g>)svg");
     ASSERT_TRUE(drawing);
     ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
-    EXPECT_EQ(drawing->layers[0].texts[0].text, L"b");
-    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
+    EXPECT_EQ(drawing->Chars(drawing->layers[0].texts[0].text), L"b");
 }
 
-// 大きすぎる文字はキャッシュの直列化した形が読める上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
+// 大きすぎる文字は描ける上限に丸める。丸めるのは計算値なので、子の em も丸めた値から求める。
 // float に収まらない百分率は読めない値として親の大きさを継ぐ。
-TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
+TEST_F(PeleSvgTest, ClampsFontSize)
 {
     const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:2000px">a</text>)svg"
                                  R"svg(<g style="font-size:1e30%"><text x="0" y="40" style="font-size:0.5em">b</text></g>)svg"
@@ -619,12 +633,10 @@ TEST_F(PeleSvgTest, ClampsFontSizeAndParsesBack)
     EXPECT_FLOAT_EQ(texts[0].at.font_size, mermaid_util::kMaxFontSize);
     EXPECT_FLOAT_EQ(texts[1].at.font_size, mermaid_util::kMaxFontSize * 0.5f);
     EXPECT_FLOAT_EQ(texts[2].at.font_size, 16.0f);
-    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
-// 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない。描くとキャッシュの直列化した形から
-// 読み戻せず、画面に戻るたびに JS で描き直す。
-TEST_F(PeleSvgTest, RejectsSizeThatDoesNotParseBack)
+// 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない。
+TEST_F(PeleSvgTest, RejectsUndrawableSize)
 {
     for (const std::string_view size : { R"svg(width="1e38" height="10")svg", R"svg(width="20" height="1e38")svg", R"svg(width="0.01" height="10")svg" }) {
         SCOPED_TRACE(size);
@@ -632,22 +644,17 @@ TEST_F(PeleSvgTest, RejectsSizeThatDoesNotParseBack)
     }
     const auto drawing = ResolveRaw(R"svg(<svg xmlns="http://www.w3.org/2000/svg" width="0.02" height="1e36"><rect x="0" y="0" width="1" height="1"/></svg>)svg");
     ASSERT_TRUE(drawing);
-    EXPECT_TRUE(mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing)));
 }
 
-// 文字は UTF-8 の不正な並び (符号化したサロゲート) を U+FFFD にして作るので、読み戻しても同じ文字になる (画面外から戻った
-// 図の文字が変わらない)。サロゲートの対で表す文字はそのまま。
-TEST_F(PeleSvgTest, LabelTextParsesBackUnchanged)
+// 文字は UTF-8 の不正な並び (符号化したサロゲート) を U+FFFD にして作る。サロゲートの対で表す文字はそのまま。
+TEST_F(PeleSvgTest, LabelTextReplacesInvalidUtf8)
 {
     const auto drawing = Resolve("<text x=\"0\" y=\"20\">a\xED\xA0\x80" "b\xF0\x9F\x98\x80</text>");
     ASSERT_TRUE(drawing);
     ASSERT_EQ(drawing->layers[0].texts.size(), 1u);
-    const std::wstring& text = drawing->layers[0].texts[0].text;
+    const std::wstring_view text = drawing->Chars(drawing->layers[0].texts[0].text);
     EXPECT_TRUE(text.starts_with(L"a�")) << string_convert::WideToUtf8(text);
     EXPECT_TRUE(text.ends_with(L"b\U0001F600")) << string_convert::WideToUtf8(text);
-    const auto back = mermaid_util::ParseDrawing(mermaid_util::SerializeDrawing(*drawing));
-    ASSERT_TRUE(back);
-    EXPECT_EQ(*back, *drawing);
 }
 
 // 読めない長さは前の値を残す (float に収まらない値で inf を書き出さない)。
@@ -1086,7 +1093,7 @@ TEST_F(PeleSvgTest, ResolvesTextPaintAndVisibility)
     ASSERT_EQ(shown->layers[0].texts.size(), 1u);
     EXPECT_EQ(shown->layers[0].texts[0].at.rgb, 0xFF0000u);
     EXPECT_EQ(shown->layers[0].texts[0].at.alpha, 0.25f);
-    EXPECT_EQ(shown->layers[0].texts[0].family, L"Arial, 'Yu Gothic'");
+    EXPECT_EQ(shown->Chars(shown->layers[0].texts[0].family), L"Arial, 'Yu Gothic'");
     for (const std::string_view style : { "visibility:hidden", "display:none", "fill:none", "opacity:0" }) {
         SCOPED_TRACE(style);
         const auto hidden = Resolve(std::format(R"svg(<text x="0" y="20" style="{}">AB</text>)svg", style));
@@ -1156,7 +1163,7 @@ TEST_F(PeleSvgTest, DecodesEntityReferences)
             // コメントや CDATA で分かれた文字は別の並びになるので、つないで比べる。
             std::wstring joined;
             for (const auto& text : drawing->layers[0].texts) {
-                joined += text.text;
+                joined += drawing->Chars(text.text);
             }
             EXPECT_EQ(joined, *c.decoded);
         }
@@ -1615,7 +1622,7 @@ TEST_F(PeleSvgTest, PlacesTspansByOwnPositions)
         ASSERT_EQ(texts.size(), k.placed.size());
         for (size_t i = 0; i < texts.size(); ++i) {
             SCOPED_TRACE(i);
-            EXPECT_EQ(texts[i].text, k.placed[i].text);
+            EXPECT_EQ(drawing->Chars(texts[i].text), k.placed[i].text);
             EXPECT_NEAR(texts[i].at.x, k.placed[i].x, 0.01f);
             EXPECT_EQ(texts[i].at.y, k.placed[i].y);
         }
