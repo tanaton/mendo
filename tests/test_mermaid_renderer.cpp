@@ -157,6 +157,15 @@ protected:
         StoreBytesAs(key, mermaid_util::SerializeDrawing(*drawn.drawing), drawn.width, drawn.height);
     }
 
+    // 記録できない (SVG として読めない) 描画命令を、key の結果として置く。any_width なら幅の上限より広い。
+    void StoreUnrecordableAs(uint64_t key, bool any_width)
+    {
+        mermaid_util::DiagramDrawing drawing{ .width = any_width ? kMaxWidth * 2 : 10.0f, .height = 10.0f };
+        drawing.layers.emplace_back().shapes = "<rect";
+        renderer_.ResultCache().Put(key, { .result = { .width = drawing.width, .height = drawing.height, .any_width = any_width },
+                                           .bytes = std::make_shared<const std::string>(mermaid_util::SerializeDrawing(drawing)) });
+    }
+
     // key の項目。無ければ null。
     const DiagramCache::Item* CachedItem(uint64_t key)
     {
@@ -471,6 +480,39 @@ TEST_F(MermaidRendererTest, RerendersWhenCachedDrawingIsBroken)
     const auto hit = renderer_.ResultCache().Find(beta.WidthFreeHash(), key, kMaxWidth);
     ASSERT_NE(hit.item, nullptr);
     EXPECT_TRUE(mermaid_util::ParseDrawing(*hit.item->bytes).has_value());
+}
+
+// 覚えた描画命令を記録できなければ、その項目を捨てて描き直す。どの幅でも使える印も、描き直した結果に持ち越さない。
+TEST_F(MermaidRendererTest, RerendersWhenCachedDrawingCannotBeRecorded)
+{
+    const DiagramDoc beta(kBeta);
+    StoreUnrecordableAs(beta.WidthFreeHash(), /*any_width=*/true);
+
+    DiagramEntry entry;
+    ASSERT_TRUE(RenderUntilSettled(beta, entry));
+    EXPECT_TRUE(entry.HasImage());
+    EXPECT_TRUE(SvgOf(entry).contains("Beta"));
+    EXPECT_FALSE(entry.any_width);
+}
+
+// 覚えた描画命令を記録できず、描き直してもエラーなら、エラーで確定する。幅なしのキーに項目が残ると、エラー (幅つきのキー) より
+// 先に当たり、組み直しと描き直しの要求が止まらない。
+TEST_F(MermaidRendererTest, UnrecordableCachedDrawingSettlesWhenRerenderFails)
+{
+    for (const bool any_width : { false, true }) {
+        SCOPED_TRACE(any_width);
+        const DiagramDoc broken(kBroken);
+        renderer_.ResultCache().Erase(broken.RequestHash());
+        StoreUnrecordableAs(broken.WidthFreeHash(), any_width);
+
+        DiagramEntry entry;
+        ASSERT_TRUE(PollUntil([&] {
+            renderer_.ProcessJobResults(kNoDeadline);
+            return Request(broken, entry);
+        }, std::chrono::seconds(5))) << "要求が止まらない";
+        EXPECT_EQ(entry.error.kind, DiagramError::Kind::Render);
+        EXPECT_EQ(CachedItem(broken.WidthFreeHash()), nullptr);
+    }
 }
 
 // 取り消すと、投入済みの表示用の図は描かずに返り、待ちの表示用の図は捨てる。どちらも要求中の印を外して頼み直させる。

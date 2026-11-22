@@ -436,10 +436,13 @@ bool MermaidRenderer::ApplyDisplayResult(Job& r)
                 DisposeOnWorker(*bg_scheduler_, std::move(d.texts));
             }
             if (!result.commands) {
-                // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は描き直す。
+                // 描いたばかりの図は描き直しても記録できないので確定させる。読んだ図は項目を捨てて描き直す。残すと、幅なしの
+                // キーの項目がエラー (幅つきのキー) より先に当たり、要求が止まらない。
                 if (rendered) {
                     return SettleDisplayError(display, { DiagramError::Kind::Render });
                 }
+                cache_.Erase(display.CacheKey());
+                display.any_width = false;
                 StartRender(std::move(r.req));
                 return false;
             }
