@@ -3400,6 +3400,7 @@ pele の見た目は mermaid.js と違う（文字を 16px に保って折り返
 |:----------|:-----|
 | `/MP` | マルチプロセッサコンパイル |
 | `/GL` | Whole Program Optimization (Release。quickjs は LTCG の下だと解釈実行が遅くなるので除く) |
+| `/O2` | quickjs は Debug でも最適化して組む（`/Od` では JS の呼び出しごとの C スタックが大きく、描ける数式の入れ子が Release よりずっと浅くなる）。両立しない `/RTC` は quickjs だけ外す |
 | `/Gy` | Function-Level Linking (Release) |
 | `/Gw` | グローバルデータの COMDAT 化。`/OPT:REF` で未使用分を除去させる (Release) |
 | `/LTCG` | Link-Time Code Generation (Release) |
