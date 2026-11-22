@@ -43,7 +43,6 @@ constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int
 std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, const std::stop_token& /*stop_token*/)
 {
     MENDO_PROFILE("LoadFile");
-    // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
     auto opened = OpenFileForReadShared(path.c_str(), MAX_FILE_SIZE);
     if (!opened) {
         return std::unexpected(opened.error());
@@ -107,7 +106,7 @@ void AsyncLoadCoordinator::Start(std::wstring path, Theme theme, float content_w
     in_flight_ = true;
     late_content_width_.store(0.0f, std::memory_order_relaxed);
 
-    // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
+    // 画像のデコードや図の描画・文字の組みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
     scheduler_.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
             RunWorker(path, theme, content_width, stop_token, std::move(reload_base));

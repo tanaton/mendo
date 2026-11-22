@@ -839,7 +839,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenResourcesKeepsTableRowsInRange)
 
 // ---- Mermaid 経路 ----
 
-// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら読み直させる。仮表示中の図も、見えない
+// 図のコマンドリストと描画命令は保持範囲の図の分だけ残す。寸法は残し、戻ってきたら記録し直させる。仮表示中の図も、見えない
 // 所では代わりの絵が要らないので捨てる。覚えている結果から外させるのは、続く要求の回の終わり。
 TEST_F(ResourceManagerTest, EvictOffscreenResourcesReleasesFarDiagramDrawings)
 {

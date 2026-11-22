@@ -50,7 +50,7 @@ public:
     virtual void ShowLoading() = 0;
     // 同じ種類の中身が出ていれば、位置とボタンで変えた倍率を保つ (保存・テーマの切り替え・画像の更新)。全体表示のままなら
     // 新しい大きさに合わせ直す。
-    // commands は本文が同じデバイスで記録した drawing のコマンドリストで、あれば記録し直さずに使う (文字の組みが重い)。
+    // commands は本文が同じデバイスで記録した drawing のコマンドリストで、記録し直さずに使う (文字の組みが重い)。
     virtual void SetDrawing(std::shared_ptr<const mermaid_util::DiagramDrawing> drawing, Microsoft::WRL::ComPtr<ID2D1CommandList> commands) = 0;
     // bitmap は本体の描画デバイスで作ったもの。pixel_width / pixel_height は元の画像の画素数で、大きな画像は bitmap を縮めてある。
     // 100% は本文と同じく、画像の 1 px を物理 1 px で描く。

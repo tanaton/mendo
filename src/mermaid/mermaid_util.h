@@ -41,7 +41,7 @@ bool IsFlowchartCode(std::string_view code) noexcept;
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で切り詰めて末尾を U+2026 にする。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
-// 図の文字と数式のラベルの大きさ (CSS px) の上限 (IsDrawable)。文字の大きさは CSS の計算値をここへ丸める。
+// 図の文字と数式のラベルの大きさ (CSS px) の上限。文字の大きさは CSS の計算値をここへ丸める。
 // 数式のラベルは、pele が style や fontSize の指定によらず決まった大きさで組ませるので外れない。
 inline constexpr float kMaxFontSize = 1000.0f;
 
@@ -58,22 +58,19 @@ struct DrawingPlacement {
 
     bool operator==(const DrawingPlacement&) const = default;
 };
-// 描ける置き方か。変換と位置が有限で、大きさが 0 より大きく kMaxFontSize 以下、色が 24 ビット、不透明度が 0〜1。
-// 図を作る側は満たさない文字と数式を描かない。
-bool IsDrawable(const DrawingPlacement& p) noexcept;
-// 描ける図の大きさ (DiagramDrawing の width・height) か。0 より大きく有限。
-bool IsDrawableSize(float width, float height) noexcept;
 // 図の文字の線 (CSS の text-decoration) のビット。overline は DirectWrite に無いので描かない。
 inline constexpr uint8_t kTextUnderline = 1;
 inline constexpr uint8_t kTextLineThrough = 2;
 inline constexpr uint8_t kTextDecorationBits = kTextUnderline | kTextLineThrough;
-// 図の文字の太さ (CSS の font-weight の数) の値域。CSS と同じ 1〜1000 で、この外の指定は読まない。
-inline constexpr uint16_t kMinFontWeight = 1;
-inline constexpr uint16_t kMaxFontWeight = 1000;
 // DiagramDrawing::chars の中の範囲。
 struct DrawingChars {
     uint32_t begin = 0;
     uint32_t length = 0;
+
+    std::wstring_view In(std::wstring_view chars) const noexcept
+    {
+        return { chars.data() + begin, length };
+    }
 };
 // 図の文字の並び 1 本。DirectWrite で 1 行の TextLayout にして置く。
 struct DrawingText {
@@ -111,10 +108,12 @@ struct DiagramDrawing {
 
     std::wstring_view Chars(DrawingChars range) const noexcept
     {
-        return { chars.data() + range.begin, range.length };
+        return range.In(chars);
     }
 };
 DrawingChars AppendChars(std::wstring& chars, std::wstring_view s);
+// 作り終えた描画命令の、書き足しで伸ばした余りを捨てる。
+void ShrinkToFit(DiagramDrawing& drawing);
 // 描画命令が使うバイト数の見込み (ラベルの数式の描画命令は別)。図の結果のキャッシュの上限に数える。
 size_t DrawingBytes(const DiagramDrawing& drawing) noexcept;
 // 描画命令の中身のハッシュ (別の幅で描いた図が同じかを比べる)。

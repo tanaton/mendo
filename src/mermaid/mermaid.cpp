@@ -7,6 +7,7 @@
 #include "win32_util.h"
 #include <wrl/client.h>
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -55,10 +56,8 @@ const DiagramResult* DiagramCache::Peek(uint64_t key) const
 
 void DiagramCache::Put(uint64_t key, DiagramResult result)
 {
+    assert(result.drawing || !result.error.empty());
     const auto& drawing = result.drawing;
-    if (!drawing && result.error.empty()) {
-        return;
-    }
     size_t cost = ITEM_BYTES + result.error.message.size() * sizeof(wchar_t);
     bool oversized = false;
     if (drawing) {
@@ -86,16 +85,19 @@ void DiagramCache::ReleaseIdleDrawings()
 {
     for (auto it = slots_.begin(); it != slots_.end();) {
         Slot& slot = it->second;
-        // コマンドリストの無い項目 (手放した図とエラー) は、持ち主の数を読まずに飛ばす。
-        // 持ち主を増やすのは UI スレッドだけなので、1 と読めたら持ち主はこの表だけ (worker が手放す途中なら多めに読み、次の回に外す)。
-        if ((!slot.result.commands && !slot.oversized) || slot.result.drawing.use_count() > 1) {
+        // 手放すもの (コマンドリストか、上限より大きい図) の残る項目だけを見る。手放し終えた項目の last_used は進め直さない。
+        if ((!slot.result.commands && !slot.oversized) || slot.HeldOutside()) {
             ++it;
-            continue;
         }
-        slot.result.commands = nullptr;
-        // 手放した時を使った時とし、画面を離れたばかりの図を後まで残す。
-        slot.last_used = ++lru_seq_;
-        it = slot.oversized ? Erase(it) : std::next(it);
+        else if (slot.oversized) {
+            it = Erase(it);
+        }
+        else {
+            slot.result.commands = nullptr;
+            // 手放した時を使った時とし、画面を離れたばかりの図を後まで残す。
+            slot.last_used = ++lru_seq_;
+            ++it;
+        }
     }
     Trim();
 }
@@ -130,7 +132,7 @@ void DiagramCache::Trim()
     // 件数の 2 乗かかる)。
     std::vector<std::pair<uint64_t, Slots::iterator>> candidates;
     for (auto it = slots_.begin(); it != slots_.end(); ++it) {
-        if (it->second.result.drawing.use_count() <= 1) {
+        if (!it->second.HeldOutside()) {
             candidates.emplace_back(it->second.last_used, it);
         }
     }
@@ -276,8 +278,6 @@ const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float
     auto key = DisplayTarget::Of(mermaid_util::DiagramCodeHash(code), max_width, dark_mode);
     // 幅を混ぜないキーの結果 (いまの幅の上限より狭いか、どの幅でも使えるときだけ) を先に、無ければ幅つきのキーで引く。
     const auto [hit_key, result] = cache_.Find(key.width_free_hash, key.request_hash, max_width);
-    key.width_free = result && hit_key == key.width_free_hash;
-    key.any_width = key.width_free && result->any_width;
     if (result && (result->commands || !result->error.empty())) {
         return result;
     }
@@ -285,6 +285,9 @@ const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float
         PromoteWaiting(key.request_hash);
         return nullptr;
     }
+    // 覚えていた図は記録し直して、当たったキーへ置き直す。
+    key.width_free = result && hit_key == key.width_free_hash;
+    key.any_width = key.width_free && result->any_width;
     // 記録できなかったときは描き直すので、キャッシュに当たってもコードを持たせる。
     RenderRequest req{ .code = std::string{ code }, .max_width = max_width, .dark_mode = dark_mode, .target = key };
     // 画面外へ出たかデバイスが変わってコマンドリストの無い図は、文字を組んで記録し直す。
@@ -300,11 +303,14 @@ const DiagramResult* MermaidRenderer::FindOrRequest(std::string_view code, float
 template <typename Work>
 void MermaidRenderer::PostJob(RenderRequest req, JobWork kind, Work work)
 {
-    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind, .drop_gen = drop_gen_.load(std::memory_order_relaxed) }, work = std::move(work),
+    // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (stale は空のまま。DropQueued でも待ちに残す)。
+    PeleEngine::StaleWhen stale;
+    if (std::holds_alternative<DisplayTarget>(req.target)) {
+        stale = { &drop_gen_, drop_gen_.load(std::memory_order_relaxed) };
+    }
+    bg_scheduler_->Post([this, job = Job{ .req = std::move(req), .work = kind, .stale = stale }, work = std::move(work),
                          guard = latch_.Acquire()]() mutable {
-        // インライン数式は取り消すと頼み直す契機が無いので、移動しても描く (DropQueued でも待ちに残す)。
-        const bool dropped = std::holds_alternative<DisplayTarget>(job.req.target) && job.drop_gen != drop_gen_.load(std::memory_order_relaxed);
-        job.outcome = dropped ? JobOutcome{ JobDropped{} } : work(job);
+        job.outcome = job.stale.Changed() ? JobOutcome{ JobDropped{} } : work(job);
         if (job_results_.Push(std::move(job)) && hooks_.wake) {
             hooks_.wake();
         }
@@ -513,7 +519,7 @@ MermaidRenderer::JobOutcome MermaidRenderer::RenderJob(Job& job)
         }) | std::ranges::to<std::vector>();
         return JobMaths{ pele_->RenderMaths(sources) };
     }
-    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, { &drop_gen_, job.drop_gen });
+    auto out = pele_->Render(job.req.code, job.req.dark_mode, job.req.max_width, job.stale);
     switch (out.status) {
     case Status::Cancelled:
         return JobDropped{};
@@ -537,9 +543,4 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBa
     StartRender(RenderRequest{
         .target = MathRequest{ .items = std::move(items), .callback = std::move(callback) },
     });
-}
-
-const DiagramResult* MermaidRenderer::RequestViewerDrawing(std::string_view code, float max_width, bool dark_mode)
-{
-    return FindOrRequest(code, max_width, dark_mode);
 }

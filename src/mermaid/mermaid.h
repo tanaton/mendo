@@ -73,7 +73,7 @@ public:
     const DiagramResult* Peek(uint64_t width_free_key, uint64_t sized_key, float max_width) const;
     // key の項目を、捨てる順を変えずに見る (テスト用)。
     const DiagramResult* Peek(uint64_t key) const;
-    // 同じキーは置き換える (描画命令もエラーも無ければ残す)。上限より大きい図は表示している間だけ持つ。上限を超えても置くときには
+    // 描画命令かエラーのある結果を置く。同じキーは置き換える。上限より大きい図は表示している間だけ持つ。上限を超えても置くときには
     // 捨てず、次の ReleaseIdleDrawings で捨てる。表示中の図だけで上限を超えていると、置いたばかりのエラーを図が受け取る前に
     // 捨て、同じ図を JS で描き直し続けてしまう。
     void Put(uint64_t key, DiagramResult result);
@@ -104,6 +104,13 @@ private:
         uint64_t last_used = 0;
         // 上限より大きいので、表示している間だけ持つ。
         bool oversized = false;
+
+        // 描画命令の持ち主が表の外にいる (表示中か worker が組んでいる)。持ち主を増やすのは UI スレッドだけなので、false と
+        // 読めたら持ち主はこの表だけ (worker が手放す途中なら true と読み、次の回に外す)。
+        bool HeldOutside() const noexcept
+        {
+            return result.drawing.use_count() > 1;
+        }
     };
     using Slots = std::unordered_map<uint64_t, Slot>;
     // 次の項目を返す。
@@ -181,10 +188,10 @@ public:
     // PeleEngine の使っていないランタイムを捨てる。Hooks::set_trim_timer の時間が来たときと、別のアプリへ切り替わったときに呼ぶ。
     void TrimIdleRuntimes();
 
-    // 拡大表示 (ZoomViewer) の図。本文と同じ結果 (cache_) を使い、本文が描いた図はその描画命令をそのまま出し、無ければ
-    // 表示用の要求として描かせる (同じ図を本文用と 2 回描かない。本文と同じ折り返しになる)。結果 (描画命令かエラー) が出ていれば
-    // 返し、まだなら null (結果が出たら on_update で知らせる)。戻り値は次にキャッシュを変えるまで使える。
-    const DiagramResult* RequestViewerDrawing(std::string_view code, float max_width, bool dark_mode);
+    // 結果 (記録した図かエラー) が出ていれば返す。まだなら文字の組みか描画を始めて null (始めていれば何もしない。結果が出たら
+    // on_update で知らせる)。拡大表示 (ZoomViewer) も本文と同じ結果 (cache_) をここで引く (同じ図を本文用と 2 回描かない。本文と
+    // 同じ折り返しになる)。戻り値は次にキャッシュを変えるまで使える。
+    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
 
 private:
     struct MathRequest {
@@ -253,8 +260,8 @@ private:
         // 既定値を置かない (Render だと指定し忘れた仕事も描画の枠を返す)。
         JobWork work;
         JobOutcome outcome;
-        // 投入したときの drop_gen_。表示用の仕事は、これと違えば描かずに返し、描いている途中でも止める。
-        uint32_t drop_gen = 0;
+        // 表示用の仕事だけに入れる、投入したときの drop_gen_。変わっていれば描かずに返し、描いている途中でも止める。
+        PeleEngine::StaleWhen stale;
     };
 
     // 待ちが空になって 1 個まで減らしたランタイムの最後の 1 個を、この時間使わなければ捨てる (読み進める間の切れ目では
@@ -284,9 +291,6 @@ private:
     bool ApplyDisplayResult(Job& r);
     bool SettleDisplayError(const DisplayTarget& display, const DiagramError& error);
 
-    // 結果 (記録した図かエラー) が出ていれば返す。まだなら文字の組みか描画を始めて null (始めていれば何もしない)。
-    const DiagramResult* FindOrRequest(std::string_view code, float max_width, bool dark_mode);
-
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<ID2D1Factory> d2d_factory_;
@@ -297,8 +301,8 @@ private:
     std::unordered_set<uint64_t> inflight_;
     // 幅の上限より広いフローチャートのコードとテーマ (幅なしのキー) ごとに、最後に描いた要求のキー (幅を含む) と描画命令の
     // ハッシュ。別の幅で描き直してハッシュが同じなら、幅で出力が変わらない図なので、どの幅でも使える結果として幅なしのキーに
-    // 置く (追加の JS は要らない)。前の幅の結果がキャッシュから捨てられても (上限より大きい図は手放すと捨てる) 比べられる
-    // よう、ハッシュで覚える。描くたびに引くので開番地法の表で持ち、キャッシュの上限には数えない (どちらも速さをユーザーが選んだ)。
+    // 置く (追加の JS は要らない)。前の幅の結果は捨てられていることがある (上限を超えたか、上限より大きい図を手放した) ので、
+    // ハッシュで覚えて比べる。描くたびに引くので開番地法の表で持ち、キャッシュの上限には数えない (どちらも速さをユーザーが選んだ)。
     struct LastDrawn {
         uint64_t request_hash = 0;
         uint64_t drawing_hash = 0;

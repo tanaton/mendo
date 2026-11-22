@@ -59,17 +59,16 @@ inline constexpr size_t kInlineMathPerChunk = 64;
 // 文書の最初の組だけ小さくし、開いた直後の画面の数式を早く出す (組は描き終わるまで返らない)。
 inline constexpr size_t kInlineMathFirstChunk = 16;
 
-struct InlineMathChunk {
-    std::vector<InlineMathItem> items;
-};
+// 1 回にまとめて描く数式の組。
+using InlineMathChunk = std::vector<InlineMathItem>;
 
 // 文書の数式を組に分ける。計測が数式を頼んだら、その組のうちまだ描画に出していない分をまとめて 1 つの仕事で描く
-// (InlineMathTable::TakeUnsent)。近くの数式を先に描くので、スクロールで見えたときの組み直しが減る。
+// (InlineMathTable::TakeUnsentChunks)。近くの数式を先に描くので、スクロールで見えたときの組み直しが減る。
 // 文書の順に重複を除いて並べ、最初は kInlineMathFirstChunk 個、後は kInlineMathPerChunk 個ずつ順に区切る。
 class InlineMathPlan {
 public:
     // math_nodes はインライン数式を持つノードの番号 (文書の順。Document::GetMathNodeIndices)。
-    void Build(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme);
+    InlineMathPlan(std::span<const Node> nodes, std::span<const size_t> math_nodes, const Theme& theme);
     std::span<const InlineMathChunk> Chunks() const noexcept
     {
         return chunks_;
@@ -96,6 +95,8 @@ public:
     // items のうちまだ描画に出していないものを、出したことにして返す。計測でまだ見つかっていない数式も表に入れ、
     // 計測から二重に頼ませない。描き終えた数式と結果を待つ数式は返さないので、読み直した文書の組でも変わった数式だけを描く。
     std::vector<InlineMathItem> TakeUnsent(std::span<const InlineMathItem> items);
+    // keys (TakeRequests) の数式を含む組ごとに TakeUnsent した分。空になった組は入れない。plan に無い数式は待ちから外す。
+    std::vector<InlineMathChunk> TakeUnsentChunks(const InlineMathPlan& plan, std::span<const uint64_t> keys);
 
     // 戻り値: key が表にある。Clear の前に頼んだ結果が後から届いたら false。
     bool Resolve(uint64_t key, InlineMathMetrics metrics);

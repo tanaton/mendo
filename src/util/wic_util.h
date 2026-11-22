@@ -85,16 +85,21 @@ inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
     return nullptr;
 }
 
-// bytes をコピーせずに参照して container 形式の画像の最初のフレームを開く。ピクセルはまだデコードしない。
-inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container)
+// 文書から指定された画像ファイルの最初のフレームを、bytes をコピーせずに参照して開く。SniffImageContainer で選んだ形式の
+// デコーダだけを使う。ピクセルはまだデコードしない。
+inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
+    const GUID* container = SniffImageContainer(bytes);
+    if (!container) {
+        return nullptr;
+    }
     const auto stream = CreateStreamOnMemory(wic, bytes);
     if (!stream) {
         return nullptr;
     }
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    HRESULT hr = wic->CreateDecoder(container, nullptr, &decoder);
+    HRESULT hr = wic->CreateDecoder(*container, nullptr, &decoder);
     if (SUCCEEDED(hr)) {
         hr = decoder->Initialize(stream.Get(), WICDecodeMetadataCacheOnDemand);
     }
@@ -105,14 +110,9 @@ inline Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> DecodeFirstFrame(IWICImagin
 }
 
 // 文書から指定された画像ファイルを、bytes をコピーせずに参照してデコードし、32bpp PBGRA の FormatConverter とピクセルサイズを返す。
-// SniffImageContainer で選んだ形式のデコーダだけを使う。
 inline std::optional<DecodeResult> DecodeImageFileFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
-    const GUID* container = SniffImageContainer(bytes);
-    if (!container) {
-        return std::nullopt;
-    }
-    const auto frame = DecodeFirstFrame(wic, bytes, *container);
+    const auto frame = DecodeFirstFrame(wic, bytes);
     if (!frame) {
         return std::nullopt;
     }
@@ -142,11 +142,7 @@ struct PixelSize {
 
 inline std::optional<PixelSize> ReadImageFileSizeFromMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
 {
-    const GUID* container = SniffImageContainer(bytes);
-    if (!container) {
-        return std::nullopt;
-    }
-    const auto frame = DecodeFirstFrame(wic, bytes, *container);
+    const auto frame = DecodeFirstFrame(wic, bytes);
     PixelSize size;
     if (!frame || FAILED(frame->GetSize(&size.width, &size.height))) {
         return std::nullopt;

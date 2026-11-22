@@ -31,9 +31,17 @@ protected:
         ASSERT_NE(wic_, nullptr);
     }
 
-    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing, float dpr = 1.0f)
+    // max_width があれば、その幅まで縮める (保存・コピーの画像と同じ)。
+    ComPtr<IWICBitmap> Rasterize(const mermaid_util::DiagramDrawing& drawing, float dpr = 1.0f, float max_width = 0.0f)
     {
-        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, { drawing.width, drawing.height }, dpr, L"ja-jp");
+        return RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, mermaid_util::FittedDiagramSize(drawing, max_width), dpr, L"ja-jp");
+    }
+
+    static wic_util::PixelSize PixelSizeOf(IWICBitmap* bitmap)
+    {
+        wic_util::PixelSize size;
+        EXPECT_HRESULT_SUCCEEDED(bitmap->GetSize(&size.width, &size.height));
+        return size;
     }
 
     // 32bpp PBGRA の 1 画素を 0xAARRGGBB で返す。
@@ -100,13 +108,9 @@ TEST_F(DiagramRasterTest, DrawsWholeDrawingShrunkToGivenSize)
         .background = 0x1E1E1E,
         .layers = { { .shapes = R"svg(<rect x="20" y="0" width="20" height="20" fill="#ff0000"/>)svg" } },
     };
-    const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, mermaid_util::FittedDiagramSize(drawing, 10.0f), 2.0f, L"ja-jp");
+    const auto bitmap = Rasterize(drawing, 2.0f, 10.0f);
     ASSERT_NE(bitmap, nullptr);
-    UINT w = 0;
-    UINT h = 0;
-    ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&w, &h));
-    EXPECT_EQ(w, 20u);
-    EXPECT_EQ(h, 10u);
+    EXPECT_EQ(PixelSizeOf(bitmap.Get()), (wic_util::PixelSize{ 20, 10 }));
     // 図の右半分 (x=20〜40) は物理 px の 10〜20。下端まで背景か図形で埋まる。
     EXPECT_EQ(Pixel(bitmap.Get(), 8, 9), 0xFF1E1E1Eu);
     EXPECT_EQ(Pixel(bitmap.Get(), 11, 0), 0xFFFF0000u);
@@ -122,12 +126,9 @@ TEST_F(DiagramRasterTest, FillsFractionalEdgePixelsOpaque)
             // 縮めない大きさと、幅 23 に縮めた大きさ。
             for (const float max_width : { 31.0f, 23.0f }) {
                 SCOPED_TRACE(std::format("background={:06x} dpr={} max_width={}", background, dpr, max_width));
-                const auto size = mermaid_util::FittedDiagramSize(drawing, max_width);
-                const auto bitmap = RasterizeDiagram(d2d_.Get(), dw_.Get(), wic_.Get(), drawing, size, dpr, L"ja-jp");
+                const auto bitmap = Rasterize(drawing, dpr, max_width);
                 ASSERT_NE(bitmap, nullptr);
-                UINT w = 0;
-                UINT h = 0;
-                ASSERT_HRESULT_SUCCEEDED(bitmap->GetSize(&w, &h));
+                const auto [w, h] = PixelSizeOf(bitmap.Get());
                 EXPECT_EQ(InkPixels(bitmap.Get(), 0, 0, w, h, 0xFF000000u | background), 0);
             }
         }
@@ -611,7 +612,7 @@ TEST_F(PeleSvgTest, ResolvesMinInLengths)
 }
 
 // 大きさ 0 の文字や、変換が float に収まらない文字は描けないので書かない。
-TEST_F(PeleSvgTest, SkipsUnstorableText)
+TEST_F(PeleSvgTest, SkipsUndrawableText)
 {
     const auto drawing = Resolve(R"svg(<text x="0" y="20" style="font-size:0">a</text><text x="0" y="40">b</text>)svg"
                                  R"svg(<g transform="scale(1e39)"><text x="0" y="20">c</text></g>)svg");

@@ -1100,7 +1100,7 @@ void ZoomViewer::RequestDiagram(MermaidRenderer& mermaid, float max_width, bool 
     if (!diagram || !diagram->pending) {
         return;
     }
-    const DiagramResult* result = mermaid.RequestViewerDrawing(diagram->code, max_width, dark_mode);
+    const DiagramResult* result = mermaid.FindOrRequest(diagram->code, max_width, dark_mode);
     if (!result) {
         return;
     }
@@ -1121,7 +1121,7 @@ void ZoomViewer::StartDecode()
     const uint32_t generation = ++generation_;
     // 縮める辺の上限は頼むときの描画先で決める (デバイスが変われば読み直す)。
     const UINT max_dim = MaxBitmapDim(rt_);
-    // クリックで頼んだものなので、本文の画像のデコードや図の読み込みが溜まっていても先に読む。
+    // クリックで頼んだものなので、本文の画像のデコードや図の描画・文字の組みが溜まっていても先に読む。
     scheduler_->PostFront([this, path = image.path, generation, max_dim, guard = latch_.Acquire()] {
         // 閉じたか別のものを開いたなら読まない。
         if (generation_.load() != generation) {

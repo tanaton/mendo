@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory_resource>
 #include <thread>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -459,26 +460,10 @@ void App::OnInlineMathRequested()
     }
     if (!inline_math_plan_) {
         const Document& doc = state_.document.doc;
-        inline_math_plan_.emplace().Build(doc.GetNodes(), doc.GetMathNodeIndices(), theme_service_.GetTheme());
+        inline_math_plan_.emplace(doc.GetNodes(), doc.GetMathNodeIndices(), theme_service_.GetTheme());
     }
-    const auto chunks = inline_math_plan_->Chunks();
-    // 表は 1 回に何千個も頼むので、頼まれた数式ごとに組をたどらず、同じ組は 1 回だけたどる。
-    std::vector<bool> visited(chunks.size());
-    for (const uint64_t key : keys) {
-        const auto chunk = inline_math_plan_->ChunkOf(key);
-        // 計画に無いのは、リロードの前に測って今の文書には無くなった数式だけ。描かずに待ちから外す。
-        if (!chunk) {
-            inline_math_.ForgetRequest(key);
-            continue;
-        }
-        if (visited[*chunk]) {
-            continue;
-        }
-        visited[*chunk] = true;
-        // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
-        if (auto items = inline_math_.TakeUnsent(chunks[*chunk].items); !items.empty()) {
-            mermaid_renderer_.RequestMathBatch(std::move(items), [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); });
-        }
+    for (auto& items : inline_math_.TakeUnsentChunks(*inline_math_plan_, keys)) {
+        mermaid_renderer_.RequestMathBatch(std::move(items), [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); });
     }
 }
 
@@ -823,12 +808,11 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
-    inline_math_plan_.reset();
     // 旧文書は下で worker に破棄させるので、組みが持つ参照はその前に外す。
     table_jobs_.SetDocument(state_.document.doc.ShareData());
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
     old_cache.ReleaseDiagrams();
-    DisposeOnWorker(scheduler_, std::pair{ std::move(old), std::move(old_cache) });
+    DisposeOnWorker(scheduler_, std::tuple{ std::move(old), std::move(old_cache), std::exchange(inline_math_plan_, std::nullopt) });
 }
 
 void App::BeginAsyncLoad(std::wstring path, bool show_animation)

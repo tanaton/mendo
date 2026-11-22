@@ -45,17 +45,30 @@ bool mermaid_util::IsFlowchartCode(std::string_view code) noexcept
     return false;
 }
 
-bool mermaid_util::IsDrawable(const DrawingPlacement& p) noexcept
+namespace {
+
+// 描画命令の可変長の置き場をどれも visit に渡す (数える所と詰める所でそろえる)。構造化束縛で受けるので、メンバーを足すと
+// コンパイルが止まる。
+template <class Drawing, class Visit>
+void ForEachBuffer(Drawing& drawing, Visit&& visit)
 {
-    constexpr uint32_t kMaxRgb = 0xFFFFFF;
-    return std::ranges::all_of(p.transform, [](float v) static { return std::isfinite(v); }) && std::isfinite(p.x) && std::isfinite(p.y) &&
-           p.font_size > 0.0f && p.font_size <= kMaxFontSize && p.rgb <= kMaxRgb && p.alpha >= 0.0f && p.alpha <= 1.0f;
+    auto& [width, height, background, defs, layers, chars] = drawing;
+    visit(defs);
+    visit(chars);
+    visit(layers);
+    for (auto& layer : layers) {
+        auto& [shapes, texts, maths] = layer;
+        visit(shapes);
+        visit(texts);
+        visit(maths);
+        for (auto& math : maths) {
+            auto& [at, tex, math_drawing] = math;
+            visit(tex);
+        }
+    }
 }
 
-bool mermaid_util::IsDrawableSize(float width, float height) noexcept
-{
-    return width > 0.0f && height > 0.0f && std::isfinite(width) && std::isfinite(height);
-}
+} // namespace
 
 mermaid_util::DrawingChars mermaid_util::AppendChars(std::wstring& chars, std::wstring_view s)
 {
@@ -64,15 +77,15 @@ mermaid_util::DrawingChars mermaid_util::AppendChars(std::wstring& chars, std::w
     return range;
 }
 
+void mermaid_util::ShrinkToFit(DiagramDrawing& drawing)
+{
+    ForEachBuffer(drawing, [](auto& buffer) static { buffer.shrink_to_fit(); });
+}
+
 size_t mermaid_util::DrawingBytes(const DiagramDrawing& drawing) noexcept
 {
-    size_t bytes = sizeof(drawing) + drawing.defs.size() + drawing.chars.size() * sizeof(wchar_t) + drawing.layers.size() * sizeof(DrawingLayer);
-    for (const auto& layer : drawing.layers) {
-        bytes += layer.shapes.size() + layer.texts.size() * sizeof(DrawingText) + layer.maths.size() * sizeof(DrawingMath);
-        for (const auto& math : layer.maths) {
-            bytes += math.tex.size();
-        }
-    }
+    size_t bytes = sizeof(drawing);
+    ForEachBuffer(drawing, [&bytes](const auto& buffer) noexcept { bytes += buffer.size() * sizeof(*buffer.data()); });
     return bytes;
 }
 
@@ -80,21 +93,26 @@ uint64_t mermaid_util::DrawingHash(const DiagramDrawing& drawing) noexcept
 {
     // 詰め物が無いのでバイト列のまま混ぜられる。
     static_assert(sizeof(DrawingPlacement) == 11 * 4);
-    static_assert(sizeof(DrawingText) == sizeof(DrawingPlacement) + 4 + 2 * sizeof(DrawingChars));
+    static_assert(sizeof(DrawingText) == sizeof(DrawingText::at) + sizeof(DrawingText::weight) + sizeof(DrawingText::italic) +
+                                             sizeof(DrawingText::decoration) + sizeof(DrawingText::family) + sizeof(DrawingText::text));
     static_assert(std::is_trivially_copyable_v<DrawingText>);
     uint64_t hash = 0;
     const auto mix = [&hash](const void* data, size_t size) noexcept { hash = rapidhash_withSeed(data, size, hash); };
-    mix(&drawing.width, sizeof(drawing.width));
-    mix(&drawing.height, sizeof(drawing.height));
-    mix(&drawing.background, sizeof(drawing.background));
-    mix(drawing.defs.data(), drawing.defs.size());
-    mix(drawing.chars.data(), drawing.chars.size() * sizeof(wchar_t));
-    for (const auto& layer : drawing.layers) {
-        mix(layer.shapes.data(), layer.shapes.size());
-        mix(layer.texts.data(), layer.texts.size() * sizeof(DrawingText));
-        for (const auto& math : layer.maths) {
-            mix(&math.at, sizeof(math.at));
-            mix(math.tex.data(), math.tex.size());
+    // ForEachBuffer と同じく、メンバーを足すとコンパイルが止まるように受ける。
+    const auto& [width, height, background, defs, layers, chars] = drawing;
+    mix(&width, sizeof(width));
+    mix(&height, sizeof(height));
+    mix(&background, sizeof(background));
+    mix(defs.data(), defs.size());
+    mix(chars.data(), chars.size() * sizeof(wchar_t));
+    for (const auto& layer : layers) {
+        const auto& [shapes, texts, maths] = layer;
+        mix(shapes.data(), shapes.size());
+        mix(texts.data(), texts.size() * sizeof(DrawingText));
+        for (const auto& math : maths) {
+            const auto& [at, tex, math_drawing] = math;
+            mix(&at, sizeof(at));
+            mix(tex.data(), tex.size());
         }
     }
     return hash;

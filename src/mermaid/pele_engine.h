@@ -81,6 +81,11 @@ public:
     {
         return cancel_.load(std::memory_order_relaxed);
     }
+    // 終了で取り消したか、描く図が古くなった。
+    bool Stopped(const StaleWhen& stale) const noexcept
+    {
+        return Cancelled() || stale.Changed();
+    }
     // 使っていないランタイムを keep 個まで捨てる。残すのは読んだモジュールの多いもので、捨てたものは次にバイトコードから
     // 作り直す。捨てる処理は全オブジェクトをたどって重いので、
     // scheduler があればその worker で行う。

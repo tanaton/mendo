@@ -1463,6 +1463,23 @@ uint32_t ToRgb(const Rgba& c) noexcept
     return (ColorByte(c.r) << 16) | (ColorByte(c.g) << 8) | ColorByte(c.b);
 }
 
+// 描ける置き方か。色と不透明度は作るときに範囲へ丸めてあるので見ない。
+bool IsDrawable(const mermaid_util::DrawingPlacement& p) noexcept
+{
+    return std::ranges::all_of(p.transform, [](float v) static { return std::isfinite(v); }) && std::isfinite(p.x) && std::isfinite(p.y) &&
+           p.font_size > 0.0f && p.font_size <= mermaid_util::kMaxFontSize;
+}
+
+// 描ける図の大きさか。
+bool IsDrawableSize(float width, float height) noexcept
+{
+    return width > 0.0f && height > 0.0f && std::isfinite(width) && std::isfinite(height);
+}
+
+// CSS の font-weight の数の値域。この外の指定は読まない。
+constexpr uint16_t kMinFontWeight = 1;
+constexpr uint16_t kMaxFontWeight = 1000;
+
 // 書き出す値 (小数 3 桁)。
 double RoundNum(double v) noexcept
 {
@@ -1975,7 +1992,7 @@ private:
     mermaid_util::DrawingChars FamilyChars(std::wstring_view family)
     {
         for (const auto range : families_) {
-            if (std::wstring_view{ chars_ }.substr(range.begin, range.length) == family) {
+            if (range.In(chars_) == family) {
                 return range;
             }
         }
@@ -2161,7 +2178,7 @@ bool PeleSvgResolver::Apply(Style& s, const Style& parent, Prop prop, std::strin
         else if (const uint16_t relative = RelativeWeight(value, parent.weight)) {
             s.weight = relative;
         }
-        else if (TakeNumber(rest, w) && rest.empty() && w >= mermaid_util::kMinFontWeight && w <= mermaid_util::kMaxFontWeight) {
+        else if (TakeNumber(rest, w) && rest.empty() && w >= kMinFontWeight && w <= kMaxFontWeight) {
             s.weight = static_cast<uint16_t>(w);
         }
         else {
@@ -2679,7 +2696,7 @@ bool PeleSvgResolver::Text(uint32_t index, const Style& s, const Mat& ctm, float
             .alpha = std::clamp(color->a * ps.fill_opacity * piece.opacity, 0.0f, 1.0f),
         };
         // 大きさ 0 の文字や、変換と位置が float に収まらない文字は描けない。
-        if (!mermaid_util::IsDrawable(at)) {
+        if (!IsDrawable(at)) {
             continue;
         }
         const auto [ascent, descent] = measurer_.Extent(ps.Font());
@@ -2729,7 +2746,7 @@ bool PeleSvgResolver::MathLabel(const XmlNode& el, const Style& s, const Mat& ct
         .alpha = std::clamp(s.color.a * opacity, 0.0f, 1.0f),
     };
     // 文字と同じく、描けない置き方の数式は描かない。
-    if (!mermaid_util::IsDrawable(at)) {
+    if (!IsDrawable(at)) {
         return true;
     }
     Bounds box;
@@ -2814,7 +2831,7 @@ std::optional<mermaid_util::DiagramDrawing> PeleSvgResolver::Run(bool dark)
     const float w = std::floor(attr_w.value_or(0.0f) * 64.0f) / 64.0f;
     const float h = std::floor(attr_h.value_or(0.0f) * 64.0f) / 64.0f;
     // 1/64 px に切り捨てて 0 になる大きさと、64 倍で float に収まらない大きさの図は描かない (切り上げても変わらない)。
-    if (!mermaid_util::IsDrawableSize(w, h)) {
+    if (!IsDrawableSize(w, h)) {
         return std::nullopt;
     }
     Mat root_ctm;
@@ -4634,14 +4651,7 @@ std::optional<mermaid_util::DiagramDrawing> DrawingFromPeleSvg(
     auto drawing = PeleSvgResolver(doc, measurer, maths).Run(dark);
     if (drawing) {
         // 画面外の図もこのまま覚えるので、書き足しで伸ばした余りを持たない。
-        drawing->defs.shrink_to_fit();
-        drawing->chars.shrink_to_fit();
-        drawing->layers.shrink_to_fit();
-        for (auto& layer : drawing->layers) {
-            layer.shapes.shrink_to_fit();
-            layer.texts.shrink_to_fit();
-            layer.maths.shrink_to_fit();
-        }
+        mermaid_util::ShrinkToFit(*drawing);
     }
     return drawing;
 }

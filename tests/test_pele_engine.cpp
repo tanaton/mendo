@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <format>
 #include <latch>
+#include <map>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -147,16 +148,12 @@ TEST_F(PeleEngineTest, DrawingPacksTextAndKeepsLabelMath)
     ASSERT_EQ(out.status, Status::Drawn);
     const auto& drawing = out.drawing;
     EXPECT_LT(drawing.chars.capacity() - drawing.chars.size(), 16u) << "書き足しで伸ばした余りを持たない (確保の丸めは残る)";
-    std::vector<std::pair<std::wstring_view, uint32_t>> families;
+    std::map<std::wstring_view, uint32_t> families;
     size_t maths = 0;
     for (const auto& layer : drawing.layers) {
         for (const auto& t : layer.texts) {
-            for (const auto& [name, begin] : families) {
-                if (name == drawing.Chars(t.family)) {
-                    EXPECT_EQ(t.family.begin, begin) << "同じ書体は 1 つ";
-                }
-            }
-            families.emplace_back(drawing.Chars(t.family), t.family.begin);
+            const auto [it, added] = families.try_emplace(drawing.Chars(t.family), t.family.begin);
+            EXPECT_EQ(t.family.begin, it->second) << "同じ書体は 1 つ";
         }
         for (const auto& m : layer.maths) {
             EXPECT_EQ(m.tex, "x^2");

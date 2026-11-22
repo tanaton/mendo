@@ -631,8 +631,7 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
     }
     auto& [doc, l] = *opened;
     const auto nodes = doc.GetNodes();
-    InlineMathPlan plan;
-    plan.Build(nodes, doc.GetMathNodeIndices(), l.theme);
+    const InlineMathPlan plan(nodes, doc.GetMathNodeIndices(), l.theme);
     constexpr float kWidth = 1100.0f;
     constexpr float kRange = 950.0f * 5.0f;
     size_t remeasured = 0;
@@ -641,16 +640,10 @@ void BM_InlineMathArrival(benchmark::State& state, bool affected)
         l.measurer.SetInlineMath(&table);
         LayoutCache cache(nodes.size());
         ComputeLayout(l.engine, nodes, cache, kWidth, 0.0f, kRange);
-        std::deque<std::vector<InlineMathItem>> queue;
+        std::deque<InlineMathChunk> queue;
         const auto ask = [&] {
-            std::vector<bool> visited(plan.Chunks().size());
-            for (const uint64_t key : table.TakeRequests()) {
-                if (const auto c = plan.ChunkOf(key); c && !visited[*c]) {
-                    visited[*c] = true;
-                    if (auto items = table.TakeUnsent(plan.Chunks()[*c].items); !items.empty()) {
-                        queue.push_back(std::move(items));
-                    }
-                }
+            for (auto& items : table.TakeUnsentChunks(plan, table.TakeRequests())) {
+                queue.push_back(std::move(items));
             }
         };
         ask();
@@ -694,17 +687,20 @@ void BM_InlineMathPlanBuild(benchmark::State& state, bool math, size_t bytes)
     }
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const Theme theme = GetLightTheme();
-    InlineMathPlan plan;
+    size_t chunks = 0;
     for (auto _ : state) {
-        plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), theme);
-        benchmark::DoNotOptimize(plan.Chunks().data());
+        // App と同じく毎回空から作る。捨てるのは worker の仕事 (App::ReplaceDocument) なので測らない。
+        std::optional<InlineMathPlan> plan;
+        state.SetIterationTime(SecondsOf([&] { plan.emplace(doc.GetNodes(), doc.GetMathNodeIndices(), theme); }));
+        benchmark::DoNotOptimize(plan->Chunks().data());
+        chunks = plan->Chunks().size();
     }
     state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
-    state.counters["chunks"] = static_cast<double>(plan.Chunks().size());
+    state.counters["chunks"] = static_cast<double>(chunks);
 }
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false, 0)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->Unit(benchmark::kMicrosecond);
-BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false, 0)->UseManualTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_100mb, false, kLargeBytes)->UseManualTime()->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true, 0)->UseManualTime()->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
 void RemeasureAcrossWidths(benchmark::State& state, LayoutEngine& engine, std::span<const Node> nodes)
@@ -1298,17 +1294,16 @@ void BM_MathFrameDraw(benchmark::State& state, bool shapes)
         return;
     }
     const auto engine = assets.NewEngine(l.factory.Get());
-    InlineMathPlan plan;
-    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
+    const InlineMathPlan plan(doc.GetNodes(), doc.GetMathNodeIndices(), l.theme);
     InlineMathTable table;
     InlineDrawings drawings;
     for (const auto& chunk : plan.Chunks()) {
-        const auto sources = chunk.items | std::views::transform([](const InlineMathItem& item) {
+        const auto sources = chunk | std::views::transform([](const InlineMathItem& item) {
             return PeleEngine::MathSource{ item.tex, item.font_size };
         }) | std::ranges::to<std::vector>();
-        table.TakeUnsent(chunk.items);
+        table.TakeUnsent(chunk);
         auto results = engine->RenderMaths(sources);
-        for (auto&& [item, drawing] : std::views::zip(chunk.items, results)) {
+        for (auto&& [item, drawing] : std::views::zip(chunk, results)) {
             if (drawing) {
                 table.Resolve(item.key, { drawing->width, drawing->height + drawing->depth, drawing->height });
                 *drawings.math.TryEmplace(item.key).first = std::move(drawing);
@@ -1635,11 +1630,10 @@ void BM_MathRender(benchmark::State& state, bool resized)
         return;
     }
     const auto doc = Document::FromMarkdown(InlineMathMd(64) + ShapeMathMd(160), L"bench.md");
-    InlineMathPlan plan;
-    plan.Build(doc.GetNodes(), doc.GetMathNodeIndices(), GetLightTheme());
+    const InlineMathPlan plan(doc.GetNodes(), doc.GetMathNodeIndices(), GetLightTheme());
     std::vector<PeleEngine::MathSource> sources;
     for (const auto& chunk : plan.Chunks()) {
-        for (const auto& item : chunk.items) {
+        for (const auto& item : chunk) {
             sources.push_back({ item.tex, 16.0f });
         }
     }

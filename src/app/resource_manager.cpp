@@ -168,17 +168,14 @@ void ResourceManager::EvictOffscreenResources()
     // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストは保持範囲の図の分だけ残す。戻ったら記録し直すが、メモリを返すほうをユーザーが選んだ。図が描画命令も
-    // 手放すと表示中でなくなり、覚えている結果からも、続く要求の回 (FlushPendingResources) の終わりにコマンドリストを外す。
-    const std::span<const size_t> diagrams = state_.document.doc.GetDiagramNodeIndices();
-    const auto kept_diagrams = VisibleSlice(diagrams, keep->range);
-    // 2 つの span の反復子は混ぜられない (Debug の検査で止まる)。
-    const auto before_kept = static_cast<size_t>(kept_diagrams.data() - diagrams.data());
-    for (const auto part : { diagrams.first(before_kept), diagrams.subspan(before_kept + kept_diagrams.size()) }) {
-        for (const size_t i : part) {
-            if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
-                diagram->ReleaseImage();
-            }
+    // 図のコマンドリストは保持範囲の図の分だけ残す。戻ったら記録し直すが、メモリを返すほうをユーザーが選んだ。表示中かは描画命令の
+    // 持ち主の数で決めるので描画命令も離す。覚えている結果のコマンドリストは、続く要求の回 (FlushPendingResources) の終わりに外れる。
+    for (const size_t i : state_.document.doc.GetDiagramNodeIndices()) {
+        if (i >= keep->range.begin && i < keep->range.end) {
+            continue;
+        }
+        if (auto* diagram = state_.document.layout_cache.FindDiagram(i)) {
+            diagram->ReleaseImage();
         }
     }
 

@@ -15,6 +15,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 単一exeで配布するためにCRTを静的リンク
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# cmake_minimum_required が 4.0 未満だった頃に作った build は、キャッシュの既定のフラグに /RTC1 が残り、ターゲットごとに
+# 外せない (/O2 と一緒に使えない)。フラグからは除き、/RTC は MSVC_RUNTIME_CHECKS の既定に付けさせる。
+foreach(lang C CXX)
+    string(REPLACE "/RTC1" "" CMAKE_${lang}_FLAGS_DEBUG "${CMAKE_${lang}_FLAGS_DEBUG}")
+endforeach()
+
 # ---- MSVCビルド最適化 ----
 # /MP: マルチプロセッサコンパイル（各ターゲット内で並列コンパイル）
 add_compile_options(/MP)
@@ -100,10 +106,8 @@ target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
 # Debug でも quickjs は最適化して組む。/Od では JS の呼び出しごとの C スタックが大きく、同じ kJsStackBytes で描ける数式の入れ子が
 # Release よりずっと浅くなる (/RTC1 を外すだけでは足りない)。assert は残る。
 target_compile_options(quickjs PRIVATE $<$<CONFIG:Debug>:/O2> $<$<CONFIG:Debug>:/Ob2>)
-# /RTC は /O2 と一緒に使えない。cmake_minimum_required が 4.0 未満だった頃に作った build はキャッシュの既定にも /RTC1 が
-# 残るので外す (ほかのターゲットには MSVC_RUNTIME_CHECKS の既定が付ける)。
+# /RTC は /O2 と一緒に使えない。
 set_target_properties(quickjs PROPERTIES MSVC_RUNTIME_CHECKS "")
-string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
 
 # pele と KaTeX はビルドの時にバイトコードにして埋め込み、実行時のコンパイルを省く。同じ quickjs で組むので版は必ず合う。
 add_executable(mendo_js_compile src/mermaid/js_compile.cpp)
