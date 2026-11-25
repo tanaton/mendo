@@ -168,7 +168,7 @@ void ResourceManager::EvictOffscreenResources()
     // 表はセルごとに text_layout を持つので、範囲内の表の見えない行のセルも捨てる (範囲外の表は上で全行解放済み)
     state_.document.layout_cache.EvictInvisibleTableRows(VisibleSlice(state_.document.doc.GetTableNodeIndices(), lr), layout_keep->keep);
 
-    // 図のコマンドリストは保持範囲の図の分だけ残す。戻ったら記録し直すが、メモリを返すほうをユーザーが選んだ。表示中かは描画命令の
+    // 図のコマンドリストは保持範囲の図の分だけ残す。戻ったら記録し直すが、メモリを返すほうを選んだ。表示中かは描画命令の
     // 持ち主の数で決めるので描画命令も離す。覚えている結果のコマンドリストは、続く要求の回 (FlushPendingResources) の終わりに外れる。
     for (const size_t i : state_.document.doc.GetDiagramNodeIndices()) {
         if (i >= keep->range.begin && i < keep->range.end) {

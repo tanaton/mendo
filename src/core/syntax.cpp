@@ -834,7 +834,7 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
 };
 // GitHub (MathWorks の文法) に合わせ、添字の A(1) も関数の呼び出しと同じ色にする。コマンド構文 (hold on の on を引用符の無い文字列に
 // する) と %% の見出しの色は、GitHub の規則が込み入っていて誤りやすいので見送った。# のコメントは Octave のもので、GitHub は ```octave
-// も MATLAB の文法で読んで色を付けないが、付けないと # don't の ' から行末までが文字列になるので、ユーザーが足すほうを選んだ。
+// も MATLAB の文法で読んで色を付けないが、付けないと # don't の ' から行末までが文字列になるので、足すほうを選んだ。
 // MATLAB では文字列とコメントの外に # を書けないので害は無い。
 inline constexpr LexerConfig MATLAB_LEXER_CONFIG{
     .matlab_comment = true,
@@ -3104,7 +3104,7 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
         { "vimscript",     SyntaxLanguage::Vim        },
         { "vim9",          SyntaxLanguage::Vim9       },
         { "vim9script",    SyntaxLanguage::Vim9       },
-        // .m は Objective-C などと共有する拡張子なので、m は別名にしない (ユーザーが選んだ)。
+        // .m は Objective-C などと共有する拡張子なので、m は別名にしない。
         { "matlab",        SyntaxLanguage::Matlab     },
         { "octave",        SyntaxLanguage::Matlab     },
     };

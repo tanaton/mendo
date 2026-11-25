@@ -48,7 +48,7 @@ struct SettingsDialog : PopupWindow<SettingsDialog> {
         DipRect version{};
     };
 
-    // 一番下に出す。タイトルバーはタスクバーや Alt+Tab にも出てファイル名の場所を減らすので使わない (ユーザーが選んだ)。
+    // 一番下に出す。タイトルバーはタスクバーや Alt+Tab にも出てファイル名の場所を減らすので使わない。
     // 訳さずに済むよう、名前とリリースのタグの形 (mendo v0.5.1.0) にする。
     static std::wstring_view VersionText() noexcept;
 

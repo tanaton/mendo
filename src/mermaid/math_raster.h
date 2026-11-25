@@ -48,7 +48,7 @@ inline constexpr std::wstring_view kKatexFontFiles[]{
 // 数式の描画命令。座標は CSS px で、原点は箱の左端のベースライン (y は下向き)。
 struct MathDrawing {
     // \color などで指定した色 (0xRRGGBBAA)。指定が無ければ描くときの色 (本文の色) で塗るので、ダークモードやリンクの色で
-    // 描き直さずに済む。指定した色はダークモードでも変えない (GitHub と同じ。#412 でユーザーが決めた)。
+    // 描き直さずに済む。指定した色はダークモードでも変えない (GitHub と同じ。#412 で決めた)。
     using Color = std::optional<uint32_t>;
     struct Glyphs {
         Microsoft::WRL::ComPtr<IDWriteFontFace> face;

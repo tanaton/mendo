@@ -33,7 +33,7 @@ MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& l
 std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResult& hit);
 // hit の文字にある、描いている画像 (HitResult::on_image)。クリックで拡大表示に開く。リンクの中の画像は GitHub と同じくリンクを
 // 開くので、呼ぶ側は LinkAtHit を先に見る (ホバーの手の形も同じ)。図のような右上のボタンは、行の中に並ぶ小さな画像 (バッジなど)
-// に被るので、GitHub と同じくクリックで開く (ユーザーが選んだ)。
+// に被るので、GitHub と同じくクリックで開く。
 std::optional<ImageHit> ImageAtHit(const AppState& state, const hit_test::HitResult& hit);
 bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
 

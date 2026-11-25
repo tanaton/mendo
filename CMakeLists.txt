@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-# バージョンはここにだけ書く。rc の VERSIONINFO と設定ダイアログの表示は、下で作る mendo_version.h から読む (ユーザーが選んだ)。
+# バージョンはここにだけ書く。rc の VERSIONINFO と設定ダイアログの表示は、下で作る mendo_version.h から読む。
 project(mendo VERSION 0.5.1.0 LANGUAGES CXX C)
 # rc の FILEVERSION が 4 つの数を取るので、リリースのタグ (v0.5.1.0) と同じ 4 つで書く。
 if(PROJECT_VERSION_TWEAK STREQUAL "")
@@ -102,7 +102,7 @@ target_compile_definitions(quickjs PRIVATE _GNU_SOURCE WIN32_LEAN_AND_MEAN _WIN3
 set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS ON)
 target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics)
 # quickjs は LTCG の下で組むと解釈実行が遅いため /GL (LTCG) から外す。外すのは先頭の add_compile_options の条件で行う
-# (ここで /GL- を足すと警告 D9025 が出る)。clang-cl はさらに速いが、手元と CI で版が揃わないので MSVC で組む (ユーザーの判断)。
+# (ここで /GL- を足すと警告 D9025 が出る)。clang-cl はさらに速いが、手元と CI で版が揃わないので MSVC で組む。
 # Debug でも quickjs は最適化して組む。/Od では JS の呼び出しごとの C スタックが大きく、同じ kJsStackBytes で描ける数式の入れ子が
 # Release よりずっと浅くなる (/RTC1 を外すだけでは足りない)。assert は残る。
 target_compile_options(quickjs PRIVATE $<$<CONFIG:Debug>:/O2> $<$<CONFIG:Debug>:/Ob2>)

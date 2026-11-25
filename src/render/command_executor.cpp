@@ -58,7 +58,7 @@ private:
 // 1 つのレイアウトの単色のグリフランを、書体・大きさ・ブラシ・測り方の組ごとに 1 本にまとめて描く (GlyphRunMerger)。DrawGlyphRun は
 // 1 回ごとの固定費が大きく、行や装飾の切れ目ごとに呼ぶとフレームの多くを占める (BM_DocFrameDraw)。右から左と縦のランはまとめない。
 // 1 回に描く字形が多いほど D2D が手元に残す領域も増える (送り続けても頭打ち。ずらしや描く時機では増えない) が、描画の CPU を
-// 減らすほうをユーザーが選んだ。
+// 減らすほうを選んだ。
 class GlyphRunBatch {
 public:
     bool Add(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, ID2D1Brush* brush)
