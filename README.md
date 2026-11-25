@@ -14,9 +14,8 @@ Direct2D/DirectWriteで直接描画するMarkdownビュアーです。高速か�
 winget install tanaton.mendo
 ```
 
-### 前の版から更新するとき
-
-v0.5.1.0 以前の版は、設定と図のキャッシュを `%LOCALAPPDATA%\mendo` フォルダに保存していました。今の版はこのフォルダを使わず、設定も引き継ぎません。エクスプローラーのアドレス欄に `%LOCALAPPDATA%` と入力して開き、`mendo` フォルダを手動で削除してください。
+設定の保存先としてレジストリ `HKEY_CURRENT_USER\Software\tanaton\mendo` を使用します。アンインストールする場合はこのレジストリを削除してください。  
+また、v0.5.1.0 までは、`%LOCALAPPDATA%\mendo` フォルダを使用していました。アンインストールする場合はこのフォルダも削除してください。
 
 ## 特徴
 

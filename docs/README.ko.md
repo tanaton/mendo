@@ -14,9 +14,8 @@ Direct2D/DirectWrite로 직접 그리는 Markdown 뷰어입니다. 빠르고 메
 winget install tanaton.mendo
 ```
 
-### 이전 버전에서 업데이트할 때
-
-v0.5.1.0 이하 버전은 설정과 다이어그램 캐시를 `%LOCALAPPDATA%\mendo` 폴더에 저장했습니다. 현재 버전은 이 폴더를 사용하지 않으며 설정도 이어받지 않습니다. 탐색기 주소 표시줄에 `%LOCALAPPDATA%`를 입력해 열고 `mendo` 폴더를 직접 삭제해 주세요.
+설정은 레지스트리 `HKEY_CURRENT_USER\Software\tanaton\mendo`에 저장합니다. 제거할 때는 이 레지스트리 키를 삭제해 주세요.  
+또한 v0.5.1.0까지는 `%LOCALAPPDATA%\mendo` 폴더를 사용했습니다. 제거할 때는 이 폴더도 삭제해 주세요.
 
 ## 특징
 

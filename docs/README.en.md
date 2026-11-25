@@ -14,9 +14,8 @@ Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/
 winget install tanaton.mendo
 ```
 
-### Upgrading from an older version
-
-Versions up to v0.5.1.0 stored settings and diagram caches in the `%LOCALAPPDATA%\mendo` folder. The current version no longer uses this folder and does not carry those settings over. Type `%LOCALAPPDATA%` into the Explorer address bar to open it, then delete the `mendo` folder manually.
+Settings are stored in the registry under `HKEY_CURRENT_USER\Software\tanaton\mendo`. When uninstalling, delete this registry key.  
+Versions up to v0.5.1.0 also used the `%LOCALAPPDATA%\mendo` folder. When uninstalling, delete this folder as well.
 
 ## Features
 

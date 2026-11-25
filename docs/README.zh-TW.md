@@ -14,9 +14,8 @@
 winget install tanaton.mendo
 ```
 
-### 從舊版本更新時
-
-v0.5.1.0 及更早的版本將設定與圖表快取儲存在 `%LOCALAPPDATA%\mendo` 資料夾中。目前的版本不再使用此資料夾，也不會沿用其中的設定。請在檔案總管的網址列輸入 `%LOCALAPPDATA%` 開啟，然後手動刪除 `mendo` 資料夾。
+設定會儲存在登錄檔 `HKEY_CURRENT_USER\Software\tanaton\mendo` 中。解除安裝時請刪除此登錄機碼。  
+此外，v0.5.1.0 及更早的版本使用 `%LOCALAPPDATA%\mendo` 資料夾。解除安裝時也請刪除此資料夾。
 
 ## 特色
 

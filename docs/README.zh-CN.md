@@ -14,9 +14,8 @@
 winget install tanaton.mendo
 ```
 
-### 从旧版本更新时
-
-v0.5.1.0 及更早的版本将设置和图表缓存保存在 `%LOCALAPPDATA%\mendo` 文件夹中。当前版本不再使用该文件夹，也不会继承其中的设置。请在资源管理器的地址栏中输入 `%LOCALAPPDATA%` 打开，然后手动删除 `mendo` 文件夹。
+设置保存在注册表 `HKEY_CURRENT_USER\Software\tanaton\mendo` 中。卸载时请删除该注册表项。  
+此外，v0.5.1.0 及更早的版本使用 `%LOCALAPPDATA%\mendo` 文件夹。卸载时也请删除该文件夹。
 
 ## 特性
 
