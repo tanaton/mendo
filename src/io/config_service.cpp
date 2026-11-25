@@ -44,12 +44,12 @@ constexpr auto kKeyWindowMaximized = L"Maximized"sv;
 // キーごとに重ねると、別のプロセスの値と混ざる (bar.md に foo.md のスクロール位置が付くなど)。
 constexpr std::wstring_view kWholeSections[] = { kSectionSession, kSectionWindow };
 
-// 設定はレジストリに置き、終了時にトランザクション (RegCreateKeyTransactedW) でまとめて書く (ユーザーが選んだ)。
+// 設定はレジストリに置き、終了時にトランザクション (RegCreateKeyTransactedW) でまとめて書く。
 // 読む側はコミット前の値を見ないので Session / Window の組が書きかけで混ざらず、ファイルの丸ごと置き換えに要った
 // 一時ファイル・FlushFileBuffers・読み書きを囲むプロセス間のロックも要らない。
-// 前の版の settings.ini は取り込まない。項目が少なく、ユーザーが設定し直せば足りる (ユーザーが選んだ)。
+// 前の版の settings.ini は取り込まない。項目が少なく、ユーザーが設定し直せば足りる。
 constexpr auto kRegistryPath = L"Software\\tanaton\\mendo"sv;
-// スクリーンショットや計測で本人の設定を書き換えないための場所 (ユーザーが選んだ)。引数でなく環境変数で渡すのは、
+// スクリーンショットや計測で本人の設定を書き換えないための場所。引数でなく環境変数で渡すのは、
 // Ctrl+N の新しいウィンドウ (CreateProcessW) にも環境ごと自動で引き継がれるため。本番のキーの下に置くと
 // セクションとして読まれるので、隣のキーにする。
 constexpr auto kTestRegistryParent = L"Software\\tanaton\\mendo-test\\"sv;

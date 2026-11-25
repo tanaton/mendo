@@ -368,7 +368,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     }
     // 行の頭でだけ区切った並びで、行をまたぐトークンを始める並びがどのノードにも無ければ、継ぎ目をまたぐトークンも持ち越す
     // 状態も無い (BM_ParseGiantCode が 46 → 24ms、BM_ParseCodeBlock/ini が 79 → 56ms)。言語ごとの経路ではなく字句解析の設定から導く
-    // 1 つの判定で、ブロックコメントなどの無い巨大なコードでも解析を省くほうをユーザーが選んだ。長い 1 行を途中で区切った並びは解析する。
+    // 1 つの判定で、ブロックコメントなどの無い巨大なコードでも解析を省くほうを選んだ。長い 1 行を途中で区切った並びは解析する。
     const SyntaxLanguage language = run.front().code_language;
     if (std::ranges::all_of(run.subspan(1), &Node::newline_before_chunk) &&
         std::ranges::none_of(run, [language](const Node& node) { return MayHaveMultilineToken(language, node.GetText()); })) {
@@ -398,7 +398,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run)
     };
 
     // 窓ごとに、つないだテキストの全トークンを作って継ぎ目をまたぐトークンを探す。巨大なコードを開くときだけなので worker に
-    // 配らず、言語ごとの専用の経路も持たない (遅くなるが巨大なコードは稀なので、ユーザーが選んだ)。
+    // 配らず、言語ごとの専用の経路も持たない (遅くなるが巨大なコードは稀なので)。
     constexpr size_t kWindowNodes = 8;
     // 改行の無いまま窓の端に届いた行は、頭からこれだけ読めば行の頭の読み方が決まったものとして、行の途中から次の窓を読む
     // (頭から読み直すと、窓より長い 1 行を何度も読む)。これより後ろにだけ区切りのある行は、頭の色付けが変わりうる。

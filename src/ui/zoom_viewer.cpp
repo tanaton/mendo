@@ -959,7 +959,7 @@ void ZoomViewer::SetRenderTarget(ID2D1RenderTarget* rt, ID3D11Device* d3d, ID2D1
     }
     window_->SetDevice(d3d, device);
     // 窓の画像は旧デバイスのものなので外れた。CPU 側の写しは持たずに読み直す (作り直しはまれなので、写しを持ち続けるより
-    // 読み直す。ユーザーが選んだ)。描画先が無い間は読まず、戻ったときに読む。
+    // 読み直す)。描画先が無い間は読まず、戻ったときに読む。
     if (rt && Shown<ImageSubject>()) {
         StartDecode();
     }
@@ -1159,7 +1159,7 @@ void ZoomViewer::Upload(FullSizeImage image)
     if (!rt_) {
         return;
     }
-    // 読み直した画像を載せる前に、出している古い画像を外す。古い絵・CPU 側の写し・新しい絵が同時に載らない (ユーザーが選んだ)。
+    // 読み直した画像を載せる前に、出している古い画像を外す。古い絵・CPU 側の写し・新しい絵が同時に載らない。
     window_->ReleaseImage();
     ComPtr<ID2D1Bitmap> bitmap;
     if (FAILED(rt_->CreateBitmapFromWicBitmap(image.bitmap.Get(), &bitmap)) || !bitmap) {

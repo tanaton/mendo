@@ -264,7 +264,7 @@ bool Renderer::SetScrollingDiagrams(bool scrolling) noexcept
 void Renderer::TrimForInactive() noexcept
 {
     // 目次やファイル一覧をスクロールすると上限 512 個まで溜まる。上限は下げず (目次を戻るたびに作り直す)、使わない間は
-    // 直前のフレームで使った分だけ残して手放すほうをユーザーが選んだ (戻った最初のフレームで見えている項目を作り直さない)。
+    // 直前のフレームで使った分だけ残して手放すほうを選んだ (戻った最初のフレームで見えている項目を作り直さない)。
     // trim の前に触ったページを残さないよう、切り替わった時点で捨てる。
     text_layouts_.KeepLastFrame();
 }

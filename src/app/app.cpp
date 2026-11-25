@@ -703,7 +703,7 @@ void App::HandleTimer(UINT_PTR timer_id)
         }
         KillTimer(id);
         // 待っているだけのワーカーのスタックと thread_local の DirectWrite のファクトリは、EmptyWorkingSet では commit が戻らない
-        // ので、スレッドごと畳む。戻った最初の計測と描画でスレッドとファクトリを作り直すが、メモリを返すほうをユーザーが選んだ。
+        // ので、スレッドごと畳む。戻った最初の計測と描画でスレッドとファクトリを作り直すが、メモリを返すほうを選んだ。
         scheduler_.ReleaseIdleWorkers();
         layout_scheduler_.ReleaseIdleWorkers();
         // 空の文書でも private WS の大半はドライバが一度触ったきりのページ。使うページは soft fault で戻り、commit は変わらない。
@@ -1238,7 +1238,7 @@ void App::ApplyZoom()
     measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
     // 数式はズーム前の大きさで組んであるので、捨てずに倍率を掛けて置き直す。分数線などの 1px の下限もズームと一緒に太る・
-    // 細る (ブラウザのズームと同じ) が、ズームのたびに組み直して行の高さが揺れるより、こちらをユーザーが選んだ。
+    // 細る (ブラウザのズームと同じ) が、ズームのたびに組み直して行の高さが揺れるより、こちらを選んだ。
     FinishLayout(LayoutChange::Remeasure, LayoutCaller::Message);
     UpdateTitleBar();
 }

@@ -1284,7 +1284,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 // ノード配列は入力 2 byte に 1 個の上限でアドレスだけを予約し、使う分だけコミットする (ReservedArray)。ノードは 2 byte 以上の
 // 入力から作られる (空のリスト項目 "-\n" や見出し "#\n")。超えたら倍を予約し直す。std::vector の頃は予約の大きさで 128 と
-// 256 を 2 往復し、広げるときと詰めるときに全ノードを写していたので、予約したアドレス空間に置く形をユーザーが選んだ。
+// 256 を 2 往復し、広げるときと詰めるときに全ノードを写していたので、予約したアドレス空間に置く形を選んだ。
 // current_text と表の本文の置き場も同じく予約する。arena はチャンクを積み足し、インデックス配列は件数が少ないので予約しない。
 constexpr size_t kInputBytesPerNode = 2;
 

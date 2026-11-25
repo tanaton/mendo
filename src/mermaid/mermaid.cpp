@@ -238,7 +238,7 @@ std::vector<uint64_t> MermaidRenderer::WaitingRequests() const
 void MermaidRenderer::ReleaseIdleDrawings()
 {
     // 画面外の図のメモリが見た範囲に比例しないよう、コマンドリストは手放し、描画命令は上限までしか持たない。戻ったら記録し直す
-    // (外れていれば JS で描き直す) が、図の多い文書でメモリを返すほうをユーザーが選んだ。
+    // (外れていれば JS で描き直す) が、図の多い文書でメモリを返すほうを選んだ。
     cache_.ReleaseIdleDrawings();
 }
 
@@ -457,7 +457,7 @@ void MermaidRenderer::ProcessJobResults(std::chrono::steady_clock::time_point de
     });
     if (render_done) {
         PumpRenders();
-        // 描き終えて待ちが空になったらランタイムを 1 個まで返す (すぐ次が来ると作り直すが、早く返すほうをユーザーが選んだ)。
+        // 描き終えて待ちが空になったらランタイムを 1 個まで返す (すぐ次が来ると作り直すが、早く返すほうを選んだ)。
         if (renders_running_ == 0 && math_waiting_.empty() && display_waiting_.empty()) {
             pele_->Trim(bg_scheduler_, 1);
         }

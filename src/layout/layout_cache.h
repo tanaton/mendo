@@ -104,7 +104,7 @@ struct TableLayoutData {
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
     // row_cum_y は表の高さまで伸びるので double で持つ。float では数十万行の表で 1 DIP 刻みになり、先頭の可視行が
-    // 変わるたびに中身が跳ねた。1 行 4B 増えるのは表の中だけなので、ユーザーが double を選んだ。
+    // 変わるたびに中身が跳ねた。1 行 4B 増えるのは表の中だけなので、double を選んだ。
     std::vector<double> row_cum_y;
     std::vector<float> col_cum_x;
     // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
@@ -496,7 +496,7 @@ private:
     // 直近に組んだ幅 (NodeLayoutWidth)。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避け、MeasureNode が同じ幅で
     // 組んだ layout を組み直さないのに使う。全ノード分並ぶので 0.5 DIP 刻みの 2 バイトにしてエントリを 16B に収める。
     // 0.5 DIP 未満の幅の違いは同じ幅とみなして前の layout を使い (折り返しが 1 画素未満ずれうる)、全ノード分のメモリを減らす
-    // ほうをユーザーが選んだ。
+    // ほうを選んだ。
     uint16_t cached_width_ = 0;
     std::unique_ptr<Aux> aux_;
 };
@@ -790,7 +790,7 @@ private:
     // 同じブロックの残りとブロック数ぶんの書き換えで済ませる。
     // 文書の Y は float だと 2^22 DIP (図や画像の多い文書でも届く) を超えて 0.5 DIP 以上の刻みになるので、オフセットを
     // double にし、ブロック内の値は先頭からの差にして float のまま細かく保つ。tops_ も double にするより 1 ノード 4B 少なく、
-    // ユーザーがこちらを選んだ。1 ブロックの中が 2^22 DIP を超える (巨大な表の後ろなど) と、その残りだけ刻みが粗くなる。
+    // こちらを選んだ。1 ブロックの中が 2^22 DIP を超える (巨大な表の後ろなど) と、その残りだけ刻みが粗くなる。
     static constexpr size_t kTopBlockShift = 12;
     static constexpr size_t kTopBlockSize = size_t{ 1 } << kTopBlockShift;
     static constexpr size_t kTopBlockMask = kTopBlockSize - 1;
