@@ -69,7 +69,7 @@ mendo.exe [檔案路徑 | 資料夾路徑] [--anchor 標題]
 | 段落 | ✅ |
 | 粗體 / 斜體 / 刪除線 | ✅ |
 | 行內程式碼 | ✅ |
-| 程式碼區塊（圍欄） | ✅ 附語法醒目提示。支援的語言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批次檔）, Dockerfile, Makefile, diff |
+| 程式碼區塊（圍欄） | ✅ 附語法醒目提示。支援的語言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, MATLAB/Octave, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批次檔）, Dockerfile, Makefile, diff |
 | 圖片 (PNG / JPEG / BMP) | ✅ 非同步載入 |
 | Mermaid 圖表 | ✅ 支援 Mermaid 12.1.0 內建的圖表 |
 | 數學公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 全部以展示樣式繪製，只由 `$$...$$` 構成的段落和 ` ```math ` 繪製為區塊公式 |
