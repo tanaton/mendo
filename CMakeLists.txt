@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.2)
 # バージョンはここにだけ書く。rc の VERSIONINFO と設定ダイアログの表示は、下で作る mendo_version.h から読む。
-project(mendo VERSION 0.5.1.0 LANGUAGES CXX C)
+project(mendo VERSION 0.5.2.0 LANGUAGES CXX C)
 # rc の FILEVERSION が 4 つの数を取るので、リリースのタグ (v0.5.1.0) と同じ 4 つで書く。
 if(PROJECT_VERSION_TWEAK STREQUAL "")
     message(FATAL_ERROR "mendo: project(VERSION) needs four components, e.g. 0.5.1.0.")
