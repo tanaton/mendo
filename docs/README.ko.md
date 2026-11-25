@@ -69,7 +69,7 @@ mendo.exe [파일 경로 | 폴더 경로] [--anchor 제목]
 | 단락 | ✅ |
 | 굵게 / 기울임꼴 / 취소선 | ✅ |
 | 인라인 코드 | ✅ |
-| 코드 블록 (펜스) | ✅ 구문 강조 지원. 지원 언어: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (배치), Dockerfile, Makefile, diff |
+| 코드 블록 (펜스) | ✅ 구문 강조 지원. 지원 언어: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, MATLAB/Octave, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (배치), Dockerfile, Makefile, diff |
 | 이미지 (PNG / JPEG / BMP) | ✅ 비동기 불러오기 |
 | Mermaid 다이어그램 | ✅ Mermaid 12.1.0에 내장된 다이어그램 지원 |
 | 수학 표기 (`$...$` / `$$...$$` / ` ```math `) | ✅ 모두 디스플레이 형식으로 렌더링하며, `$$...$$`로만 이루어진 단락과 ` ```math `는 블록 수식 |

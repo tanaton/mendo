@@ -1408,6 +1408,7 @@ graph LR
         LISP[Clojure / Emacs Lisp / Common Lisp / Scheme・Racket]
         LUA[Lua]
         VIM[Vim script / Vim9 script]
+        MAT[MATLAB / Octave]
         MER[Mermaid]
     end
 
@@ -1448,6 +1449,7 @@ graph LR
     LISP --> KW & TY & ST & NU & CM & PP & FN
     LUA --> KW & TY & ST & NU & CM & FN
     VIM --> KW & TY & ST & NU & CM & PP & FN
+    MAT --> KW & TY & ST & NU & CM & FN
 ```
 
 `SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。トークンは計測で text_layout を作るときに一緒に作り、UTF-16 位置に直し、空白だけの隙間を直前のトークンに含めて隣り合う同種をまとめてから `NodeLayoutEntry` に置き、画面外で layout を捨てるときに一緒に捨てる。描画は `VisibleRunRenderer`（`command_executor.cpp`）がグリフランをトークン境界で分けて種別の色で描く（3.8.2）。書式付きコピーは表示の有無に関係なくその場でトークン化する。
@@ -1456,13 +1458,15 @@ C++ の生文字列 `R"delim(...)delim"` は、`R"` の直後から規格どお�
 
 JSON 系は ` ```json ` / ` ```jsonc ` / ` ```json5 ` の言語タグで認識される。`true` / `false` / `null` をキーワードとしてハイライトする。
 
-Java / C# / Kotlin / Swift / PHP / Ruby / SQL は C++ 等と同じ汎用 lexer (`TokenizeRange<LexerConfig>`) に設定フラグを足して扱う。C# の逐語的文字列 `@"..."`、SQL の `--` コメント、PHP 8 の属性 `#[...]` と `$` 付きの変数名（`$class` をキーワードにしない）、Ruby の `=begin` / `=end` がそのためのフラグである。トリプルクォート文字列は `TripleQuote` で、`\` をエスケープにする形（Python / Java / Swift）、しない形（Kotlin の raw string）、開きと同じ数以上の `"` で閉じる形（C# 11 の raw string literal）を読み分ける。数値リテラルは `'` に加えて `_` も桁区切りとして受け付ける。
+Java / C# / Kotlin / Swift / PHP / Ruby / SQL は C++ 等と同じ汎用 lexer (`TokenizeRange<LexerConfig>`) に設定フラグを足して扱う。C# の逐語的文字列 `@"..."`、SQL の `--` コメント、PHP 8 の属性 `#[...]` と `$` 付きの変数名（`$class` をキーワードにしない）、Ruby の `=begin` / `=end` がそのためのフラグである。トリプルクォート文字列は `TripleQuote` で、`\` をエスケープにする形（Python / Java / Swift）、しない形（Kotlin の raw string）、開きと同じ数以上の `"` で閉じる形（C# 11 の raw string literal）を読み分ける。数値リテラルは `'` に加えて `_` も桁区切りとして受け付け、虚数の接尾辞 `i` / `j`（Go の `2i`、Python の `1j`、MATLAB の `4i`）も数値に含める。範囲の `0..10` や `1...3` の `.` は数値に含めない。
 
 YAML / TOML / INI / HTML / XML / CSS / SCSS / diff / Dockerfile / Makefile は、キーと値・タグと属性・セレクタと宣言・行頭の記号といった行や宣言の構造で色が決まるため専用 lexer を持つ。設定ファイル系の値はスカラー全体で数値・定数を判定し、`1.2.3` や `node:18-alpine` の一部だけを数値として色付けしない。埋め込み言語は汎用 lexer を範囲指定で呼んで色付けする（HTML の `<script>` / `<style>` を JS / CSS、Dockerfile の命令引数と Makefile のレシピ行をシェル）。diff の追加行・削除行には専用のトークン種別 `Inserted` / `Deleted` を使う。ハンク内では `-- ` を消した行も `--- ` で始まるので、`--- ` `+++ ` `@@` の 3 行が並ぶときだけ次のファイルのヘッダとみなす。YAML のブロックスカラー（`|` / `>`）の本文は、行内で最後に現れた `-` かキーの桁より深い行とする。TOML の `'''` は `\` をエスケープにしない。
 
 Zig は汎用 lexer に `\\` の行文字列と `@import` 等の組み込み関数のフラグを足して扱う。Haskell は専用 lexer で、`'` を識別子の一部 (`foldl'`)・文字リテラル・型レベルの昇格 (`'True`) に読み分け、記号と隣り合う `--` は演算子として扱う。大文字始まりの識別子を型・コンストラクタ、行頭の小文字始まりを定義名とする。Lisp 系 4 方言は 1 つの lexer を方言ごとのキーワード表と字句フラグ（大文字小文字の区別、`?a` / `\a` の文字リテラル、`cond` の節）で使い分ける。`-` や `?` を含むシンボルを 1 語として読み、リスト先頭の呼び出し位置を Function、特殊形式を Keyword にする。定義名（`defun foo` の `foo`）は Function とし、引数リストと `let` の束縛リストは呼び出しと見ない。
 
 Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]]` のコメント）のフラグを足して扱う。Vim script は専用 lexer で、行頭と `|` の後をコマンド位置として読み、コマンド名（省略形を含む）を Keyword、`g:` / `s:` / `a:` 等のスコープ付き変数と `&option` / `$ENV` / `@r` を Type、`<CR>` 等のキー表記を Preprocessor にする。`"` は行頭ならコメント、式の中では同じ行に閉じの `"` があれば文字列、無ければ行末コメントとみなす。マッピングコマンドの引数はキー列なのでキー表記だけを色付けし、`lua << EOF` の本文は Lua として、`let x =<< END` の本文は文字列として色付けする。`<<` はコマンド（`let` は代入の `=`）の直後に来たときだけ本文の始まりとみなし、行の途中のシフト演算子や文字列中の `<<` では始めない。先頭のコマンドが `vim9script` の文書（と ` ```vim9 `）は Vim9 script として `#` をコメント、`"` を文字列とする。
+
+MATLAB（` ```matlab ` / ` ```octave `）は汎用 lexer にフラグを足して扱う。`'` は識別子・数値・閉じ括弧・閉じ引用符・`.` の直後なら転置の演算子、それ以外なら文字列とする（`a'` と `'abc'`。数値の後ろの `'` も桁区切りにしない）。文字列は引用符の二重化（`'it''s'`）で書き、`\` をエスケープにしない。`%` は行末までのコメントで、行に単独の `%{` から `%}` までは入れ子にできるブロックコメント、行を続ける `...` の後ろは行末までのコメントとする。Octave の `#` と `#{` / `#}` もコメントにする。GitHub は ` ```octave ` も MATLAB の文法で読んで `#` に色を付けないが、付けないと `# don't` の `'` から行末までが文字列になるためである。`.m` は Objective-C などと共有する拡張子なので、` ```m ` は MATLAB にしない。
 
 キーワードリストは `syntax_keywords.h` に集約され、語の長さと先頭・中央・末尾の文字から番地を求める開番地法の表（`WordTable<N>`。受け渡しは型消去した `KeywordTable`）で持つ。判定は番地から順に空きまでを見る。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDoubleDollar` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
 
@@ -5053,6 +5057,40 @@ def OpenInMendo(file: string = expand('%:p')): void
 enddef
 
 nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
+```
+
+##### MATLAB コード
+
+```matlab
+%% mendo で開く Markdown の見出しを数える
+function T = count_headings(folder)
+    files = dir(fullfile(folder, '*.md'));   % フォルダの .md
+    counts = zeros(numel(files), 1);
+    for k = 1:numel(files)
+        text = fileread(fullfile(files(k).folder, files(k).name));
+        counts(k) = numel(regexp(text, '^#+ ', 'lineanchors'));
+    end
+    %{
+      ' は値の直後なら転置 (counts')、それ以外は文字列 ('it''s')
+    %}
+    ratio = counts' / max([counts; 1]);
+    phase = exp(2i * pi * (0:3)' / 4);   % 虚数
+    T = table({files.name}', counts, ...  行を続ける
+              'VariableNames', {'File', 'Headings'});
+    if isempty(T), warning("見出しがありません: %s", folder); end
+    system(['C:\Tools\mendo.exe "' folder '"']);
+end
+```
+
+##### Octave コード
+
+```octave
+# Octave は # でもコメントを書ける
+#{
+  #{ と #} のブロックコメント
+#}
+x = linspace(0, 2*pi, 50)';
+printf("%d 点\n", numel(x));  % 末尾のコメント
 ```
 
 ---

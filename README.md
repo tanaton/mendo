@@ -69,7 +69,7 @@ mendo.exe [ファイルパス | フォルダパス] [--anchor 見出し]
 | 段落 | ✅ |
 | 太字 / 斜体 / 取り消し線 | ✅ |
 | インラインコード | ✅ |
-| コードブロック (フェンス) | ✅ シンタックスハイライト付き。対応言語: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (バッチ), Dockerfile, Makefile, diff |
+| コードブロック (フェンス) | ✅ シンタックスハイライト付き。対応言語: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, MATLAB/Octave, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (バッチ), Dockerfile, Makefile, diff |
 | 画像 (PNG / JPEG / BMP) | ✅ 非同期読み込み |
 | Mermaidダイアグラム | ✅ Mermaid 12.1.0 に組み込まれている図に対応 |
 | 数学記法 (`$...$` / `$$...$$` / ` ```math `) | ✅ すべてディスプレイ形式で描画し、`$$...$$` のみの段落と ` ```math ` はブロック数式にする |

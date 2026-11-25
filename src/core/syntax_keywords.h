@@ -480,6 +480,19 @@ inline constexpr auto LUA_TYPES = MakeWordTable(std::to_array<std::string_view>(
     "table", "tonumber", "tostring", "type", "utf8", "vim", "xpcall"
 }));
 
+// classdef の中の区画名 (properties など) も含める。同じ名前の関数 methods(obj) もキーワードの色になる。
+inline constexpr auto MATLAB_KEYWORDS = MakeWordTable(std::to_array<std::string_view>({
+    "arguments", "break", "case", "catch", "classdef", "continue", "else", "elseif", "end",
+    "enumeration", "events", "for", "function", "global", "if", "methods", "otherwise", "parfor",
+    "persistent", "properties", "return", "spmd", "switch", "try", "while"
+}));
+
+// GitHub (MathWorks の文法) が色を付ける定数と、引数の数・可変長引数の変数。組み込み関数は GitHub も色を付けない。
+inline constexpr auto MATLAB_TYPES = MakeWordTable(std::to_array<std::string_view>({
+    "Inf", "NaN", "NaT", "eps", "false", "inf", "intmax", "intmin", "nan", "namelengthmax", "nargin",
+    "nargout", "nat", "off", "on", "pi", "realmax", "realmin", "true", "varargin", "varargout"
+}));
+
 // 行頭 (と | の後) のコマンド名。よく使う省略形も含める。
 inline constexpr auto VIM_COMMANDS = MakeWordTable(std::to_array<std::string_view>({
     "au", "aug", "augroup", "autocmd", "brea", "break", "cal", "call", "cat", "catch", "cd", "colo",

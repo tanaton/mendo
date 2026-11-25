@@ -203,16 +203,22 @@ constexpr size_t ScanCountedRawQuote(std::string_view text, size_t pos) noexcept
     return text.size(); // 未終端
 }
 
-// posから始まる数値リテラルをスキャン。桁区切りは C++ の ' と、Rust / Java / Python 等の _ を受け付ける。
+// posから始まる数値リテラルをスキャン。桁区切りは C++ の ' と、Rust / Java / Python 等の _ を受け付ける。' が値の後ろの演算子に
+// なる言語 (MATLAB の 2' は転置) は QuoteSeparator を偽にして、' の手前で数値を終える。
+template <bool QuoteSeparator = true>
 constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 {
-    static constexpr CharSet kHexDigits{ "0123456789abcdefABCDEF'_" };
-    static constexpr CharSet kBinDigits{ "01'_" };
+    static constexpr auto with_separators = [](std::string_view digits) consteval {
+        return CharSet{ [digits](char c) { return digits.contains(c) || c == '_' || (QuoteSeparator && c == '\''); } };
+    };
+    static constexpr CharSet kHexDigits = with_separators("0123456789abcdefABCDEF");
+    static constexpr CharSet kBinDigits = with_separators("01");
     static constexpr CharSet kOctDigits{ "01234567_" };
-    static constexpr CharSet kDecDigitsSep{ "0123456789'_" };
+    static constexpr CharSet kDecDigitsSep = with_separators("0123456789");
     static constexpr CharSet kDecDigits{ "0123456789" };
     static constexpr CharSet kIntSuffix{ "uUlL" };
-    static constexpr CharSet kNumSuffix{ "fFlLuUndDmM" }; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
+    // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal、'i' / 'j' は虚数 (MATLAB・Python・Go・C++ の std::complex)
+    static constexpr CharSet kNumSuffix{ "fFlLuUndDmMiIjJ" };
 
     size_t i = pos;
 
@@ -232,7 +238,8 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 
     i = SkipChars(text, i, kDecDigitsSep);
 
-    if (i < text.size() && text[i] == '.') {
+    // 範囲の 0..10 や MATLAB の行を続ける 3... の . は数値に含めない。
+    if (i < text.size() && text[i] == '.' && (i + 1 == text.size() || text[i + 1] != '.')) {
         i = SkipChars(text, i + 1, kDecDigitsSep);
     }
 
@@ -329,6 +336,34 @@ constexpr size_t ScanRubyBlockComment(std::string_view text, size_t pos) noexcep
     return p == npos ? text.size() : SkipToEol(text, p + 1);
 }
 
+// line (改行を含まない 1 行) が、前後の空白を除くと MATLAB のブロックコメントの印 %{ や %} (Octave は #{ や #}) だけなら、その括弧。
+// 印の行でなければ '\0'。
+constexpr char MatlabBlockCommentBrace(std::string_view line) noexcept
+{
+    const size_t i = SkipWhile(line, 0, IsBlank);
+    if (i + 1 >= line.size() || (line[i] != '%' && line[i] != '#') || SkipWhile(line, i + 2, IsBlank) != line.size()) {
+        return '\0';
+    }
+    return line[i + 1] == '{' || line[i + 1] == '}' ? line[i + 1] : '\0';
+}
+
+// 行に単独の %{ の行末 (eol) から、対応する %} の行の行末までをスキャン（MATLAB）。入れ子にできる。未終端なら text.size()。
+constexpr size_t ScanMatlabBlockComment(std::string_view text, size_t eol) noexcept
+{
+    for (int depth = 1; eol < text.size();) {
+        const size_t begin = eol + 1;
+        eol = SkipToEol(text, begin);
+        const char brace = MatlabBlockCommentBrace(text.substr(begin, eol - begin));
+        if (brace == '{') {
+            ++depth;
+        }
+        else if (brace == '}' && --depth == 0) {
+            return eol;
+        }
+    }
+    return text.size();
+}
+
 // pos (開始ペアの最初の文字) からのブロックコメントをスキャンし、閉じペアの次の位置を返す。未終端なら text.size()。
 constexpr size_t ScanBlockComment(std::string_view text, size_t pos, char close1, char close2) noexcept
 {
@@ -376,12 +411,17 @@ struct LexerConfig {
     bool backslash_line_string = false;           // \\ から行末までの複数行文字列の 1 行（Zig）
     bool at_builtin = false;                      // @import 等の組み込み関数（Zig）
     bool lua_long_bracket = false;                // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
+    bool matlab_comment = false;                  // % と # の行コメントと、行に単独の %{ ... %} / #{ ... #}（MATLAB・Octave）
+    bool quote_transpose = false;                 // 値の直後の ' は文字列でなく転置の演算子（MATLAB）
+    bool doubled_quote_string = false;            // 文字列の引用符は二重化 ('' や "") で書き、\ をエスケープにしない（MATLAB）
+    bool ellipsis_comment = false;                // 行を続ける ... の後ろは行末までコメント（MATLAB）
 };
 
-// 行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin) を持つか。持つ言語だけが行頭の判定を保ち、
-// 区切ったコードの続きを行の途中から読むときは kSyntaxMidLine を受け取る。
+// 行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin、MATLAB の %{) を持つか。持つ言語だけが行頭の
+// 判定を保ち、区切ったコードの続きを行の途中から読むときは kSyntaxMidLine を受け取る。
 template <LexerConfig Cfg>
-inline constexpr bool kHasLineHeadTokens = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
+inline constexpr bool kHasLineHeadTokens = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment ||
+                                           Cfg.matlab_comment;
 
 // Cfg の言語で、識別子と数値以外のトークンを始める文字 (rem のような語で始まるものは識別子の文字なので要らない)。
 // TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かないので、
@@ -392,7 +432,7 @@ inline constexpr CharSet kTokenStartSet{ [](char c) static noexcept {
         { true,                                                            '"'  },
         { !Cfg.skip_single_quote || Cfg.triple_quote != TripleQuote::None, '\'' },
         { Cfg.line_comment_slash || Cfg.block_comment,                     '/'  },
-        { Cfg.hash_comment || Cfg.preprocessor,                            '#'  },
+        { Cfg.hash_comment || Cfg.preprocessor || Cfg.matlab_comment,      '#'  },
         { Cfg.angle_block_comment,                                         '<'  },
         { Cfg.lua_long_bracket,                                            '['  },
         { Cfg.dash_dash_comment,                                           '-'  },
@@ -401,6 +441,7 @@ inline constexpr CharSet kTokenStartSet{ [](char c) static noexcept {
         { Cfg.backslash_line_string,                                       '\\' },
         { Cfg.backtick_string,                                             '`'  },
         { Cfg.ruby_block_comment,                                          '='  },
+        { Cfg.matlab_comment,                                              '%'  },
     };
     return std::ranges::contains(rules, std::pair{ true, c });
 } };
@@ -415,6 +456,9 @@ constexpr bool IsShellWordBoundary(char c) noexcept
     static constexpr CharSet kBoundaries{ " \t\n;&|()<>" };
     return kBoundaries.contains(c);
 }
+
+// MATLAB で、直後の ' を転置の演算子にする値の終わりの文字。.' の . も含む。
+inline constexpr CharSet kTransposeOperandEnds{ [](char c) static noexcept { return IsIdentChar(c) || std::string_view{ ")]}.'\"" }.contains(c); } };
 
 // LexerConfig を NTTP にして `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、各言語の lexer を最小のコードにする。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
@@ -496,6 +540,25 @@ void TokenizeRange(
 
         if constexpr (Cfg.dash_dash_comment) {
             if (c == '-' && i + 1 < text.size() && text[i + 1] == '-') {
+                emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
+                continue;
+            }
+        }
+
+        // コメント: % と #（MATLAB・Octave）
+        if constexpr (Cfg.matlab_comment) {
+            if (c == '%' || c == '#') {
+                const size_t eol = SkipToEol(text, i);
+                const bool block = at_line_start && MatlabBlockCommentBrace(text.substr(i, eol - i)) == '{';
+                emit_until(block ? ScanMatlabBlockComment(text, eol) : eol, SyntaxTokenType::Comment);
+                continue;
+            }
+        }
+
+        // 行を続ける ... の後ろ（MATLAB）。... 自体は GitHub に合わせて色を付けない。
+        if constexpr (Cfg.ellipsis_comment) {
+            if (c == '.' && text.substr(i).starts_with("...")) {
+                i = SkipWhile(text, i + 3, IsBlank);
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
                 continue;
             }
@@ -587,9 +650,19 @@ void TokenizeRange(
             }
         }
 
+        // 転置の演算子: a' や A(1)'、x.'（MATLAB）。空白や演算子の後の ' は文字列を始める。区切ったコードの続きのノードの頭は
+        // 前の文字を見られないので文字列にする。長い 1 行は空白があれば空白の直後で区切るのでそろう。空白の無い区切りでは食い違い
+        // うるが、hash_comment_word_start と同じく受け入れる。
+        if constexpr (Cfg.quote_transpose) {
+            if (c == '\'' && i > 0 && kTransposeOperandEnds.contains(text[i - 1])) {
+                step_plain(c);
+                continue;
+            }
+        }
+
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
             // 生文字列 R"(...)" の R は識別子として後の分岐で消費されるため、ここでは通常の文字列として扱う。
-            emit_until(ScanString(text, i, c, false), SyntaxTokenType::String);
+            emit_until(Cfg.doubled_quote_string ? ScanDoubledQuoteString(text, i, c, false) : ScanString(text, i, c, false), SyntaxTokenType::String);
             continue;
         }
 
@@ -601,8 +674,9 @@ void TokenizeRange(
             }
         }
 
-        if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
-            emit_until(ScanNumber(text, i), SyntaxTokenType::Number);
+        // . で始まる数値 (.5) は、範囲の ..5 の後ろの . からは始めない。
+        if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]) && (i == 0 || text[i - 1] != '.'))) {
+            emit_until(ScanNumber<!Cfg.quote_transpose>(text, i), SyntaxTokenType::Number);
             continue;
         }
 
@@ -757,6 +831,16 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
     .case_insensitive = true,
     .raw_backtick = true,
     .dash_dash_comment = true,
+};
+// GitHub (MathWorks の文法) に合わせ、添字の A(1) も関数の呼び出しと同じ色にする。コマンド構文 (hold on の on を引用符の無い文字列に
+// する) と %% の見出しの色は、GitHub の規則が込み入っていて誤りやすいので見送った。# のコメントは Octave のもので、GitHub は ```octave
+// も MATLAB の文法で読んで色を付けないが、付けないと # don't の ' から行末までが文字列になるので、ユーザーが足すほうを選んだ。
+// MATLAB では文字列とコメントの外に # を書けないので害は無い。
+inline constexpr LexerConfig MATLAB_LEXER_CONFIG{
+    .matlab_comment = true,
+    .quote_transpose = true,
+    .doubled_quote_string = true,
+    .ellipsis_comment = true,
 };
 
 // ============================================================
@@ -3020,6 +3104,9 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
         { "vimscript",     SyntaxLanguage::Vim        },
         { "vim9",          SyntaxLanguage::Vim9       },
         { "vim9script",    SyntaxLanguage::Vim9       },
+        // .m は Objective-C などと共有する拡張子なので、m は別名にしない (ユーザーが選んだ)。
+        { "matlab",        SyntaxLanguage::Matlab     },
+        { "octave",        SyntaxLanguage::Matlab     },
     };
     // コードブロック 1 個につき 1 回しか呼ばれないので線形探索で十分 (iequal は長さ不一致で即 false)。
     const auto it = std::ranges::find_if(kAliases, [&](const Alias& a) noexcept {
@@ -3092,6 +3179,9 @@ bool VisitLexerConfig(SyntaxLanguage language, Fn&& fn)
     case SyntaxLanguage::Lua:
         fn.template operator()<LUA_LEXER_CONFIG>(kw::LUA_KEYWORDS, kw::LUA_TYPES);
         return true;
+    case SyntaxLanguage::Matlab:
+        fn.template operator()<MATLAB_LEXER_CONFIG>(kw::MATLAB_KEYWORDS, kw::MATLAB_TYPES);
+        return true;
     default:
         return false;
     }
@@ -3101,7 +3191,7 @@ bool VisitLexerConfig(SyntaxLanguage language, Fn&& fn)
 // 足したらここにも足す (SyntaxResume.TextsWithoutMultilineTokenStartsNeedNoState で確かめる)。行の頭でしか効かない =begin なども、
 // 位置を問わず数える。
 struct TokenStarts {
-    std::array<std::string_view, 11> list{};
+    std::array<std::string_view, 13> list{};
     size_t count = 0;
 
     constexpr void Add(bool enabled, std::string_view start) noexcept
@@ -3120,6 +3210,8 @@ constexpr TokenStarts kMultilineTokenStarts = [] {
     t.Add(Cfg.lua_long_bracket, "[[");
     t.Add(Cfg.lua_long_bracket, "[=");
     t.Add(Cfg.ruby_block_comment, "=begin");
+    t.Add(Cfg.matlab_comment, "%{");
+    t.Add(Cfg.matlab_comment, "#{");
     t.Add(Cfg.verbatim_at_string, "@\"");
     t.Add(Cfg.verbatim_at_string, "@$\"");
     t.Add(triple, "\"\"\"");
@@ -3135,9 +3227,11 @@ bool HasMultilineTokenStart(std::string_view text) noexcept
 {
     constexpr const TokenStarts& starts = kMultilineTokenStarts<Cfg>;
     // 文字列の \ は次の文字を飛ばすので、行末の \ で文字列が次の行へ続く。プリプロセッサの行も行末の \ (後ろの空白は許す) で続く。
+    // 文字列の \ をエスケープにせず、プリプロセッサも無い言語 (MATLAB) は、行末の \ で続かない。
     constexpr CharSet kHeads{ [](char c) static noexcept {
         const TokenStarts& t = kMultilineTokenStarts<Cfg>;
-        return c == '\\' || std::ranges::any_of(t.list.data(), t.list.data() + t.count, [c](std::string_view start) { return start.front() == c; });
+        constexpr bool backslash_continues = !Cfg.doubled_quote_string || Cfg.preprocessor;
+        return (backslash_continues && c == '\\') || std::ranges::any_of(t.list.data(), t.list.data() + t.count, [c](std::string_view start) { return start.front() == c; });
     } };
     for (size_t i = 0; i < text.size(); ++i) {
         if (!kHeads.contains(text[i])) {

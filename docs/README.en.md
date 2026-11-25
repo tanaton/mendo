@@ -69,7 +69,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Paragraphs | Supported |
 | Bold / Italic / Strikethrough | Supported |
 | Inline code | Supported |
-| Fenced code blocks | Supported (with syntax highlighting). Languages: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (batch), Dockerfile, Makefile, diff |
+| Fenced code blocks | Supported (with syntax highlighting). Languages: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, MATLAB/Octave, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (batch), Dockerfile, Makefile, diff |
 | Images (PNG / JPEG / BMP) | Supported (async loading) |
 | Mermaid diagrams | Supported (diagram types built into Mermaid 12.1.0) |
 | Math (`$...$` / `$$...$$` / ` ```math `) | Supported (always rendered in display style; a paragraph consisting solely of `$$...$$` and a ` ```math ` block are rendered as block equations) |

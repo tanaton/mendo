@@ -1918,15 +1918,24 @@ TEST(ChunkCopy, LongLineSplitMidLineIsNotReadAsLineStart)
         ExpectStatefulChunksMatch("make", "SRCS = " + pad + repeat("a.c name: $(X) k=v ", 20000) + "\nall: dep\n    echo " + pad +
                                               repeat("x: y=1 $@ \"s\" ", 25000) + "\n    rm -f $@\nX = 1\ntarget: " + pad + repeat("dep: d2 ", 40000) +
                                               "\n    echo done\n");
-        // 状態を持たない lexer の言語でも、行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin) を
-        // 続きのノードの頭で読まない。継ぎ目をまたぐコメントの直後も行の途中のまま読む。
+        // 状態を持たない lexer の言語でも、行の頭でだけ効くトークン (# のプリプロセッサ、cmd の rem と ::、Ruby の =begin、MATLAB の
+        // %{) を続きのノードの頭で読まない。継ぎ目をまたぐコメントの直後も行の途中のまま読む。
         ExpectStatefulChunksMatch("cmd", "echo " + pad + repeat("rem :: @rem x ", 40000) + "\nrem real\n@:: label\n");
         ExpectStatefulChunksMatch("cpp", "int a = " + pad + repeat("b # c ", 80000) + ";\n#define X 1\n");
         ExpectStatefulChunksMatch("cpp", "f(" + pad + repeat("/* c */ #x ", 40000) + ");\n#if 1\n#endif\n");
         ExpectStatefulChunksMatch("csharp", "var a = " + pad + repeat("b #c ", 80000) + ";\n#region r\n");
         ExpectStatefulChunksMatch("swift", "let a = " + pad + repeat("b #c ", 80000) + "\n#if DEBUG\n#endif\n");
         ExpectStatefulChunksMatch("ruby", "x = " + pad + repeat("=begin y ", 50000) + "\n=begin\nc\n=end\n");
+        // MATLAB の ' は、空白の直後の継ぎ目から読んでも文字列と転置を取り違えない。
+        ExpectStatefulChunksMatch("matlab", "y = [" + pad + repeat("a' 'b''c' x.' \"d\"' ", 40000) + "]; %{\nz = 1\n%{\nc\n%}\n");
     }
+}
+
+// MATLAB の %{ %} のブロックコメントが続きのノードをまたいでも、閉じた後ろをコードとして読む。
+TEST(ChunkCopy, MatlabBlockCommentContinuesAcrossChunks)
+{
+    ExpectStatefulChunksMatch("matlab", "x = a' + 'b'; % c\n%{\n" + RepeatLines("y = 'it''s' % not code\n  %{\n  z = 1\n  %}\n", 6000) + "%}\n" +
+                                            RepeatLines("w = v' * \"s\" + f(1, ... cont\n  2); # o\n", 8000));
 }
 
 // 字句解析を始める状態が変わった続きのノードは、中身が同じでも色分けが変わるので、変わらなかったノードに数えない。

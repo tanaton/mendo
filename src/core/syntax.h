@@ -44,7 +44,8 @@ enum class SyntaxLanguage : uint8_t {
     Scheme, // Racket を含む
     Lua,
     Vim,
-    Vim9 // コメントが # の Vim9 script
+    Vim9,  // コメントが # の Vim9 script
+    Matlab // Octave を含む
 };
 
 constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
@@ -84,8 +85,8 @@ struct SyntaxToken {
 // 符号は言語ごとで、Node が続くトークンと一緒に持てるよう kSyntaxLexStateBits に収める。0 はコードの先頭の状態。
 using SyntaxLexState = uint32_t;
 inline constexpr int kSyntaxLexStateBits = 24;
-// 状態を持たない lexer の言語のうち、行の頭でだけ効くトークン (C 系・C#・Swift の #、cmd の rem と ::、Ruby の =begin) を持つ言語に
-// 渡す、行の途中から解析を始める状態。渡さなければ行の頭から始める。
+// 状態を持たない lexer の言語のうち、行の頭でだけ効くトークン (C 系・C#・Swift の #、cmd の rem と ::、Ruby の =begin、MATLAB の %{) を
+// 持つ言語に渡す、行の途中から解析を始める状態。渡さなければ行の頭から始める。
 inline constexpr SyntaxLexState kSyntaxMidLine = 1;
 
 // 解析の途中の状態の記録。区切ったコードの並びを窓ごとに前から解析するとき (AnnotateCodeChunkLeads) にだけ渡し、

@@ -69,7 +69,7 @@ mendo.exe [文件路径 | 文件夹路径] [--anchor 标题]
 | 段落 | ✅ |
 | 粗体 / 斜体 / 删除线 | ✅ |
 | 行内代码 | ✅ |
-| 代码块（围栏） | ✅ 带语法高亮。支持的语言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批处理）, Dockerfile, Makefile, diff |
+| 代码块（围栏） | ✅ 带语法高亮。支持的语言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, MATLAB/Octave, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批处理）, Dockerfile, Makefile, diff |
 | 图像 (PNG / JPEG / BMP) | ✅ 异步加载 |
 | Mermaid 图表 | ✅ 支持 Mermaid 12.1.0 内置的图表 |
 | 数学公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 全部以展示样式渲染，只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式 |

@@ -18,7 +18,7 @@
 namespace {
 
 // 全言語を回すテストの上限。言語を足したら直す。
-constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Vim9);
+constexpr int kLastLanguage = static_cast<int>(SyntaxLanguage::Matlab);
 
 // 描画と HTML 化はトークンを start 昇順・非重複として隙間を Plain で埋める。Plain 自体は出力しない。
 testing::AssertionResult TokensWellFormed(const std::vector<SyntaxToken>& tokens, size_t text_length)
@@ -137,6 +137,8 @@ TEST(Syntax, DetectLanguage)
         { "lisp", CommonLisp }, { "common-lisp", CommonLisp }, { "cl", CommonLisp },
         { "scheme", Scheme }, { "scm", Scheme }, { "racket", Scheme }, { "rkt", Scheme },
         { "lua", Lua }, { "vim", Vim }, { "viml", Vim }, { "vimscript", Vim }, { "vim9", Vim9 }, { "vim9script", Vim9 },
+        // .m は Objective-C などと共有するので別名にしない
+        { "matlab", Matlab }, { "MATLAB", Matlab }, { "octave", Matlab }, { "m", None },
         { "latex", None }, { "text", None }, { "plaintext", None }, { "", None },
     };
     for (const auto& c : kCases) {
@@ -683,6 +685,9 @@ TEST(Syntax, WholeInputIsSingleToken)
         { "LuaLevelLongComment", "--[==[ x ]] y ]==]", Lua, Comment },
         { "LuaLongStringUnterminated", "[[never closed", Lua, String },
         { "VimCommentOnly", "\" just a comment", Vim, Comment },
+        { "MatlabBlockCommentUnterminated", "%{\nnever closed", Matlab, Comment },
+        // Octave の #{ #} は、% の印と混ぜて閉じてもよい
+        { "OctaveBlockComment", "#{\na = 1\n%}", Matlab, Comment },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -755,7 +760,7 @@ constexpr std::string_view kSyntaxFuzzPieces[] = {
     "{-", "-}", "{-#", "#-}", "#|", "|#", "#;", "#_", "#\\", "#'", "#:", "#t", "#lang", "?", "?\\", "\\\\",
     "'a'", "'\\'", "λ", "(defun ", "(let ((", "(cond ", ":k", "&rest", "@import",
     "--[[", "]]", "[==[", "]==]", "<<", "=<< trim ", "EOF", "lua ", "au BufRead * ", "nnoremap ", "<CR>", "g:",
-    "function! ", "vim9script\n",
+    "function! ", "vim9script\n", "%{\n", "\n%}\n", "...", "x'",
 };
 
 // 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を文字先頭に丸めるので、区切り以外に
@@ -804,9 +809,11 @@ namespace {
 using ExpectedToken = std::pair<std::string_view, SyntaxTokenType>;
 
 // 個数や最初の 1 個だけでは、閉じ損ねた文字列やコメントが後続を飲み込む退行を見逃すため列全体を比べる。
-void ExpectTokenSequence(std::string_view code, SyntaxLanguage lang, std::initializer_list<ExpectedToken> expected)
+// state はコードの頭での状態 (行の途中から始める kSyntaxMidLine など)。
+void ExpectTokenSequence(std::string_view code, SyntaxLanguage lang, std::initializer_list<ExpectedToken> expected, SyntaxLexState state = 0)
 {
-    const auto tokens = Tokenize(code, lang);
+    std::vector<SyntaxToken> tokens;
+    AppendTokens(code, lang, tokens, 0, state);
     AssertTokensWellFormed(tokens, code.size());
     std::vector<ExpectedToken> actual;
     for (const auto& t : tokens) {
@@ -1017,6 +1024,7 @@ TEST(SyntaxSequence, TokenStartCharsReachTheirBranches)
     ExpectTokenSequence("=begin\na\n=end", Ruby, { { "=begin\na\n=end", Comment } });
     ExpectTokenSequence("rem a", Cmd, { { "rem a", Comment } });
     ExpectTokenSequence("REM a", Cmd, { { "REM a", Comment } });
+    ExpectTokenSequence("% a", Matlab, { { "% a", Comment } });
 }
 
 namespace {
@@ -1196,6 +1204,7 @@ TEST(SyntaxResume, StatelessLanguages)
     ExpectResumableAtLineStarts(SyntaxLanguage::Ini, "[section]\nkey = \"value\"\n; comment\nn: 12\n[other]\nx = true\n");
     ExpectResumableAtLineStarts(SyntaxLanguage::Haskell, "module M where\n{- nested {- comment -}\n   continues -}\nmain :: IO ()\nmain = putStrLn \"x\" -- c\n#if X\nf x = 1\n");
     ExpectResumableAtLineStarts(SyntaxLanguage::Cpp, "#include <a>\nint f() { return 1; } // c\n/* block\n   comment */ #define X\nconst char* s = \"a\";\n");
+    ExpectResumableAtLineStarts(SyntaxLanguage::Matlab, "x = a' + 'b'; % c\n%{\n  %{\n  y = 1\n  %}\n%}\n'd' ... e\n%} f\n#{\ng\n#}\nh = \"i\"\n");
 }
 
 // 行をまたぐトークンを始める並びが無いテキスト (MayHaveMultilineToken が偽) は、行の頭で区切ったコードの並びを前から解析せずに
@@ -1319,7 +1328,7 @@ TEST(SyntaxSequence, StringDelimiters)
     ExpectTokenSequence("'a' '\\'' b", Cpp, { { "'a'", String }, { "'\\''", String } });
 }
 
-// 数値の形: 基数の接頭辞、小数、指数、接尾辞、桁区切り。数字に続かない . や e は数値にしない。
+// 数値の形: 基数の接頭辞、小数、指数、接尾辞 (虚数の i / j を含む)、桁区切り。数字に続かない . や e と、範囲の .. は数値にしない。
 TEST(SyntaxSequence, NumberLiterals)
 {
     using enum SyntaxTokenType;
@@ -1331,8 +1340,16 @@ TEST(SyntaxSequence, NumberLiterals)
                         { { "1.5", Number }, { ".5", Number }, { "1.", Number }, { "1e5", Number }, { "1E+5", Number }, { "1e-3", Number },
                           { "1.5e10f", Number }, { "3.14f", Number }, { "10L", Number }, { "1'000", Number }, { "1_000", Number } });
     ExpectTokenSequence("a.b a . b v.x e5 x1", Cpp, {});
-    ExpectTokenSequence("a = .5; b = .; c = ..5;", Cpp, { { ".5", Number }, { ".5", Number } });
-    ExpectTokenSequence("10n 1_0", JavaScript, { { "10n", Number }, { "1_0", Number } });
+    ExpectTokenSequence("a = .5; b = .; c = ..5;", Cpp, { { ".5", Number }, { "5", Number } });
+    ExpectTokenSequence("10n 1_0 1..toString()", JavaScript, { { "10n", Number }, { "1_0", Number }, { "1", Number }, { "toString", Function } });
+    ExpectTokenSequence("0..10 1...3 2..=4 ..5 x.0", Rust,
+                        { { "0", Number }, { "10", Number }, { "1", Number }, { "3", Number }, { "2", Number }, { "4", Number }, { "5", Number },
+                          { ".0", Number } });
+    ExpectTokenSequence("(1..10) (1...10) {1..3}", Ruby, { { "1", Number }, { "10", Number }, { "1", Number }, { "10", Number }, { "1", Number }, { "3", Number } });
+    ExpectTokenSequence("[1..10]", Haskell, { { "1", Number }, { "10", Number } });
+    ExpectTokenSequence("1j 2.5J 1e3j 0", Python, { { "1j", Number }, { "2.5J", Number }, { "1e3j", Number }, { "0", Number } });
+    ExpectTokenSequence("c := 2i + 1.5i", Go, { { "2i", Number }, { "1.5i", Number } });
+    ExpectTokenSequence("auto z = 1i + 2.0if;", Cpp, { { "auto", Keyword }, { "1i", Number }, { "2.0if", Number } });
 }
 
 // 語の分類: キーワード・型・( が続けば関数。大文字小文字を区別しない言語と、$ 付きの変数。
@@ -1745,6 +1762,48 @@ TEST(SyntaxSequence, DiffSyntax)
     ExpectTokenSequence("@@ -1 +1 @@\n-a\n--- b\n+++ c\n+++ d\n--- e\n+++ f\n@@ -1 +1 @@\n x", Diff,
                         { { "@@ -1 +1 @@", Type }, { "-a", Deleted }, { "--- b", Deleted }, { "+++ c", Inserted }, { "+++ d", Inserted },
                           { "--- e", Keyword }, { "+++ f", Keyword }, { "@@ -1 +1 @@", Type } });
+}
+
+TEST(SyntaxSequence, MatlabSyntax)
+{
+    using enum SyntaxTokenType;
+    using enum SyntaxLanguage;
+    // ' は値の直後なら転置で、空白や演算子の後なら文字列。数値の後ろの ' も桁区切りにしない。文字列は引用符の二重化で書き、
+    // \ をエスケープにしない。
+    ExpectTokenSequence("y = x' * A(1)' + b.' + c{2}' + d'' + 3' + 0x1F' + 1_0' % t", Matlab,
+                        { { "A", Function }, { "1", Number }, { "2", Number }, { "3", Number }, { "0x1F", Number }, { "1_0", Number },
+                          { "% t", Comment } });
+    ExpectTokenSequence("s = ['a' 'b']; disp 'c'; t = {'d', x'}; u = pi';", Matlab,
+                        { { "'a'", String }, { "'b'", String }, { "'c'", String }, { "'d'", String }, { "pi", Type } });
+    ExpectTokenSequence("p = strrep(p, '\\', '/'); q = 'it''s'; r = \"a\"\"b\\\"; v = \"w\"';", Matlab,
+                        { { "strrep", Function }, { "'\\'", String }, { "'/'", String }, { "'it''s'", String }, { "\"a\"\"b\\\"", String },
+                          { "\"w\"", String } });
+    ExpectTokenSequence("'abc\nx = 1", Matlab, { { "'abc", String }, { "1", Number } });
+    // % と Octave の # は行末まで。行に単独の %{ (#{) は入れ子にできるブロックコメントで、%} (#}) も行に単独のときだけ閉じる。
+    // 行の途中から読み始めた %{ はその行だけのコメント。行を続ける ... の後ろは行末までコメント。
+    ExpectTokenSequence("x = 1 % c 'q\n# o\ny = \"%s\" # d", Matlab,
+                        { { "1", Number }, { "% c 'q", Comment }, { "# o", Comment }, { "\"%s\"", String }, { "# d", Comment } });
+    ExpectTokenSequence("%{\na = 1\n  %{  \n  b\n  %} x\n  %}\nc\n%}\t\nd = 2", Matlab,
+                        { { "%{\na = 1\n  %{  \n  b\n  %} x\n  %}\nc\n%}\t", Comment }, { "2", Number } });
+    ExpectTokenSequence("%{ x\ne = 1\nf %{\ng = 2\n%}\nh = 3", Matlab,
+                        { { "%{ x", Comment }, { "1", Number }, { "%{", Comment }, { "2", Number }, { "%}", Comment }, { "3", Number } });
+    ExpectTokenSequence("#{\na\n#}\nb = 4", Matlab, { { "#{\na\n#}", Comment }, { "4", Number } });
+    ExpectTokenSequence("%{\nx = 1\n%}", Matlab, { { "%{", Comment }, { "1", Number }, { "%}", Comment } }, kSyntaxMidLine);
+    ExpectTokenSequence("z = f(1, ...  rest 'x\n  2) + g(...\n3) + .5 + a.b", Matlab,
+                        { { "f", Function }, { "1", Number }, { "rest 'x", Comment }, { "2", Number }, { "g", Function }, { "3", Number },
+                          { ".5", Number } });
+    // 数字の直後の ... も行の続き。虚数は i / j の接尾辞まで数値。
+    ExpectTokenSequence("v = [1 2 3...  r 'x\n  4i 2.5j 1e-3J];", Matlab,
+                        { { "1", Number }, { "2", Number }, { "3", Number }, { "r 'x", Comment }, { "4i", Number }, { "2.5j", Number },
+                          { "1e-3J", Number } });
+    // 文字列もコメントも行末の \ で次の行へ続かない。
+    EXPECT_FALSE(MayHaveMultilineToken(Matlab, "% C:\\data\\\np = 'C:\\data\\\nq = 1"));
+    ExpectTokenSequence("function y = g(x)\n  if x > pi, y = Inf; else, y = nargin; end\nend", Matlab,
+                        { { "function", Keyword }, { "g", Function }, { "if", Keyword }, { "pi", Type }, { "Inf", Type }, { "else", Keyword },
+                          { "nargin", Type }, { "end", Keyword }, { "end", Keyword } });
+    ExpectTokenSequence("classdef C < handle\n  properties\n    v = true\n  end\nend\nhold on", Matlab,
+                        { { "classdef", Keyword }, { "properties", Keyword }, { "true", Type }, { "end", Keyword }, { "end", Keyword },
+                          { "on", Type } });
 }
 
 // 引用符ごとの \ の扱いと、閉じない文字列の終わり。\ でエスケープしない引用符は \ の直後でも閉じ、
