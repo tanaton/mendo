@@ -1328,7 +1328,7 @@ TEST(SyntaxSequence, StringDelimiters)
     ExpectTokenSequence("'a' '\\'' b", Cpp, { { "'a'", String }, { "'\\''", String } });
 }
 
-// 数値の形: 基数の接頭辞、小数、指数、接尾辞、桁区切り。数字に続かない . や e は数値にしない。
+// 数値の形: 基数の接頭辞、小数、指数、接尾辞 (虚数の i / j を含む)、桁区切り。数字に続かない . や e と、範囲の .. は数値にしない。
 TEST(SyntaxSequence, NumberLiterals)
 {
     using enum SyntaxTokenType;
@@ -1340,8 +1340,16 @@ TEST(SyntaxSequence, NumberLiterals)
                         { { "1.5", Number }, { ".5", Number }, { "1.", Number }, { "1e5", Number }, { "1E+5", Number }, { "1e-3", Number },
                           { "1.5e10f", Number }, { "3.14f", Number }, { "10L", Number }, { "1'000", Number }, { "1_000", Number } });
     ExpectTokenSequence("a.b a . b v.x e5 x1", Cpp, {});
-    ExpectTokenSequence("a = .5; b = .; c = ..5;", Cpp, { { ".5", Number }, { ".5", Number } });
-    ExpectTokenSequence("10n 1_0", JavaScript, { { "10n", Number }, { "1_0", Number } });
+    ExpectTokenSequence("a = .5; b = .; c = ..5;", Cpp, { { ".5", Number }, { "5", Number } });
+    ExpectTokenSequence("10n 1_0 1..toString()", JavaScript, { { "10n", Number }, { "1_0", Number }, { "1", Number }, { "toString", Function } });
+    ExpectTokenSequence("0..10 1...3 2..=4 ..5 x.0", Rust,
+                        { { "0", Number }, { "10", Number }, { "1", Number }, { "3", Number }, { "2", Number }, { "4", Number }, { "5", Number },
+                          { ".0", Number } });
+    ExpectTokenSequence("(1..10) (1...10) {1..3}", Ruby, { { "1", Number }, { "10", Number }, { "1", Number }, { "10", Number }, { "1", Number }, { "3", Number } });
+    ExpectTokenSequence("[1..10]", Haskell, { { "1", Number }, { "10", Number } });
+    ExpectTokenSequence("1j 2.5J 1e3j 0", Python, { { "1j", Number }, { "2.5J", Number }, { "1e3j", Number }, { "0", Number } });
+    ExpectTokenSequence("c := 2i + 1.5i", Go, { { "2i", Number }, { "1.5i", Number } });
+    ExpectTokenSequence("auto z = 1i + 2.0if;", Cpp, { { "auto", Keyword }, { "1i", Number }, { "2.0if", Number } });
 }
 
 // 語の分類: キーワード・型・( が続けば関数。大文字小文字を区別しない言語と、$ 付きの変数。
@@ -1784,6 +1792,10 @@ TEST(SyntaxSequence, MatlabSyntax)
     ExpectTokenSequence("z = f(1, ...  rest 'x\n  2) + g(...\n3) + .5 + a.b", Matlab,
                         { { "f", Function }, { "1", Number }, { "rest 'x", Comment }, { "2", Number }, { "g", Function }, { "3", Number },
                           { ".5", Number } });
+    // 数字の直後の ... も行の続き。虚数は i / j の接尾辞まで数値。
+    ExpectTokenSequence("v = [1 2 3...  r 'x\n  4i 2.5j 1e-3J];", Matlab,
+                        { { "1", Number }, { "2", Number }, { "3", Number }, { "r 'x", Comment }, { "4i", Number }, { "2.5j", Number },
+                          { "1e-3J", Number } });
     // 文字列もコメントも行末の \ で次の行へ続かない。
     EXPECT_FALSE(MayHaveMultilineToken(Matlab, "% C:\\data\\\np = 'C:\\data\\\nq = 1"));
     ExpectTokenSequence("function y = g(x)\n  if x > pi, y = Inf; else, y = nargin; end\nend", Matlab,

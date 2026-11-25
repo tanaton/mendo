@@ -217,7 +217,8 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
     static constexpr CharSet kDecDigitsSep = with_separators("0123456789");
     static constexpr CharSet kDecDigits{ "0123456789" };
     static constexpr CharSet kIntSuffix{ "uUlL" };
-    static constexpr CharSet kNumSuffix{ "fFlLuUndDmM" }; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
+    // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal、'i' / 'j' は虚数 (MATLAB・Python・Go・C++ の std::complex)
+    static constexpr CharSet kNumSuffix{ "fFlLuUndDmMiIjJ" };
 
     size_t i = pos;
 
@@ -237,7 +238,8 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 
     i = SkipChars(text, i, kDecDigitsSep);
 
-    if (i < text.size() && text[i] == '.') {
+    // 範囲の 0..10 や MATLAB の行を続ける 3... の . は数値に含めない。
+    if (i < text.size() && text[i] == '.' && (i + 1 == text.size() || text[i + 1] != '.')) {
         i = SkipChars(text, i + 1, kDecDigitsSep);
     }
 
@@ -672,7 +674,8 @@ void TokenizeRange(
             }
         }
 
-        if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]))) {
+        // . で始まる数値 (.5) は、範囲の ..5 の後ろの . からは始めない。
+        if (IsAsciiDigit(c) || (c == '.' && i + 1 < text.size() && IsAsciiDigit(text[i + 1]) && (i == 0 || text[i - 1] != '.'))) {
             emit_until(ScanNumber<!Cfg.quote_transpose>(text, i), SyntaxTokenType::Number);
             continue;
         }
